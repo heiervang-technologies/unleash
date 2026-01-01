@@ -1,0 +1,25 @@
+{
+  "plugins": {
+    "enabled": [
+      "heiervang-snail-integration",
+      "heiervang-workflows",
+      "commit-commands",
+      "feature-dev",
+      "code-review"
+    ],
+    "disabled": []
+  },
+  "defaults": {
+    "model": "claude-sonnet-4-5",
+    "temperature": 1.0
+  },
+  "organization": {
+    "name": "heiervang-technologies",
+    "github_org": "heiervang-technologies"
+  },
+  "snail": {
+    "enabled": true,
+    "auto_load_context": true,
+    "github_integration": true
+  }
+}

@@ -1,115 +1,362 @@
-# Snail Core Template
+# Claude Unleashed
 
-Template repository for setting up a Snail AI agent on your GitHub repository.
+A powerful extension framework for Claude Code that maintains upstream compatibility while adding custom functionality through a plugin-first architecture.
+
+## Overview
+
+**Claude Unleashed** is a fork of Anthropic's official [Claude Code](https://github.com/anthropics/claude-code) CLI that enables extensibility without modifying the core codebase. Instead of patching the upstream code directly, we maintain the original repository as a Git submodule and extend it through a comprehensive plugin system.
+
+This approach provides:
+- **Zero upstream conflicts**: Pull updates from Anthropic's repository without merge conflicts
+- **Clean separation**: Core functionality remains untouched in the submodule
+- **Plugin ecosystem**: Add custom features, integrations, and workflows as plugins
+- **Team collaboration**: Share plugins across your organization
+- **Daily sync**: Automated workflows keep you up-to-date with upstream changes
+
+## Architecture
+
+```
+claude-unleashed/                  (This repository - your fork)
+├── .claude/
+│   └── settings.json             (Configuration for plugins and defaults)
+├── claude-code/                   (Git submodule → anthropics/claude-code)
+│   └── [Upstream code]           (Never modified directly)
+├── plugins/                       (Custom extensions)
+│   ├── heiervang-snail-integration/
+│   ├── heiervang-workflows/
+│   ├── commit-commands/
+│   ├── feature-dev/
+│   └── code-review/
+├── docs/
+│   └── extensions/               (Plugin development guides)
+├── .github/workflows/
+│   └── sync-upstream.yml         (Daily upstream sync automation)
+└── README.md                      (This file)
+```
+
+### The Three-Layer Approach
+
+1. **Upstream Layer** (`claude-code/` submodule)
+   - Official Anthropic claude-code repository
+   - Remains pristine and untouched
+   - Updated daily via automated sync
+
+2. **Fork Layer** (this repository)
+   - Manages the submodule reference
+   - Hosts plugin infrastructure
+   - Provides organizational configuration
+
+3. **Extension Layer** (`plugins/`)
+   - Custom functionality as self-contained plugins
+   - Organization-specific integrations
+   - Team workflows and automations
+
+## Extension Approach: Plugin-First
+
+All customizations are implemented as plugins. This keeps the core clean and makes features:
+- **Modular**: Enable/disable features independently
+- **Portable**: Share plugins across repositories
+- **Maintainable**: Update plugins without touching core code
+- **Testable**: Each plugin is isolated and testable
+
+### Available Plugins
+
+- **heiervang-snail-integration**: Integration with Heiervang's Snail AI agent system
+- **heiervang-workflows**: Custom GitHub Actions workflows for team automation
+- **commit-commands**: Enhanced commit command shortcuts and templates
+- **feature-dev**: Feature branch workflow automation
+- **code-review**: Automated code review helpers and PR templates
+
+## Daily Sync Workflow
+
+Claude Unleashed automatically stays in sync with upstream changes:
+
+```
+Every day at 2 AM UTC:
+┌──────────────────────────────────────────────────────┐
+│ 1. Fetch latest from anthropics/claude-code         │
+│ 2. Update submodule reference                       │
+│ 3. Run compatibility tests                          │
+│ 4. Create PR if changes detected                    │
+│ 5. Auto-merge if tests pass                         │
+└──────────────────────────────────────────────────────┘
+```
+
+This ensures you benefit from:
+- Latest bug fixes from Anthropic
+- New Claude Code features
+- Security patches
+- Performance improvements
+
+All while maintaining your custom plugins and configurations.
 
 ## Quick Start
 
-1. **Create a new repository from this template**
-   - Click the green "Use this template" button above
-   - Choose a name for your repository
-   - Click "Create repository"
+### Prerequisites
 
-2. **Configure your credentials**
-   - After creation, a GitHub issue will automatically be created with setup instructions
-   - Follow the instructions in that issue to configure the required secrets
+- Node.js 18+ or Bun runtime
+- Git
+- GitHub account (for Snail integration features)
+- Claude API credentials
 
-3. **Customize your agent**
-   - Edit `.github/workflows/mention-trigger.yml` to change the agent username from `@marksverdhai` to your agent's username
-   - Update the `agent_name` parameter to match
+### Installation
 
-4. **Test your agent**
-   - Create an issue and mention your agent (e.g., `@your-agent help me with...`)
-   - The agent should respond within a few minutes
+1. **Clone the repository with submodules**
+   ```bash
+   git clone --recursive https://github.com/heiervang-technologies/claude-unleashed.git
+   cd claude-unleashed
+   ```
 
-## Required Secrets
+   If you already cloned without `--recursive`:
+   ```bash
+   git submodule update --init --recursive
+   ```
 
-These are provided as organization secrets in heiervang-technologies:
+2. **Install dependencies**
+   ```bash
+   cd claude-code
+   npm install
+   # or
+   bun install
+   ```
 
-| Secret | Description |
-|--------|-------------|
-| `HAI_GH_PAT` | GitHub Personal Access Token with `repo` and `workflow` scopes |
-| `HEI_DOCKER_PAT` | Docker Hub PAT for pulling snail images (read-only access) |
-| `CLAUDE_CREDENTIALS_JSON` | Claude API credentials in JSON format |
+3. **Configure Claude credentials**
+   ```bash
+   # The upstream claude-code handles authentication
+   cd claude-code
+   npm run auth
+   # or
+   bun run auth
+   ```
 
-## Included Workflows
+4. **Enable plugins**
 
-### Mention Trigger (`mention-trigger.yml`)
+   Edit `/home/me/claude-unleashed/.claude/settings.json`:
+   ```json
+   {
+     "plugins": {
+       "enabled": [
+         "heiervang-snail-integration",
+         "commit-commands"
+       ]
+     }
+   }
+   ```
 
-Triggers the snail agent when mentioned in:
-- Issue bodies
-- Issue comments
-- Pull request review comments
+5. **Run Claude Code**
+   ```bash
+   cd claude-code
+   npm start
+   # or
+   bun start
+   ```
 
-### Setup Check (`setup-check.yml`)
+### Verification
 
-Automatically runs on first push to verify:
-- Required secrets are configured
-- PAT has sufficient repository permissions
-- Claude credentials are valid
-
-Creates an issue with detailed setup instructions if anything is missing.
-
-## How It Works
-
-```
-┌─────────────────────────────────────────────────────────────────────┐
-│                         Your Repository                              │
-├─────────────────────────────────────────────────────────────────────┤
-│                                                                      │
-│   @agent help me fix this bug                                        │
-│         │                                                            │
-│         ▼                                                            │
-│   ┌─────────────────────┐                                            │
-│   │ mention-trigger.yml │                                            │
-│   └──────────┬──────────┘                                            │
-│              │                                                       │
-│              │ Uses reusable workflow                                │
-│              ▼                                                       │
-│   ┌─────────────────────────────────────────────────────────────┐   │
-│   │           heiervang-technologies/core                        │   │
-│   │               spawn-agent.yml                                │   │
-│   │                                                              │   │
-│   │   ┌─────────────┐     ┌─────────────┐     ┌────────────┐    │   │
-│   │   │ Pull snail  │────▶│ Run Claude  │────▶│ Post       │    │   │
-│   │   │ container   │     │ in container│     │ results    │    │   │
-│   │   └─────────────┘     └─────────────┘     └────────────┘    │   │
-│   └─────────────────────────────────────────────────────────────┘   │
-│                                                                      │
-└─────────────────────────────────────────────────────────────────────┘
+Test that everything works:
+```bash
+cd claude-code
+npm test
+# or
+bun test
 ```
 
-## Adding Assignment Trigger
+## How to Add Plugins
 
-To also trigger the agent when issues/PRs are assigned, copy the assignment trigger workflow from the core repository:
+### Creating a New Plugin
+
+1. **Create plugin directory**
+   ```bash
+   mkdir -p plugins/my-plugin
+   cd plugins/my-plugin
+   ```
+
+2. **Add plugin manifest** (`plugin.json`)
+   ```json
+   {
+     "name": "my-plugin",
+     "version": "1.0.0",
+     "description": "Description of what your plugin does",
+     "author": "Your Name",
+     "main": "index.js",
+     "hooks": {
+       "pre-command": "./hooks/pre-command.js",
+       "post-command": "./hooks/post-command.js"
+     }
+   }
+   ```
+
+3. **Implement plugin logic** (`index.js`)
+   ```javascript
+   module.exports = {
+     name: 'my-plugin',
+
+     async initialize(context) {
+       // Setup code
+       console.log('Plugin initialized');
+     },
+
+     async execute(command, args) {
+       // Main plugin logic
+       return { success: true };
+     }
+   };
+   ```
+
+4. **Enable in configuration**
+
+   Add to `.claude/settings.json`:
+   ```json
+   {
+     "plugins": {
+       "enabled": ["my-plugin"]
+     }
+   }
+   ```
+
+### Plugin Development Best Practices
+
+- Keep plugins focused on a single responsibility
+- Document all configuration options
+- Include tests for your plugin
+- Follow semantic versioning
+- Add a README.md to your plugin directory
+
+See `docs/extensions/` for detailed plugin development guides.
+
+## Documentation
+
+- **Plugin Development**: `docs/extensions/plugin-development.md`
+- **Upstream Sync**: `docs/extensions/upstream-sync.md`
+- **GitHub Integration**: `docs/extensions/github-integration.md`
+- **Agent Instructions**: `CLAUDE.md`
+- **Upstream Docs**: `claude-code/README.md`
+
+## Contributing
+
+We welcome contributions to both the plugin ecosystem and the fork infrastructure!
+
+### Contribution Guidelines
+
+1. **For new plugins:**
+   - Create a new directory in `plugins/`
+   - Include a README.md with usage instructions
+   - Add tests for your plugin
+   - Submit a PR with the plugin
+
+2. **For fork improvements:**
+   - Never modify code in `claude-code/` (it's a submodule)
+   - Focus on plugin infrastructure and tooling
+   - Update documentation
+   - Ensure daily sync workflow still functions
+
+3. **For upstream improvements:**
+   - Contribute directly to [anthropics/claude-code](https://github.com/anthropics/claude-code)
+   - Benefits will flow back through daily sync
+
+### Development Workflow
 
 ```bash
-# From the heiervang-technologies/core repo, copy:
-# .github/workflows/assignment-trigger.yml
+# 1. Create feature branch
+git checkout -b feature/my-enhancement
+
+# 2. Make changes (outside claude-code/ submodule)
+# - Add plugins
+# - Update configuration
+# - Improve tooling
+
+# 3. Test your changes
+npm test
+
+# 4. Commit with conventional commits
+git commit -m "feat: add new plugin for X"
+
+# 5. Push and create PR
+git push origin feature/my-enhancement
 ```
 
-Then update the assignee filter to match your agent's username.
+### Code of Conduct
+
+- Be respectful and inclusive
+- Provide constructive feedback
+- Help others learn and grow
+- Maintain professional communication
+
+## Sync Process
+
+### Manual Sync
+
+If you need to sync with upstream manually:
+
+```bash
+# Update submodule to latest upstream
+git submodule update --remote claude-code
+
+# Commit the new submodule reference
+git add claude-code
+git commit -m "chore: sync with upstream claude-code"
+git push
+```
+
+### Automated Sync
+
+The `.github/workflows/sync-upstream.yml` workflow handles this automatically:
+- Runs daily at 2 AM UTC
+- Creates PR if updates available
+- Runs test suite
+- Auto-merges if tests pass
 
 ## Troubleshooting
 
-### "Setup Required" issue keeps appearing
+### Submodule is empty or outdated
 
-- Ensure all three secrets are available (org secrets or repo secrets)
-- Verify the `HAI_GH_PAT` has `repo` and `workflow` scopes
-- Check that the PAT belongs to an account with write access to the repo
+```bash
+git submodule update --init --recursive
+```
 
-### Agent doesn't respond to mentions
+### Plugin not loading
 
-1. Check the Actions tab for workflow runs
-2. Look for errors in the workflow logs
-3. Verify the agent username matches what's in the workflow file
-4. Ensure the PAT hasn't expired
+1. Check `.claude/settings.json` - is it in `enabled` array?
+2. Verify plugin structure - does it have `plugin.json` and `index.js`?
+3. Check plugin logs for errors
 
-### Authentication errors
+### Upstream sync conflicts
 
-If you see "authentication error" in the workflow logs:
-- Your Claude credentials may have expired
-- Refresh the `CLAUDE_CREDENTIALS_JSON` secret with new credentials
+This should be rare since we don't modify the submodule. If it happens:
+```bash
+cd claude-code
+git status  # Check for local modifications
+git restore .  # Discard if any
+cd ..
+git submodule update --remote claude-code
+```
+
+## Organization
+
+This repository is maintained by **Heiervang Technologies**.
+
+- **Organization**: heiervang-technologies
+- **GitHub**: [@heiervang-technologies](https://github.com/heiervang-technologies)
 
 ## License
 
-MIT
+This fork maintains the same license as the upstream project. See `LICENSE.md` for details.
+
+The upstream Claude Code is licensed by Anthropic. See `claude-code/LICENSE.md` for upstream license information.
+
+## Acknowledgments
+
+- **Anthropic** for creating and maintaining Claude Code
+- **Heiervang Technologies** for the plugin architecture and fork infrastructure
+- All contributors to the plugin ecosystem
+
+## Links
+
+- [Upstream Repository (anthropics/claude-code)](https://github.com/anthropics/claude-code)
+- [Plugin Development Guide](docs/extensions/plugin-development.md)
+- [Issue Tracker](https://github.com/heiervang-technologies/claude-unleashed/issues)
+- [Discussions](https://github.com/heiervang-technologies/claude-unleashed/discussions)
+
+---
+
+**Ready to extend Claude Code?** Start by exploring the available plugins or create your own!
