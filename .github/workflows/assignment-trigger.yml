@@ -1,0 +1,194 @@
+name: Assignment Trigger
+
+on:
+  issues:
+    types: [assigned]
+  pull_request:
+    types: [assigned]
+
+permissions:
+  contents: read
+  issues: write
+  pull-requests: write
+
+jobs:
+  extract-context:
+    runs-on: ubuntu-latest
+    # TODO: Change the assignee and sender filters to match your setup
+    # - assignee should be your agent's GitHub username
+    # - sender should be the human user(s) who can assign to the agent
+    if: |
+      github.event.assignee.login == 'marksverdhai' &&
+      (github.event.sender.login == 'marksverdhei' || github.event.sender.login == 'marksverdhai')
+    outputs:
+      prompt: ${{ steps.build-prompt.outputs.prompt }}
+      issue_number: ${{ steps.extract.outputs.issue_number }}
+      title: ${{ steps.extract.outputs.title }}
+      type: ${{ steps.extract.outputs.type }}
+      progress_comment_id: ${{ steps.post-progress-comment.outputs.comment_id }}
+
+    steps:
+      - name: Extract context
+        id: extract
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          ISSUE_NUMBER: ${{ github.event.issue.number }}
+          ISSUE_TITLE: ${{ github.event.issue.title }}
+          ISSUE_BODY: ${{ github.event.issue.body }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          PR_TITLE: ${{ github.event.pull_request.title }}
+          PR_BODY: ${{ github.event.pull_request.body }}
+        run: |
+          if [ "$EVENT_NAME" == "issues" ]; then
+            ISSUE_NUM="$ISSUE_NUMBER"
+            TITLE="$ISSUE_TITLE"
+            TYPE="issue"
+          else
+            ISSUE_NUM="$PR_NUMBER"
+            TITLE="$PR_TITLE"
+            TYPE="pull_request"
+          fi
+
+          echo "issue_number=$ISSUE_NUM" >> $GITHUB_OUTPUT
+          {
+            echo 'title<<EOF'
+            printf '%s' "$TITLE"
+            echo
+            echo 'EOF'
+          } >> $GITHUB_OUTPUT
+          echo "type=$TYPE" >> $GITHUB_OUTPUT
+
+      - name: Post progress tracking comment
+        id: post-progress-comment
+        env:
+          GH_TOKEN: ${{ secrets.HAI_GH_PAT }}
+          ISSUE_NUMBER: ${{ steps.extract.outputs.issue_number }}
+          TYPE: ${{ steps.extract.outputs.type }}
+          TITLE: ${{ steps.extract.outputs.title }}
+          REPO: ${{ github.repository }}
+          RUN_ID: ${{ github.run_id }}
+        run: |
+          set -e
+          WORKFLOW_URL="https://github.com/${REPO}/actions/runs/${RUN_ID}"
+          START_TIME=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+          DISPLAY_TYPE=$(echo "${TYPE}" | sed 's/_/ /g' | sed 's/\b\(.\)/\u\1/g')
+
+          COMMENT_BODY=$(cat <<BODY
+          ## 🟡 Agent Pending
+
+          **${DISPLAY_TYPE} #${ISSUE_NUMBER}**: ${TITLE}
+          [View workflow run](${WORKFLOW_URL})
+
+          ### Progress
+          \`░░░░░░░░░░\` 0%
+
+          | Task | Status |
+          |------|--------|
+          | ⏳ Initializing agent... | 🟡 Pending |
+
+          ### Time
+          - **Started**: ${START_TIME}
+          - **Estimated remaining**: Calculating...
+
+          ---
+          *This comment will be updated as I make progress.*
+          BODY
+          )
+
+          RESPONSE=$(gh api \
+            -X POST \
+            "/repos/${REPO}/issues/${ISSUE_NUMBER}/comments" \
+            -f body="$COMMENT_BODY")
+
+          COMMENT_ID=$(echo "$RESPONSE" | jq -r '.id')
+          if [ -z "$COMMENT_ID" ] || [ "$COMMENT_ID" = "null" ]; then
+            echo "::error::Failed to post progress comment"
+            exit 1
+          fi
+
+          echo "comment_id=$COMMENT_ID" >> $GITHUB_OUTPUT
+
+      - name: Build prompt
+        id: build-prompt
+        env:
+          ISSUE_NUMBER: ${{ steps.extract.outputs.issue_number }}
+          TITLE: ${{ steps.extract.outputs.title }}
+          TYPE: ${{ steps.extract.outputs.type }}
+          REPO: ${{ github.repository }}
+          PROGRESS_COMMENT_ID: ${{ steps.post-progress-comment.outputs.comment_id }}
+        run: |
+          PROMPT="You have been assigned to a GitHub ${TYPE}.
+
+          Repository: ${REPO}
+          ${TYPE} #${ISSUE_NUMBER}: ${TITLE}
+
+          Please:
+          1. Use gh CLI to fetch the full ${TYPE} details and any comments
+          2. Understand what needs to be done
+          3. If this is an issue, implement the required changes and create a PR
+          4. If this is a PR, review the code, suggest improvements, or approve if ready
+          5. Comment on the ${TYPE} with your progress or findings
+          6. If you complete the task, close the issue (if applicable)
+
+          ## Progress Tracking
+
+          A progress tracking comment has been posted (comment ID: ${PROGRESS_COMMENT_ID}).
+          Update it as you work using:
+          \`\`\`bash
+          gh api -X PATCH /repos/${REPO}/issues/comments/${PROGRESS_COMMENT_ID} -f body=\"YOUR_UPDATED_BODY\"
+          \`\`\`"
+
+          {
+            echo 'prompt<<EOF'
+            printf '%s' "$PROMPT"
+            echo
+            echo 'EOF'
+          } >> $GITHUB_OUTPUT
+
+  spawn-agent:
+    needs: extract-context
+    uses: heiervang-technologies/core/.github/workflows/spawn-agent.yml@main
+    with:
+      prompt: ${{ needs.extract-context.outputs.prompt }}
+      summary_title: 'Assignment Handler Results'
+      summary_metadata: '{"Repo": "${{ github.repository }}", "${{ needs.extract-context.outputs.type }}": "#${{ needs.extract-context.outputs.issue_number }}", "Title": "${{ needs.extract-context.outputs.title }}"}'
+      progress_comment_id: ${{ needs.extract-context.outputs.progress_comment_id }}
+      issue_number: ${{ needs.extract-context.outputs.issue_number }}
+      # TODO: Change to your agent's name
+      agent_name: 'marksverdhai'
+      agent_type: 'worker'
+    secrets: inherit
+
+  update-progress-on-failure:
+    needs: [extract-context, spawn-agent]
+    runs-on: ubuntu-latest
+    if: always() && needs.spawn-agent.result == 'failure' && needs.extract-context.outputs.progress_comment_id != ''
+    steps:
+      - name: Update progress comment on failure
+        env:
+          GH_TOKEN: ${{ secrets.HAI_GH_PAT }}
+          PROGRESS_COMMENT_ID: ${{ needs.extract-context.outputs.progress_comment_id }}
+          REPO: ${{ github.repository }}
+          RUN_ID: ${{ github.run_id }}
+        run: |
+          WORKFLOW_URL="https://github.com/${REPO}/actions/runs/${RUN_ID}"
+          FAILURE_TIME=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+          UPDATED_BODY="## 🔴 Agent Failed
+
+          [View workflow run](${WORKFLOW_URL})
+
+          ### Progress
+          \`░░░░░░░░░░\` Failed
+
+          | Task | Status |
+          |------|--------|
+          | Agent execution | 🔴 Failed |
+
+          ### Time
+          - **Failed at**: ${FAILURE_TIME}
+
+          ---
+          *Please check the workflow logs for details.*"
+
+          gh api -X PATCH "/repos/${REPO}/issues/comments/${PROGRESS_COMMENT_ID}" \
+            -f body="$UPDATED_BODY" || true
