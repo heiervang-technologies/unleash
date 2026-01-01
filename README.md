@@ -68,6 +68,7 @@ All customizations are implemented as plugins. This keeps the core clean and mak
 - **code-review**: Automated code review helpers and PR templates
 - **mcp-refresh**: Automatically detect MCP configuration changes and notify for reload
 - **process-restart**: Restart Claude Code while preserving session state and conversation history
+- **voice-output**: Multi-provider text-to-speech for Claude's responses (VibeVoice, OpenAI, ElevenLabs)
 
 ## Daily Sync Workflow
 

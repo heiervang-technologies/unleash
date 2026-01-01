@@ -39,6 +39,14 @@
         "type": "plugin",
         "description": "Restart Claude Code process while preserving session state",
         "added": "2026-01-01"
+      },
+      {
+        "name": "voice-output",
+        "version": "1.0.0",
+        "path": "plugins/unleashed/voice-output",
+        "type": "plugin",
+        "description": "Multi-provider text-to-speech with VibeVoice streaming support",
+        "added": "2026-01-01"
       }
     ],
     "core_patches": []

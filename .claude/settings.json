@@ -7,7 +7,8 @@
       "feature-dev",
       "code-review",
       "mcp-refresh",
-      "process-restart"
+      "process-restart",
+      "voice-output"
     ],
     "disabled": [],
     "mcp-refresh": {
@@ -23,6 +24,29 @@
       "preserveWorkingDir": true,
       "preservePermissions": true,
       "stateFileExpiry": 300
+    },
+    "voice-output": {
+      "enabled": false,
+      "provider": "vibevoice",
+      "vibevoice": {
+        "base_url": "http://localhost:5381",
+        "voice": "alloy",
+        "streaming": true,
+        "cfg_scale": 1.3,
+        "inference_steps": 10
+      },
+      "playback": {
+        "auto_play": true,
+        "save_to_file": false,
+        "output_dir": "~/.claude/tts-output",
+        "player": "auto"
+      },
+      "filtering": {
+        "skip_code_blocks": true,
+        "skip_tool_calls": true,
+        "max_length": 4096,
+        "chunk_on_sentences": true
+      }
     }
   },
   "defaults": {

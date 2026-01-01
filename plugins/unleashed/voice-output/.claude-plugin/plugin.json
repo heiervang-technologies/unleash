@@ -1,0 +1,88 @@
+{
+  "name": "voice-output",
+  "displayName": "Voice Output (Text-to-Speech)",
+  "version": "1.0.0",
+  "description": "Multi-provider text-to-speech for Claude's responses with VibeVoice streaming support",
+  "author": "Heiervang Technologies",
+  "tags": ["tts", "voice", "audio", "speech", "accessibility", "vibevoice"],
+  "commands": ["speak", "tts-enable", "tts-disable", "tts-config", "tts-status"],
+  "hooks": ["PostToolUse"],
+  "dependencies": {
+    "python": ">=3.10",
+    "packages": ["httpx", "numpy", "sounddevice", "base64", "json"]
+  },
+  "settings": {
+    "enabled": {
+      "type": "boolean",
+      "default": false,
+      "description": "Enable automatic TTS for all Claude responses"
+    },
+    "provider": {
+      "type": "string",
+      "default": "vibevoice",
+      "enum": ["vibevoice", "openai", "elevenlabs", "custom"],
+      "description": "TTS provider to use"
+    },
+    "vibevoice": {
+      "type": "object",
+      "default": {
+        "base_url": "http://localhost:5381",
+        "voice": "alloy",
+        "streaming": true,
+        "cfg_scale": 1.3,
+        "inference_steps": 10
+      },
+      "description": "VibeVoice configuration"
+    },
+    "openai": {
+      "type": "object",
+      "default": {
+        "api_key": "",
+        "model": "tts-1",
+        "voice": "alloy",
+        "speed": 1.0
+      },
+      "description": "OpenAI TTS configuration"
+    },
+    "elevenlabs": {
+      "type": "object",
+      "default": {
+        "api_key": "",
+        "voice_id": "",
+        "model_id": "eleven_monolingual_v1",
+        "stability": 0.5,
+        "similarity_boost": 0.75
+      },
+      "description": "ElevenLabs configuration"
+    },
+    "custom": {
+      "type": "object",
+      "default": {
+        "endpoint": "",
+        "headers": {},
+        "method": "POST"
+      },
+      "description": "Custom TTS endpoint configuration"
+    },
+    "playback": {
+      "type": "object",
+      "default": {
+        "auto_play": true,
+        "save_to_file": false,
+        "output_dir": "~/.claude/tts-output",
+        "player": "auto"
+      },
+      "description": "Audio playback configuration"
+    },
+    "filtering": {
+      "type": "object",
+      "default": {
+        "skip_code_blocks": true,
+        "skip_tool_calls": true,
+        "max_length": 4096,
+        "chunk_on_sentences": true
+      },
+      "description": "Text filtering and chunking options"
+    }
+  }
+}

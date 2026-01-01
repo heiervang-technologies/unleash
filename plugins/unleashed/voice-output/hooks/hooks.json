@@ -1,0 +1,7 @@
+{
+  "PostToolUse": {
+    "script": "./hooks-handlers/capture-response.sh",
+    "description": "Capture Claude's response and synthesize to speech",
+    "outputFormat": "none"
+  }
+}
