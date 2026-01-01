@@ -65,7 +65,7 @@ echo "${RESPONSE_TEXT}" > "${RESPONSE_FILE}"
 # Trigger TTS synthesis in background
 # This allows the hook to return quickly and not block Claude
 {
-  python3 "${PLUGIN_DIR}/scripts/tts_engine.py" "${RESPONSE_TEXT}" \
+  "${PLUGIN_DIR}/.venv/bin/python" "${PLUGIN_DIR}/scripts/tts_engine.py" "${RESPONSE_TEXT}" \
     > "${CACHE_DIR}/tts.log" 2>&1 || true
 } &
 
