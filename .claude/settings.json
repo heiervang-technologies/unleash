@@ -5,9 +5,25 @@
       "heiervang-workflows",
       "commit-commands",
       "feature-dev",
-      "code-review"
+      "code-review",
+      "mcp-refresh",
+      "process-restart"
     ],
-    "disabled": []
+    "disabled": [],
+    "mcp-refresh": {
+      "autoDetect": true,
+      "configPaths": [
+        ".mcp.json",
+        ".claude.json",
+        "~/.claude.json"
+      ]
+    },
+    "process-restart": {
+      "preserveSession": true,
+      "preserveWorkingDir": true,
+      "preservePermissions": true,
+      "stateFileExpiry": 300
+    }
   },
   "defaults": {
     "model": "claude-sonnet-4-5",

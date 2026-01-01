@@ -1,0 +1,22 @@
+{
+  "name": "mcp-refresh",
+  "displayName": "MCP Hot Reload",
+  "version": "1.0.0",
+  "description": "Monitor and reload MCP server configurations without restarting Claude Code",
+  "author": "Heiervang Technologies",
+  "tags": ["mcp", "reload", "hot-reload", "configuration"],
+  "commands": ["reload-mcps", "mcp-status"],
+  "hooks": ["PreToolUse"],
+  "settings": {
+    "autoDetect": {
+      "type": "boolean",
+      "default": true,
+      "description": "Automatically detect MCP config changes before each tool use"
+    },
+    "configPaths": {
+      "type": "array",
+      "default": [".mcp.json", ".claude.json", "~/.claude.json"],
+      "description": "Paths to monitor for MCP configuration changes"
+    }
+  }
+}

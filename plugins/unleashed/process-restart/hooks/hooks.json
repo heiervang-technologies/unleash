@@ -1,0 +1,12 @@
+{
+  "Stop": {
+    "script": "./hooks-handlers/restart-handler.sh",
+    "description": "Handle process restart with session state preservation",
+    "outputFormat": "json"
+  },
+  "SessionStart": {
+    "script": "./hooks-handlers/session-restore.sh",
+    "description": "Restore session state after restart",
+    "outputFormat": "prompt"
+  }
+}

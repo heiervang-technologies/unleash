@@ -66,6 +66,8 @@ All customizations are implemented as plugins. This keeps the core clean and mak
 - **commit-commands**: Enhanced commit command shortcuts and templates
 - **feature-dev**: Feature branch workflow automation
 - **code-review**: Automated code review helpers and PR templates
+- **mcp-refresh**: Automatically detect MCP configuration changes and notify for reload
+- **process-restart**: Restart Claude Code while preserving session state and conversation history
 
 ## Daily Sync Workflow
 
@@ -227,6 +229,7 @@ See `docs/extensions/` for detailed plugin development guides.
 ## Documentation
 
 - **Plugin Development**: `docs/extensions/plugin-development.md`
+- **MCP Refresh & Process Restart**: `docs/extensions/restart-refresh.md`
 - **Upstream Sync**: `docs/extensions/upstream-sync.md`
 - **GitHub Integration**: `docs/extensions/github-integration.md`
 - **Agent Instructions**: `CLAUDE.md`

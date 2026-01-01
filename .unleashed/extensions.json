@@ -1,0 +1,58 @@
+{
+  "version": "1.0.0",
+  "extends": "marksverdhai/claude-code",
+  "fork": {
+    "upstream": "anthropics/claude-code",
+    "fork": "marksverdhai/claude-code",
+    "branch": "unleashed-main"
+  },
+  "extensions": {
+    "plugins": [
+      {
+        "name": "heiervang-snail-integration",
+        "version": "1.0.0",
+        "path": "claude-code/plugins/unleashed/heiervang-snail-integration",
+        "type": "plugin",
+        "description": "Integration with Heiervang's Snail AI agent system",
+        "added": "2026-01-01"
+      },
+      {
+        "name": "heiervang-workflows",
+        "version": "1.0.0",
+        "path": "plugins/unleashed/heiervang-workflows",
+        "type": "plugin",
+        "description": "Custom GitHub Actions workflows for team automation",
+        "added": "2026-01-01"
+      },
+      {
+        "name": "mcp-refresh",
+        "version": "1.0.0",
+        "path": "plugins/unleashed/mcp-refresh",
+        "type": "plugin",
+        "description": "Monitor and reload MCP server configurations without restarting Claude Code",
+        "added": "2026-01-01"
+      },
+      {
+        "name": "process-restart",
+        "version": "1.0.0",
+        "path": "plugins/unleashed/process-restart",
+        "type": "plugin",
+        "description": "Restart Claude Code process while preserving session state",
+        "added": "2026-01-01"
+      }
+    ],
+    "core_patches": []
+  },
+  "documentation": {
+    "main": "README.md",
+    "agent_instructions": "CLAUDE.md",
+    "guides": [
+      "docs/extensions/plugin-development.md",
+      "docs/extensions/core-patches.md",
+      "docs/extensions/snail-integration.md",
+      "docs/extensions/testing-guide.md",
+      "docs/sync-process.md",
+      "docs/extensions/restart-refresh.md"
+    ]
+  }
+}
