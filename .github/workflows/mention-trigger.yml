@@ -199,7 +199,21 @@ jobs:
       # TODO: Change to your agent's name
       agent_name: 'marksverdhai'
       agent_type: 'single-task'
-    secrets: inherit
+    secrets:
+      DOCKER_PAT: ${{ secrets.HEI_DOCKER_PAT }}
+      GH_PAT: ${{ secrets.HAI_GH_PAT }}
+      CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+      SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+      AI_HF_TOKEN: ${{ secrets.AI_HF_TOKEN }}
+      AI_PASSWORD: ${{ secrets.AI_PASSWORD }}
+      AI_PHONE_HAI: ${{ secrets.AI_PHONE_HAI }}
+      AI_PHONE_SMORKELBOT: ${{ secrets.AI_PHONE_SMORKELBOT }}
+      AI_USERNAME: ${{ secrets.AI_USERNAME }}
+      CLAUDE_CREDENTIALS_JSON: ${{ secrets.CLAUDE_CREDENTIALS_JSON }}
+      CORE_BACKUP_PAT: ${{ secrets.CORE_BACKUP_PAT }}
+      HAI_DOCKER_PAT: ${{ secrets.HAI_DOCKER_PAT }}
+      HAI_NAME: ${{ secrets.HAI_NAME }}
+      HEI_NAME: ${{ secrets.HEI_NAME }}
 
   post-reaction:
     needs: [extract-context, spawn-agent]
