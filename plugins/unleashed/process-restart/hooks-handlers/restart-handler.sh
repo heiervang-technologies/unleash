@@ -28,8 +28,24 @@ mkdir -p "${CACHE_DIR}"
 
 # Extract session information from hook input
 # Hook provides: transcript_path, session_id, working_dir, etc.
-SESSION_ID=$(echo "${HOOK_INPUT}" | jq -r '.session_id // empty')
+SESSION_ID=$(echo "${HOOK_INPUT}" | jq -r '.session_id // empty' 2>/dev/null || echo "")
 WORKING_DIR=$(pwd)
+
+# Fallback: If session ID is empty (e.g., killed by signal), find it from project files
+if [[ -z "${SESSION_ID}" ]]; then
+  # Convert working dir to Claude's project path format (slashes become dashes)
+  PROJECT_PATH=$(echo "${WORKING_DIR}" | sed 's|^/||; s|/|-|g')
+  PROJECT_DIR="${HOME}/.claude/projects/-${PROJECT_PATH}"
+
+  if [[ -d "${PROJECT_DIR}" ]]; then
+    # Find the most recently modified session file (excluding agent files)
+    SESSION_FILE=$(find "${PROJECT_DIR}" -maxdepth 1 -name "*.jsonl" ! -name "agent-*.jsonl" -type f -printf '%T@ %p\n' 2>/dev/null | sort -rn | head -1 | cut -d' ' -f2-)
+    if [[ -n "${SESSION_FILE}" ]]; then
+      # Extract session ID from filename (remove path and .jsonl extension)
+      SESSION_ID=$(basename "${SESSION_FILE}" .jsonl)
+    fi
+  fi
+fi
 
 # Get current model from environment or use default
 MODEL="${CLAUDE_MODEL:-claude-sonnet-4-5}"

@@ -1,5 +1,5 @@
 ---
-name: restart
+name: restarting
 description: Restart Claude Code while preserving your session
 ---
 
