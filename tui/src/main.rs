@@ -40,27 +40,11 @@ fn main() -> io::Result<()> {
     // Handle result
     match result {
         Ok(Some(launch_request)) => {
-            // Launch Claude
-            println!("\nLaunching Claude with profile: {}", launch_request.profile.name);
-            if !launch_request.profile.env.is_empty() {
-                println!("Environment variables:");
-                for (key, _) in &launch_request.profile.env {
-                    println!("  {}=<set>", key);
-                }
-            }
-            println!();
-
+            // Launch Claude directly - no transition messages for seamless flow
             match launch_request.execute() {
-                Ok(status) => {
-                    println!("\nClaude exited with status: {}", status);
-
-                    // Re-enter TUI after Claude exits
-                    println!("\nPress Enter to return to launcher, or Ctrl+C to exit...");
-                    let mut input = String::new();
-                    if io::stdin().read_line(&mut input).is_ok() {
-                        // Restart the TUI
-                        return main();
-                    }
+                Ok(_status) => {
+                    // Automatically return to TUI after Claude exits
+                    return main();
                 }
                 Err(e) => {
                     eprintln!("Failed to launch Claude: {}", e);
@@ -70,8 +54,7 @@ fn main() -> io::Result<()> {
             }
         }
         Ok(None) => {
-            // Normal exit
-            println!("Goodbye!");
+            // Normal exit - no message for clean exit
         }
         Err(e) => {
             eprintln!("Error: {}", e);

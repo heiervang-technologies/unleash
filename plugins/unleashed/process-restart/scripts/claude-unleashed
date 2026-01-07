@@ -35,10 +35,6 @@ mkdir -p "${CACHE_DIR}"
 # Clean up any stale trigger files on start
 rm -f "${TRIGGER_FILE}" "${RESTART_MESSAGE_FILE}"
 
-echo "Claude Unleashed: Starting (restart-enabled, PID ${WRAPPER_PID})"
-echo "  To restart from Claude: restart-claude"
-echo ""
-
 # Track if this is a restart
 RESTART_COUNT=0
 
@@ -67,10 +63,6 @@ while true; do
         if [[ -n "${RESTART_MSG}" ]]; then
             CMD_ARGS+=("${RESTART_MSG}")
         fi
-
-        echo ""
-        echo "Claude Wrapper: Restarting (attempt ${RESTART_COUNT})"
-        echo ""
     fi
 
     # Run Claude
@@ -81,16 +73,11 @@ while true; do
     if [[ -f "${TRIGGER_FILE}" ]]; then
         rm -f "${TRIGGER_FILE}"
         RESTART_COUNT=$((RESTART_COUNT + 1))
-
-        echo ""
-        echo "Claude Wrapper: Restart triggered, resuming session..."
-        sleep 0.5
+        sleep 0.3
         continue
     fi
 
     # Normal exit
-    echo ""
-    echo "Claude Wrapper: Exited with code ${EXIT_CODE}"
     break
 done
 
