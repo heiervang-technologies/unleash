@@ -29,20 +29,31 @@ The live-patch plugin modifies the installed Claude Code to add features not ava
 
 **Target file:** `~/.nvm/versions/node/<version>/lib/node_modules/@anthropic-ai/claude-code/cli.js`
 
+## Version Compatibility
+
+| Version | Modes Array | Patch 7 (Flag Sync) |
+|---------|-------------|---------------------|
+| < 2.1.0 | `CT=` | Supported (l9/j1 variant) |
+| ≥ 2.1.0 | `kT=` | Skipped (ESM bundling) |
+
+The patch script auto-detects the version and applies appropriate patterns.
+
 ## Patch List
 
 ### Patch 1: Add "auto" to Modes Array
 
 **Purpose:** Register "auto" as a valid permission mode.
 
-**Pattern:**
+**Pattern (varies by version):**
 ```
-CT=["acceptEdits","bypassPermissions"
+CT=["acceptEdits","bypassPermissions"   # < 2.1.0
+kT=["acceptEdits","bypassPermissions"   # ≥ 2.1.0
 ```
 
 **Replacement:**
 ```
-CT=["acceptEdits","auto","bypassPermissions"
+CT=["acceptEdits","auto","bypassPermissions"   # < 2.1.0
+kT=["acceptEdits","auto","bypassPermissions"   # ≥ 2.1.0
 ```
 
 **Effect:** The mode enum now includes "auto" as a valid value.
@@ -165,6 +176,8 @@ case"acceptEdits":return"autoAccept";case"auto":return"warning";case"bypassPermi
 ### Patch 7: Flag File Integration
 
 **Purpose:** Sync CLI auto mode with the Stop hook system by creating/removing flag files.
+
+**Note:** This patch is **skipped on v2.1.0+** due to ESM bundling making `fs` unavailable at the injection point. For v2.1.0+, use the `/auto` skill which handles flag file sync independently.
 
 #### Patch 7a: Create Flag on Enter
 **Pattern:**

@@ -1,0 +1,202 @@
+name: Integration Tests
+
+# Tests plugins and patches functionality
+# Runs on push to main and PRs
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'plugins/**'
+      - 'client-patch/**'
+      - 'tests/**'
+      - '.github/workflows/integration-tests.yml'
+  pull_request:
+    branches: [main]
+    paths:
+      - 'plugins/**'
+      - 'client-patch/**'
+      - 'tests/**'
+      - '.github/workflows/integration-tests.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test-plugins:
+    name: Test Plugins
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Make test scripts executable
+        run: chmod +x tests/*.sh
+
+      - name: Run plugin tests
+        run: ./tests/test-plugins.sh
+
+  test-patches:
+    name: Test Patches
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Make test scripts executable
+        run: chmod +x tests/*.sh client-patch/scripts/*.sh
+
+      - name: Run patch tests
+        run: ./tests/test-patches.sh
+
+  test-plugins-with-patches:
+    name: Test Plugins + Patches Combined
+    runs-on: ubuntu-latest
+    needs: [test-plugins, test-patches]
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Make scripts executable
+        run: |
+          chmod +x tests/*.sh
+          chmod +x client-patch/scripts/*.sh
+          chmod +x plugins/unleashed/*/scripts/*.sh 2>/dev/null || true
+          chmod +x plugins/unleashed/*/hooks/*.sh 2>/dev/null || true
+
+      - name: Create mock Claude Code environment
+        run: |
+          # Create a mock Claude Code installation
+          MOCK_DIR=$(mktemp -d)
+          echo "MOCK_DIR=$MOCK_DIR" >> $GITHUB_ENV
+
+          # Create mock cli.js with v2.1.0+ patterns
+          cat > "$MOCK_DIR/cli.js" << 'EOF'
+          // Mock cli.js v2.1.0
+          kT=["acceptEdits","bypassPermissions","default","delegate","dontAsk","plan"];
+          function getModeName(mode){switch(mode){case"plan":return"Plan Mode";case"bypassPermissions":return"Bypass Permissions";case"acceptEdits":return"Accept Edits";default:return"Default"}}
+          function getModeIcon(mode){switch(mode){case"acceptEdits":return"⏵⏵";case"bypassPermissions":return"⏵⏵";default:return"▶"}}
+          function getNextMode(mode){switch(mode){case"default":return"plan";case"plan":return"bypassPermissions";case"bypassPermissions":return"default"}}
+          if(Z.toolPermissionContext.mode==="bypassPermissions"||Z.toolPermissionContext.mode==="plan"){allowTool()}
+          if(Q.mode==="bypassPermissions"){passthrough()}
+          if(mode==="bypassPermissions"||V){allow()}
+          function getModeColor(mode){switch(mode){case"plan":return"planMode";case"acceptEdits":return"autoAccept";case"bypassPermissions":return"error";default:return"default"}}
+          if(JQ==="acceptEdits")O9("auto-accept-mode");
+          if(B.mode==="delegate"&&JQ!=="delegate")ty0(!0),_uA(!0);
+          EOF
+
+          # Create mock claude binary
+          cat > "$MOCK_DIR/claude" << SCRIPT
+          #!/usr/bin/env bash
+          exec node "$MOCK_DIR/cli.js" "\$@"
+          SCRIPT
+          chmod +x "$MOCK_DIR/claude"
+
+          # Add to PATH
+          echo "$MOCK_DIR" >> $GITHUB_PATH
+
+      - name: Apply patches
+        run: |
+          ./client-patch/scripts/patch-claude.sh
+
+      - name: Verify patches applied
+        run: |
+          CLI="$MOCK_DIR/cli.js"
+
+          echo "Checking all patches..."
+
+          # Check each patch
+          grep -q 'kT=\[.*"auto"' "$CLI" || (echo "FAIL: Patch 1 (modes array)" && exit 1)
+          grep -q 'case"auto":return"Auto Mode"' "$CLI" || (echo "FAIL: Patch 2 (display name)" && exit 1)
+          grep -q 'case"auto":return"»»"' "$CLI" || (echo "FAIL: Patch 3 (icon)" && exit 1)
+          grep -q 'case"bypassPermissions":return"auto"' "$CLI" || (echo "FAIL: Patch 4 (cycling)" && exit 1)
+          grep -q 'mode==="auto"' "$CLI" || (echo "FAIL: Patch 5 (permissions)" && exit 1)
+          grep -q 'case"auto":return"warning"' "$CLI" || (echo "FAIL: Patch 6 (color)" && exit 1)
+
+          echo "All patches verified!"
+
+      - name: Test auto-mode hook with patched environment
+        run: |
+          # Simulate the full auto-mode flow
+
+          # 1. Create auto-mode flag (simulating shift+tab to auto mode)
+          FLAG_DIR="$HOME/.cache/claude-unleashed/auto-mode"
+          mkdir -p "$FLAG_DIR"
+          TEST_PID="$$"
+          touch "$FLAG_DIR/active-$TEST_PID"
+
+          # 2. Test that stop hook blocks when flag exists
+          export CLAUDE_WRAPPER_PID="$TEST_PID"
+          output=$(./plugins/unleashed/auto-mode/hooks/auto-mode-stop.sh)
+
+          if echo "$output" | python3 -c "import json,sys; d=json.load(sys.stdin); exit(0 if d.get('decision')=='block' else 1)"; then
+            echo "PASS: Stop hook correctly blocks in auto mode"
+          else
+            echo "FAIL: Stop hook should block with decision:block"
+            exit 1
+          fi
+
+          # 3. Clean up flag (simulating leaving auto mode)
+          rm -f "$FLAG_DIR/active-$TEST_PID"
+
+          # 4. Verify stop hook allows after flag removed
+          output=$(./plugins/unleashed/auto-mode/hooks/auto-mode-stop.sh)
+          if [[ -z "$output" ]]; then
+            echo "PASS: Stop hook allows stop after leaving auto mode"
+          else
+            echo "FAIL: Stop hook should allow stop when no flag"
+            exit 1
+          fi
+
+          echo "Plugins + Patches integration test passed!"
+
+  summary:
+    name: Test Summary
+    runs-on: ubuntu-latest
+    needs: [test-plugins, test-patches, test-plugins-with-patches]
+    if: always()
+
+    steps:
+      - name: Check test results
+        run: |
+          if [[ "${{ needs.test-plugins.result }}" == "success" ]] && \
+             [[ "${{ needs.test-patches.result }}" == "success" ]] && \
+             [[ "${{ needs.test-plugins-with-patches.result }}" == "success" ]]; then
+            echo "All integration tests passed!"
+            exit 0
+          else
+            echo "Some tests failed:"
+            echo "  - test-plugins: ${{ needs.test-plugins.result }}"
+            echo "  - test-patches: ${{ needs.test-patches.result }}"
+            echo "  - test-plugins-with-patches: ${{ needs.test-plugins-with-patches.result }}"
+            exit 1
+          fi
