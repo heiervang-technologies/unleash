@@ -14,6 +14,7 @@ use ratatui::{
     Frame,
 };
 use std::io;
+use std::path::PathBuf;
 use std::process::Command;
 
 /// Application screens
@@ -26,6 +27,7 @@ pub enum Screen {
     Settings,
     Help,
     ConfirmDelete,
+    Updating,
 }
 
 /// What we're currently editing
@@ -80,7 +82,7 @@ impl App {
         Ok(Self {
             running: true,
             screen: Screen::Main,
-            main_menu: MenuState::new(4),
+            main_menu: MenuState::new(5),
             profile_menu: MenuState::new(profiles.len()),
             settings_menu: MenuState::new(2), // Entry Point, Arguments
             profile_manager,
@@ -138,7 +140,7 @@ impl App {
     }
 
     /// Handle input events
-    pub fn handle_event(&mut self, event: Event) -> io::Result<Option<LaunchRequest>> {
+    pub fn handle_event(&mut self, event: Event) -> io::Result<Option<AppAction>> {
         if let Event::Key(key) = event {
             // Global quit with Ctrl+C (except when editing)
             if key.code == KeyCode::Char('c') && key.modifiers.contains(KeyModifiers::CONTROL) {
@@ -163,12 +165,13 @@ impl App {
                 Screen::Settings => self.handle_settings_input(action),
                 Screen::Help => self.handle_help_input(action),
                 Screen::ConfirmDelete => self.handle_confirm_delete_input(action),
+                Screen::Updating => return self.handle_updating_input(action),
             }
         }
         Ok(None)
     }
 
-    fn handle_text_input(&mut self, key: KeyEvent) -> Option<LaunchRequest> {
+    fn handle_text_input(&mut self, key: KeyEvent) -> Option<AppAction> {
         let input = match self.edit_field {
             EditField::EnvKey => &mut self.key_input,
             EditField::EnvValue => &mut self.value_input,
@@ -283,7 +286,7 @@ impl App {
         self.value_input.hidden = false;
     }
 
-    fn handle_main_input(&mut self, action: NavAction) -> io::Result<Option<LaunchRequest>> {
+    fn handle_main_input(&mut self, action: NavAction) -> io::Result<Option<AppAction>> {
         match action {
             NavAction::Up | NavAction::Down => {
                 self.main_menu.handle_action(action);
@@ -292,11 +295,11 @@ impl App {
                 match self.main_menu.selected {
                     0 => {
                         if let Some(profile) = &self.selected_profile {
-                            return Ok(Some(LaunchRequest {
+                            return Ok(Some(AppAction::Launch(LaunchRequest {
                                 profile: profile.clone(),
                                 claude_path: self.app_config.claude_path.clone(),
                                 claude_args: self.app_config.claude_args.clone(),
-                            }));
+                            })));
                         } else {
                             self.status_message = Some("No profile selected!".to_string());
                         }
@@ -309,6 +312,11 @@ impl App {
                         self.screen = Screen::Settings;
                     }
                     3 => {
+                        // Update TUI
+                        self.screen = Screen::Updating;
+                        self.status_message = Some("Updating...".to_string());
+                    }
+                    4 => {
                         self.running = false;
                     }
                     _ => {}
@@ -487,6 +495,30 @@ impl App {
         }
     }
 
+    fn handle_updating_input(&mut self, action: NavAction) -> io::Result<Option<AppAction>> {
+        match action {
+            NavAction::Select => {
+                // Find the repo directory (parent of tui/)
+                let exe_path = std::env::current_exe().ok();
+                let repo_dir = exe_path
+                    .as_ref()
+                    .and_then(|p| p.parent()) // target/release
+                    .and_then(|p| p.parent()) // target
+                    .and_then(|p| p.parent()) // tui
+                    .and_then(|p| p.parent()) // repo root
+                    .map(|p| p.to_path_buf())
+                    .unwrap_or_else(|| PathBuf::from("."));
+
+                return Ok(Some(AppAction::Update(UpdateRequest { repo_dir })));
+            }
+            NavAction::Back | NavAction::Quit => {
+                self.screen = Screen::Main;
+            }
+            _ => {}
+        }
+        Ok(None)
+    }
+
     /// Render the UI
     pub fn render(&self, frame: &mut Frame) {
         let chunks = Layout::default()
@@ -514,6 +546,7 @@ impl App {
                 self.render_profiles(frame, chunks[1]);
                 self.render_confirm_delete_dialog(frame, frame.area());
             }
+            Screen::Updating => self.render_updating(frame, chunks[1]),
         }
 
         self.render_status_bar(frame, chunks[2]);
@@ -556,6 +589,7 @@ impl App {
             ("Start Session", "Launch Claude with selected profile"),
             ("Profiles", "Manage environment profiles"),
             ("Settings", "Configure launcher settings"),
+            ("Update TUI", "Pull latest and recompile"),
             ("Quit", "Exit the launcher"),
         ]
         .iter()
@@ -895,6 +929,31 @@ impl App {
         frame.render_widget(content, area);
     }
 
+    fn render_updating(&self, frame: &mut Frame, area: Rect) {
+        let lines = vec![
+            Line::from(""),
+            Line::from(Span::styled(
+                "  Updating TUI...",
+                Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD),
+            )),
+            Line::from(""),
+            Line::from("  This will:"),
+            Line::from("    1. Pull latest changes from git"),
+            Line::from("    2. Recompile with cargo build --release"),
+            Line::from("    3. Replace current binary and restart"),
+            Line::from(""),
+            Line::from(Span::styled(
+                "  Press Enter to continue, Esc to cancel",
+                Style::default().fg(Color::DarkGray),
+            )),
+        ];
+
+        let content = Paragraph::new(lines)
+            .block(Block::default().borders(Borders::ALL).title(" Update TUI "))
+            .wrap(Wrap { trim: false });
+        frame.render_widget(content, area);
+    }
+
     fn render_status_bar(&self, frame: &mut Frame, area: Rect) {
         let status = self.status_message.as_deref().unwrap_or("Press ? for help");
         let config_hint = format!("Config: {}", self.profile_manager.config_dir().display());
@@ -920,12 +979,25 @@ impl App {
     }
 }
 
+/// Actions that can be returned from the app
+#[derive(Debug, Clone)]
+pub enum AppAction {
+    Launch(LaunchRequest),
+    Update(UpdateRequest),
+}
+
 /// Request to launch Claude with a specific profile
 #[derive(Debug, Clone)]
 pub struct LaunchRequest {
     pub profile: Profile,
     pub claude_path: String,
     pub claude_args: Vec<String>,
+}
+
+/// Request to update the TUI
+#[derive(Debug, Clone)]
+pub struct UpdateRequest {
+    pub repo_dir: PathBuf,
 }
 
 impl LaunchRequest {
@@ -950,6 +1022,56 @@ impl LaunchRequest {
     }
 }
 
+impl UpdateRequest {
+    /// Execute the update: git pull, cargo build, replace binary and re-exec
+    pub fn execute(&self) -> io::Result<()> {
+        use std::os::unix::process::CommandExt;
+
+        let tui_dir = self.repo_dir.join("tui");
+
+        println!("\n=== Updating Claude Unleashed TUI ===\n");
+
+        // Step 1: Git pull
+        println!("Pulling latest changes...");
+        let git_status = Command::new("git")
+            .arg("pull")
+            .current_dir(&self.repo_dir)
+            .status()?;
+
+        if !git_status.success() {
+            return Err(io::Error::new(
+                io::ErrorKind::Other,
+                "git pull failed",
+            ));
+        }
+
+        // Step 2: Cargo build --release
+        println!("\nRecompiling...");
+        let build_status = Command::new("cargo")
+            .args(["build", "--release"])
+            .current_dir(&tui_dir)
+            .status()?;
+
+        if !build_status.success() {
+            return Err(io::Error::new(
+                io::ErrorKind::Other,
+                "cargo build failed",
+            ));
+        }
+
+        // Step 3: Re-exec the new binary
+        println!("\nRestarting with new binary...\n");
+        let new_binary = tui_dir.join("target/release/unleashed-tui");
+
+        let err = Command::new(&new_binary).exec();
+        // exec() only returns on error
+        Err(io::Error::new(
+            io::ErrorKind::Other,
+            format!("Failed to exec new binary: {}", err),
+        ))
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -964,7 +1086,7 @@ mod tests {
         let app = App {
             running: true,
             screen: Screen::Main,
-            main_menu: MenuState::new(4),
+            main_menu: MenuState::new(5),
             profile_menu: MenuState::new(profiles.len()),
             settings_menu: MenuState::new(2),
             profile_manager,

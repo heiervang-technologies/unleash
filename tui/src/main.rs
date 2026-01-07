@@ -4,7 +4,7 @@ mod input;
 mod pixel_art;
 mod text_input;
 
-use app::App;
+use app::{App, AppAction};
 use crossterm::{
     event::{self, DisableMouseCapture, EnableMouseCapture},
     execute,
@@ -39,20 +39,38 @@ fn main() -> io::Result<()> {
 
     // Handle result
     match result {
-        Ok(Some(launch_request)) => {
-            // Launch Claude directly - no transition messages for seamless flow
-            match launch_request.execute() {
-                Ok(_status) => {
-                    // Automatically return to TUI after Claude exits
-                    return main();
-                }
-                Err(e) => {
-                    eprintln!("Failed to launch Claude: {}", e);
-                    eprintln!("Make sure 'claude' is in your PATH or set claude_path in config.toml");
-                    std::process::exit(1);
+        Ok(Some(action)) => match action {
+            AppAction::Launch(launch_request) => {
+                // Launch Claude directly - no transition messages for seamless flow
+                match launch_request.execute() {
+                    Ok(_status) => {
+                        // Automatically return to TUI after Claude exits
+                        return main();
+                    }
+                    Err(e) => {
+                        eprintln!("Failed to launch Claude: {}", e);
+                        eprintln!("Make sure 'claude' is in your PATH or set claude_path in config.toml");
+                        std::process::exit(1);
+                    }
                 }
             }
-        }
+            AppAction::Update(update_request) => {
+                // Execute update - this will re-exec the new binary on success
+                match update_request.execute() {
+                    Ok(()) => {
+                        // Should not reach here - exec replaces process
+                        unreachable!("exec should not return on success");
+                    }
+                    Err(e) => {
+                        eprintln!("Update failed: {}", e);
+                        eprintln!("\nPress Enter to return to TUI...");
+                        let mut input = String::new();
+                        let _ = std::io::stdin().read_line(&mut input);
+                        return main();
+                    }
+                }
+            }
+        },
         Ok(None) => {
             // Normal exit - no message for clean exit
         }
@@ -65,7 +83,7 @@ fn main() -> io::Result<()> {
     Ok(())
 }
 
-fn run_app(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>, app: &mut App) -> io::Result<Option<app::LaunchRequest>> {
+fn run_app(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>, app: &mut App) -> io::Result<Option<AppAction>> {
     loop {
         // Draw UI
         terminal.draw(|f| app.render(f))?;
@@ -73,8 +91,8 @@ fn run_app(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>, app: &mut App)
         // Handle events with timeout for responsiveness
         if event::poll(Duration::from_millis(100))? {
             let event = event::read()?;
-            if let Some(launch_request) = app.handle_event(event)? {
-                return Ok(Some(launch_request));
+            if let Some(action) = app.handle_event(event)? {
+                return Ok(Some(action));
             }
         }
 
