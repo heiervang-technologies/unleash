@@ -1,24 +1,26 @@
 #!/usr/bin/env bash
-# Trigger restart script
+# trigger-restart.sh - Trigger Claude Code self-restart
 #
-# This script handles the complete restart process:
-# 1. Finds current session ID from project files
-# 2. Saves state
-# 3. Spawns new Claude process
-# 4. Terminates current process
+# Supports two methods:
+#   1. Wrapper method (preferred) - Works if started via claude-wrapper.sh
+#   2. tmux method (fallback) - Works if running inside tmux
 #
-# This approach doesn't rely on Stop hooks (which don't fire on SIGTERM).
+# The script auto-detects which method is available.
+#
+# Version: 1.2.0 (2026-01-06)
 
-set -euo pipefail
+set -uo pipefail
 
 # Configuration
 CACHE_DIR="${HOME}/.cache/claude-unleashed/process-restart"
-STATE_FILE="${CACHE_DIR}/restart-state.json"
 TRIGGER_FILE="${CACHE_DIR}/restart-trigger"
+RESTART_MESSAGE_FILE="${CACHE_DIR}/restart-message"
 
 # Parse command line arguments
 FORCE=false
 CLEAN=false
+INITIAL_MESSAGE=""
+METHOD=""  # auto, wrapper, tmux
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -30,8 +32,17 @@ while [[ $# -gt 0 ]]; do
       CLEAN=true
       shift
       ;;
+    --message)
+      INITIAL_MESSAGE="$2"
+      shift 2
+      ;;
+    --method)
+      METHOD="$2"
+      shift 2
+      ;;
     *)
       echo "Unknown option: $1"
+      echo "Usage: $0 [--force] [--clean] [--message 'msg'] [--method wrapper|tmux]"
       exit 1
       ;;
   esac
@@ -40,141 +51,144 @@ done
 # Create cache directory
 mkdir -p "${CACHE_DIR}"
 
-# Get working directory
-WORKING_DIR=$(pwd)
-
-# Find current Claude PID
-CLAUDE_PID=$(ps aux | grep '[c]laude' | grep -v defunct | head -1 | awk '{print $2}')
-if [[ -z "${CLAUDE_PID}" ]]; then
-  echo "Error: Could not find running Claude process"
-  exit 1
-fi
-
-# Find session ID from project files
-SESSION_ID=""
-if [[ "${CLEAN}" != "true" ]]; then
-  # Convert working dir to Claude's project path format (slashes become dashes)
-  PROJECT_PATH=$(echo "${WORKING_DIR}" | sed 's|^/||; s|/|-|g')
-  PROJECT_DIR="${HOME}/.claude/projects/-${PROJECT_PATH}"
-
-  if [[ -d "${PROJECT_DIR}" ]]; then
-    # Find the most recently modified session file (excluding agent files)
-    SESSION_FILE=$(find "${PROJECT_DIR}" -maxdepth 1 -name "*.jsonl" ! -name "agent-*.jsonl" -type f -printf '%T@ %p\n' 2>/dev/null | sort -rn | head -1 | cut -d' ' -f2-)
-    if [[ -n "${SESSION_FILE}" ]]; then
-      SESSION_ID=$(basename "${SESSION_FILE}" .jsonl)
+# Find Claude PID
+find_claude_pid() {
+    local pid
+    pid=$(pgrep -f "^claude" | head -1 || true)
+    if [[ -z "${pid}" ]]; then
+        pid=$(ps aux | grep '[c]laude' | grep -v defunct | head -1 | awk '{print $2}' || true)
     fi
-  fi
+    echo "${pid}"
+}
+
+CLAUDE_PID=$(find_claude_pid)
+if [[ -z "${CLAUDE_PID}" ]]; then
+    echo "Error: Could not find running Claude process"
+    exit 1
 fi
 
-# Get model from environment or use default
-MODEL="${CLAUDE_MODEL:-claude-sonnet-4-5}"
+# Detect which method is available
+detect_method() {
+    # Check if running under wrapper (wrapper sets this in environment or we check parent)
+    # Simple heuristic: check if parent process is bash running claude-wrapper
+    local parent_cmd
+    parent_cmd=$(ps -o args= -p $PPID 2>/dev/null | head -1 || true)
 
-# Get git branch if in a git repository
-GIT_BRANCH=""
-if git rev-parse --git-dir > /dev/null 2>&1; then
-  GIT_BRANCH=$(git branch --show-current 2>/dev/null || echo "")
+    if [[ "${parent_cmd}" == *"claude-wrapper"* ]]; then
+        echo "wrapper"
+        return
+    fi
+
+    # Check if trigger file mechanism would work (wrapper watches for this)
+    # We can detect wrapper by checking if our grandparent is the wrapper
+    local grandparent_pid
+    grandparent_pid=$(ps -o ppid= -p $PPID 2>/dev/null | tr -d ' ' || true)
+    if [[ -n "${grandparent_pid}" ]]; then
+        local grandparent_cmd
+        grandparent_cmd=$(ps -o args= -p "${grandparent_pid}" 2>/dev/null | head -1 || true)
+        if [[ "${grandparent_cmd}" == *"claude-wrapper"* ]]; then
+            echo "wrapper"
+            return
+        fi
+    fi
+
+    # Check for tmux
+    if [[ -n "${TMUX:-}" ]]; then
+        echo "tmux"
+        return
+    fi
+
+    # No method available
+    echo "none"
+}
+
+if [[ -z "${METHOD}" ]] || [[ "${METHOD}" == "auto" ]]; then
+    METHOD=$(detect_method)
 fi
 
-# Output confirmation message
-if [[ "${FORCE}" == "true" ]]; then
-  echo "🔄 Restart triggered (forced)"
-else
-  echo "🔄 Restart triggered"
-fi
+echo "Claude PID: ${CLAUDE_PID}"
+echo "Restart method: ${METHOD}"
 
-if [[ "${CLEAN}" == "true" ]]; then
-  echo "   Clean restart: Session state will NOT be preserved"
-  rm -f "${STATE_FILE}"
-else
-  echo "   Session ID: ${SESSION_ID:-<not found>}"
-  echo "   Working directory: ${WORKING_DIR}"
-  echo "   Claude PID: ${CLAUDE_PID}"
-fi
+# Handle based on method
+case "${METHOD}" in
+    wrapper)
+        echo ""
+        echo "Using wrapper method (trigger file)"
 
-# If not clean restart, save state file
-if [[ "${CLEAN}" != "true" ]] && [[ -n "${SESSION_ID}" ]]; then
-  # Get enabled plugins from settings
-  ENABLED_PLUGINS="[]"
-  if [[ -f ".claude/settings.json" ]]; then
-    ENABLED_PLUGINS=$(jq -r '.plugins.enabled // []' .claude/settings.json 2>/dev/null || echo "[]")
-  elif [[ -f "${HOME}/.claude/settings.json" ]]; then
-    ENABLED_PLUGINS=$(jq -r '.plugins.enabled // []' "${HOME}/.claude/settings.json" 2>/dev/null || echo "[]")
-  fi
+        # Create trigger file
+        touch "${TRIGGER_FILE}"
+        echo "Created trigger file: ${TRIGGER_FILE}"
 
-  # Create state file
-  jq -n \
-    --arg version "1.0.0" \
-    --arg timestamp "$(date +%s)" \
-    --arg session_id "${SESSION_ID}" \
-    --arg working_dir "${WORKING_DIR}" \
-    --arg model "${MODEL}" \
-    --arg git_branch "${GIT_BRANCH}" \
-    --argjson enabled_plugins "${ENABLED_PLUGINS}" \
-    '{
-      version: $version,
-      timestamp: ($timestamp | tonumber),
-      sessionId: $session_id,
-      workingDir: $working_dir,
-      model: $model,
-      gitBranch: $git_branch,
-      enabledPlugins: $enabled_plugins
-    }' > "${STATE_FILE}"
+        # Save message if provided
+        if [[ -n "${INITIAL_MESSAGE}" ]]; then
+            echo "${INITIAL_MESSAGE}" > "${RESTART_MESSAGE_FILE}"
+            echo "Restart message: ${INITIAL_MESSAGE}"
+        fi
 
-  chmod 600 "${STATE_FILE}"
-  echo "   State saved to: ${STATE_FILE}"
-fi
+        # If clean restart, we don't create trigger (wrapper won't add --continue)
+        if [[ "${CLEAN}" == "true" ]]; then
+            rm -f "${TRIGGER_FILE}"
+            echo "Clean restart: trigger file removed (no --continue)"
+        fi
 
-# Determine Claude Code executable path
-CLAUDE_CMD="claude"
-if command -v claude-code &> /dev/null; then
-  CLAUDE_CMD="claude-code"
-elif command -v claude &> /dev/null; then
-  CLAUDE_CMD="claude"
-elif [[ -x "${HOME}/.local/bin/claude" ]]; then
-  CLAUDE_CMD="${HOME}/.local/bin/claude"
-elif [[ -x "/usr/local/bin/claude" ]]; then
-  CLAUDE_CMD="/usr/local/bin/claude"
-else
-  echo "Error: Claude Code executable not found"
-  exit 1
-fi
+        echo ""
+        echo "Killing Claude... wrapper will restart automatically."
 
-# Build command args for new process
-CMD_ARGS=("--cwd" "${WORKING_DIR}")
+        # Kill Claude - wrapper will detect exit and check trigger
+        kill -INT "${CLAUDE_PID}" 2>/dev/null || kill -TERM "${CLAUDE_PID}" 2>/dev/null || true
+        ;;
 
-# Add session resume if we have a session ID (and not clean restart)
-if [[ "${CLEAN}" != "true" ]] && [[ -n "${SESSION_ID}" ]]; then
-  CMD_ARGS+=("--resume" "${SESSION_ID}")
-fi
+    tmux)
+        echo ""
+        echo "Using tmux method (send-keys)"
 
-echo ""
-echo "Spawning new Claude process..."
+        # Get tmux target
+        TMUX_TARGET=$(tmux display-message -p '#{session_name}:#{window_index}.#{pane_index}')
+        echo "Tmux target: ${TMUX_TARGET}"
 
-# Spawn new process using setsid for complete detachment
-# setsid creates a new session, completely independent from current process tree
-# This ensures the new process survives when we kill the current Claude
-setsid "${CLAUDE_CMD}" "${CMD_ARGS[@]}" < /dev/null > /dev/null 2>&1 &
+        # Build restart command
+        if [[ "${CLEAN}" == "true" ]]; then
+            RESTART_CMD="claude"
+        else
+            RESTART_CMD="${RESTART_COMMAND:-claude --continue}"
+        fi
 
-# Give it a moment to start
-sleep 0.5
+        if [[ -n "${INITIAL_MESSAGE}" ]]; then
+            RESTART_CMD="${RESTART_CMD} '${INITIAL_MESSAGE}'"
+        fi
 
-# Check if new process started
-if pgrep -f "claude.*--resume" > /dev/null 2>&1 || pgrep -f "^claude$" > /dev/null 2>&1; then
-  echo "✅ New Claude process spawned (detached via setsid)"
-else
-  echo "⚠️  Warning: Could not verify new process started"
-fi
+        echo "Restart command: ${RESTART_CMD}"
 
-echo "   Terminating current process (PID ${CLAUDE_PID})..."
+        # Spawn watcher
+        (
+            while kill -0 "${CLAUDE_PID}" 2>/dev/null; do
+                sleep 0.1
+            done
+            sleep 0.5
+            tmux send-keys -t "${TMUX_TARGET}" "${RESTART_CMD}" Enter
+        ) &
 
-# Remove trigger file (not needed anymore since we handle everything here)
-rm -f "${TRIGGER_FILE}"
+        echo "Watcher spawned, killing Claude..."
 
-# Kill current Claude process
-# Use SIGTERM for graceful shutdown
-kill -TERM "${CLAUDE_PID}" 2>/dev/null || true
+        # Kill Claude
+        kill -INT "${CLAUDE_PID}" 2>/dev/null || kill -TERM "${CLAUDE_PID}" 2>/dev/null || true
+        ;;
 
-echo ""
-echo "Restart complete. New session should be active."
+    none|*)
+        echo ""
+        echo "Error: No restart method available"
+        echo ""
+        echo "Claude Code self-restart requires one of:"
+        echo ""
+        echo "  1. Wrapper method (recommended):"
+        echo "     Start Claude with: claude-wrapper.sh"
+        echo "     Location: plugins/unleashed/process-restart/scripts/claude-wrapper.sh"
+        echo ""
+        echo "  2. tmux method:"
+        echo "     Run Claude inside tmux: tmux new-session -s claude"
+        echo ""
+        exit 1
+        ;;
+esac
 
 exit 0

@@ -5,267 +5,181 @@ description: Restart Claude Code while preserving your session
 
 # Restart Claude Code Process
 
-Restarts the Claude Code process while preserving your current session, conversation history, and working state.
+Restarts the Claude Code process while preserving your current session and conversation history.
+
+**Requirement**: Must use one of:
+- **Wrapper method**: Start Claude via `claude-wrapper.sh` (recommended)
+- **tmux method**: Run Claude inside tmux
 
 ## Usage
 
-- `/restart` - Restart with session preservation
-- `/restart --force` - Force restart without confirmation
-- `/restart --clean` - Restart without preserving state (fresh session)
-
-## What Gets Preserved
-
-When you restart, the following state is preserved:
-
-### Session Information
-- Session ID (maintains conversation history)
-- Message history (can be resumed)
-- Working directory
-- Current branch (if in git repository)
-
-### Configuration
-- Model selection (e.g., claude-sonnet-4-5)
-- Permission mode (auto-allow, manual, etc.)
-- Enabled plugins
-- Plugin settings
-
-### MCP Servers
-- All MCP servers are reinitialized with current configuration
-- Changes to `.mcp.json` or `.claude.json` are automatically applied
-- OAuth tokens are reused (if still valid)
-
-## What Does NOT Persist
-
-Some runtime state cannot be preserved:
-
-- Active tool executions (interrupted)
-- Streaming responses (will be cut off)
-- Temporary files created during session
-- Background processes spawned by tools
+- `/restart` - Restart with session resume
+- `/restart --force` - Skip confirmation prompts
+- `/restart --clean` - Fresh restart without session preservation
 
 ## How It Works
 
-1. **Save State**: Creates a state file at `~/.cache/claude-unleashed/restart-state.json`
-2. **Exit Gracefully**: Allows Claude Code to shut down cleanly
-3. **Spawn New Process**: Starts a new Claude Code instance
-4. **Restore State**: New process reads state file and resumes session
-5. **Clean Up**: State file is removed after successful restoration
+The script auto-detects which method is available and uses it.
 
-## State File Location
+### Method 1: Wrapper (Recommended)
 
-```
-~/.cache/claude-unleashed/restart-state.json
-```
+If Claude was started via `claude-wrapper.sh`:
 
-The state file is automatically cleaned up after:
-- Successful restoration
-- Expiry (default: 5 minutes)
-- Manual cleanup via `/restart --clean`
-
-## Use Cases
-
-### Apply MCP Configuration Changes
+1. Create trigger file
+2. Kill Claude
+3. Wrapper detects exit, sees trigger file
+4. Wrapper restarts Claude with `--continue`
 
 ```
-# 1. Edit MCP configuration
-vim .mcp.json
-
-# 2. Restart to apply changes
-/restart
+claude-wrapper.sh (while loop)
+        │
+        ↓ runs
+    Claude Code
+        │
+        ↓ /restart
+    Create trigger file + kill self
+        │
+        ↓
+    Claude exits
+        │
+        ↓
+    Wrapper checks trigger → found
+        │
+        ↓
+    Wrapper restarts Claude --continue
 ```
 
-### Recover from Plugin Issue
+### Method 2: tmux (Fallback)
 
+If running inside tmux:
+
+1. Spawn background watcher (monitors PID)
+2. Kill Claude
+3. Watcher detects death
+4. Watcher sends restart command via `tmux send-keys`
+5. Shell receives command, starts new Claude
+
+### Why These Methods?
+
+Standard approaches **do not work**:
+- `nohup claude &` - Process doesn't survive
+- `setsid claude &` - Process spawns but doesn't take over
+- Stop hooks - Only fire on graceful `/exit`, not SIGTERM
+
+Both methods work because they provide an **external coordinator** that:
+- Survives Claude's death
+- Holds/accesses the TTY
+- Can start a new Claude
+
+## What Gets Preserved
+
+### Via `--continue`/`--resume`
+- Session ID (conversation history)
+- Message history accessible
+- Working directory context
+
+### Must Be Manually Restored
+- MCP connections - run `/mcp` after restart
+
+## What Does NOT Persist
+
+- Active tool executions (interrupted)
+- Streaming responses (cut off)
+- MCP server connections
+- Background processes
+
+## Post-Restart
+
+After restart completes:
+
+1. Run `/mcp` to reconnect MCP servers
+2. Verify conversation history is accessible
+3. Continue where you left off
+
+## Requirements
+
+### tmux
+
+Claude must be running inside tmux:
+
+```bash
+# If not in tmux, exit and restart in tmux
+tmux new-session -s claude
+claude
 ```
-# Something went wrong with a plugin
-/restart --clean
+
+Check if you're in tmux:
+```bash
+echo $TMUX  # Should show tmux socket path
 ```
 
-### Update Plugin Settings
+### Restart Command
 
-```
-# After changing plugin settings in .claude/settings.json
-/restart
-```
-
-## Safety Features
-
-### Confirmation Prompt
-
-By default, you'll be asked to confirm before restarting:
-
-```
-⚠️  This will restart the Claude Code process.
-   Your session will be preserved and automatically resumed.
-
-   Preserve:
-   - Session ID: a8ea16a
-   - Working directory: /home/me/my-project
-   - Model: claude-sonnet-4-5
-   - Permission mode: auto-allow
-
-Proceed with restart? (y/n):
-```
-
-Use `--force` to skip confirmation.
-
-### Active Tool Detection
-
-If there are active tool executions, you'll receive a warning:
-
-```
-⚠️  Warning: Active tool execution detected
-
-   The following tools are currently running:
-   - Bash: npm install (running for 45s)
-
-   Restarting now will interrupt these operations.
-
-Proceed anyway? (y/n):
-```
-
-### State File Expiry
-
-State files expire after 5 minutes (configurable) to prevent:
-- Stale state restoration
-- Disk space accumulation
-- Confusion from old sessions
-
-## Configuration
-
-Configure restart behavior in `.claude/settings.json`:
+The plugin uses `claude --continue` by default. Configure a different command in settings:
 
 ```json
 {
   "plugins": {
     "process-restart": {
-      "preserveSession": true,
-      "preserveWorkingDir": true,
-      "preservePermissions": true,
-      "stateFileExpiry": 300
+      "restartCommand": "cy --continue"
     }
   }
 }
 ```
 
-## Technical Details
-
-### State File Format
-
-```json
-{
-  "version": "1.0.0",
-  "timestamp": 1735689600,
-  "sessionId": "a8ea16a",
-  "workingDir": "/home/me/my-project",
-  "model": "claude-sonnet-4-5",
-  "permissionMode": "auto-allow",
-  "gitBranch": "feature/my-feature",
-  "enabledPlugins": ["mcp-refresh", "process-restart"]
-}
-```
-
-### Restart Flow
-
-```
-User runs /restart
-       ↓
-Stop hook triggered
-       ↓
-Save state to file
-       ↓
-Spawn new process with --resume flag
-       ↓
-Allow current process to exit
-       ↓
-New process starts
-       ↓
-SessionStart hook triggered
-       ↓
-Read and apply state file
-       ↓
-Resume session
-       ↓
-Clean up state file
-```
-
-## Integration with MCP Refresh
-
-This command integrates with the `mcp-refresh` plugin:
-
-When MCP configuration changes are detected, you'll be prompted to use `/restart` to apply them. The restart preserves your session while loading the new MCP configuration.
-
 ## Troubleshooting
 
-### Restart doesn't preserve session
+### "Not running in tmux"
 
-**Problem**: Session starts fresh after restart
+Exit Claude, start tmux, resume session:
+```bash
+# Exit current Claude
+/exit
 
-**Solutions**:
-1. Check that `preserveSession` is enabled in settings
-2. Verify state file was created: `cat ~/.cache/claude-unleashed/restart-state.json`
-3. Check file permissions on cache directory
-4. Look for errors in Claude Code logs
+# Start tmux and resume
+tmux new-session -s claude
+claude --continue
+```
 
-### State file not found
+### MCP tools unavailable after restart
 
-**Problem**: "State file expired or not found" message
+Run `/mcp` in Claude Code to reconnect to MCP servers.
 
-**Solutions**:
-1. State file may have expired (default: 5 minutes)
-2. Increase expiry: Set `stateFileExpiry` to larger value
-3. Check cache directory exists: `~/.cache/claude-unleashed/`
+### Session not preserved
 
-### Process doesn't restart
+1. Ensure restart command includes `--continue` or `--resume`
+2. Check session exists: `ls ~/.claude/projects/`
 
-**Problem**: Current process exits but new one doesn't start
+### Restart hangs or doesn't complete
 
-**Solutions**:
-1. Check Claude Code is in PATH: `which claude`
-2. Verify Claude Code executable: `claude --version`
-3. Check logs in `~/.claude/logs/`
-4. Try manual restart: `claude --resume <session-id>`
+1. Check tmux pane: `tmux display-message -p '#{session_name}:#{window_index}.#{pane_index}'`
+2. Manually kill Claude if stuck: `pkill -9 claude`
+3. Restart manually: `claude --continue`
 
-## Related Commands
+## Technical Details
 
-- `/reload-mcps` - Check for MCP configuration changes before restarting
-- `/mcp-status` - View current MCP server status
-- `/exit` - Exit without restarting (session preserved for later resume)
+### Script Location
 
-## Security Considerations
+`plugins/unleashed/process-restart/scripts/trigger-restart.sh`
 
-### State File Security
+### Core Logic
 
-The state file is stored in your user cache directory with restricted permissions (600). It contains:
+```bash
+#!/bin/bash
+CLAUDE_PID=$(pgrep -f "^claude" | head -1)
+TMUX_TARGET=$(tmux display-message -p '#{session_name}:#{window_index}.#{pane_index}')
+RESTART_CMD="${RESTART_COMMAND:-claude --continue}"
 
-- Session ID (sensitive)
-- Working directory path
-- Configuration preferences
+# Watcher process
+(while kill -0 $CLAUDE_PID 2>/dev/null; do sleep 0.1; done
+ sleep 0.5
+ tmux send-keys -t $TMUX_TARGET "$RESTART_CMD" Enter) &
 
-**Do not**:
-- Share state files between users
-- Modify state files manually
-- Store state files in version control
+# Kill Claude
+kill -INT $CLAUDE_PID
+```
 
-### OAuth Tokens
+## Version
 
-OAuth tokens for MCP servers are NOT stored in the restart state file. They are managed separately by Claude Code's credential storage.
-
-## Performance Impact
-
-Restarting takes approximately:
-- Exit: < 1 second
-- New process start: 2-3 seconds
-- Session restoration: < 1 second
-- Total: ~3-5 seconds
-
-This is comparable to manually exiting and starting Claude Code, but with the added benefit of automatic session resumption.
-
-## Version History
-
-- **1.0.0** - Initial release
-  - Session ID preservation
-  - Working directory restoration
-  - Model and permission mode preservation
-  - Automatic state cleanup
-  - Integration with MCP refresh
+- **1.1.0** - Working tmux-based restart (2026-01-06)
+- **1.0.0** - Initial release (self-restart non-functional)

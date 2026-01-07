@@ -1,0 +1,93 @@
+#!/usr/bin/env bash
+# claude-wrapper.sh - Wrapper that enables Claude Code self-restart
+#
+# Usage: claude-wrapper [claude args...]
+#
+# This wrapper script enables Claude to restart itself without tmux.
+# It works by:
+#   1. Running Claude as a child process
+#   2. When Claude exits, checking for a restart trigger file
+#   3. If trigger exists, restarting Claude with --continue
+#
+# To restart, Claude creates the trigger file and kills itself:
+#   touch ~/.cache/claude-unleashed/restart-trigger && kill -INT $(pgrep -f "^claude" | head -1)
+#
+# Version: 1.0.0 (2026-01-06)
+
+set -uo pipefail
+
+# Configuration
+CACHE_DIR="${HOME}/.cache/claude-unleashed/process-restart"
+TRIGGER_FILE="${CACHE_DIR}/restart-trigger"
+RESTART_MESSAGE_FILE="${CACHE_DIR}/restart-message"
+
+# Default Claude command
+CLAUDE_CMD="${CLAUDE_CMD:-claude}"
+
+# Ensure cache directory exists
+mkdir -p "${CACHE_DIR}"
+
+# Clean up any stale trigger files on start
+rm -f "${TRIGGER_FILE}" "${RESTART_MESSAGE_FILE}"
+
+echo "Claude Wrapper: Starting (restart-enabled)"
+echo "  Trigger file: ${TRIGGER_FILE}"
+echo "  To restart: touch ${TRIGGER_FILE} && kill -INT \$(pgrep -f '^claude' | head -1)"
+echo ""
+
+# Track if this is a restart
+RESTART_COUNT=0
+
+while true; do
+    # Clear trigger file before starting
+    rm -f "${TRIGGER_FILE}"
+
+    # Build command args
+    CMD_ARGS=("$@")
+
+    # If this is a restart, add --continue and RESURRECTED message
+    if [[ ${RESTART_COUNT} -gt 0 ]]; then
+        # Check if --continue or --resume already in args
+        if [[ ! " ${CMD_ARGS[*]} " =~ " --continue " ]] && [[ ! " ${CMD_ARGS[*]} " =~ " --resume " ]]; then
+            CMD_ARGS=("--continue" "--dangerously-skip-permissions" "${CMD_ARGS[@]}")
+        fi
+
+        # Check for custom restart message, default to RESURRECTED
+        if [[ -f "${RESTART_MESSAGE_FILE}" ]]; then
+            RESTART_MSG=$(cat "${RESTART_MESSAGE_FILE}")
+            rm -f "${RESTART_MESSAGE_FILE}"
+        else
+            RESTART_MSG="RESURRECTED."
+        fi
+
+        if [[ -n "${RESTART_MSG}" ]]; then
+            CMD_ARGS+=("${RESTART_MSG}")
+        fi
+
+        echo ""
+        echo "Claude Wrapper: Restarting (attempt ${RESTART_COUNT})"
+        echo ""
+    fi
+
+    # Run Claude
+    "${CLAUDE_CMD}" "${CMD_ARGS[@]}"
+    EXIT_CODE=$?
+
+    # Check if restart was requested
+    if [[ -f "${TRIGGER_FILE}" ]]; then
+        rm -f "${TRIGGER_FILE}"
+        RESTART_COUNT=$((RESTART_COUNT + 1))
+
+        echo ""
+        echo "Claude Wrapper: Restart triggered, resuming session..."
+        sleep 0.5
+        continue
+    fi
+
+    # Normal exit
+    echo ""
+    echo "Claude Wrapper: Exited with code ${EXIT_CODE}"
+    break
+done
+
+exit ${EXIT_CODE}

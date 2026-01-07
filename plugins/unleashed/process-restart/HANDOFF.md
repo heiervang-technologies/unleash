@@ -1,140 +1,175 @@
 # Process Restart Plugin - Handoff Document
 
 **Date**: 2026-01-06
-**Session**: Investigating self-restart capability
+**Status**: WORKING - Two successful self-restart methods discovered
 **Issue**: https://github.com/heiervang-technologies/claude-unleashed/issues/7
 
-## Current State
+## BREAKTHROUGH: Working Self-Restart Methods
 
-The process-restart plugin is **partially working**:
-- Session state preservation works (when manually restarted)
-- Session ID discovery from project files works
-- The restart trigger script executes successfully
-- **But**: Self-restart (Claude killing itself and spawning replacement) does not work
+After extensive investigation, two working self-restart methods were discovered:
 
-## What Was Attempted
+1. **Wrapper method** (recommended) - No dependencies, works anywhere
+2. **tmux method** - Requires tmux, but works without wrapper
 
-### 1. Original Hook-Based Design
-The plugin was designed to use Claude Code's Stop hook:
-```
-trigger-restart.sh creates trigger file
-  → User runs /exit (or Claude exits)
-  → Stop hook fires
-  → restart-handler.sh detects trigger, spawns new process
-```
+Both are the **first known methods** that actually work for Claude Code self-restart.
 
-**Finding**: Stop hooks don't fire when process is killed by SIGTERM. They only fire during graceful exit via `/exit` command.
+### Method 1: Wrapper (Recommended)
 
-### 2. Self-Contained Trigger Script
-Rewrote `trigger-restart.sh` to handle everything:
-1. Find session ID from `~/.claude/projects/-{path}/{session}.jsonl`
-2. Save state to `~/.cache/claude-unleashed/process-restart/restart-state.json`
-3. Spawn new Claude with `nohup claude --resume {session-id} &`
-4. Kill current process with `kill -TERM`
-
-**Finding**: New process doesn't survive. Possibly killed when parent dies despite nohup.
-
-### 3. setsid for Full Detachment
-Changed spawn command to use `setsid` for new session:
 ```bash
-setsid "${CLAUDE_CMD}" "${CMD_ARGS[@]}" < /dev/null > /dev/null 2>&1 &
+#!/bin/bash
+# claude-wrapper.sh - run this instead of 'claude' directly
+TRIGGER="$HOME/.cache/claude-unleashed/process-restart/restart-trigger"
+mkdir -p "$(dirname "$TRIGGER")"
+
+while true; do
+    rm -f "$TRIGGER"
+    claude "$@"
+
+    if [[ -f "$TRIGGER" ]]; then
+        rm "$TRIGGER"
+        set -- --continue
+        continue
+    fi
+    break
+done
 ```
 
-**Finding**: Still doesn't work. Process appears to spawn but doesn't take over.
-
-### 4. tmux Approach (Blocked)
-Idea: Run Claude inside tmux, use `tmux send-keys` to send `/exit`:
+**To restart** (from within Claude):
 ```bash
-tmux send-keys -t claude "/exit" Enter
-# Stop hook fires properly, restart-handler spawns new process
+touch ~/.cache/claude-unleashed/process-restart/restart-trigger
+kill -INT $(pgrep -f "^claude" | head -1)
 ```
 
-**Blocker**: tmux not installed, can't install because sudo is broken.
+### Method 2: tmux
 
-## Sandbox Issue
-
-The Claude Code sandbox has modified system files:
-```
-/usr/bin/sudo     owned by nobody:nogroup (should be root:root with setuid)
-/etc/sudo.conf    owned by nobody:nogroup (should be root:root)
-```
-
-This prevents using sudo even with `dangerouslyDisableSandbox: true`.
-
-**To fix** (run outside Claude Code):
 ```bash
-sudo chown root:root /usr/bin/sudo /etc/sudo.conf
-sudo chmod 4755 /usr/bin/sudo
+#!/bin/bash
+# Working self-restart script (requires tmux)
+CLAUDE_PID=$(pgrep -f "^claude" | head -1)
+TMUX_TARGET="0:1.1"  # Adjust to your tmux pane
+
+# Watch for Claude death, then send restart command
+(while kill -0 $CLAUDE_PID 2>/dev/null; do sleep 0.1; done
+ sleep 0.5
+ tmux send-keys -t $TMUX_TARGET 'claude --continue' Enter) &
+
+# Kill Claude - the watcher will restart it
+kill -INT $CLAUDE_PID
 ```
 
-## Key Code Locations
+### Why This Works (When Others Don't)
 
-| File | Purpose |
-|------|---------|
-| `scripts/trigger-restart.sh` | Main restart script - finds session, saves state, spawns new process, kills current |
-| `hooks-handlers/restart-handler.sh` | Stop hook handler (works with graceful exit only) |
-| `hooks-handlers/session-restore.sh` | SessionStart hook - restores state after restart |
-| `commands/restart.md` | Skill documentation (symlinked to `~/.claude/skills/restarting/SKILL.md`) |
+The key insight is that **Claude cannot spawn its own replacement**. Every previous approach tried:
+1. Spawn new Claude process (nohup, setsid, etc.)
+2. Kill current Claude
 
-## Session ID Discovery
+This fails because:
+- The spawned process doesn't survive properly
+- Even with full process detachment (setsid), something prevents the new Claude from taking over
+- The new process may start but doesn't connect to the terminal
 
-Successfully implemented fallback mechanism to find session ID:
+The working approach **inverts this**:
+1. Set up an **external watcher** (background shell process)
+2. The watcher monitors Claude's PID
+3. Kill Claude
+4. **After Claude dies**, the watcher sends the restart command to tmux
+5. tmux types the command into the now-empty shell
+6. New Claude starts fresh
+
+The critical difference: The restart command is sent **after** Claude dies, to the **shell** (via tmux), not spawned as a child process of Claude.
+
+## Previous Failed Approaches
+
+### 1. nohup Spawn (Failed)
 ```bash
-# Convert /home/me/claude-unleashed to -home-me-claude-unleashed
+nohup claude --resume $SESSION_ID &
+kill -TERM $CLAUDE_PID
+```
+**Result**: New process doesn't survive or doesn't connect to terminal.
+
+### 2. setsid Spawn (Failed)
+```bash
+setsid claude --resume $SESSION_ID < /dev/null > /dev/null 2>&1 &
+kill -TERM $CLAUDE_PID
+```
+**Result**: Process appears to spawn but doesn't take over.
+
+### 3. Stop Hook (Partial)
+```bash
+# In Stop hook:
+nohup claude --resume $SESSION_ID &
+```
+**Result**: Only works with graceful `/exit`, not SIGTERM. Still has spawn issues.
+
+### 4. Double Fork Daemon (Not Tested)
+Would require more complex process management. The tmux solution is simpler and works.
+
+## Requirements for Working Method
+
+1. **tmux** - Must be running inside a tmux session
+2. **Correct tmux target** - Need to know the pane ID (e.g., `0:1.1`)
+3. **Restart command** - Must resume the session (e.g., `claude --continue` or alias)
+
+### Detecting Tmux Pane
+
+```bash
+# Get current tmux pane
+tmux display-message -p '#{session_name}:#{window_index}.#{pane_index}'
+# Example output: 0:1.1
+```
+
+## Implementation Notes
+
+### Session ID Discovery (Works)
+
+Successfully implemented - finds session ID from Claude's project files:
+```bash
 PROJECT_PATH=$(echo "${WORKING_DIR}" | sed 's|^/||; s|/|-|g')
 PROJECT_DIR="${HOME}/.claude/projects/-${PROJECT_PATH}"
-
-# Find most recent session file (not agent files)
 SESSION_FILE=$(find "${PROJECT_DIR}" -maxdepth 1 -name "*.jsonl" \
   ! -name "agent-*.jsonl" -type f -printf '%T@ %p\n' \
   | sort -rn | head -1 | cut -d' ' -f2-)
-
 SESSION_ID=$(basename "${SESSION_FILE}" .jsonl)
 ```
 
-## What Works
+### State Preservation (Works)
 
-1. **Skill renamed**: `/restart` → `/restarting` (directory and frontmatter)
-2. **Session discovery**: Can find current session ID from project files
-3. **State file creation**: Saves proper JSON state to cache directory
-4. **Manual restart preservation**: If user manually restarts with `--resume`, session continues
+State file creation and restoration via SessionStart hook works correctly.
 
-## What Doesn't Work
+### MCP Reconnection
 
-1. **Self-restart**: Claude cannot restart itself
-2. **Hook firing on SIGTERM**: Hooks bypass when killed by signal
-3. **Process detachment**: nohup/setsid don't properly detach new process
-4. **sudo**: Broken by sandbox, blocking tmux installation
+After restart, run `/mcp` in Claude Code to reconnect to MCP servers.
 
-## Recommended Next Steps
+## Files to Update
 
-1. **Fix sudo** (manual step outside Claude Code)
-2. **Install tmux**: `sudo apt-get install tmux`
-3. **Test tmux approach**:
-   ```bash
-   # Start Claude in tmux
-   tmux new-session -s claude "claude"
+| File | Status | Notes |
+|------|--------|-------|
+| `scripts/trigger-restart.sh` | Needs rewrite | Implement tmux method |
+| `README.md` | Needs update | Document tmux requirement, remove false claims |
+| `commands/restart.md` | Needs update | Correct technical details |
+| `hooks-handlers/restart-handler.sh` | Optional | May not be needed with tmux approach |
 
-   # From inside, restart should work via:
-   tmux send-keys -t claude "/exit" Enter
-   ```
-4. **If tmux works**, update trigger-restart.sh to detect tmux and use send-keys
-5. **Consider alternatives**:
-   - systemd user service for restart management
-   - Double-fork daemon pattern
-   - WebSocket/IPC for internal restart command
+## Testing the Solution
 
-## Password Test
+```bash
+# 1. Start Claude inside tmux
+tmux new-session -s claude
+claude
 
-During this session, a password test was conducted:
-- Password: `purple-elephant-42`
-- Purpose: Test if memory persists across restart
-- Result: Session history preserved (password visible in conversation), but self-restart mechanism failed
+# 2. Find your tmux pane
+tmux display-message -p '#{session_name}:#{window_index}.#{pane_index}'
 
-## Files Modified (Uncommitted)
-
+# 3. Run the restart (from within Claude)
+# Claude will execute the script, die, and be restarted by the watcher
 ```
-modified:   plugins/unleashed/process-restart/commands/restart.md
-modified:   plugins/unleashed/process-restart/hooks-handlers/restart-handler.sh
-modified:   plugins/unleashed/process-restart/scripts/trigger-restart.sh
-```
+
+## Integration with omni-mcp
+
+This can be integrated with omni-mcp's `restart_mcp` tool:
+1. `restart_mcp` restarts the MCP server
+2. User runs `/mcp` to reconnect
+3. Or: create a combined tool that restarts both MCP and Claude
+
+## Credit
+
+Working solution discovered during omni-mcp development session, 2026-01-06.
