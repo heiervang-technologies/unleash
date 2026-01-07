@@ -1,0 +1,81 @@
+#!/usr/bin/env bash
+# unleash - Apply Claude Unleashed patches to Claude Code
+#
+# Usage:
+#   unleash          - Apply all patches
+#   unleash patch    - Apply patches (same as no args)
+#   unleash unpatch  - Restore original Claude Code
+#   unleash status   - Check patch status
+
+set -euo pipefail
+
+# Resolve symlinks to get actual script directory
+SOURCE="${BASH_SOURCE[0]}"
+while [ -L "$SOURCE" ]; do
+    DIR="$(cd -P "$(dirname "$SOURCE")" && pwd)"
+    SOURCE="$(readlink "$SOURCE")"
+    [[ $SOURCE != /* ]] && SOURCE="$DIR/$SOURCE"
+done
+SCRIPT_DIR="$(cd -P "$(dirname "$SOURCE")" && pwd)"
+PLUGIN_DIR="$(dirname "$SCRIPT_DIR")"
+
+show_help() {
+    echo "unleash - Apply Claude Unleashed patches to Claude Code"
+    echo ""
+    echo "Usage:"
+    echo "  unleash          Apply all patches"
+    echo "  unleash patch    Apply patches (same as no args)"
+    echo "  unleash unpatch  Restore original Claude Code"
+    echo "  unleash status   Check patch status"
+    echo "  unleash help     Show this help"
+}
+
+check_status() {
+    CLAUDE_BIN=$(which claude 2>/dev/null || echo "")
+    if [[ -z "$CLAUDE_BIN" ]]; then
+        echo "Claude Code: NOT FOUND"
+        return 1
+    fi
+
+    CLAUDE_REAL=$(readlink -f "$CLAUDE_BIN")
+    CLAUDE_DIR=$(dirname "$CLAUDE_REAL")
+    CLI_JS="$CLAUDE_DIR/cli.js"
+
+    echo "Claude Code: $CLAUDE_DIR"
+
+    if grep -q 'CT=\[.*"auto"' "$CLI_JS" 2>/dev/null; then
+        echo "Auto mode patch: APPLIED"
+    else
+        echo "Auto mode patch: NOT APPLIED"
+    fi
+
+    # Check for backups
+    BACKUP_COUNT=$(ls "$CLI_JS.backup."* 2>/dev/null | wc -l || echo "0")
+    echo "Backups: $BACKUP_COUNT"
+}
+
+case "${1:-patch}" in
+    patch|"")
+        echo "=== Claude Unleashed Patcher ==="
+        echo ""
+        "$SCRIPT_DIR/patch-claude.sh"
+        ;;
+    unpatch|restore)
+        echo "=== Claude Unleashed Unpatcher ==="
+        echo ""
+        "$SCRIPT_DIR/unpatch-claude.sh"
+        ;;
+    status)
+        echo "=== Claude Unleashed Status ==="
+        echo ""
+        check_status
+        ;;
+    help|--help|-h)
+        show_help
+        ;;
+    *)
+        echo "Unknown command: $1"
+        show_help
+        exit 1
+        ;;
+esac
