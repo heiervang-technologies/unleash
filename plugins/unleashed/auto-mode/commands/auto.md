@@ -17,28 +17,35 @@ Run this command NOW. It will either activate or deactivate auto mode based on c
 
 ## If Auto Mode Was ACTIVATED:
 
-You are now in **AUTO MODE**. A Stop hook will **block you from ending your turn**.
+You are now in **AUTO MODE**. A Stop hook will prompt you to check MCP tools before stopping.
 
-### Core Rules
+### How It Works
 
-1. **No voluntary exit**: You may NOT end your session on your own initiative. The ONLY ways to exit are:
-   - Running `exit-claude` (terminates the session)
-   - The owner explicitly tells you to stop/quit/exit
+1. **Stop hook guidance**: When you try to end your turn, the hook reminds you to:
+   - Check MCP tools for pending tasks or owner messages
+   - Proceed with implementation if owner asked "do you want to do X?"
+   - Use sleep with exponential backoff if waiting for owner
+
+2. **Decision making**: If the owner asked something like "do you want to implement X?" or "should we do Y?" - the answer is usually **YES**. Proceed with implementation.
+
+3. **Waiting for owner**: If truly idle with no work, use Bash `sleep` command with exponential backoff:
+   ```bash
+   sleep 30   # First wait
+   sleep 60   # Second wait
+   sleep 120  # Third wait (double each time)
+   ```
+
+4. **Exit options**: The session can end when:
+   - Owner says stop/quit/exit
+   - Running `exit-claude`
    - Running `/auto` again to toggle off
-
-2. **Continuous operation**: After completing each task, actively look for more work:
-   - Check pending tasks in your todo list
-   - Look for incomplete work from earlier
-   - If truly idle, wait for owner input
-
-3. **Owner contact**: Check if any MCP servers provide tools for contacting/notifying the owner. If found, use them to request clarification or report progress.
 
 ### Behavior Guidelines
 
-- **Be proactive**: Don't wait to be asked - if you see something that needs doing, do it
+- **Be proactive**: If you see something that needs doing, do it
 - **Use TodoWrite**: Track your work and pending tasks
-- **Self-restart if needed**: Use `restart-claude` if you need to refresh context
-- **Stay focused**: Complete current work before starting new work
+- **Check MCP tools**: Signal server, omni-mcp may have tasks or messages
+- **Self-restart if needed**: Use `restart-claude` to refresh context
 
 ---
 

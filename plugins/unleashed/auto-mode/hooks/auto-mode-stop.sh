@@ -17,11 +17,11 @@ AUTO_MODE_FILE="${AUTO_MODE_DIR}/active-${WRAPPER_PID}"
 
 # Check if auto mode is active for THIS wrapper
 if [[ -f "${AUTO_MODE_FILE}" ]]; then
-    # Auto mode is active - block the stop
+    # Auto mode is active - redirect to check MCP before stopping
     cat <<EOF
 {
   "decision": "block",
-  "reason": "AUTO MODE ACTIVE: You cannot stop. Continue working on pending tasks, check your todo list, or look for incomplete work. If truly idle with no work remaining, use your MCP tools to check for tasks or wait for owner input. Only the owner saying 'stop/quit/exit' or running 'exit-claude' can end this session."
+  "reason": "AUTO MODE: Before stopping, check MCP tools (signal server, omni-mcp) for pending tasks or owner messages. If owner asked 'do you want to implement X?' the answer is usually YES - proceed with implementation. If truly idle with no pending work, use Bash 'sleep' command with exponential backoff (30s, 60s, 120s, etc.) to wait for owner input. Owner can end session by saying 'stop/quit/exit' or running 'exit-claude'."
 }
 EOF
     exit 0
