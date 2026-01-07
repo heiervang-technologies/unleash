@@ -930,13 +930,21 @@ pub struct LaunchRequest {
 
 impl LaunchRequest {
     pub fn execute(&self) -> io::Result<std::process::ExitStatus> {
+        use std::os::unix::process::CommandExt;
+
         let mut cmd = Command::new(&self.claude_path);
 
         for (key, value) in &self.profile.env {
             cmd.env(key, value);
         }
 
-        cmd.env("CLAUDE_WRAPPER_PID", std::process::id().to_string());
+        let wrapper_pid = std::process::id();
+        cmd.env("CLAUDE_WRAPPER_PID", wrapper_pid.to_string());
+
+        // Set process name to include wrapper PID for identification
+        // Format: "claude:<pid>" - allows correlating with conversation later
+        cmd.arg0(format!("claude:{}", wrapper_pid));
+
         cmd.args(&self.claude_args);
         cmd.status()
     }
