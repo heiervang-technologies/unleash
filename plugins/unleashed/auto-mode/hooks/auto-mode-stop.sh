@@ -21,7 +21,7 @@ if [[ -f "${AUTO_MODE_FILE}" ]]; then
     cat <<EOF
 {
   "decision": "block",
-  "reason": "AUTO MODE (ctrl+tab to cycle): Check MCP tools for pending tasks. If owner asked 'do you want to implement X?' - YES, proceed. If idle, use sleep with exponential backoff (30s, 60s, 120s). To exit: run exit-claude"
+  "reason": "AUTO MODE: Check MCP tools for pending tasks. If owner asked 'do you want to implement X?' - YES, proceed. If idle, use sleep with exponential backoff (30s, 60s, 120s). To exit: run exit-claude"
 }
 EOF
     exit 0
