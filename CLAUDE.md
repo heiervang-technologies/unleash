@@ -2,6 +2,52 @@
 
 This file provides context and instructions for AI agents (including Claude, GitHub Copilot, and Snail agents) working on the Claude Unleashed repository.
 
+## Self-Restart Capability
+
+**IMPORTANT**: If you are running under the `claude-unleashed` wrapper, you can restart yourself to reload MCP servers, apply configuration changes, or recover from issues.
+
+### How to Check if You Can Restart
+
+Check the environment variable:
+```bash
+echo $CLAUDE_UNLEASHED
+```
+If it returns `1`, you are running under the wrapper and can restart.
+
+### How to Restart Yourself
+
+Run this command via Bash:
+```bash
+restart-claude
+```
+
+Or with a custom message to receive after restart:
+```bash
+restart-claude "Continue working on the feature"
+```
+
+### What Happens When You Restart
+
+1. Your session is preserved (`--continue` flag added automatically)
+2. You receive the message "RESURRECTED." (or your custom message)
+3. MCP servers are reloaded with current configuration
+4. You can continue where you left off
+
+### When to Restart
+
+- After MCP configuration changes (`.mcp.json` modified)
+- When MCP servers become unresponsive
+- To apply new plugin settings
+- When instructed by the user
+
+### Files Reference
+
+| File | Purpose |
+|------|---------|
+| `plugins/unleashed/process-restart/scripts/restart-claude` | Restart command |
+| `plugins/unleashed/process-restart/scripts/exit-claude` | Exit without restart |
+| `plugins/unleashed/process-restart/scripts/claude-unleashed` | The wrapper script |
+
 ## Repository Overview
 
 **Claude Unleashed** is a fork of Anthropic's official Claude Code CLI that extends functionality through a plugin-first architecture while maintaining zero-conflict upstream synchronization.
