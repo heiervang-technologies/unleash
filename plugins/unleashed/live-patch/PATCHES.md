@@ -2,6 +2,27 @@
 
 This document describes all patches applied to the Claude Code `cli.js` bundle.
 
+## ⚠️ Important: Patches Are Optional
+
+**Auto mode works without any patches!** The `/auto` skill and Stop hook system function independently of these patches.
+
+### What Patches Add (Optional Enhancements)
+- Yellow `»»` visual indicator in the UI
+- Permission bypass (no approval prompts)
+- Shift+tab cycling includes auto mode
+- CLI ↔ flag file synchronization
+
+### What Works Without Patches
+- `/auto` skill to toggle auto mode
+- Stop hook enforcement (keeps Claude working)
+- Flag file detection
+- All core auto mode functionality
+
+### Legal Note
+Modifying Claude Code may violate Anthropic's Terms of Service (Section D.4 prohibits reverse engineering). These patches are provided for educational purposes. Use at your own discretion.
+
+---
+
 ## Overview
 
 The live-patch plugin modifies the installed Claude Code to add features not available upstream. Patches are applied via `sed` replacements on the bundled `cli.js` file.
@@ -138,6 +159,36 @@ case"acceptEdits":return"autoAccept";case"auto":return"warning";case"bypassPermi
 ```
 
 **Effect:** Auto mode displays in yellow (warning color) instead of grey.
+
+---
+
+### Patch 7: Flag File Integration
+
+**Purpose:** Sync CLI auto mode with the Stop hook system by creating/removing flag files.
+
+#### Patch 7a: Create Flag on Enter
+**Pattern:**
+```
+if(j1==="acceptEdits")v9("auto-accept-mode")
+```
+**Replacement:**
+```
+if(j1==="acceptEdits")v9("auto-accept-mode");if(j1==="auto"){let _d=process.env.HOME+"/.cache/claude-unleashed/auto-mode";l9.mkdirSync(_d,{recursive:!0});l9.writeFileSync(_d+"/active-"+process.ppid,"")}
+```
+
+#### Patch 7b: Remove Flag on Leave
+**Pattern:**
+```
+if(B.mode==="delegate"&&j1!=="delegate")YP0(!0),chA(!0)
+```
+**Replacement:**
+```
+if(B.mode==="delegate"&&j1!=="delegate")YP0(!0),chA(!0);if(B.mode==="auto"&&j1!=="auto"){try{l9.unlinkSync(process.env.HOME+"/.cache/claude-unleashed/auto-mode/active-"+process.ppid)}catch(_e){}}
+```
+
+**Effect:** When entering auto mode via shift+tab, a flag file is created at `~/.cache/claude-unleashed/auto-mode/active-<PID>`. When leaving auto mode, the flag file is removed. This integrates the CLI mode with the Stop hook enforcement system.
+
+**Note:** Uses `l9` which is the bundle's reference to the `fs` module (ESM compatible).
 
 ---
 
