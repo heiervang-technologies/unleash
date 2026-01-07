@@ -83,6 +83,20 @@ echo "Patch 5c: Patched mode||V permission checks"
 sed -i 's/case"acceptEdits":return"autoAccept";case"bypassPermissions":return"error"/case"acceptEdits":return"autoAccept";case"auto":return"warning";case"bypassPermissions":return"error"/g' "$TEMP_FILE"
 echo "Patch 6: Added yellow/warning color for auto mode"
 
+# Patch 7: Create/remove flag file when entering/leaving auto mode
+# This integrates the CLI auto mode with the Stop hook enforcement
+# When entering auto mode: create flag file
+# When leaving auto mode: remove flag file
+
+# Use | as delimiter to avoid issues with / in paths
+# Flag creation code (minified)
+sed -i 's|if(j1==="acceptEdits")v9("auto-accept-mode")|if(j1==="acceptEdits")v9("auto-accept-mode");if(j1==="auto"){let _d=process.env.HOME+"/\.cache/claude-unleashed/auto-mode";l9.mkdirSync(_d,{recursive:\!0});l9.writeFileSync(_d+"/active-"+process.ppid,"")}|g' "$TEMP_FILE"
+echo "Patch 7a: Inject flag file creation on entering auto mode"
+
+# Flag removal code (minified)
+sed -i 's|if(B\.mode==="delegate"\&\&j1!=="delegate")YP0(\!0),chA(\!0)|if(B.mode==="delegate"\&\&j1!=="delegate")YP0(\!0),chA(\!0);if(B.mode==="auto"\&\&j1!=="auto"){try{l9.unlinkSync(process.env.HOME+"/\.cache/claude-unleashed/auto-mode/active-"+process.ppid)}catch(_e){}}|g' "$TEMP_FILE"
+echo "Patch 7b: Inject flag file removal on leaving auto mode"
+
 # Verify patches applied
 if ! grep -q 'CT=\[.*"auto"' "$TEMP_FILE"; then
     echo "Error: Patch verification failed - auto mode not found in modes array"
