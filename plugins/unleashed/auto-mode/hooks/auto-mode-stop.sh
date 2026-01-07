@@ -21,7 +21,7 @@ if [[ -f "${AUTO_MODE_FILE}" ]]; then
     cat <<EOF
 {
   "decision": "block",
-  "reason": "AUTO MODE: Before stopping, check MCP tools (signal server, omni-mcp) for pending tasks or owner messages. If owner asked 'do you want to implement X?' the answer is usually YES - proceed with implementation. If truly idle with no pending work, use Bash 'sleep' command with exponential backoff (30s, 60s, 120s, etc.) to wait for owner input. To end this session yourself, run: exit-claude"
+  "reason": "AUTO MODE (ctrl+tab to cycle): Check MCP tools for pending tasks. If owner asked 'do you want to implement X?' - YES, proceed. If idle, use sleep with exponential backoff (30s, 60s, 120s). To exit: run exit-claude"
 }
 EOF
     exit 0
