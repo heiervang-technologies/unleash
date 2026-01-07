@@ -23,11 +23,14 @@ if ! kill -0 "${CLAUDE_PID}" 2>/dev/null; then
     exit 1
 fi
 
-# Deactivate auto mode if active
-AUTO_MODE_FILE="${HOME}/.cache/claude-unleashed/auto-mode/active"
-if [[ -f "${AUTO_MODE_FILE}" ]]; then
-    rm -f "${AUTO_MODE_FILE}"
-    echo "Auto mode deactivated."
+# Deactivate auto mode if active (wrapper-specific)
+WRAPPER_PID="${CLAUDE_WRAPPER_PID:-}"
+if [[ -n "${WRAPPER_PID}" ]]; then
+    AUTO_MODE_FILE="${HOME}/.cache/claude-unleashed/auto-mode/active-${WRAPPER_PID}"
+    if [[ -f "${AUTO_MODE_FILE}" ]]; then
+        rm -f "${AUTO_MODE_FILE}"
+        echo "Auto mode deactivated."
+    fi
 fi
 
 # Kill Claude - no trigger file means wrapper will exit

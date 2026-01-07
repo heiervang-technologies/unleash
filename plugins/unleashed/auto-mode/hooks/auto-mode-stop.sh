@@ -1,18 +1,22 @@
 #!/usr/bin/env bash
-# auto-mode-stop.sh - Stop hook that enforces auto mode
+# auto-mode-stop.sh - Stop hook that enforces auto mode (wrapper-specific)
 #
-# When auto mode is active, this hook blocks Claude from stopping
-# and forces it to continue working.
+# When auto mode is active for THIS wrapper, this hook blocks Claude from stopping.
 
 set -uo pipefail
 
-AUTO_MODE_FILE="${HOME}/.cache/claude-unleashed/auto-mode/active"
+AUTO_MODE_DIR="${HOME}/.cache/claude-unleashed/auto-mode"
 
-# Check if auto mode is active
+# Get wrapper PID - if not set, allow stop (not running under wrapper)
+WRAPPER_PID="${CLAUDE_WRAPPER_PID:-}"
+if [[ -z "${WRAPPER_PID}" ]]; then
+    exit 0
+fi
+
+AUTO_MODE_FILE="${AUTO_MODE_DIR}/active-${WRAPPER_PID}"
+
+# Check if auto mode is active for THIS wrapper
 if [[ -f "${AUTO_MODE_FILE}" ]]; then
-    # Read the session ID from the file to ensure we're in the right session
-    STORED_SESSION=$(cat "${AUTO_MODE_FILE}" 2>/dev/null || echo "")
-
     # Auto mode is active - block the stop
     cat <<EOF
 {

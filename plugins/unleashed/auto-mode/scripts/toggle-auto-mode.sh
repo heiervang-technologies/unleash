@@ -1,11 +1,18 @@
 #!/usr/bin/env bash
-# toggle-auto-mode.sh - Toggle auto mode on/off
+# toggle-auto-mode.sh - Toggle auto mode on/off (wrapper-specific)
 
 set -uo pipefail
 
 AUTO_MODE_DIR="${HOME}/.cache/claude-unleashed/auto-mode"
-AUTO_MODE_FILE="${AUTO_MODE_DIR}/active"
 
+# Use wrapper-specific flag file for session isolation
+WRAPPER_PID="${CLAUDE_WRAPPER_PID:-}"
+if [[ -z "${WRAPPER_PID}" ]]; then
+    echo "Error: CLAUDE_WRAPPER_PID not set. Run under claude-unleashed wrapper."
+    exit 1
+fi
+
+AUTO_MODE_FILE="${AUTO_MODE_DIR}/active-${WRAPPER_PID}"
 mkdir -p "${AUTO_MODE_DIR}"
 
 if [[ -f "${AUTO_MODE_FILE}" ]]; then
