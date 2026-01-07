@@ -57,10 +57,10 @@ case"acceptEdits":return"⏵⏵";case"bypassPermissions":return"⏵⏵"
 
 **Replacement:**
 ```
-case"acceptEdits":return"⏵⏵";case"auto":return"»";case"bypassPermissions":return"⏵⏵"
+case"acceptEdits":return"⏵⏵";case"auto":return"»»";case"bypassPermissions":return"⏵⏵"
 ```
 
-**Effect:** Auto mode shows "»" icon instead of "⏵⏵".
+**Effect:** Auto mode shows "»»" (double guillemet) icon instead of "⏵⏵".
 
 ---
 
@@ -87,17 +87,39 @@ case"bypassPermissions":return"auto";case"auto":return"default"
 
 **Purpose:** Make auto mode behave like bypassPermissions for tool permissions.
 
+Multiple patterns are patched:
+
+#### Patch 5a: Main Permission Allow Check
 **Pattern:**
 ```
-if(Q.mode==="bypassPermissions")
+Z.toolPermissionContext.mode==="bypassPermissions"||Z.toolPermissionContext.mode==="plan"
 ```
-
 **Replacement:**
 ```
-if(Q.mode==="bypassPermissions"||Q.mode==="auto")
+Z.toolPermissionContext.mode==="bypassPermissions"||Z.toolPermissionContext.mode==="auto"||Z.toolPermissionContext.mode==="plan"
 ```
 
-**Effect:** Auto mode bypasses permission prompts just like bypassPermissions mode.
+#### Patch 5b: Q.mode Passthrough Check
+**Pattern:**
+```
+Q.mode==="bypassPermissions"
+```
+**Replacement:**
+```
+Q.mode==="bypassPermissions"||Q.mode==="auto"
+```
+
+#### Patch 5c: Mode||V Permission Checks
+**Pattern:**
+```
+mode==="bypassPermissions"||V)
+```
+**Replacement:**
+```
+mode==="bypassPermissions"||mode==="auto"||V)
+```
+
+**Effect:** Auto mode bypasses permission prompts just like bypassPermissions mode across all permission check locations.
 
 ---
 

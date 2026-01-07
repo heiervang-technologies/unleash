@@ -50,10 +50,10 @@ echo "Patch 1: Added 'auto' to modes array"
 sed -i 's/case"bypassPermissions":return"Bypass Permissions"/case"auto":return"Auto Mode";case"bypassPermissions":return"Bypass Permissions"/g' "$TEMP_FILE"
 echo "Patch 2: Added display name for auto mode"
 
-# Patch 3: Add icon for auto mode (use rocket »)
-# case"bypassPermissions":return"⏵⏵" -> add case"auto":return"»";case"bypassPermissions"...
-sed -i 's/case"acceptEdits":return"⏵⏵";case"bypassPermissions":return"⏵⏵"/case"acceptEdits":return"⏵⏵";case"auto":return"»";case"bypassPermissions":return"⏵⏵"/g' "$TEMP_FILE"
-echo "Patch 3: Added icon for auto mode"
+# Patch 3: Add icon for auto mode (use double guillemet »»)
+# case"bypassPermissions":return"⏵⏵" -> add case"auto":return"»»";case"bypassPermissions"...
+sed -i 's/case"acceptEdits":return"⏵⏵";case"bypassPermissions":return"⏵⏵"/case"acceptEdits":return"⏵⏵";case"auto":return"»»";case"bypassPermissions":return"⏵⏵"/g' "$TEMP_FILE"
+echo "Patch 3: Added icon for auto mode (»»)"
 
 # Patch 4: Modify cycling logic - bypassPermissions now goes to auto, auto goes to default
 # case"bypassPermissions":return"default" -> case"bypassPermissions":return"auto";case"auto":return"default"
@@ -61,13 +61,21 @@ sed -i 's/case"bypassPermissions":return"default"/case"bypassPermissions":return
 echo "Patch 4: Modified cycling logic"
 
 # Patch 5: Make auto mode behave like bypassPermissions for permission checks
-# Add auto mode to permission passthrough checks
-sed -i 's/if(Q\.mode==="bypassPermissions")/if(Q.mode==="bypassPermissions"||Q.mode==="auto")/g' "$TEMP_FILE"
-echo "Patch 5: Auto mode uses bypassPermissions behavior"
+# This needs to patch ALL places where bypassPermissions is checked for allowing tools
 
-# Patch 6: Add auto mode flag file creation when mode is set to auto
-# This is tricky - we need to inject code that creates the flag file
-# For now, we'll rely on the external toggle-auto-mode.sh to manage the flag
+# Pattern 5a: Main permission allow check - Z.toolPermissionContext.mode
+# Z.toolPermissionContext.mode==="bypassPermissions"||Z.toolPermissionContext.mode==="plan"
+# -> Z.toolPermissionContext.mode==="bypassPermissions"||Z.toolPermissionContext.mode==="auto"||Z.toolPermissionContext.mode==="plan"
+sed -i 's/Z\.toolPermissionContext\.mode==="bypassPermissions"||Z\.toolPermissionContext\.mode==="plan"/Z.toolPermissionContext.mode==="bypassPermissions"||Z.toolPermissionContext.mode==="auto"||Z.toolPermissionContext.mode==="plan"/g' "$TEMP_FILE"
+echo "Patch 5a: Patched main permission allow check"
+
+# Pattern 5b: Passthrough check - Q.mode
+sed -i 's/Q\.mode==="bypassPermissions"/Q.mode==="bypassPermissions"||Q.mode==="auto"/g' "$TEMP_FILE"
+echo "Patch 5b: Patched Q.mode passthrough check"
+
+# Pattern 5c: Mode-specific permission checks with ||V pattern
+sed -i 's/mode==="bypassPermissions"||V)/mode==="bypassPermissions"||mode==="auto"||V)/g' "$TEMP_FILE"
+echo "Patch 5c: Patched mode||V permission checks"
 
 # Verify patches applied
 if ! grep -q 'CT=\[.*"auto"' "$TEMP_FILE"; then
