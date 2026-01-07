@@ -8,7 +8,8 @@
       "code-review",
       "mcp-refresh",
       "process-restart",
-      "voice-output"
+      "voice-output",
+      "auto-mode"
     ],
     "disabled": [],
     "mcp-refresh": {
