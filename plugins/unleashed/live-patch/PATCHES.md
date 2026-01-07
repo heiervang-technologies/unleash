@@ -123,6 +123,24 @@ mode==="bypassPermissions"||mode==="auto"||V)
 
 ---
 
+### Patch 6: Auto Mode Color
+
+**Purpose:** Display auto mode in yellow/warning color in the UI.
+
+**Pattern:**
+```
+case"acceptEdits":return"autoAccept";case"bypassPermissions":return"error"
+```
+
+**Replacement:**
+```
+case"acceptEdits":return"autoAccept";case"auto":return"warning";case"bypassPermissions":return"error"
+```
+
+**Effect:** Auto mode displays in yellow (warning color) instead of grey.
+
+---
+
 ## How Auto Mode Works
 
 When auto mode is active:

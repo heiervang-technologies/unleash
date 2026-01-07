@@ -77,6 +77,12 @@ echo "Patch 5b: Patched Q.mode passthrough check"
 sed -i 's/mode==="bypassPermissions"||V)/mode==="bypassPermissions"||mode==="auto"||V)/g' "$TEMP_FILE"
 echo "Patch 5c: Patched mode||V permission checks"
 
+# Patch 6: Add color for auto mode (yellow/warning)
+# case"acceptEdits":return"autoAccept";case"bypassPermissions":return"error"
+# -> case"acceptEdits":return"autoAccept";case"auto":return"warning";case"bypassPermissions":return"error"
+sed -i 's/case"acceptEdits":return"autoAccept";case"bypassPermissions":return"error"/case"acceptEdits":return"autoAccept";case"auto":return"warning";case"bypassPermissions":return"error"/g' "$TEMP_FILE"
+echo "Patch 6: Added yellow/warning color for auto mode"
+
 # Verify patches applied
 if ! grep -q 'CT=\[.*"auto"' "$TEMP_FILE"; then
     echo "Error: Patch verification failed - auto mode not found in modes array"
