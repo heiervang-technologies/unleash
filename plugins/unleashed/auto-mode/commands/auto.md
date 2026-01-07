@@ -3,9 +3,23 @@ name: auto
 description: Enter autonomous mode - Claude continues working until owner contact or explicit exit
 ---
 
+# AUTONOMOUS MODE ACTIVATION
+
+**IMPORTANT: First, activate the auto mode flag by running this command:**
+
+```bash
+~/claude-unleashed/plugins/unleashed/auto-mode/scripts/activate-auto-mode.sh
+```
+
+Run this command NOW before proceeding. This enables the Stop hook that enforces auto mode.
+
+---
+
 # AUTONOMOUS MODE ACTIVATED
 
 You are now in **AUTO MODE**. This changes your operational behavior significantly.
+
+A Stop hook is now active that will **block you from ending your turn** unless the owner tells you to stop.
 
 ## Core Rules
 
