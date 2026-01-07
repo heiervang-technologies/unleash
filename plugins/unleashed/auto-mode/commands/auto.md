@@ -57,7 +57,13 @@ You have exited auto mode. Normal operation resumes - you can end your turn when
 
 ## After Running Toggle
 
-Report the new state and, if auto mode is now active:
-1. List any MCP contact/notification tools found (or state none available)
-2. State your current task status
-3. Ask for work if nothing pending
+Report the new state and:
+
+1. **Sync visual indicator** (if patches installed):
+   - If toggled ON: Tell user "Press shift+tab until you see yellow »» indicator"
+   - If toggled OFF: Tell user "Press shift+tab to cycle away from auto mode"
+
+2. If auto mode is now active:
+   - List any MCP contact/notification tools found (or state none available)
+   - State your current task status
+   - Ask for work if nothing pending
