@@ -9,8 +9,8 @@
 #   2. When Claude exits, checking for a restart trigger file
 #   3. If trigger exists, restarting Claude with --continue
 #
-# To restart, Claude creates the trigger file and kills itself:
-#   touch ~/.cache/claude-unleashed/restart-trigger && kill -INT $(pgrep -f "^claude" | head -1)
+# To restart from within Claude, simply run:
+#   restart-claude
 #
 # Version: 1.0.0 (2026-01-06)
 
@@ -18,11 +18,16 @@ set -uo pipefail
 
 # Configuration
 CACHE_DIR="${HOME}/.cache/claude-unleashed/process-restart"
-TRIGGER_FILE="${CACHE_DIR}/restart-trigger"
-RESTART_MESSAGE_FILE="${CACHE_DIR}/restart-message"
+WRAPPER_PID=$$
+TRIGGER_FILE="${CACHE_DIR}/restart-trigger-${WRAPPER_PID}"
+RESTART_MESSAGE_FILE="${CACHE_DIR}/restart-message-${WRAPPER_PID}"
 
 # Default Claude command
 CLAUDE_CMD="${CLAUDE_CMD:-claude}"
+
+# Export marker so scripts know we're in the wrapper
+export CLAUDE_UNLEASHED=1
+export CLAUDE_WRAPPER_PID=${WRAPPER_PID}
 
 # Ensure cache directory exists
 mkdir -p "${CACHE_DIR}"
@@ -30,9 +35,8 @@ mkdir -p "${CACHE_DIR}"
 # Clean up any stale trigger files on start
 rm -f "${TRIGGER_FILE}" "${RESTART_MESSAGE_FILE}"
 
-echo "Claude Wrapper: Starting (restart-enabled)"
-echo "  Trigger file: ${TRIGGER_FILE}"
-echo "  To restart: touch ${TRIGGER_FILE} && kill -INT \$(pgrep -f '^claude' | head -1)"
+echo "Claude Unleashed: Starting (restart-enabled, PID ${WRAPPER_PID})"
+echo "  To restart from Claude: restart-claude"
 echo ""
 
 # Track if this is a restart
