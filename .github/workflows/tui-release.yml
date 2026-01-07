@@ -1,0 +1,54 @@
+name: TUI Release
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'tui/**'
+      - '.github/workflows/tui-release.yml'
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Build release
+        working-directory: tui
+        run: cargo build --release
+
+      - name: Get version
+        id: version
+        working-directory: tui
+        run: |
+          VERSION=$(grep '^version' Cargo.toml | head -1 | sed 's/.*"\(.*\)".*/\1/')
+          SHORT_SHA=$(git rev-parse --short HEAD)
+          echo "version=${VERSION}" >> $GITHUB_OUTPUT
+          echo "tag=tui-v${VERSION}-${SHORT_SHA}" >> $GITHUB_OUTPUT
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.version.outputs.tag }}
+          name: TUI ${{ steps.version.outputs.version }} (${{ steps.version.outputs.tag }})
+          body: |
+            Automated release of Claude Unleashed TUI.
+
+            **Binary:** `unleashed-tui` (Linux x86_64)
+
+            Download and make executable:
+            ```bash
+            chmod +x unleashed-tui
+            ./unleashed-tui
+            ```
+          files: |
+            tui/target/release/unleashed-tui
+          draft: false
+          prerelease: false
