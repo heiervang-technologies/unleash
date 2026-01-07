@@ -36,6 +36,8 @@ pub enum EditField {
     ProfileDescription,
     EnvKey,
     EnvValue,
+    ClaudePath,
+    ClaudeArgs,
 }
 
 /// Main application state
@@ -44,6 +46,7 @@ pub struct App {
     pub screen: Screen,
     pub main_menu: MenuState,
     pub profile_menu: MenuState,
+    pub settings_menu: MenuState,
     pub profile_manager: ProfileManager,
     pub app_config: AppConfig,
     pub profiles: Vec<Profile>,
@@ -79,6 +82,7 @@ impl App {
             screen: Screen::Main,
             main_menu: MenuState::new(4),
             profile_menu: MenuState::new(profiles.len()),
+            settings_menu: MenuState::new(2), // Entry Point, Arguments
             profile_manager,
             app_config,
             profiles,
@@ -169,6 +173,7 @@ impl App {
             EditField::EnvKey => &mut self.key_input,
             EditField::EnvValue => &mut self.value_input,
             EditField::ProfileName | EditField::ProfileDescription => &mut self.key_input,
+            EditField::ClaudePath | EditField::ClaudeArgs => &mut self.key_input,
             EditField::None => return None,
         };
 
@@ -197,6 +202,23 @@ impl App {
                         self.save_env_var();
                         self.edit_field = EditField::None;
                         self.screen = Screen::ProfileEdit;
+                    }
+                    EditField::ClaudePath => {
+                        // Save claude_path
+                        self.app_config.claude_path = self.key_input.value.clone();
+                        let _ = self.profile_manager.save_app_config(&self.app_config);
+                        self.status_message = Some("Entry point saved".to_string());
+                        self.edit_field = EditField::None;
+                    }
+                    EditField::ClaudeArgs => {
+                        // Save claude_args (space-separated)
+                        self.app_config.claude_args = self.key_input.value
+                            .split_whitespace()
+                            .map(|s| s.to_string())
+                            .collect();
+                        let _ = self.profile_manager.save_app_config(&self.app_config);
+                        self.status_message = Some("Arguments saved".to_string());
+                        self.edit_field = EditField::None;
                     }
                     _ => {
                         self.edit_field = EditField::None;
@@ -411,6 +433,24 @@ impl App {
 
     fn handle_settings_input(&mut self, action: NavAction) {
         match action {
+            NavAction::Up | NavAction::Down => {
+                self.settings_menu.handle_action(action);
+            }
+            NavAction::Select | NavAction::Edit => {
+                match self.settings_menu.selected {
+                    0 => {
+                        // Edit entry point
+                        self.key_input = TextInput::new().with_value(&self.app_config.claude_path);
+                        self.edit_field = EditField::ClaudePath;
+                    }
+                    1 => {
+                        // Edit arguments
+                        self.key_input = TextInput::new().with_value(&self.app_config.claude_args.join(" "));
+                        self.edit_field = EditField::ClaudeArgs;
+                    }
+                    _ => {}
+                }
+            }
             NavAction::Back | NavAction::Quit => {
                 self.screen = Screen::Main;
             }
@@ -752,23 +792,82 @@ impl App {
     }
 
     fn render_settings(&self, frame: &mut Frame, area: Rect) {
-        let lines = vec![
-            Line::from(Span::styled("Launcher Settings", Style::default().add_modifier(Modifier::BOLD))),
-            Line::from(""),
-            Line::from(format!("  Claude Path: {}", self.app_config.claude_path)),
-            Line::from(format!("  Claude Args: {:?}", self.app_config.claude_args)),
+        let settings = [
+            ("Entry Point", &self.app_config.claude_path, "Command to launch (e.g., claude, claude-unleashed)"),
+            ("Arguments", &self.app_config.claude_args.join(" "), "Additional command-line arguments"),
+        ];
+
+        let cursor_indicator = "█";
+
+        let items: Vec<ListItem> = settings
+            .iter()
+            .enumerate()
+            .map(|(i, (name, value, desc))| {
+                let is_selected = i == self.settings_menu.selected;
+                let is_editing = is_selected && match i {
+                    0 => self.edit_field == EditField::ClaudePath,
+                    1 => self.edit_field == EditField::ClaudeArgs,
+                    _ => false,
+                };
+
+                let style = if is_selected {
+                    Style::default()
+                        .fg(Color::Rgb(217, 119, 87))
+                        .add_modifier(Modifier::BOLD)
+                } else {
+                    Style::default()
+                };
+
+                let prefix = if is_selected { "> " } else { "  " };
+
+                let display_value = if is_editing {
+                    format!("{}{}", self.key_input.value, cursor_indicator)
+                } else {
+                    value.to_string()
+                };
+
+                let value_style = if is_editing {
+                    Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)
+                } else {
+                    Style::default().fg(Color::Cyan)
+                };
+
+                ListItem::new(vec![
+                    Line::from(vec![
+                        Span::styled(prefix, style),
+                        Span::styled(*name, style),
+                        Span::styled(": ", Style::default().fg(Color::DarkGray)),
+                        Span::styled(display_value, value_style),
+                    ]),
+                    Line::from(Span::styled(format!("    {}", desc), Style::default().fg(Color::DarkGray))),
+                ])
+            })
+            .collect();
+
+        let mut menu_items = items;
+
+        // Add config file info at the bottom
+        menu_items.push(ListItem::new(vec![
             Line::from(""),
             Line::from(Span::styled("Config file:", Style::default().fg(Color::DarkGray))),
             Line::from(Span::styled(
                 format!("  {}/config.toml", self.profile_manager.config_dir().display()),
-                Style::default().fg(Color::Cyan),
+                Style::default().fg(Color::DarkGray),
             )),
-        ];
+        ]));
 
-        let content = Paragraph::new(lines)
-            .block(Block::default().borders(Borders::ALL).title(" Settings [Esc=back] "))
-            .wrap(Wrap { trim: false });
-        frame.render_widget(content, area);
+        let hint = if self.edit_field != EditField::None {
+            " [Enter=save Esc=cancel] "
+        } else {
+            " Settings [Enter=edit Esc=back] "
+        };
+
+        let menu = List::new(menu_items).block(
+            Block::default()
+                .borders(Borders::ALL)
+                .title(hint),
+        );
+        frame.render_widget(menu, area);
     }
 
     fn render_help(&self, frame: &mut Frame, area: Rect) {
@@ -859,6 +958,7 @@ mod tests {
             screen: Screen::Main,
             main_menu: MenuState::new(4),
             profile_menu: MenuState::new(profiles.len()),
+            settings_menu: MenuState::new(2),
             profile_manager,
             app_config,
             profiles: profiles.clone(),
