@@ -4,6 +4,10 @@ version = "0.1.0"
 edition = "2024"
 description = "Claude Unleashed TUI - Launcher and settings UI for Claude Code"
 
+[[bin]]
+name = "claude-unleashed"
+path = "src/main.rs"
+
 [dependencies]
 ratatui = "0.29"
 crossterm = "0.28"

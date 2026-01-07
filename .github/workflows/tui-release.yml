@@ -41,14 +41,14 @@ jobs:
           body: |
             Automated release of Claude Unleashed TUI.
 
-            **Binary:** `unleashed-tui` (Linux x86_64)
+            **Binary:** `claude-unleashed` (Linux x86_64)
 
             Download and make executable:
             ```bash
-            chmod +x unleashed-tui
-            ./unleashed-tui
+            chmod +x claude-unleashed
+            ./claude-unleashed
             ```
           files: |
-            tui/target/release/unleashed-tui
+            tui/target/release/claude-unleashed
           draft: false
           prerelease: false
