@@ -17,11 +17,21 @@ AUTO_MODE_FILE="${AUTO_MODE_DIR}/active-${WRAPPER_PID}"
 
 # Check if auto mode is active for THIS wrapper
 if [[ -f "${AUTO_MODE_FILE}" ]]; then
+    # Check for custom reminder message
+    REMINDER_FILE="${AUTO_MODE_DIR}/reminder-${WRAPPER_PID}"
+    DEFAULT_MSG="AUTO MODE: Check MCP tools for pending tasks. If owner asked 'do you want to implement X?' - YES, proceed. If idle, use sleep with exponential backoff (30s, 60s, 120s). To exit: run exit-claude"
+
+    if [[ -f "${REMINDER_FILE}" ]]; then
+        REASON=$(cat "${REMINDER_FILE}")
+    else
+        REASON="${DEFAULT_MSG}"
+    fi
+
     # Auto mode is active - redirect to check MCP before stopping
     cat <<EOF
 {
   "decision": "block",
-  "reason": "AUTO MODE: Check MCP tools for pending tasks. If owner asked 'do you want to implement X?' - YES, proceed. If idle, use sleep with exponential backoff (30s, 60s, 120s). To exit: run exit-claude"
+  "reason": "${REASON}"
 }
 EOF
     exit 0

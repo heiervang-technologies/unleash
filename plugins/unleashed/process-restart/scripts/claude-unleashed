@@ -16,6 +16,12 @@
 
 set -uo pipefail
 
+# Auto-patch Claude Code if version changed
+PATCH_CHECK_SCRIPT="${HOME}/claude-unleashed/client-patch/scripts/check-and-patch.sh"
+if [[ -x "$PATCH_CHECK_SCRIPT" ]]; then
+    "$PATCH_CHECK_SCRIPT"
+fi
+
 # Configuration
 CACHE_DIR="${HOME}/.cache/claude-unleashed/process-restart"
 WRAPPER_PID=$$

@@ -6,6 +6,9 @@
 
 set -euo pipefail
 
+VERSION_CACHE_DIR="$HOME/.cache/claude-unleashed"
+VERSION_FILE="$VERSION_CACHE_DIR/patched-claude-version"
+
 # Find Claude Code installation
 CLAUDE_BIN=$(which claude 2>/dev/null || echo "")
 if [[ -z "$CLAUDE_BIN" ]]; then
@@ -28,6 +31,9 @@ echo "Patching: $CLI_JS"
 # Check if already patched (check modes array specifically - variable name varies by version)
 if grep -qE '(CT|kT)=\[.*"auto"' "$CLI_JS" 2>/dev/null; then
     echo "Already patched (auto mode exists in modes array)"
+    # Update version file in case it's missing
+    mkdir -p "$VERSION_CACHE_DIR"
+    claude --version 2>/dev/null | head -1 > "$VERSION_FILE"
     exit 0
 fi
 
@@ -131,6 +137,11 @@ fi
 # Apply patched file
 mv "$TEMP_FILE" "$CLI_JS"
 chmod +x "$CLI_JS"
+
+# Store patched version
+mkdir -p "$VERSION_CACHE_DIR"
+claude --version 2>/dev/null | head -1 > "$VERSION_FILE"
+echo "Stored patched version: $(cat "$VERSION_FILE")"
 
 echo ""
 echo "Patching complete!"
