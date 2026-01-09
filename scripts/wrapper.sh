@@ -16,8 +16,9 @@
 
 set -uo pipefail
 
-# Get script directory for relative paths
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# Get script directory for relative paths (resolve symlinks)
+SCRIPT_PATH="$(readlink -f "${BASH_SOURCE[0]}")"
+SCRIPT_DIR="$(dirname "$SCRIPT_PATH")"
 REPO_ROOT="$(dirname "$SCRIPT_DIR")"
 
 # Export repo root so plugins/hooks can find resources
