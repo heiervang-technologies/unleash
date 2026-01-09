@@ -44,9 +44,9 @@ restart-claude "Continue working on the feature"
 
 | File | Purpose |
 |------|---------|
-| `plugins/unleashed/process-restart/scripts/restart-claude` | Restart command |
-| `plugins/unleashed/process-restart/scripts/exit-claude` | Exit without restart |
-| `plugins/unleashed/process-restart/scripts/claude-unleashed` | The wrapper script |
+| `scripts/restart-claude` | Restart command |
+| `scripts/exit-claude` | Exit without restart |
+| `scripts/wrapper.sh` | The wrapper script |
 
 ## Repository Overview
 
@@ -64,24 +64,27 @@ restart-claude "Continue working on the feature"
 
 ```
 claude-unleashed/
-├── .claude/
-│   └── settings.json           # Plugin configuration and defaults
+├── src/                         # Rust TUI source (main entry point)
+│   └── main.rs
+├── Cargo.toml                   # TUI build configuration
+├── scripts/                     # All shell scripts consolidated here
+│   ├── install.sh              # Installation script
+│   ├── wrapper.sh              # Bash wrapper for self-restart
+│   ├── restart-claude          # Restart command
+│   ├── exit-claude             # Exit command
+│   ├── patch-claude.sh         # Apply Claude Code patches
+│   ├── unpatch-claude.sh       # Remove patches
+│   └── check-and-patch.sh      # Auto-patch on version change
+├── plugins/unleashed/           # Plugin extensions
+│   ├── auto-mode/              # Autonomous operation mode
+│   ├── mcp-refresh/            # MCP config change detection
+│   ├── process-restart/        # Self-restart hooks and commands
+│   └── voice-output/           # Text-to-speech output
 ├── claude-code/                 # Git submodule (DO NOT MODIFY)
-│   └── [Upstream Anthropic code]
-├── plugins/                     # All custom functionality lives here
-│   ├── heiervang-snail-integration/
-│   ├── heiervang-workflows/
-│   ├── commit-commands/
-│   ├── feature-dev/
-│   └── code-review/
-├── docs/
-│   └── extensions/             # Plugin development documentation
-├── .github/workflows/
-│   ├── mention-trigger.yml     # Snail agent triggers
-│   ├── assignment-trigger.yml  # Issue/PR assignment automation
-│   └── sync-upstream.yml       # Daily upstream sync (future)
-├── README.md                   # User-facing documentation
-└── CLAUDE.md                   # This file - agent instructions
+├── docs/                        # Documentation
+├── tests/                       # Test scripts
+├── .github/workflows/           # CI/CD workflows
+└── CLAUDE.md                    # This file - agent instructions
 ```
 
 ## Understanding the Fork Structure

@@ -16,22 +16,26 @@ This approach provides:
 ## Architecture
 
 ```
-claude-unleashed/                  (This repository - your fork)
-├── .claude/
-│   └── settings.json             (Configuration for plugins and defaults)
-├── claude-code/                   (Git submodule → anthropics/claude-code)
-│   └── [Upstream code]           (Never modified directly)
-├── plugins/                       (Custom extensions)
-│   ├── heiervang-snail-integration/
-│   ├── heiervang-workflows/
-│   ├── commit-commands/
-│   ├── feature-dev/
-│   └── code-review/
-├── docs/
-│   └── extensions/               (Plugin development guides)
-├── .github/workflows/
-│   └── sync-upstream.yml         (Daily upstream sync automation)
-└── README.md                      (This file)
+claude-unleashed/
+├── src/                          # Rust TUI (main entry point)
+│   └── main.rs
+├── Cargo.toml                    # TUI build configuration
+├── scripts/                      # Shell scripts
+│   ├── install.sh               # Installation script
+│   ├── wrapper.sh               # Bash wrapper for self-restart
+│   ├── restart-claude           # Restart command
+│   ├── exit-claude              # Exit command
+│   ├── patch-claude.sh          # Apply Claude Code patches
+│   ├── unpatch-claude.sh        # Remove patches
+│   └── check-and-patch.sh       # Auto-patch on version change
+├── plugins/unleashed/            # Plugin extensions
+│   ├── auto-mode/               # Autonomous operation mode
+│   ├── mcp-refresh/             # MCP config change detection
+│   ├── process-restart/         # Self-restart capability
+│   └── voice-output/            # Text-to-speech output
+├── claude-code/                  # Git submodule (upstream, never modify)
+├── docs/                         # Documentation
+└── tests/                        # Test scripts
 ```
 
 ### The Three-Layer Approach
@@ -97,71 +101,56 @@ All while maintaining your custom plugins and configurations.
 
 ### Prerequisites
 
-- Node.js 18+ or Bun runtime
+- [Claude Code](https://github.com/anthropics/claude-code) installed (`npm install -g @anthropic-ai/claude-code`)
 - Git
-- GitHub account (for Snail integration features)
-- Claude API credentials
+- Rust/Cargo (optional, for TUI)
 
 ### Installation
 
-1. **Clone the repository with submodules**
+1. **Clone the repository**
    ```bash
-   git clone --recursive https://github.com/heiervang-technologies/claude-unleashed.git
+   git clone https://github.com/heiervang-technologies/claude-unleashed.git
    cd claude-unleashed
    ```
 
-   If you already cloned without `--recursive`:
+2. **Run the installer**
    ```bash
-   git submodule update --init --recursive
+   ./scripts/install.sh
    ```
 
-2. **Install dependencies**
+   This will:
+   - Build the TUI (if Cargo is available)
+   - Create symlinks in `~/.local/bin/`
+   - Patch Claude Code with additional features
+
+3. **Add to PATH** (if needed)
    ```bash
-   cd claude-code
-   npm install
-   # or
-   bun install
+   export PATH="$HOME/.local/bin:$PATH"
    ```
 
-3. **Configure Claude credentials**
+4. **Start using**
    ```bash
-   # The upstream claude-code handles authentication
-   cd claude-code
-   npm run auth
-   # or
-   bun run auth
+   claude-unleashed
+   # or the short alias:
+   cu
    ```
 
-4. **Enable plugins**
+### Manual Installation
 
-   Edit `/home/me/claude-unleashed/.claude/settings.json`:
-   ```json
-   {
-     "plugins": {
-       "enabled": [
-         "heiervang-snail-integration",
-         "commit-commands"
-       ]
-     }
-   }
-   ```
+If you prefer not to use the installer:
 
-5. **Run Claude Code**
-   ```bash
-   cd claude-code
-   npm start
-   # or
-   bun start
-   ```
-
-### Verification
-
-Test that everything works:
 ```bash
-cd claude-code
-npm test
-# or
-bun test
+# Create symlinks manually
+ln -sf ~/claude-unleashed/scripts/wrapper.sh ~/.local/bin/claude-unleashed
+ln -sf ~/claude-unleashed/scripts/restart-claude ~/.local/bin/
+ln -sf ~/claude-unleashed/scripts/exit-claude ~/.local/bin/
+
+# Patch Claude Code
+./scripts/patch-claude.sh
+
+# Optional: Build TUI
+cargo build --release
+cp target/release/claude-unleashed ~/.local/bin/claude-unleashed-tui
 ```
 
 ## How to Add Plugins

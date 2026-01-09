@@ -144,7 +144,7 @@ if [[ -f "plugins/unleashed/process-restart/.claude-plugin/plugin.json" ]] && \
    [[ -f "plugins/unleashed/process-restart/hooks/hooks.json" ]] && \
    [[ -x "plugins/unleashed/process-restart/hooks-handlers/restart-handler.sh" ]] && \
    [[ -x "plugins/unleashed/process-restart/hooks-handlers/session-restore.sh" ]] && \
-   [[ -x "plugins/unleashed/process-restart/scripts/trigger-restart.sh" ]]; then
+   [[ -x "scripts/trigger-restart.sh" ]]; then
   print_pass "All process-restart plugin files exist and are properly configured"
 else
   print_fail "Process-restart plugin files missing or incorrect permissions"
@@ -167,7 +167,7 @@ fi
 if ! bash -n plugins/unleashed/process-restart/hooks-handlers/session-restore.sh 2>/dev/null; then
   SYNTAX_OK=false
 fi
-if ! bash -n plugins/unleashed/process-restart/scripts/trigger-restart.sh 2>/dev/null; then
+if ! bash -n scripts/trigger-restart.sh 2>/dev/null; then
   SYNTAX_OK=false
 fi
 
