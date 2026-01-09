@@ -1,32 +1,9 @@
 {
   "name": "process-restart",
-  "displayName": "Process Restart with Session Preservation",
-  "version": "1.0.0",
   "description": "Restart Claude Code process while preserving session state and conversation history",
-  "author": "Heiervang Technologies",
-  "tags": ["restart", "session", "state-preservation", "lifecycle"],
-  "commands": ["restart"],
-  "hooks": ["Stop", "SessionStart"],
-  "settings": {
-    "preserveSession": {
-      "type": "boolean",
-      "default": true,
-      "description": "Preserve session ID and conversation history across restarts"
-    },
-    "preserveWorkingDir": {
-      "type": "boolean",
-      "default": true,
-      "description": "Restore working directory after restart"
-    },
-    "preservePermissions": {
-      "type": "boolean",
-      "default": true,
-      "description": "Restore permission mode (auto-allow, etc.) after restart"
-    },
-    "stateFileExpiry": {
-      "type": "number",
-      "default": 300,
-      "description": "State file expiry time in seconds (default: 5 minutes)"
-    }
+  "version": "1.0.0",
+  "author": {
+    "name": "Heiervang Technologies",
+    "email": "support@heiervang.com"
   }
 }

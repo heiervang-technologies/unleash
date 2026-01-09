@@ -1,9 +1,9 @@
 {
   "name": "auto-mode",
-  "displayName": "Autonomous Mode",
-  "version": "1.0.0",
   "description": "Enables autonomous operation mode where Claude continues working until owner contact or explicit exit",
-  "author": "Heiervang Technologies",
-  "tags": ["autonomous", "auto", "continuous", "agent"],
-  "commands": ["auto"]
+  "version": "1.0.0",
+  "author": {
+    "name": "Heiervang Technologies",
+    "email": "support@heiervang.com"
+  }
 }
