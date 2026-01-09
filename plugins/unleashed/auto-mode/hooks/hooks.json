@@ -1,0 +1,7 @@
+{
+  "Stop": {
+    "script": "./hooks/auto-mode-stop.sh",
+    "description": "Block stopping when auto mode is active",
+    "outputFormat": "json"
+  }
+}
