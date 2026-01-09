@@ -160,7 +160,7 @@ Run `/mcp` in Claude Code to reconnect to MCP servers.
 
 ### Script Location
 
-`plugins/unleashed/process-restart/scripts/trigger-restart.sh`
+`scripts/trigger-restart.sh`
 
 ### Core Logic
 

@@ -22,9 +22,9 @@ exit-claude
 The `claude-unleashed` wrapper and commands should be symlinked to `~/bin`:
 
 ```bash
-ln -sf ~/claude-unleashed/plugins/unleashed/process-restart/scripts/claude-unleashed ~/bin/
-ln -sf ~/claude-unleashed/plugins/unleashed/process-restart/scripts/restart-claude ~/bin/
-ln -sf ~/claude-unleashed/plugins/unleashed/process-restart/scripts/exit-claude ~/bin/
+ln -sf ~/claude-unleashed/scripts/wrapper.sh ~/bin/claude-unleashed
+ln -sf ~/claude-unleashed/scripts/restart-claude ~/bin/
+ln -sf ~/claude-unleashed/scripts/exit-claude ~/bin/
 
 # Optional: add alias to your shell config
 alias cu='claude-unleashed'
@@ -123,7 +123,7 @@ After restart:
 
 | File | Purpose |
 |------|---------|
-| `scripts/claude-unleashed` | Main wrapper script |
+| `scripts/wrapper.sh` | Main wrapper script |
 | `scripts/restart-claude` | Restart command |
 | `scripts/exit-claude` | Exit command |
 | `~/.cache/claude-unleashed/process-restart/` | Trigger files |
@@ -152,7 +152,7 @@ tmux new-session -s claude
 claude
 
 # To restart (from within Claude):
-~/claude-unleashed/plugins/unleashed/process-restart/scripts/trigger-restart.sh
+~/claude-unleashed/scripts/trigger-restart.sh
 ```
 
 ## Version History

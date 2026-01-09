@@ -16,8 +16,11 @@
 
 set -uo pipefail
 
+# Get script directory for relative paths
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
 # Auto-patch Claude Code if version changed
-PATCH_CHECK_SCRIPT="${HOME}/claude-unleashed/client-patch/scripts/check-and-patch.sh"
+PATCH_CHECK_SCRIPT="${SCRIPT_DIR}/check-and-patch.sh"
 if [[ -x "$PATCH_CHECK_SCRIPT" ]]; then
     "$PATCH_CHECK_SCRIPT"
 fi

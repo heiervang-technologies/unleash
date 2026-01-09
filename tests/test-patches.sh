@@ -11,7 +11,7 @@ set -uo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(dirname "$SCRIPT_DIR")"
-PATCH_DIR="$REPO_ROOT/client-patch/scripts"
+PATCH_DIR="$REPO_ROOT/scripts"
 
 # Colors for output
 RED='\033[0;31m'

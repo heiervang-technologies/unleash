@@ -8,14 +8,14 @@ on:
     branches: [main]
     paths:
       - 'plugins/**'
-      - 'client-patch/**'
+      - 'scripts/**'
       - 'tests/**'
       - '.github/workflows/integration-tests.yml'
   pull_request:
     branches: [main]
     paths:
       - 'plugins/**'
-      - 'client-patch/**'
+      - 'scripts/**'
       - 'tests/**'
       - '.github/workflows/integration-tests.yml'
   workflow_dispatch:
@@ -62,7 +62,7 @@ jobs:
           python-version: '3.12'
 
       - name: Make test scripts executable
-        run: chmod +x tests/*.sh client-patch/scripts/*.sh
+        run: chmod +x tests/*.sh scripts/*.sh
 
       - name: Run patch tests
         run: ./tests/test-patches.sh
@@ -89,8 +89,7 @@ jobs:
       - name: Make scripts executable
         run: |
           chmod +x tests/*.sh
-          chmod +x client-patch/scripts/*.sh
-          chmod +x plugins/unleashed/*/scripts/*.sh 2>/dev/null || true
+          chmod +x scripts/*.sh
           chmod +x plugins/unleashed/*/hooks/*.sh 2>/dev/null || true
 
       - name: Create mock Claude Code environment
@@ -126,7 +125,7 @@ jobs:
 
       - name: Apply patches
         run: |
-          ./client-patch/scripts/patch-claude.sh
+          ./scripts/patch-claude.sh
 
       - name: Verify patches applied
         run: |
