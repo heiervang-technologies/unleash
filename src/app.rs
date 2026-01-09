@@ -84,7 +84,7 @@ impl App {
             screen: Screen::Main,
             main_menu: MenuState::new(5),
             profile_menu: MenuState::new(profiles.len()),
-            settings_menu: MenuState::new(2), // Entry Point, Arguments
+            settings_menu: MenuState::new(3), // Entry Point, Arguments, Reset
             profile_manager,
             app_config,
             profiles,
@@ -456,6 +456,15 @@ impl App {
                         self.key_input = TextInput::new().with_value(&self.app_config.claude_args.join(" "));
                         self.edit_field = EditField::ClaudeArgs;
                     }
+                    2 => {
+                        // Reset settings to defaults
+                        self.app_config = AppConfig::default();
+                        if let Err(e) = self.profile_manager.save_app_config(&self.app_config) {
+                            self.status_message = Some(format!("Failed to reset: {}", e));
+                        } else {
+                            self.status_message = Some("Settings reset to defaults".to_string());
+                        }
+                    }
                     _ => {}
                 }
             }
@@ -826,9 +835,11 @@ impl App {
     }
 
     fn render_settings(&self, frame: &mut Frame, area: Rect) {
-        let settings = [
-            ("Entry Point", &self.app_config.claude_path, "Command to launch (e.g., claude, claude-unleashed)"),
-            ("Arguments", &self.app_config.claude_args.join(" "), "Additional command-line arguments"),
+        let args_str = self.app_config.claude_args.join(" ");
+        let settings: Vec<(&str, String, &str)> = vec![
+            ("Entry Point", self.app_config.claude_path.clone(), "Command to launch (e.g., cuw, claude)"),
+            ("Arguments", args_str, "Additional command-line arguments"),
+            ("Reset Settings", "".to_string(), "Reset all settings to defaults"),
         ];
 
         let cursor_indicator = "█";
