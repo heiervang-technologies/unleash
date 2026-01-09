@@ -87,7 +87,14 @@ fn default_profile_name() -> String {
 }
 
 fn default_claude_path() -> String {
-    "claude".to_string()
+    // Use wrapper if available (loads plugins), fallback to plain claude
+    let home = std::env::var("HOME").unwrap_or_default();
+    let cuw_path = format!("{}/.local/bin/cuw", home);
+    if std::path::Path::new(&cuw_path).exists() {
+        "cuw".to_string()
+    } else {
+        "claude".to_string()
+    }
 }
 
 impl Default for AppConfig {

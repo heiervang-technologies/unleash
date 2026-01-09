@@ -18,6 +18,10 @@ set -uo pipefail
 
 # Get script directory for relative paths
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_ROOT="$(dirname "$SCRIPT_DIR")"
+
+# Export repo root so plugins/hooks can find resources
+export CLAUDE_UNLEASHED_ROOT="$REPO_ROOT"
 
 # Auto-patch Claude Code if version changed
 PATCH_CHECK_SCRIPT="${SCRIPT_DIR}/check-and-patch.sh"
@@ -33,6 +37,17 @@ RESTART_MESSAGE_FILE="${CACHE_DIR}/restart-message-${WRAPPER_PID}"
 
 # Default Claude command
 CLAUDE_CMD="${CLAUDE_CMD:-claude}"
+
+# Build plugin directory arguments
+PLUGIN_ARGS=()
+PLUGINS_DIR="${REPO_ROOT}/plugins/unleashed"
+if [[ -d "$PLUGINS_DIR" ]]; then
+    for plugin in "$PLUGINS_DIR"/*; do
+        if [[ -d "$plugin" ]]; then
+            PLUGIN_ARGS+=(--plugin-dir "$plugin")
+        fi
+    done
+fi
 
 # Export marker so scripts know we're in the wrapper
 export CLAUDE_UNLEASHED=1
@@ -74,8 +89,8 @@ while true; do
         fi
     fi
 
-    # Run Claude
-    "${CLAUDE_CMD}" "${CMD_ARGS[@]}"
+    # Run Claude with plugins
+    "${CLAUDE_CMD}" "${PLUGIN_ARGS[@]}" "${CMD_ARGS[@]}"
     EXIT_CODE=$?
 
     # Check if restart was requested

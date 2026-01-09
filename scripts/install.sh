@@ -117,6 +117,10 @@ else
     success "Symlink: claude-unleashed -> wrapper.sh"
 fi
 
+# Wrapper script (always available for TUI to use)
+ln -sf "$SCRIPT_DIR/wrapper.sh" "$BIN_DIR/cuw"
+success "Symlink: cuw -> wrapper.sh (with plugins)"
+
 # Helper commands
 ln -sf "$SCRIPT_DIR/restart-claude" "$BIN_DIR/restart-claude"
 ln -sf "$SCRIPT_DIR/exit-claude" "$BIN_DIR/exit-claude"
