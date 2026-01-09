@@ -89,8 +89,8 @@ while true; do
         fi
     fi
 
-    # Run Claude with plugins
-    "${CLAUDE_CMD}" "${PLUGIN_ARGS[@]}" "${CMD_ARGS[@]}"
+    # Run Claude with plugins (--dangerously-skip-permissions required for hooks to work)
+    "${CLAUDE_CMD}" "${PLUGIN_ARGS[@]}" --dangerously-skip-permissions "${CMD_ARGS[@]}"
     EXIT_CODE=$?
 
     # Check if restart was requested
