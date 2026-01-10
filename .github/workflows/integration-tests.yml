@@ -167,10 +167,15 @@ jobs:
           EOF
 
           # Create mock claude binary
-          cat > "$MOCK_DIR/claude" << SCRIPT
+          cat > "$MOCK_DIR/claude" << 'SCRIPT'
           #!/usr/bin/env bash
-          exec node "$MOCK_DIR/cli.js" "\$@"
+          if [[ "$1" == "--version" ]]; then
+            echo "2.1.0 (Claude Code)"
+            exit 0
+          fi
+          exec node "$MOCK_DIR/cli.js" "$@"
           SCRIPT
+          sed -i "s|\$MOCK_DIR|$MOCK_DIR|g" "$MOCK_DIR/claude"
           chmod +x "$MOCK_DIR/claude"
 
           # Add to PATH
