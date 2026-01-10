@@ -108,9 +108,12 @@ parse_timeout() {
     esac
 }
 
-export BASH_DEFAULT_TIMEOUT_MS=$(parse_timeout "${BASH_DEFAULT_TIMEOUT_MS:-}" "999999999")
-export BASH_MAX_TIMEOUT_MS=$(parse_timeout "${BASH_MAX_TIMEOUT_MS:-}" "999999999")
-export MCP_TOOL_TIMEOUT=$(parse_timeout "${MCP_TOOL_TIMEOUT:-}" "999999999")
+BASH_DEFAULT_TIMEOUT_MS=$(parse_timeout "${BASH_DEFAULT_TIMEOUT_MS:-}" "999999999")
+export BASH_DEFAULT_TIMEOUT_MS
+BASH_MAX_TIMEOUT_MS=$(parse_timeout "${BASH_MAX_TIMEOUT_MS:-}" "999999999")
+export BASH_MAX_TIMEOUT_MS
+MCP_TOOL_TIMEOUT=$(parse_timeout "${MCP_TOOL_TIMEOUT:-}" "999999999")
+export MCP_TOOL_TIMEOUT
 
 # Ensure cache directory exists
 mkdir -p "${CACHE_DIR}"

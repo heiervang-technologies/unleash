@@ -154,15 +154,20 @@ test_patch_kt_variant() {
     # Create mock claude binary that points to cli.js
     cat > "$mock_claude" << EOF
 #!/usr/bin/env bash
+# Mock claude binary for testing
+if [[ "\$1" == "--version" ]]; then
+    echo "2.1.0 (Claude Code)"
+    exit 0
+fi
 exec node "$mock_cli" "\$@"
 EOF
     chmod +x "$mock_claude"
 
-    # Run patch script with mock PATH
-    export PATH="$test_dir:$PATH"
+    # Run patch script with CLAUDE_BIN override
+    export CLAUDE_BIN="$mock_claude"
 
     # Patch should succeed
-    if bash "$PATCH_DIR/patch-claude.sh" > /dev/null 2>&1; then
+    if CLAUDE_BIN="$mock_claude" bash "$PATCH_DIR/patch-claude.sh" > /dev/null 2>&1; then
         pass "Patch script ran successfully (kT variant)"
     else
         fail "Patch script failed (kT variant)"
@@ -216,7 +221,7 @@ EOF
     fi
 
     # Test idempotency - running again should succeed without changes
-    if bash "$PATCH_DIR/patch-claude.sh" 2>&1 | grep -q "Already patched"; then
+    if CLAUDE_BIN="$mock_claude" bash "$PATCH_DIR/patch-claude.sh" 2>&1 | grep -q "Already patched"; then
         pass "Patch is idempotent"
     else
         fail "Patch is NOT idempotent"
@@ -230,41 +235,94 @@ EOF
     fi
 }
 
-# Test 3: Patch works on mock cli.js (CT variant - legacy)
-test_patch_ct_variant() {
+# Test 3: Verify version selection logic
+test_version_selection() {
     echo ""
-    echo "=== Testing patches on CT variant (legacy) ==="
+    echo "=== Testing version selection logic ==="
 
     local test_dir=$(mktemp -d)
     local mock_cli="$test_dir/cli.js"
     local mock_claude="$test_dir/claude"
 
-    # Create mock cli.js
-    create_mock_cli_js "CT" "$mock_cli"
+    # Create mock cli.js with 2.1.2 variable names (matching config)
+    cat > "$mock_cli" << 'MOCK_EOF'
+// Mock cli.js for 2.1.2
+dT=["acceptEdits","bypassPermissions","default","delegate","dontAsk","plan"];
 
-    # Create mock claude binary
+function getModeName(mode) {
+    switch(mode) {
+        case"plan":return"Plan Mode";
+        case"bypassPermissions":return"Bypass Permissions";
+        default:return"Default";
+    }
+}
+
+function getModeIcon(mode) {
+    switch(mode) {
+        case"acceptEdits":return"⏵⏵";case"bypassPermissions":return"⏵⏵";
+        default:return"▶";
+    }
+}
+
+function getNextMode(mode) {
+    switch(mode) {
+        case"default":return"plan";
+        case"plan":return"bypassPermissions";
+        case"bypassPermissions":return"default";
+    }
+}
+
+if(PA.mode==="bypassPermissions"||PA.mode==="plan") {
+    allowTool();
+}
+if(Q.mode==="bypassPermissions") {
+    passthrough();
+}
+if(mode==="bypassPermissions"||V) {
+    allow();
+}
+
+function getModeColor(mode) {
+    switch(mode) {
+        case"plan":return"planMode";
+        case"acceptEdits":return"autoAccept";case"bypassPermissions":return"error";
+        default:return"default";
+    }
+}
+
+if(AQ==="acceptEdits")O9("auto-accept-mode");
+if(B.mode==="delegate"&&AQ!=="delegate")zv0(!0),muA(!0);
+MOCK_EOF
+
+    # Test with exact version match (2.1.2)
     cat > "$mock_claude" << EOF
 #!/usr/bin/env bash
+# Mock claude binary for testing
+if [[ "\$1" == "--version" ]]; then
+    echo "2.1.2 (Claude Code)"
+    exit 0
+fi
 exec node "$mock_cli" "\$@"
 EOF
     chmod +x "$mock_claude"
 
-    # Run patch script with mock PATH
-    export PATH="$test_dir:$PATH"
+    # Run patch script with CLAUDE_BIN override
+    export CLAUDE_BIN="$mock_claude"
 
-    if bash "$PATCH_DIR/patch-claude.sh" > /dev/null 2>&1; then
-        pass "Patch script ran successfully (CT variant)"
+    # Patch should select 2.1.2.conf and succeed
+    local output
+    output=$(CLAUDE_BIN="$mock_claude" bash "$PATCH_DIR/patch-claude.sh" 2>&1)
+
+    if echo "$output" | grep -q "Using patch config: 2.1.2.conf"; then
+        pass "Patch script selects correct version config"
     else
-        fail "Patch script failed (CT variant)"
-        rm -rf "$test_dir"
-        return
+        fail "Patch script did not select expected config"
     fi
 
-    # Verify CT variant patched
-    if grep -q 'CT=\[.*"auto"' "$mock_cli"; then
-        pass "Patch 1: auto added to modes array (CT)"
+    if grep -q 'dT=\[.*"auto"' "$mock_cli"; then
+        pass "Version-specific patches applied correctly"
     else
-        fail "Patch 1: auto NOT in modes array (CT)"
+        fail "Version-specific patches not applied"
     fi
 
     rm -rf "$test_dir"
@@ -283,13 +341,18 @@ test_backup_creation() {
 
     cat > "$mock_claude" << EOF
 #!/usr/bin/env bash
+# Mock claude binary for testing
+if [[ "\$1" == "--version" ]]; then
+    echo "2.1.0 (Claude Code)"
+    exit 0
+fi
 exec node "$mock_cli" "\$@"
 EOF
     chmod +x "$mock_claude"
 
-    export PATH="$test_dir:$PATH"
+    export CLAUDE_BIN="$mock_claude"
 
-    bash "$PATCH_DIR/patch-claude.sh" > /dev/null 2>&1
+    CLAUDE_BIN="$mock_claude" bash "$PATCH_DIR/patch-claude.sh" > /dev/null 2>&1
 
     # Check backup exists
     if ls "$test_dir"/cli.js.backup.* 1>/dev/null 2>&1; then
@@ -309,7 +372,7 @@ main() {
 
     test_patch_script_syntax
     test_patch_kt_variant
-    test_patch_ct_variant
+    test_version_selection
     test_backup_creation
 
     echo ""

@@ -17,13 +17,19 @@ VERSION_CACHE_DIR="$HOME/.cache/claude-unleashed"
 VERSION_FILE="$VERSION_CACHE_DIR/patched-claude-version"
 
 # Find Claude Code installation
-CLAUDE_BIN=$(which claude 2>/dev/null || echo "")
+# Allow override via environment variable for testing
+CLAUDE_BIN="${CLAUDE_BIN:-$(which claude 2>/dev/null || echo "")}"
 if [[ -z "$CLAUDE_BIN" ]]; then
     echo "Error: Claude Code not found in PATH"
     exit 1
 fi
 
-CLAUDE_REAL=$(readlink -f "$CLAUDE_BIN")
+# Resolve symlinks in a portable way (works on both Linux and macOS)
+if [[ -L "$CLAUDE_BIN" ]]; then
+    CLAUDE_REAL="$(cd "$(dirname "$CLAUDE_BIN")" && cd "$(dirname "$(readlink "$CLAUDE_BIN")")" && pwd -P)/$(basename "$(readlink "$CLAUDE_BIN")")"
+else
+    CLAUDE_REAL="$CLAUDE_BIN"
+fi
 CLAUDE_DIR=$(dirname "$CLAUDE_REAL")
 CLI_JS="$CLAUDE_DIR/cli.js"
 
@@ -35,7 +41,7 @@ fi
 echo "Found Claude Code at: $CLAUDE_DIR"
 
 # Get current Claude version
-CLAUDE_VERSION=$(claude --version 2>/dev/null | head -1 | sed 's/ (Claude Code)//' || echo "unknown")
+CLAUDE_VERSION=$("$CLAUDE_BIN" --version 2>/dev/null | head -1 | sed 's/ (Claude Code)//' || echo "unknown")
 echo "Detected version: $CLAUDE_VERSION"
 
 # Find the appropriate version config
