@@ -203,7 +203,7 @@ jobs:
       DOCKER_PAT: ${{ secrets.HEI_DOCKER_PAT }}
       GH_PAT: ${{ secrets.HAI_GH_PAT }}
       CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
-      SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+      POSTGREST_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
       AI_HF_TOKEN: ${{ secrets.AI_HF_TOKEN }}
       AI_PASSWORD: ${{ secrets.AI_PASSWORD }}
       AI_PHONE_HAI: ${{ secrets.AI_PHONE_HAI }}
