@@ -3,8 +3,15 @@
 #
 # This script patches the installed Claude Code cli.js to add "auto" mode
 # as a cycling option (shift+tab). Auto mode = bypassPermissions + Stop hook.
+#
+# Patches are organized by version in scripts/patches/versions/*.conf
+# When a version doesn't have a config, it falls back to the latest known version.
 
 set -euo pipefail
+
+# Get script directory for relative paths
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PATCHES_DIR="$SCRIPT_DIR/patches/versions"
 
 VERSION_CACHE_DIR="$HOME/.cache/claude-unleashed"
 VERSION_FILE="$VERSION_CACHE_DIR/patched-claude-version"
@@ -26,14 +33,82 @@ if [[ ! -f "$CLI_JS" ]]; then
 fi
 
 echo "Found Claude Code at: $CLAUDE_DIR"
+
+# Get current Claude version
+CLAUDE_VERSION=$(claude --version 2>/dev/null | head -1 | sed 's/ (Claude Code)//' || echo "unknown")
+echo "Detected version: $CLAUDE_VERSION"
+
+# Find the appropriate version config
+# Try exact match first, then fall back to closest lower version
+find_version_config() {
+    local target_version="$1"
+    local config_file=""
+    local latest_version=""
+
+    # Try exact match
+    if [[ -f "$PATCHES_DIR/${target_version}.conf" ]]; then
+        echo "$PATCHES_DIR/${target_version}.conf"
+        return 0
+    fi
+
+    # Find all available versions and sort them
+    local available_versions=()
+    for conf in "$PATCHES_DIR"/*.conf; do
+        [[ -f "$conf" ]] || continue
+        local ver=$(basename "$conf" .conf)
+        available_versions+=("$ver")
+    done
+
+    if [[ ${#available_versions[@]} -eq 0 ]]; then
+        echo ""
+        return 1
+    fi
+
+    # Sort versions and find the latest one that's <= target
+    # Using sort -V for version sorting
+    local sorted_versions=$(printf '%s\n' "${available_versions[@]}" | sort -V)
+
+    # Find the best match (latest version <= target)
+    local best_match=""
+    for ver in $sorted_versions; do
+        # Compare versions: if ver <= target, it's a candidate
+        if [[ "$(printf '%s\n%s' "$ver" "$target_version" | sort -V | head -1)" == "$ver" ]]; then
+            best_match="$ver"
+        fi
+    done
+
+    if [[ -n "$best_match" ]]; then
+        echo "$PATCHES_DIR/${best_match}.conf"
+        return 0
+    fi
+
+    # Fallback to the latest available version
+    local latest=$(printf '%s\n' "${available_versions[@]}" | sort -V | tail -1)
+    echo "$PATCHES_DIR/${latest}.conf"
+    return 0
+}
+
+# Find config for this version
+CONFIG_FILE=$(find_version_config "$CLAUDE_VERSION")
+
+if [[ -z "$CONFIG_FILE" ]] || [[ ! -f "$CONFIG_FILE" ]]; then
+    echo "Error: No patch configuration found for version $CLAUDE_VERSION"
+    echo "Available configs in $PATCHES_DIR:"
+    ls -1 "$PATCHES_DIR"/*.conf 2>/dev/null || echo "  (none)"
+    exit 1
+fi
+
+echo "Using patch config: $(basename "$CONFIG_FILE")"
 echo "Patching: $CLI_JS"
 
-# Check if already patched (check modes array specifically - variable name varies by version)
-if grep -qE '(CT|kT|dT|QP)=\[.*"auto"' "$CLI_JS" 2>/dev/null; then
+# Load version-specific configuration
+source "$CONFIG_FILE"
+
+# Check if already patched
+if grep -qE "${MODES_ARRAY_VAR}=\[.*\"auto\"" "$CLI_JS" 2>/dev/null; then
     echo "Already patched (auto mode exists in modes array)"
-    # Update version file in case it's missing
     mkdir -p "$VERSION_CACHE_DIR"
-    claude --version 2>/dev/null | head -1 > "$VERSION_FILE" || true
+    echo "$CLAUDE_VERSION" > "$VERSION_FILE"
     exit 0
 fi
 
@@ -46,117 +121,94 @@ echo "Backup created: $BACKUP"
 TEMP_FILE=$(mktemp)
 cp "$CLI_JS" "$TEMP_FILE"
 
-# Patch 1: Add "auto" to modes array
-# Variable name varies by version: CT= (older), kT= (2.1.0), dT= (2.1.2), QP= (2.1.3+)
-# Find and patch whichever pattern exists
-# Note: In 2.1.3+, the array includes more modes, so we match the start pattern
-if grep -q 'CT=\["acceptEdits","bypassPermissions"' "$TEMP_FILE"; then
-    sed -i 's/CT=\["acceptEdits","bypassPermissions"/CT=["acceptEdits","auto","bypassPermissions"/g' "$TEMP_FILE"
-    echo "Patch 1: Added 'auto' to modes array (CT variant)"
-elif grep -q 'kT=\["acceptEdits","bypassPermissions"' "$TEMP_FILE"; then
-    sed -i 's/kT=\["acceptEdits","bypassPermissions"/kT=["acceptEdits","auto","bypassPermissions"/g' "$TEMP_FILE"
-    echo "Patch 1: Added 'auto' to modes array (kT variant)"
-elif grep -q 'dT=\["acceptEdits","bypassPermissions"' "$TEMP_FILE"; then
-    sed -i 's/dT=\["acceptEdits","bypassPermissions"/dT=["acceptEdits","auto","bypassPermissions"/g' "$TEMP_FILE"
-    echo "Patch 1: Added 'auto' to modes array (dT variant)"
-elif grep -q 'QP=\["acceptEdits","bypassPermissions","default' "$TEMP_FILE"; then
-    # 2.1.3+ pattern with full modes array - insert auto after bypassPermissions
-    sed -i 's/QP=\["acceptEdits","bypassPermissions","default/QP=["acceptEdits","auto","bypassPermissions","default/g' "$TEMP_FILE"
-    echo "Patch 1: Added 'auto' to modes array (QP variant - 2.1.3+ full array)"
-elif grep -q 'QP=\["acceptEdits","bypassPermissions"' "$TEMP_FILE"; then
-    sed -i 's/QP=\["acceptEdits","bypassPermissions"/QP=["acceptEdits","auto","bypassPermissions"/g' "$TEMP_FILE"
-    echo "Patch 1: Added 'auto' to modes array (QP variant - 2.1.3+)"
+# ============================================================================
+# PATCH 1: Add "auto" to modes array
+# ============================================================================
+if grep -q "${MODES_ARRAY_VAR}=\[\"acceptEdits\",\"bypassPermissions\"" "$TEMP_FILE"; then
+    sed -i "s/${MODES_ARRAY_VAR}=\[\"acceptEdits\",\"bypassPermissions\"/${MODES_ARRAY_VAR}=[\"acceptEdits\",\"auto\",\"bypassPermissions\"/g" "$TEMP_FILE"
+    echo "Patch 1: Added 'auto' to modes array (${MODES_ARRAY_VAR})"
 else
     echo "Warning: Patch 1 - modes array pattern not found"
 fi
 
-# Patch 2: Add display name for auto mode
-# case"bypassPermissions":return"Bypass Permissions" -> add case"auto":return"Auto Mode";case"bypassPermissions"...
+# ============================================================================
+# PATCH 2: Add display name for auto mode
+# ============================================================================
 sed -i 's/case"bypassPermissions":return"Bypass Permissions"/case"auto":return"Auto Mode";case"bypassPermissions":return"Bypass Permissions"/g' "$TEMP_FILE"
 echo "Patch 2: Added display name for auto mode"
 
-# Patch 3: Add icon for auto mode (use double guillemet »»)
-# case"bypassPermissions":return"⏵⏵" -> add case"auto":return"»»";case"bypassPermissions"...
+# ============================================================================
+# PATCH 3: Add icon for auto mode (»»)
+# ============================================================================
 sed -i 's/case"acceptEdits":return"⏵⏵";case"bypassPermissions":return"⏵⏵"/case"acceptEdits":return"⏵⏵";case"auto":return"»»";case"bypassPermissions":return"⏵⏵"/g' "$TEMP_FILE"
 echo "Patch 3: Added icon for auto mode (»»)"
 
-# Patch 4: Modify cycling logic - bypassPermissions now goes to auto, auto goes to default
-# case"bypassPermissions":return"default" -> case"bypassPermissions":return"auto";case"auto":return"default"
+# ============================================================================
+# PATCH 4: Modify cycling logic
+# bypassPermissions -> auto -> default
+# ============================================================================
 sed -i 's/case"bypassPermissions":return"default"/case"bypassPermissions":return"auto";case"auto":return"default"/g' "$TEMP_FILE"
 echo "Patch 4: Modified cycling logic"
 
-# Patch 5: Make auto mode behave like bypassPermissions for permission checks
-# This needs to patch ALL places where bypassPermissions is checked for allowing tools
+# ============================================================================
+# PATCH 5: Make auto mode behave like bypassPermissions for permission checks
+# ============================================================================
 
-# Pattern 5a: Main permission allow check - Z.toolPermissionContext.mode
-# Z.toolPermissionContext.mode==="bypassPermissions"||Z.toolPermissionContext.mode==="plan"
-# -> Z.toolPermissionContext.mode==="bypassPermissions"||Z.toolPermissionContext.mode==="auto"||Z.toolPermissionContext.mode==="plan"
+# 5a: Main permission allow check - Z.toolPermissionContext.mode
 sed -i 's/Z\.toolPermissionContext\.mode==="bypassPermissions"||Z\.toolPermissionContext\.mode==="plan"/Z.toolPermissionContext.mode==="bypassPermissions"||Z.toolPermissionContext.mode==="auto"||Z.toolPermissionContext.mode==="plan"/g' "$TEMP_FILE"
 echo "Patch 5a: Patched main permission allow check"
 
-# Pattern 5b: Passthrough check - Q.mode
+# 5b: Passthrough check - Q.mode
 sed -i 's/Q\.mode==="bypassPermissions"/Q.mode==="bypassPermissions"||Q.mode==="auto"/g' "$TEMP_FILE"
 echo "Patch 5b: Patched Q.mode passthrough check"
 
-# Pattern 5c: Mode-specific permission checks with ||V pattern
-# Match the full PA.mode pattern to avoid introducing undefined 'mode' reference
-sed -i 's/PA\.mode==="bypassPermissions"||V)/PA.mode==="bypassPermissions"||PA.mode==="auto"||V)/g' "$TEMP_FILE"
-echo "Patch 5c: Patched PA.mode||V permission checks"
+# 5c: Mode-specific permission checks with ||V pattern
+sed -i "s/${PERMISSION_CTX_VAR}\.mode===\"bypassPermissions\"||V)/${PERMISSION_CTX_VAR}.mode===\"bypassPermissions\"||${PERMISSION_CTX_VAR}.mode===\"auto\"||V)/g" "$TEMP_FILE"
+echo "Patch 5c: Patched ${PERMISSION_CTX_VAR}.mode||V permission checks"
 
-# Patch 6: Add color for auto mode (yellow/warning)
-# case"acceptEdits":return"autoAccept";case"bypassPermissions":return"error"
-# -> case"acceptEdits":return"autoAccept";case"auto":return"warning";case"bypassPermissions":return"error"
+# ============================================================================
+# PATCH 6: Add color for auto mode (yellow/warning)
+# ============================================================================
 sed -i 's/case"acceptEdits":return"autoAccept";case"bypassPermissions":return"error"/case"acceptEdits":return"autoAccept";case"auto":return"warning";case"bypassPermissions":return"error"/g' "$TEMP_FILE"
 echo "Patch 6: Added yellow/warning color for auto mode"
 
-# Patch 7: Flag file integration
+# ============================================================================
+# PATCH 7: Flag file integration
 # Creates/removes flag file when entering/leaving auto mode via shift+tab
-# Uses dynamic import("fs") for ESM compatibility
+# ============================================================================
 
-# Patch 7a: Create flag file when entering auto mode
-if grep -q 'if(j1==="acceptEdits")v9("auto-accept-mode")' "$TEMP_FILE"; then
-    # Legacy variant (< 2.1.0)
-    sed -i 's|if(j1==="acceptEdits")v9("auto-accept-mode")|if(j1==="acceptEdits")v9("auto-accept-mode");if(j1==="auto"){let _d=process.env.HOME+"/\.cache/claude-unleashed/auto-mode";l9.mkdirSync(_d,{recursive:\!0});l9.writeFileSync(_d+"/active-"+process.ppid,"")}|g' "$TEMP_FILE"
-    echo "Patch 7a: Inject flag creation (legacy)"
-elif grep -q 'if(JQ==="acceptEdits")O9("auto-accept-mode")' "$TEMP_FILE"; then
-    # ESM variant (2.1.0) - use dynamic import
-    sed -i 's|if(JQ==="acceptEdits")O9("auto-accept-mode")|if(JQ==="acceptEdits")O9("auto-accept-mode");if(JQ==="auto")import("fs").then(_fs=>{let _d=process.env.HOME+"/.cache/claude-unleashed/auto-mode";_fs.mkdirSync(_d,{recursive:!0});_fs.writeFileSync(_d+"/active-"+process.ppid,"")})|g' "$TEMP_FILE"
-    echo "Patch 7a: Inject flag creation (ESM JQ variant)"
-elif grep -q 'if(AQ==="acceptEdits")O9("auto-accept-mode")' "$TEMP_FILE"; then
-    # ESM variant (2.1.2) - use dynamic import with AQ variable
-    sed -i 's|if(AQ==="acceptEdits")O9("auto-accept-mode")|if(AQ==="acceptEdits")O9("auto-accept-mode");if(AQ==="auto")import("fs").then(_fs=>{let _d=process.env.HOME+"/.cache/claude-unleashed/auto-mode";_fs.mkdirSync(_d,{recursive:!0});_fs.writeFileSync(_d+"/active-"+process.ppid,"")})|g' "$TEMP_FILE"
-    echo "Patch 7a: Inject flag creation (ESM AQ variant)"
-elif grep -q 'if(S0==="acceptEdits")y9("auto-accept-mode")' "$TEMP_FILE"; then
-    # ESM variant (2.1.3+) - use dynamic import with S0 variable
-    sed -i 's|if(S0==="acceptEdits")y9("auto-accept-mode")|if(S0==="acceptEdits")y9("auto-accept-mode");if(S0==="auto")import("fs").then(_fs=>{let _d=process.env.HOME+"/.cache/claude-unleashed/auto-mode";_fs.mkdirSync(_d,{recursive:!0});_fs.writeFileSync(_d+"/active-"+process.ppid,"")})|g' "$TEMP_FILE"
-    echo "Patch 7a: Inject flag creation (ESM S0 variant - 2.1.3+)"
+# 7a: Create flag file when entering auto mode
+PATTERN_7A="if(${MODE_VAR}===\"acceptEdits\")${TELEMETRY_FN}(\"auto-accept-mode\")"
+REPLACE_7A="if(${MODE_VAR}===\"acceptEdits\")${TELEMETRY_FN}(\"auto-accept-mode\");if(${MODE_VAR}===\"auto\")import(\"fs\").then(_fs=>{let _d=process.env.HOME+\"/.cache/claude-unleashed/auto-mode\";_fs.mkdirSync(_d,{recursive:!0});_fs.writeFileSync(_d+\"/active-\"+process.ppid,\"\")})"
+
+if grep -qF "$PATTERN_7A" "$TEMP_FILE"; then
+    sed -i "s|${PATTERN_7A}|${REPLACE_7A}|g" "$TEMP_FILE"
+    echo "Patch 7a: Inject flag creation (${MODE_VAR}/${TELEMETRY_FN})"
 else
     echo "Warning: Patch 7a - pattern not found"
 fi
 
-# Patch 7b: Remove flag file when leaving auto mode
-if grep -q 'if(B\.mode==="delegate"&&j1!=="delegate")' "$TEMP_FILE"; then
-    # Legacy variant
-    sed -i 's|if(B\.mode==="delegate"\&\&j1!=="delegate")YP0(\!0),chA(\!0)|if(B.mode==="delegate"\&\&j1!=="delegate")YP0(\!0),chA(\!0);if(B.mode==="auto"\&\&j1!=="auto"){try{l9.unlinkSync(process.env.HOME+"/\.cache/claude-unleashed/auto-mode/active-"+process.ppid)}catch(_e){}}|g' "$TEMP_FILE"
-    echo "Patch 7b: Inject flag removal (legacy)"
-elif grep -q 'B\.mode==="delegate"&&JQ!=="delegate")ty0' "$TEMP_FILE"; then
-    # ESM variant (2.1.0) - use dynamic import
-    sed -i 's|B\.mode==="delegate"\&\&JQ!=="delegate")ty0(\!0),_uA(\!0)|B.mode==="delegate"\&\&JQ!=="delegate")ty0(\!0),_uA(\!0);if(B.mode==="auto"\&\&JQ!=="auto")import("fs").then(_fs=>{try{_fs.unlinkSync(process.env.HOME+"/.cache/claude-unleashed/auto-mode/active-"+process.ppid)}catch(_e){}})|g' "$TEMP_FILE"
-    echo "Patch 7b: Inject flag removal (ESM JQ variant)"
-elif grep -q 'B\.mode==="delegate"&&AQ!=="delegate")zv0' "$TEMP_FILE"; then
-    # ESM variant (2.1.2) - use dynamic import with AQ variable
-    sed -i 's|B\.mode==="delegate"\&\&AQ!=="delegate")zv0(\!0),muA(\!0)|B.mode==="delegate"\&\&AQ!=="delegate")zv0(\!0),muA(\!0);if(B.mode==="auto"\&\&AQ!=="auto")import("fs").then(_fs=>{try{_fs.unlinkSync(process.env.HOME+"/.cache/claude-unleashed/auto-mode/active-"+process.ppid)}catch(_e){}})|g' "$TEMP_FILE"
-    echo "Patch 7b: Inject flag removal (ESM AQ variant)"
-elif grep -q 'B\.mode==="delegate"&&S0!=="delegate")[$]k0' "$TEMP_FILE"; then
-    # ESM variant (2.1.3+) - use dynamic import with S0 variable
-    sed -i 's|B\.mode==="delegate"\&\&S0!=="delegate")\$k0(\!0),PmA(\!0)|B.mode==="delegate"\&\&S0!=="delegate")$k0(\!0),PmA(\!0);if(B.mode==="auto"\&\&S0!=="auto")import("fs").then(_fs=>{try{_fs.unlinkSync(process.env.HOME+"/.cache/claude-unleashed/auto-mode/active-"+process.ppid)}catch(_e){}})|g' "$TEMP_FILE"
-    echo "Patch 7b: Inject flag removal (ESM S0 variant - 2.1.3+)"
+# 7b: Remove flag file when leaving auto mode
+# Need to handle the $ in function names carefully
+DELEGATE_FN1_ESCAPED="${DELEGATE_FN1//\$/\\\$}"
+DELEGATE_FN1_GREP="${DELEGATE_FN1//\$/[\$]}"
+
+PATTERN_7B_GREP="B\\.mode===\"delegate\"&&${MODE_VAR}!==\"delegate\")${DELEGATE_FN1_GREP}"
+PATTERN_7B="B\\.mode===\"delegate\"\\&\\&${MODE_VAR}!==\"delegate\")${DELEGATE_FN1_ESCAPED}(\\!0),${DELEGATE_FN2}(\\!0)"
+REPLACE_7B="B.mode===\"delegate\"\\&\\&${MODE_VAR}!==\"delegate\")${DELEGATE_FN1}(!0),${DELEGATE_FN2}(!0);if(B.mode===\"auto\"\\&\\&${MODE_VAR}!==\"auto\")import(\"fs\").then(_fs=>{try{_fs.unlinkSync(process.env.HOME+\"/.cache/claude-unleashed/auto-mode/active-\"+process.ppid)}catch(_e){}})"
+
+if grep -qE "$PATTERN_7B_GREP" "$TEMP_FILE"; then
+    sed -i "s|${PATTERN_7B}|${REPLACE_7B}|g" "$TEMP_FILE"
+    echo "Patch 7b: Inject flag removal (${MODE_VAR}/${DELEGATE_FN1}/${DELEGATE_FN2})"
 else
     echo "Warning: Patch 7b - pattern not found"
 fi
 
-# Verify patches applied (check CT, kT, dT, and QP variants)
-if ! grep -qE '(CT|kT|dT|QP)=\[.*"auto"' "$TEMP_FILE"; then
+# ============================================================================
+# VERIFY AND APPLY
+# ============================================================================
+
+if ! grep -qE "${MODES_ARRAY_VAR}=\[.*\"auto\"" "$TEMP_FILE"; then
     echo "Error: Patch verification failed - auto mode not found in modes array"
     rm "$TEMP_FILE"
     exit 1
@@ -168,11 +220,8 @@ chmod +x "$CLI_JS"
 
 # Store patched version
 mkdir -p "$VERSION_CACHE_DIR"
-if claude --version 2>/dev/null | head -1 > "$VERSION_FILE"; then
-    echo "Stored patched version: $(cat "$VERSION_FILE")"
-else
-    echo "Note: Could not determine Claude version"
-fi
+echo "$CLAUDE_VERSION" > "$VERSION_FILE"
+echo "Stored patched version: $CLAUDE_VERSION"
 
 echo ""
 echo "Patching complete!"
