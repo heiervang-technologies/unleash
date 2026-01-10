@@ -1,4 +1,4 @@
 [submodule "claude-code"]
 	path = claude-code
-	url = https://github.com/marksverdhai/claude-code.git
-	branch = unleashed-main
+	url = https://github.com/anthropics/claude-code.git
+	branch = main
