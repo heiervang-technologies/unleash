@@ -74,7 +74,6 @@ SCRIPT_DIR="$(dirname "$SCRIPT_PATH")"
 RED='\033[0;31m'
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
-BLUE='\033[0;34m'
 NC='\033[0m' # No Color
 
 # Ensure cache directory exists and is writable
@@ -255,7 +254,8 @@ cmd_send() {
     fi
 
     # Record current output length as marker
-    local marker=$(wc -c < "$OUTPUT_FILE" 2>/dev/null || echo 0)
+    local marker
+    marker=$(wc -c < "$OUTPUT_FILE" 2>/dev/null || echo 0)
     echo "$marker" > "$MARKER_FILE"
 
     # Send the message
@@ -277,7 +277,8 @@ cmd_read() {
 
     # If marker exists, show only new output since last send
     if [[ -f "$MARKER_FILE" ]]; then
-        local marker=$(cat "$MARKER_FILE")
+        local marker
+        marker=$(cat "$MARKER_FILE")
         tail -c +$((marker + 1)) "$OUTPUT_FILE" 2>/dev/null
     else
         cat "$OUTPUT_FILE"

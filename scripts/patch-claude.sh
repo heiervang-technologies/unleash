@@ -48,8 +48,6 @@ echo "Detected version: $CLAUDE_VERSION"
 # Try exact match first, then fall back to closest lower version
 find_version_config() {
     local target_version="$1"
-    local config_file=""
-    local latest_version=""
 
     # Try exact match
     if [[ -f "$PATCHES_DIR/${target_version}.conf" ]]; then
@@ -59,9 +57,10 @@ find_version_config() {
 
     # Find all available versions and sort them
     local available_versions=()
+    local ver
     for conf in "$PATCHES_DIR"/*.conf; do
         [[ -f "$conf" ]] || continue
-        local ver=$(basename "$conf" .conf)
+        ver=$(basename "$conf" .conf)
         available_versions+=("$ver")
     done
 
@@ -72,7 +71,8 @@ find_version_config() {
 
     # Sort versions and find the latest one that's <= target
     # Using sort -V for version sorting
-    local sorted_versions=$(printf '%s\n' "${available_versions[@]}" | sort -V)
+    local sorted_versions
+    sorted_versions=$(printf '%s\n' "${available_versions[@]}" | sort -V)
 
     # Find the best match (latest version <= target)
     local best_match=""
@@ -89,7 +89,8 @@ find_version_config() {
     fi
 
     # Fallback to the latest available version
-    local latest=$(printf '%s\n' "${available_versions[@]}" | sort -V | tail -1)
+    local latest
+    latest=$(printf '%s\n' "${available_versions[@]}" | sort -V | tail -1)
     echo "$PATCHES_DIR/${latest}.conf"
     return 0
 }
@@ -108,6 +109,7 @@ echo "Using patch config: $(basename "$CONFIG_FILE")"
 echo "Patching: $CLI_JS"
 
 # Load version-specific configuration
+# shellcheck source=/dev/null
 source "$CONFIG_FILE"
 
 # Check if already patched

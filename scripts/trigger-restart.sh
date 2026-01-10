@@ -17,7 +17,7 @@ TRIGGER_FILE="${CACHE_DIR}/restart-trigger"
 RESTART_MESSAGE_FILE="${CACHE_DIR}/restart-message"
 
 # Parse command line arguments
-FORCE=false
+_FORCE=false  # Reserved for future use
 CLEAN=false
 INITIAL_MESSAGE=""
 METHOD=""  # auto, wrapper, tmux
@@ -25,7 +25,7 @@ METHOD=""  # auto, wrapper, tmux
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --force)
-      FORCE=true
+      _FORCE=true
       shift
       ;;
     --clean)
