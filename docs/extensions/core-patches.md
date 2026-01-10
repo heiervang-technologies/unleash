@@ -7,12 +7,13 @@ This document outlines the policy and procedures for making patches to the core 
 ## Table of Contents
 
 1. [Policy: Plugin-First Approach](#policy-plugin-first-approach)
-2. [When to Use Core Patches](#when-to-use-core-patches)
-3. [When NOT to Use Core Patches](#when-not-to-use-core-patches)
-4. [Documentation Requirements](#documentation-requirements)
-5. [Branch Strategy](#branch-strategy)
-6. [Conflict Risk Assessment](#conflict-risk-assessment)
-7. [Migration Path: Patches to Plugins](#migration-path-patches-to-plugins)
+2. [Auto Mode Patch System](#auto-mode-patch-system)
+3. [When to Use Core Patches](#when-to-use-core-patches)
+4. [When NOT to Use Core Patches](#when-not-to-use-core-patches)
+5. [Documentation Requirements](#documentation-requirements)
+6. [Branch Strategy](#branch-strategy)
+7. [Conflict Risk Assessment](#conflict-risk-assessment)
+8. [Migration Path: Patches to Plugins](#migration-path-patches-to-plugins)
 
 ## Policy: Plugin-First Approach
 
@@ -43,6 +44,108 @@ The claude-unleashed repository maintains a fork of Claude Code to enable GitHub
 - **Maintenance Debt**: Must manually merge/resolve conflicts
 - **Lock-in**: Harder to share with community
 - **Testing Complexity**: Harder to isolate issues
+
+## Auto Mode Patch System
+
+Claude Unleashed includes a version-aware patching system for adding "Auto Mode" to Claude Code. This is an exception to the plugin-first approach because it requires modifying the minified CLI JavaScript.
+
+### Directory Structure
+
+```
+scripts/
+├── patch-claude.sh              # Main patch dispatcher
+├── unpatch-claude.sh            # Restore from backup
+├── check-and-patch.sh           # Auto-patch on version change
+└── patches/
+    └── versions/
+        ├── 2.1.0.conf           # Variable mappings for 2.1.0
+        ├── 2.1.2.conf           # Variable mappings for 2.1.2
+        └── 2.1.3.conf           # Variable mappings for 2.1.3
+```
+
+### How It Works
+
+1. **Version Detection**: The patch script detects the installed Claude Code version
+2. **Config Selection**: Finds the appropriate `.conf` file for that version
+3. **Fallback Logic**: If no exact match, uses the latest version ≤ target
+4. **Variable Substitution**: Applies patches using version-specific variable names
+
+### Version Config Format
+
+Each `.conf` file defines the minified variable names for that version:
+
+```bash
+# scripts/patches/versions/2.1.3.conf
+
+# Modes array variable name
+MODES_ARRAY_VAR="QP"
+
+# Mode variable in setMode handler
+MODE_VAR="S0"
+
+# Telemetry function name
+TELEMETRY_FN="y9"
+
+# Delegate check functions
+DELEGATE_FN1="\$k0"
+DELEGATE_FN2="PmA"
+
+# Permission context variable
+PERMISSION_CTX_VAR="PA"
+```
+
+### Adding Support for New Versions
+
+When a new Claude Code version is released:
+
+1. **Check if patch works**: Run `patch-claude.sh` - it will fall back to latest config
+2. **If patches fail**: Create a new config file for the version
+3. **Find variable names**: Search the minified `cli.js` for patterns:
+
+```bash
+# Find modes array variable
+tr ';' '\n' < cli.js | grep -oP '\w+=\["acceptEdits","bypassPermissions"[^\]]*\]'
+
+# Find setMode handler variable
+tr ';' '\n' < cli.js | grep 'auto-accept-mode'
+
+# Find delegate check pattern
+tr ';' '\n' < cli.js | grep 'B\.mode==="delegate"'
+```
+
+4. **Create config**: Add `scripts/patches/versions/X.Y.Z.conf`
+5. **Test**: Run patch script and verify with `claude -p "ping"`
+
+### Version Fallback Behavior
+
+| Target Version | Config Used | Reason |
+|---------------|-------------|--------|
+| 2.1.3 | 2.1.3.conf | Exact match |
+| 2.1.4 | 2.1.3.conf | Latest ≤ target |
+| 2.1.5 | 2.1.3.conf | Latest ≤ target |
+| 2.1.1 | 2.1.0.conf | Closest lower version |
+
+### Patches Applied
+
+The auto mode patch adds:
+
+1. **Modes Array**: Adds "auto" to the modes list
+2. **Display Name**: "Auto Mode" label
+3. **Icon**: »» indicator
+4. **Cycling**: bypassPermissions → auto → default
+5. **Permission Bypass**: Auto mode behaves like bypassPermissions
+6. **Color**: Yellow/warning indicator
+7. **Flag Files**: Creates/removes `~/.cache/claude-unleashed/auto-mode/active-{pid}`
+
+### Testing After Patching
+
+```bash
+# Verify headless mode works
+claude -p "ping"
+
+# Verify patches applied
+grep -o 'case"auto":return"Auto Mode"' /path/to/cli.js
+```
 
 ## When to Use Core Patches
 

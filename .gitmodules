@@ -2,3 +2,4 @@
 	path = claude-code
 	url = https://github.com/anthropics/claude-code.git
 	branch = main
+	ignore = dirty

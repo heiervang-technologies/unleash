@@ -1,5 +1,8 @@
 # Claude Unleashed
 
+![claude-unleashed](https://github.com/user-attachments/assets/6379164d-9a51-4ca1-8909-09eefe546aa2)
+
+
 A powerful extension framework for Claude Code that maintains upstream compatibility while adding custom functionality through a plugin-first architecture.
 
 ## Overview
