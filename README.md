@@ -23,6 +23,7 @@ claude-unleashed/
 ├── scripts/                      # Shell scripts
 │   ├── install.sh               # Installation script
 │   ├── wrapper.sh               # Bash wrapper for self-restart
+│   ├── cutx                     # Headless tmux mode CLI
 │   ├── restart-claude           # Restart command
 │   ├── exit-claude              # Exit command
 │   ├── patch-claude.sh          # Apply Claude Code patches
@@ -207,6 +208,63 @@ ln -sf ~/claude-unleashed/scripts/exit-claude ~/.local/bin/
 cargo build --release
 cp target/release/claude-unleashed ~/.local/bin/claude-unleashed-tui
 ```
+
+## Headless Mode (cutx)
+
+### Overview
+
+`cutx` is a headless mode for Claude Unleashed that runs Claude in a tmux session, enabling programmatic access for automation, scripting, and CI/CD pipelines. It provides a command-line interface to start, stop, send messages, and read responses from Claude without requiring an interactive terminal.
+
+### When to Use It
+
+- **CI/CD pipelines**: Integrate Claude into build and deployment workflows
+- **Automation scripts**: Run Claude tasks from shell scripts or cron jobs
+- **Background tasks**: Process files or analyze code without blocking the terminal
+- **Programmatic access**: Build tools that interact with Claude programmatically
+- **Batch processing**: Send multiple queries and collect responses
+
+### Quick Examples
+
+```bash
+# Start a headless session
+cutx start
+
+# Send a message to Claude
+cutx send "Analyze this code for bugs"
+
+# Wait for Claude to finish responding
+cutx wait
+
+# Read the response
+cutx read
+
+# Or use the shorthand for quick queries (start, send, wait, read in one command)
+cutx "What is 2+2?"
+
+# Attach to the session for interactive use
+cutx attach
+
+# Check session status
+cutx status
+
+# Stop the session
+cutx stop
+```
+
+### Environment Variables
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `CUTX_SESSION_NAME` | `claude-unleashed` | tmux session name |
+| `CUTX_WAIT_TIMEOUT` | `300` | Default wait timeout in seconds |
+| `CUTX_TERM_WIDTH` | `200` | Terminal width |
+| `CUTX_TERM_HEIGHT` | `50` | Terminal height |
+| `CUTX_STABLE_THRESHOLD` | `3` | Seconds of stable output to consider response complete |
+| `CUTX_INIT_WAIT` | `5` | Seconds to wait for Claude initialization |
+
+### Full Documentation
+
+For detailed usage, advanced options, and integration examples, see [docs/extensions/headless-mode.md](docs/extensions/headless-mode.md).
 
 ## How to Add Plugins
 
