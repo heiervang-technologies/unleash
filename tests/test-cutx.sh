@@ -351,6 +351,69 @@ test_script_syntax() {
     echo ""
 }
 
+# Test 14: Session name injection attempts
+test_session_name_injection() {
+    echo "=== Test: session name injection prevention ==="
+
+    # Try various injection patterns
+    local malicious_names=(
+        "test; rm -rf /"
+        "test\$(whoami)"
+        "test|cat /etc/passwd"
+        "test&& echo pwned"
+        "test\`id\`"
+        "test;whoami"
+        "../../../etc/passwd"
+        "test@domain.com"
+        "test with spaces"
+        "test/with/slashes"
+    )
+
+    local injection_blocked=0
+    local injection_total=${#malicious_names[@]}
+
+    for name in "${malicious_names[@]}"; do
+        local output
+        local exit_code=0
+        output=$(CUTX_SESSION_NAME="$name" "$CUTX" status 2>&1) || exit_code=$?
+
+        if [[ $exit_code -ne 0 ]] && [[ "$output" == *"Invalid session name"* ]]; then
+            ((injection_blocked++))
+        fi
+    done
+
+    if [[ $injection_blocked -eq $injection_total ]]; then
+        echo -e "${GREEN}PASS${NC}: All $injection_total injection attempts blocked"
+        ((passed++))
+    else
+        echo -e "${RED}FAIL${NC}: Only $injection_blocked/$injection_total injection attempts blocked"
+        ((failed++))
+    fi
+    echo ""
+}
+
+# Test 15: Invalid numeric environment variables
+test_invalid_numeric_env_vars() {
+    echo "=== Test: invalid numeric environment variables ==="
+
+    # Test invalid CUTX_WAIT_TIMEOUT
+    local output
+    local exit_code=0
+    output=$(CUTX_WAIT_TIMEOUT="not-a-number" "$CUTX" help 2>&1) || exit_code=$?
+
+    assert_failure $exit_code "script rejects non-numeric CUTX_WAIT_TIMEOUT"
+    assert_contains "$output" "must be a positive integer" "error message mentions integer requirement"
+
+    # Test invalid CUTX_TERM_WIDTH
+    exit_code=0
+    output=$(CUTX_TERM_WIDTH="abc" "$CUTX" help 2>&1) || exit_code=$?
+
+    assert_failure $exit_code "script rejects non-numeric CUTX_TERM_WIDTH"
+    assert_contains "$output" "must be a positive integer" "error message mentions integer requirement"
+
+    echo ""
+}
+
 # Run all tests
 main() {
     echo "========================================"
@@ -361,6 +424,8 @@ main() {
     check_prerequisites
 
     test_script_syntax
+    test_session_name_injection
+    test_invalid_numeric_env_vars
     test_help_command
     test_empty_command
     test_status_no_session
