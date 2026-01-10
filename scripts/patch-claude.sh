@@ -33,7 +33,7 @@ if grep -qE '(CT|kT|dT)=\[.*"auto"' "$CLI_JS" 2>/dev/null; then
     echo "Already patched (auto mode exists in modes array)"
     # Update version file in case it's missing
     mkdir -p "$VERSION_CACHE_DIR"
-    claude --version 2>/dev/null | head -1 > "$VERSION_FILE"
+    claude --version 2>/dev/null | head -1 > "$VERSION_FILE" || true
     exit 0
 fi
 
@@ -151,8 +151,11 @@ chmod +x "$CLI_JS"
 
 # Store patched version
 mkdir -p "$VERSION_CACHE_DIR"
-claude --version 2>/dev/null | head -1 > "$VERSION_FILE"
-echo "Stored patched version: $(cat "$VERSION_FILE")"
+if claude --version 2>/dev/null | head -1 > "$VERSION_FILE"; then
+    echo "Stored patched version: $(cat "$VERSION_FILE")"
+else
+    echo "Note: Could not determine Claude version"
+fi
 
 echo ""
 echo "Patching complete!"

@@ -43,7 +43,15 @@ fn main() -> io::Result<()> {
             AppAction::Launch(launch_request) => {
                 // Launch Claude directly - no transition messages for seamless flow
                 match launch_request.execute() {
-                    Ok(_status) => {
+                    Ok(status) => {
+                        // Check exit code - treat SIGTERM (143) as clean exit
+                        // Exit code 143 = 128 + 15 (SIGTERM), used by exit_claude MCP tool
+                        if let Some(code) = status.code() {
+                            if code != 0 && code != 143 {
+                                // Non-zero exit (excluding SIGTERM) - could indicate an error
+                                // but we still return to TUI for seamless UX
+                            }
+                        }
                         // Automatically return to TUI after Claude exits
                         return main();
                     }

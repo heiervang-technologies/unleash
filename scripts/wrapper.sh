@@ -106,4 +106,10 @@ while true; do
     break
 done
 
+# Treat SIGTERM (exit code 143 = 128 + 15) as clean exit
+# This happens when Claude is gracefully terminated via exit_claude MCP tool
+if [[ ${EXIT_CODE} -eq 143 ]]; then
+    exit 0
+fi
+
 exit ${EXIT_CODE}
