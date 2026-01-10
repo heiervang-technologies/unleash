@@ -104,7 +104,6 @@ test_auto_mode_hook_output() {
     fi
 
     # Test 3: With wrapper PID and flag file, should block with JSON
-    TEST_DIR=$(mktemp -d)
     FLAG_DIR="$HOME/.cache/claude-unleashed/auto-mode"
     mkdir -p "$FLAG_DIR"
     TEST_PID="$$"
@@ -141,7 +140,6 @@ test_plugin_structure() {
 
     # Each plugin with plugin.json should have required fields
     find "$PLUGINS_DIR" -name "plugin.json" 2>/dev/null | while read -r json_file; do
-        plugin_dir=$(dirname "$(dirname "$json_file")")
         plugin_name=$(python3 -c "import json; print(json.load(open('$json_file')).get('name', ''))" 2>/dev/null)
 
         if [[ -n "$plugin_name" ]]; then

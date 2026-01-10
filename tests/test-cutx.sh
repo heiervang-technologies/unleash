@@ -250,7 +250,8 @@ test_read_without_output() {
     echo "=== Test: read without output file ==="
 
     # Use a session name that won't have an output file
-    local unique_name="no-output-$$-$(date +%s)"
+    local unique_name
+    unique_name="no-output-$$-$(date +%s)"
 
     local output
     local exit_code=0
@@ -265,7 +266,8 @@ test_read_without_output() {
 test_attach_without_session() {
     echo "=== Test: attach without session fails ==="
 
-    local unique_name="no-attach-$$-$(date +%s)"
+    local unique_name
+    unique_name="no-attach-$$-$(date +%s)"
 
     local output
     local exit_code=0
@@ -280,7 +282,8 @@ test_attach_without_session() {
 test_stop_no_session() {
     echo "=== Test: stop with no session ==="
 
-    local unique_name="no-stop-$$-$(date +%s)"
+    local unique_name
+    unique_name="no-stop-$$-$(date +%s)"
 
     local output
     local exit_code=0
@@ -327,7 +330,8 @@ test_cache_directory() {
 test_wait_without_session() {
     echo "=== Test: wait without session fails ==="
 
-    local unique_name="no-wait-$$-$(date +%s)"
+    local unique_name
+    unique_name="no-wait-$$-$(date +%s)"
 
     local output
     local exit_code=0
