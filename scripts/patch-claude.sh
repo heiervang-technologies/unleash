@@ -49,6 +49,7 @@ cp "$CLI_JS" "$TEMP_FILE"
 # Patch 1: Add "auto" to modes array
 # Variable name varies by version: CT= (older), kT= (2.1.0), dT= (2.1.2), QP= (2.1.3+)
 # Find and patch whichever pattern exists
+# Note: In 2.1.3+, the array includes more modes, so we match the start pattern
 if grep -q 'CT=\["acceptEdits","bypassPermissions"' "$TEMP_FILE"; then
     sed -i 's/CT=\["acceptEdits","bypassPermissions"/CT=["acceptEdits","auto","bypassPermissions"/g' "$TEMP_FILE"
     echo "Patch 1: Added 'auto' to modes array (CT variant)"
@@ -58,6 +59,10 @@ elif grep -q 'kT=\["acceptEdits","bypassPermissions"' "$TEMP_FILE"; then
 elif grep -q 'dT=\["acceptEdits","bypassPermissions"' "$TEMP_FILE"; then
     sed -i 's/dT=\["acceptEdits","bypassPermissions"/dT=["acceptEdits","auto","bypassPermissions"/g' "$TEMP_FILE"
     echo "Patch 1: Added 'auto' to modes array (dT variant)"
+elif grep -q 'QP=\["acceptEdits","bypassPermissions","default' "$TEMP_FILE"; then
+    # 2.1.3+ pattern with full modes array - insert auto after bypassPermissions
+    sed -i 's/QP=\["acceptEdits","bypassPermissions","default/QP=["acceptEdits","auto","bypassPermissions","default/g' "$TEMP_FILE"
+    echo "Patch 1: Added 'auto' to modes array (QP variant - 2.1.3+ full array)"
 elif grep -q 'QP=\["acceptEdits","bypassPermissions"' "$TEMP_FILE"; then
     sed -i 's/QP=\["acceptEdits","bypassPermissions"/QP=["acceptEdits","auto","bypassPermissions"/g' "$TEMP_FILE"
     echo "Patch 1: Added 'auto' to modes array (QP variant - 2.1.3+)"
