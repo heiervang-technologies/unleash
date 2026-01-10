@@ -1,0 +1,416 @@
+#!/usr/bin/env bash
+# cutx - Claude Unleashed Wrapper (Headless tmux mode)
+#
+# A headless mode for Claude using tmux instead of native headless.
+# This allows interaction via key inputs and better session management.
+#
+# Usage:
+#   cutx start [args]     Start a new Claude session in tmux
+#   cutx send "message"   Send a message to Claude
+#   cutx read             Read current output from Claude
+#   cutx attach           Attach to the Claude tmux session
+#   cutx detach           Detach from session (when attached)
+#   cutx stop             Stop the Claude session
+#   cutx status           Check if session is running
+#   cutx "message"        Shorthand: send message and wait for response
+#
+# Environment:
+#   CUTX_SESSION_NAME     tmux session name (default: claude-unleashed)
+#   CUTX_WAIT_TIMEOUT     Seconds to wait for response (default: 300)
+#
+# Version: 1.0.0
+
+set -uo pipefail
+
+# Configuration
+SESSION_NAME="${CUTX_SESSION_NAME:-claude-unleashed}"
+WAIT_TIMEOUT="${CUTX_WAIT_TIMEOUT:-300}"
+CACHE_DIR="${HOME}/.cache/claude-unleashed/cutx"
+OUTPUT_FILE="${CACHE_DIR}/${SESSION_NAME}.output"
+MARKER_FILE="${CACHE_DIR}/${SESSION_NAME}.marker"
+
+# Get script directory for relative paths
+SCRIPT_PATH="$(readlink -f "${BASH_SOURCE[0]}")"
+SCRIPT_DIR="$(dirname "$SCRIPT_PATH")"
+
+# Colors
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+BLUE='\033[0;34m'
+NC='\033[0m' # No Color
+
+# Ensure cache directory exists
+mkdir -p "$CACHE_DIR"
+
+log_info() {
+    echo -e "${GREEN}[cutx]${NC} $1"
+}
+
+log_warn() {
+    echo -e "${YELLOW}[cutx]${NC} $1"
+}
+
+log_error() {
+    echo -e "${RED}[cutx]${NC} $1" >&2
+}
+
+# Check if tmux is available
+check_tmux() {
+    if ! command -v tmux &>/dev/null; then
+        log_error "tmux is required but not installed"
+        exit 1
+    fi
+}
+
+# Check if session exists
+session_exists() {
+    tmux has-session -t "$SESSION_NAME" 2>/dev/null
+}
+
+# Start a new Claude session
+cmd_start() {
+    check_tmux
+
+    if session_exists; then
+        log_warn "Session '$SESSION_NAME' already exists"
+        log_info "Use 'cutx attach' to connect or 'cutx stop' to restart"
+        return 1
+    fi
+
+    # Parse --auto flag
+    local auto_mode=false
+    local claude_args=()
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --auto|-a)
+                auto_mode=true
+                shift
+                ;;
+            *)
+                claude_args+=("$1")
+                shift
+                ;;
+        esac
+    done
+
+    # Determine which launcher to use
+    local launcher="${SCRIPT_DIR}/wrapper.sh"
+    if [[ ! -x "$launcher" ]]; then
+        launcher="claude-unleashed"
+        if ! command -v "$launcher" &>/dev/null; then
+            launcher="claude"
+        fi
+    fi
+
+    log_info "Starting Claude session '$SESSION_NAME'..."
+    if $auto_mode; then
+        log_info "Auto mode enabled"
+    fi
+
+    # Create tmux session with logging
+    tmux new-session -d -s "$SESSION_NAME" -x 200 -y 50
+
+    # Enable logging to capture output
+    tmux pipe-pane -t "$SESSION_NAME" -o "cat >> ${OUTPUT_FILE}"
+
+    # Clear previous output
+    : > "$OUTPUT_FILE"
+
+    # Build command with optional auto mode env var
+    local cmd=""
+    if $auto_mode; then
+        cmd="CLAUDE_AUTO_MODE=1 "
+    fi
+    cmd+="$launcher"
+    if [[ ${#claude_args[@]} -gt 0 ]]; then
+        cmd+=" $(printf '%q ' "${claude_args[@]}")"
+    fi
+    tmux send-keys -t "$SESSION_NAME" "$cmd" Enter
+
+    log_info "Session started. Use 'cutx attach' to connect interactively"
+    log_info "Or use 'cutx send \"message\"' to send commands"
+}
+
+# Send a message to Claude
+cmd_send() {
+    check_tmux
+
+    if ! session_exists; then
+        log_error "No active session. Run 'cutx start' first"
+        return 1
+    fi
+
+    local message="$*"
+    if [[ -z "$message" ]]; then
+        log_error "No message provided"
+        echo "Usage: cutx send \"your message\""
+        return 1
+    fi
+
+    # Record current output length as marker
+    local marker=$(wc -c < "$OUTPUT_FILE" 2>/dev/null || echo 0)
+    echo "$marker" > "$MARKER_FILE"
+
+    # Send the message
+    tmux send-keys -t "$SESSION_NAME" "$message" Enter
+
+    log_info "Message sent"
+}
+
+# Read output from Claude
+cmd_read() {
+    check_tmux
+
+    if [[ ! -f "$OUTPUT_FILE" ]]; then
+        log_error "No output file found. Is a session running?"
+        return 1
+    fi
+
+    # If marker exists, show only new output since last send
+    if [[ -f "$MARKER_FILE" ]]; then
+        local marker=$(cat "$MARKER_FILE")
+        tail -c +$((marker + 1)) "$OUTPUT_FILE" 2>/dev/null
+    else
+        cat "$OUTPUT_FILE"
+    fi
+}
+
+# Wait for Claude to finish responding
+cmd_wait() {
+    check_tmux
+
+    if ! session_exists; then
+        log_error "No active session"
+        return 1
+    fi
+
+    local timeout="${1:-$WAIT_TIMEOUT}"
+    local interval=1
+    local elapsed=0
+    local last_size=0
+    local stable_count=0
+    local stable_threshold=3  # Output stable for N seconds = done
+
+    log_info "Waiting for response (timeout: ${timeout}s)..."
+
+    while [[ $elapsed -lt $timeout ]]; do
+        sleep $interval
+        elapsed=$((elapsed + interval))
+
+        local current_size=$(wc -c < "$OUTPUT_FILE" 2>/dev/null || echo 0)
+
+        if [[ "$current_size" -eq "$last_size" ]]; then
+            stable_count=$((stable_count + 1))
+            if [[ $stable_count -ge $stable_threshold ]]; then
+                log_info "Response complete"
+                return 0
+            fi
+        else
+            stable_count=0
+            last_size=$current_size
+        fi
+    done
+
+    log_warn "Timeout reached"
+    return 1
+}
+
+# Attach to the session
+cmd_attach() {
+    check_tmux
+
+    if ! session_exists; then
+        log_error "No active session. Run 'cutx start' first"
+        return 1
+    fi
+
+    local here=false
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --here|-h)
+                here=true
+                shift
+                ;;
+            *)
+                shift
+                ;;
+        esac
+    done
+
+    if [[ -n "${TMUX:-}" ]]; then
+        if $here; then
+            # Join the Claude pane into current window
+            log_info "Joining Claude pane into current window..."
+            tmux join-pane -s "$SESSION_NAME:0.0" -h
+        else
+            log_info "Switching to session (prefix + ( or ) to switch back)..."
+            tmux switch-client -t "$SESSION_NAME"
+        fi
+    else
+        log_info "Attaching to session (Ctrl+B, D to detach)..."
+        tmux attach-session -t "$SESSION_NAME"
+    fi
+}
+
+# Stop the session
+cmd_stop() {
+    check_tmux
+
+    if ! session_exists; then
+        log_info "No active session"
+        return 0
+    fi
+
+    log_info "Stopping session '$SESSION_NAME'..."
+    tmux kill-session -t "$SESSION_NAME"
+    rm -f "$OUTPUT_FILE" "$MARKER_FILE"
+    log_info "Session stopped"
+}
+
+# Check session status
+cmd_status() {
+    check_tmux
+
+    if session_exists; then
+        log_info "Session '$SESSION_NAME' is ${GREEN}running${NC}"
+
+        # Show session info
+        echo ""
+        tmux list-sessions -F "#{session_name}: #{session_windows} windows, created #{session_created_string}" | grep "$SESSION_NAME"
+
+        # Show recent output
+        if [[ -f "$OUTPUT_FILE" ]] && [[ -s "$OUTPUT_FILE" ]]; then
+            echo ""
+            echo "Recent output (last 10 lines):"
+            echo "─────────────────────────────"
+            tail -n 10 "$OUTPUT_FILE"
+        fi
+    else
+        log_info "Session '$SESSION_NAME' is ${RED}not running${NC}"
+    fi
+}
+
+# Send message and wait for response (shorthand)
+cmd_query() {
+    local message="$*"
+
+    # Start session if not running
+    if ! session_exists; then
+        cmd_start
+        # Wait for Claude to initialize
+        sleep 3
+    fi
+
+    cmd_send "$message"
+    cmd_wait
+    echo ""
+    echo "─────────────────────────────"
+    cmd_read
+}
+
+# Show help
+cmd_help() {
+    cat << 'EOF'
+cutx - Claude Unleashed Wrapper (Headless tmux mode)
+
+USAGE:
+    cutx <command> [args]
+    cutx "message"           Send message and wait for response
+
+COMMANDS:
+    start [--auto] [args]
+                    Start a new Claude session in tmux
+                    --auto: enable auto mode (Claude won't stop)
+                    Additional args are passed to claude-unleashed
+
+    send "msg"      Send a message to the running Claude session
+
+    read            Read current output from Claude
+
+    wait [secs]     Wait for Claude to finish responding
+                    Default timeout: 300 seconds
+
+    attach [--here] Attach to the Claude tmux session
+                    --here: join pane into current window
+                    Without --here: switch to session
+
+    stop            Stop the Claude session
+
+    status          Check if session is running and show info
+
+    help            Show this help message
+
+ENVIRONMENT:
+    CUTX_SESSION_NAME    tmux session name (default: claude-unleashed)
+    CUTX_WAIT_TIMEOUT    Default wait timeout in seconds (default: 300)
+
+EXAMPLES:
+    # Start a session and send a message
+    cutx start
+    cutx send "Hello Claude, how are you?"
+    cutx wait
+    cutx read
+
+    # Or use the shorthand
+    cutx "Hello Claude, how are you?"
+
+    # Attach for interactive use
+    cutx attach
+
+    # Start with specific arguments
+    cutx start --continue
+
+    # Check status
+    cutx status
+
+EOF
+}
+
+# Main dispatch
+main() {
+    local cmd="${1:-}"
+
+    case "$cmd" in
+        start)
+            shift
+            cmd_start "$@"
+            ;;
+        send)
+            shift
+            cmd_send "$@"
+            ;;
+        read)
+            cmd_read
+            ;;
+        wait)
+            shift
+            cmd_wait "$@"
+            ;;
+        attach)
+            shift
+            cmd_attach "$@"
+            ;;
+        detach)
+            log_info "Use Ctrl+B, D to detach from within tmux"
+            ;;
+        stop|kill)
+            cmd_stop
+            ;;
+        status)
+            cmd_status
+            ;;
+        help|--help|-h)
+            cmd_help
+            ;;
+        "")
+            cmd_help
+            ;;
+        *)
+            # Treat as a message query
+            cmd_query "$@"
+            ;;
+    esac
+}
+
+main "$@"

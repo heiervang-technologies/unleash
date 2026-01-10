@@ -121,6 +121,10 @@ fi
 ln -sf "$SCRIPT_DIR/wrapper.sh" "$BIN_DIR/cuw"
 success "Symlink: cuw -> wrapper.sh (with plugins)"
 
+# Headless tmux mode
+ln -sf "$SCRIPT_DIR/cutx" "$BIN_DIR/cutx"
+success "Symlink: cutx -> headless tmux mode"
+
 # Helper commands
 ln -sf "$SCRIPT_DIR/restart-claude" "$BIN_DIR/restart-claude"
 ln -sf "$SCRIPT_DIR/exit-claude" "$BIN_DIR/exit-claude"
@@ -150,11 +154,15 @@ echo "╰───────────────────────�
 echo ""
 echo "Installed commands:"
 echo "  claude-unleashed  - Start Claude with unleashed features"
+echo "  cuw               - Short alias (wrapper with plugins)"
+echo "  cutx              - Headless tmux mode"
 echo "  restart-claude    - Restart Claude (preserves session)"
 echo "  exit-claude       - Exit Claude and wrapper"
 echo ""
-echo "Optional aliases (add to ~/.bashrc or ~/.zshrc):"
-echo "  alias cu='claude-unleashed'"
+echo "Headless mode usage:"
+echo "  cutx start        - Start Claude in tmux session"
+echo "  cutx send \"msg\"   - Send message to Claude"
+echo "  cutx attach       - Attach to session interactively"
 echo ""
 
 if ! $BUILD_TUI; then

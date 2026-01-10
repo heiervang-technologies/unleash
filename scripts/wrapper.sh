@@ -50,9 +50,35 @@ if [[ -d "$PLUGINS_DIR" ]]; then
     done
 fi
 
+# Parse --auto flag from args
+CLAUDE_ARGS=()
+for arg in "$@"; do
+    case "$arg" in
+        --auto|-a)
+            export CLAUDE_AUTO_MODE=1
+            ;;
+        *)
+            CLAUDE_ARGS+=("$arg")
+            ;;
+    esac
+done
+if [[ ${#CLAUDE_ARGS[@]} -gt 0 ]]; then
+    set -- "${CLAUDE_ARGS[@]}"
+else
+    set --
+fi
+
 # Export marker so scripts know we're in the wrapper
 export CLAUDE_UNLEASHED=1
 export CLAUDE_WRAPPER_PID=${WRAPPER_PID}
+
+# Auto-activate auto mode if requested via env var or --auto flag
+if [[ "${CLAUDE_AUTO_MODE:-}" == "1" ]]; then
+    AUTO_MODE_DIR="${HOME}/.cache/claude-unleashed/auto-mode"
+    mkdir -p "${AUTO_MODE_DIR}"
+    echo "auto-start" > "${AUTO_MODE_DIR}/active-${WRAPPER_PID}"
+    echo "Auto mode activated on startup"
+fi
 
 # Timeout configuration
 # Set to "disabled" or "false" to completely disable timeouts

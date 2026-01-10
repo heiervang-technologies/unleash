@@ -19,7 +19,7 @@ AUTO_MODE_FILE="${AUTO_MODE_DIR}/active-${WRAPPER_PID}"
 if [[ -f "${AUTO_MODE_FILE}" ]]; then
     # Check for custom reminder message
     REMINDER_FILE="${AUTO_MODE_DIR}/reminder-${WRAPPER_PID}"
-    DEFAULT_MSG="AUTO MODE: Check MCP tools for pending tasks. If owner asked 'do you want to implement X?' - YES, proceed. If idle, use sleep with exponential backoff (30s, 60s, 120s). To exit: run exit-claude"
+    DEFAULT_MSG="To exit: run 'exit-claude' via Bash tool. Do not end your turn without taking action."
 
     if [[ -f "${REMINDER_FILE}" ]]; then
         REASON=$(cat "${REMINDER_FILE}")
