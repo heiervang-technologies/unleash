@@ -104,6 +104,61 @@ All while maintaining your custom plugins and configurations.
 - [Claude Code](https://github.com/anthropics/claude-code) installed (`npm install -g @anthropic-ai/claude-code`)
 - Git
 - Rust/Cargo (optional, for TUI)
+- Claude Pro or Max subscription (required for authentication)
+
+### Authentication Setup
+
+Claude Unleashed requires authentication with Claude Code. You have two options:
+
+#### Option 1: OAuth Token (Recommended for Automation)
+
+Generate a long-lived OAuth token and set it as an environment variable:
+
+```bash
+# Generate the token
+claude setup-token
+
+# Copy the output token and export it
+export CLAUDE_CODE_OAUTH_TOKEN=<your-token-here>
+
+# Add to your shell profile for persistence
+echo 'export CLAUDE_CODE_OAUTH_TOKEN=<your-token-here>' >> ~/.bashrc
+# or ~/.zshrc for zsh
+```
+
+**Advantages:**
+- Works in headless/non-interactive environments
+- Suitable for CI/CD pipelines and containers
+- No browser authentication needed
+- Token persists across sessions when exported in shell profile
+
+**Note:** The OAuth token takes precedence over credentials stored in `~/.claude/.credentials.json`.
+
+#### Option 2: Interactive Authentication
+
+Run Claude Code once to authenticate via browser:
+
+```bash
+claude
+# Follow the browser authentication flow
+# Credentials will be stored in ~/.claude/.credentials.json (Linux/Ubuntu)
+# or macOS Keychain (macOS)
+```
+
+#### Verifying Authentication
+
+Claude Unleashed automatically checks for authentication on startup:
+
+```bash
+claude-unleashed
+# You'll see one of:
+# ✓ Using OAuth token from CLAUDE_CODE_OAUTH_TOKEN environment variable
+# ✓ Using credentials from ~/.claude/.credentials.json
+# ✓ Found credentials in macOS Keychain
+# ⚠ WARNING: Claude Code authentication not configured
+```
+
+For more details, see the [Claude Code IAM documentation](https://code.claude.com/docs/en/iam).
 
 ### Installation
 
