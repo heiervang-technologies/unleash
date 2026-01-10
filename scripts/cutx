@@ -15,22 +15,59 @@
 #   cutx "message"        Shorthand: send message and wait for response
 #
 # Environment:
-#   CUTX_SESSION_NAME     tmux session name (default: claude-unleashed)
-#   CUTX_WAIT_TIMEOUT     Seconds to wait for response (default: 300)
+#   CUTX_SESSION_NAME      tmux session name (default: claude-unleashed)
+#   CUTX_WAIT_TIMEOUT      Seconds to wait for response (default: 300)
+#   CUTX_TERM_WIDTH        Terminal width for tmux session (default: 200)
+#   CUTX_TERM_HEIGHT       Terminal height for tmux session (default: 50)
+#   CUTX_STABLE_THRESHOLD  Seconds of stable output to consider complete (default: 3)
+#   CUTX_INIT_WAIT         Seconds to wait for Claude to initialize (default: 5)
 #
-# Version: 1.0.0
+# Version: 1.2.0
 
 set -uo pipefail
 
 # Configuration
 SESSION_NAME="${CUTX_SESSION_NAME:-claude-unleashed}"
 WAIT_TIMEOUT="${CUTX_WAIT_TIMEOUT:-300}"
+TERM_WIDTH="${CUTX_TERM_WIDTH:-200}"
+TERM_HEIGHT="${CUTX_TERM_HEIGHT:-50}"
+STABLE_THRESHOLD="${CUTX_STABLE_THRESHOLD:-3}"
+INIT_WAIT="${CUTX_INIT_WAIT:-5}"
 CACHE_DIR="${HOME}/.cache/claude-unleashed/cutx"
 OUTPUT_FILE="${CACHE_DIR}/${SESSION_NAME}.output"
 MARKER_FILE="${CACHE_DIR}/${SESSION_NAME}.marker"
+LOCK_FILE="${CACHE_DIR}/${SESSION_NAME}.lock"
 
-# Get script directory for relative paths
-SCRIPT_PATH="$(readlink -f "${BASH_SOURCE[0]}")"
+# Validate session name (alphanumeric, underscore, dash only)
+if [[ ! "$SESSION_NAME" =~ ^[a-zA-Z0-9_-]+$ ]]; then
+    echo "Error: Invalid session name. Use alphanumeric, underscore, or dash only." >&2
+    exit 1
+fi
+
+# Validate numeric environment variables
+if ! [[ "$WAIT_TIMEOUT" =~ ^[0-9]+$ ]]; then
+    echo "Error: CUTX_WAIT_TIMEOUT must be a positive integer (got: $WAIT_TIMEOUT)" >&2
+    exit 1
+fi
+if ! [[ "$TERM_WIDTH" =~ ^[0-9]+$ ]]; then
+    echo "Error: CUTX_TERM_WIDTH must be a positive integer (got: $TERM_WIDTH)" >&2
+    exit 1
+fi
+if ! [[ "$TERM_HEIGHT" =~ ^[0-9]+$ ]]; then
+    echo "Error: CUTX_TERM_HEIGHT must be a positive integer (got: $TERM_HEIGHT)" >&2
+    exit 1
+fi
+if ! [[ "$STABLE_THRESHOLD" =~ ^[0-9]+$ ]]; then
+    echo "Error: CUTX_STABLE_THRESHOLD must be a positive integer (got: $STABLE_THRESHOLD)" >&2
+    exit 1
+fi
+if ! [[ "$INIT_WAIT" =~ ^[0-9]+$ ]]; then
+    echo "Error: CUTX_INIT_WAIT must be a positive integer (got: $INIT_WAIT)" >&2
+    exit 1
+fi
+
+# Get script directory for relative paths (portable, works on macOS and Linux)
+SCRIPT_PATH="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)/$(basename "${BASH_SOURCE[0]}")"
 SCRIPT_DIR="$(dirname "$SCRIPT_PATH")"
 
 # Colors
@@ -40,8 +77,15 @@ YELLOW='\033[1;33m'
 BLUE='\033[0;34m'
 NC='\033[0m' # No Color
 
-# Ensure cache directory exists
-mkdir -p "$CACHE_DIR"
+# Ensure cache directory exists and is writable
+if ! mkdir -p "$CACHE_DIR" 2>/dev/null; then
+    echo "Error: Cannot create cache directory: $CACHE_DIR" >&2
+    exit 1
+fi
+if ! [[ -w "$CACHE_DIR" ]]; then
+    echo "Error: Cache directory is not writable: $CACHE_DIR" >&2
+    exit 1
+fi
 
 log_info() {
     echo -e "${GREEN}[cutx]${NC} $1"
@@ -59,8 +103,24 @@ log_error() {
 check_tmux() {
     if ! command -v tmux &>/dev/null; then
         log_error "tmux is required but not installed"
-        exit 1
+        return 1
     fi
+}
+
+# Check if Claude is available
+check_claude() {
+    local launcher="${SCRIPT_DIR}/wrapper.sh"
+    if [[ -x "$launcher" ]]; then
+        return 0
+    fi
+    if command -v claude-unleashed &>/dev/null; then
+        return 0
+    fi
+    if command -v claude &>/dev/null; then
+        return 0
+    fi
+    log_error "Neither claude-unleashed nor claude command found"
+    return 1
 }
 
 # Check if session exists
@@ -70,13 +130,35 @@ session_exists() {
 
 # Start a new Claude session
 cmd_start() {
-    check_tmux
+    if ! check_tmux; then
+        return 1
+    fi
+    if ! check_claude; then
+        return 1
+    fi
 
     if session_exists; then
         log_warn "Session '$SESSION_NAME' already exists"
         log_info "Use 'cutx attach' to connect or 'cutx stop' to restart"
         return 1
     fi
+
+    # Acquire lock to prevent concurrent starts
+    exec 200>"$LOCK_FILE"
+    if ! flock -n 200; then
+        log_error "Another cutx start is in progress for session '$SESSION_NAME'"
+        log_info "If this is an error, remove: $LOCK_FILE"
+        return 1
+    fi
+
+    # Cleanup on error or interruption
+    cleanup_on_error() {
+        flock -u 200 2>/dev/null || true
+        rm -f "$LOCK_FILE"
+        tmux kill-session -t "$SESSION_NAME" 2>/dev/null || true
+        rm -f "$OUTPUT_FILE" "$MARKER_FILE"
+    }
+    trap cleanup_on_error ERR INT TERM
 
     # Parse flags
     local auto_mode=false
@@ -99,6 +181,13 @@ cmd_start() {
         esac
     done
 
+    # Warn about conflicting flags
+    if $auto_mode && $daemon_mode; then
+        log_warn "Warning: --auto and -d/--daemon flags conflict"
+        log_warn "Auto mode keeps Claude running indefinitely, preventing daemon mode cleanup"
+        log_warn "The session will NOT auto-close when Claude exits"
+    fi
+
     # Determine which launcher to use
     local launcher="${SCRIPT_DIR}/wrapper.sh"
     if [[ ! -x "$launcher" ]]; then
@@ -116,14 +205,14 @@ cmd_start() {
         log_info "Daemon mode: session will close when Claude exits"
     fi
 
-    # Create tmux session with logging
-    tmux new-session -d -s "$SESSION_NAME" -x 200 -y 50
-
-    # Enable logging to capture output
-    tmux pipe-pane -t "$SESSION_NAME" -o "cat >> ${OUTPUT_FILE}"
-
-    # Clear previous output
+    # Clear previous output BEFORE starting pipe-pane to avoid race condition
     : > "$OUTPUT_FILE"
+
+    # Create tmux session with configurable terminal size
+    tmux new-session -d -s "$SESSION_NAME" -x "$TERM_WIDTH" -y "$TERM_HEIGHT"
+
+    # Enable logging to capture output (after clearing file)
+    tmux pipe-pane -t "$SESSION_NAME" -o "cat >> ${OUTPUT_FILE}"
 
     # Build command with optional auto mode env var
     local cmd=""
@@ -140,6 +229,7 @@ cmd_start() {
         cmd+="; tmux kill-session -t ${SESSION_NAME}"
     fi
 
+    # Send command with properly quoted arguments to prevent injection
     tmux send-keys -t "$SESSION_NAME" "$cmd" Enter
 
     log_info "Session started. Use 'cutx attach' to connect interactively"
@@ -148,7 +238,9 @@ cmd_start() {
 
 # Send a message to Claude
 cmd_send() {
-    check_tmux
+    if ! check_tmux; then
+        return 1
+    fi
 
     if ! session_exists; then
         log_error "No active session. Run 'cutx start' first"
@@ -174,7 +266,9 @@ cmd_send() {
 
 # Read output from Claude
 cmd_read() {
-    check_tmux
+    if ! check_tmux; then
+        return 1
+    fi
 
     if [[ ! -f "$OUTPUT_FILE" ]]; then
         log_error "No output file found. Is a session running?"
@@ -192,7 +286,9 @@ cmd_read() {
 
 # Wait for Claude to finish responding
 cmd_wait() {
-    check_tmux
+    if ! check_tmux; then
+        return 1
+    fi
 
     if ! session_exists; then
         log_error "No active session"
@@ -204,7 +300,6 @@ cmd_wait() {
     local elapsed=0
     local last_size=0
     local stable_count=0
-    local stable_threshold=3  # Output stable for N seconds = done
 
     log_info "Waiting for response (timeout: ${timeout}s)..."
 
@@ -212,11 +307,17 @@ cmd_wait() {
         sleep $interval
         elapsed=$((elapsed + interval))
 
+        # Check if session still exists
+        if ! session_exists; then
+            log_error "Session terminated unexpectedly"
+            return 1
+        fi
+
         local current_size=$(wc -c < "$OUTPUT_FILE" 2>/dev/null || echo 0)
 
         if [[ "$current_size" -eq "$last_size" ]]; then
             stable_count=$((stable_count + 1))
-            if [[ $stable_count -ge $stable_threshold ]]; then
+            if [[ $stable_count -ge $STABLE_THRESHOLD ]]; then
                 log_info "Response complete"
                 return 0
             fi
@@ -232,7 +333,9 @@ cmd_wait() {
 
 # Attach to the session
 cmd_attach() {
-    check_tmux
+    if ! check_tmux; then
+        return 1
+    fi
 
     if ! session_exists; then
         log_error "No active session. Run 'cutx start' first"
@@ -269,7 +372,9 @@ cmd_attach() {
 
 # Stop the session
 cmd_stop() {
-    check_tmux
+    if ! check_tmux; then
+        return 1
+    fi
 
     if ! session_exists; then
         log_info "No active session"
@@ -278,20 +383,22 @@ cmd_stop() {
 
     log_info "Stopping session '$SESSION_NAME'..."
     tmux kill-session -t "$SESSION_NAME"
-    rm -f "$OUTPUT_FILE" "$MARKER_FILE"
+    rm -f "$OUTPUT_FILE" "$MARKER_FILE" "$LOCK_FILE"
     log_info "Session stopped"
 }
 
 # Check session status
 cmd_status() {
-    check_tmux
+    if ! check_tmux; then
+        return 1
+    fi
 
     if session_exists; then
         log_info "Session '$SESSION_NAME' is ${GREEN}running${NC}"
 
         # Show session info
         echo ""
-        tmux list-sessions -F "#{session_name}: #{session_windows} windows, created #{session_created_string}" | grep "$SESSION_NAME"
+        tmux list-sessions -F "#{session_name}: #{session_windows} windows, created #{session_created_string}" | grep "$SESSION_NAME" || true
 
         # Show recent output
         if [[ -f "$OUTPUT_FILE" ]] && [[ -s "$OUTPUT_FILE" ]]; then
@@ -313,7 +420,7 @@ cmd_query() {
     if ! session_exists; then
         cmd_start
         # Wait for Claude to initialize
-        sleep 3
+        sleep "$INIT_WAIT"
     fi
 
     cmd_send "$message"
@@ -357,8 +464,13 @@ COMMANDS:
     help            Show this help message
 
 ENVIRONMENT:
-    CUTX_SESSION_NAME    tmux session name (default: claude-unleashed)
-    CUTX_WAIT_TIMEOUT    Default wait timeout in seconds (default: 300)
+    CUTX_SESSION_NAME      tmux session name (default: claude-unleashed)
+                           Must contain only alphanumeric, underscore, or dash
+    CUTX_WAIT_TIMEOUT      Default wait timeout in seconds (default: 300)
+    CUTX_TERM_WIDTH        Terminal width for tmux session (default: 200)
+    CUTX_TERM_HEIGHT       Terminal height for tmux session (default: 50)
+    CUTX_STABLE_THRESHOLD  Seconds of stable output to consider response complete (default: 3)
+    CUTX_INIT_WAIT         Seconds to wait for Claude to initialize (default: 5)
 
 EXAMPLES:
     # Start a session and send a message
