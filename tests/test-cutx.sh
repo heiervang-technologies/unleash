@@ -192,7 +192,8 @@ test_send_without_session() {
     echo "=== Test: send without session fails ==="
 
     # Ensure no session exists
-    local unique_name="nonexistent-$$-$(date +%s)"
+    local unique_name
+    unique_name="nonexistent-$$-$(date +%s)"
 
     local output
     local exit_code=0

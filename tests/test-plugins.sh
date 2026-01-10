@@ -44,7 +44,7 @@ test_plugin_json_valid() {
     echo ""
     echo "=== Testing plugin.json validity ==="
 
-    for json_file in $(find "$PLUGINS_DIR" -name "plugin.json" 2>/dev/null); do
+    find "$PLUGINS_DIR" -name "plugin.json" 2>/dev/null | while read -r json_file; do
         if python3 -c "import json; json.load(open('$json_file'))" 2>/dev/null; then
             pass "Valid JSON: $json_file"
         else
@@ -58,7 +58,7 @@ test_hook_scripts_syntax() {
     echo ""
     echo "=== Testing hook script syntax ==="
 
-    for hook_file in $(find "$PLUGINS_DIR" -type f -name "*.sh" -path "*/hooks/*" 2>/dev/null); do
+    find "$PLUGINS_DIR" -type f -name "*.sh" -path "*/hooks/*" 2>/dev/null | while read -r hook_file; do
         if bash -n "$hook_file" 2>/dev/null; then
             pass "Valid bash: $hook_file"
         else
@@ -66,7 +66,7 @@ test_hook_scripts_syntax() {
         fi
     done
 
-    for hook_file in $(find "$PLUGINS_DIR" -type f -name "*.sh" -path "*/hooks-handlers/*" 2>/dev/null); do
+    find "$PLUGINS_DIR" -type f -name "*.sh" -path "*/hooks-handlers/*" 2>/dev/null | while read -r hook_file; do
         if bash -n "$hook_file" 2>/dev/null; then
             pass "Valid bash: $hook_file"
         else
@@ -125,7 +125,7 @@ test_commands_exist() {
     echo ""
     echo "=== Testing command files ==="
 
-    for cmd_file in $(find "$PLUGINS_DIR" -path "*/commands/*.md" 2>/dev/null); do
+    find "$PLUGINS_DIR" -path "*/commands/*.md" 2>/dev/null | while read -r cmd_file; do
         if [[ -s "$cmd_file" ]]; then
             pass "Command exists: $cmd_file"
         else
@@ -140,7 +140,7 @@ test_plugin_structure() {
     echo "=== Testing plugin structure ==="
 
     # Each plugin with plugin.json should have required fields
-    for json_file in $(find "$PLUGINS_DIR" -name "plugin.json" 2>/dev/null); do
+    find "$PLUGINS_DIR" -name "plugin.json" 2>/dev/null | while read -r json_file; do
         plugin_dir=$(dirname "$(dirname "$json_file")")
         plugin_name=$(python3 -c "import json; print(json.load(open('$json_file')).get('name', ''))" 2>/dev/null)
 

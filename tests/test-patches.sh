@@ -16,7 +16,6 @@ PATCH_DIR="$REPO_ROOT/scripts"
 # Colors for output
 RED='\033[0;31m'
 GREEN='\033[0;32m'
-YELLOW='\033[1;33m'
 NC='\033[0m' # No Color
 
 TESTS_RUN=0
@@ -144,7 +143,8 @@ test_patch_kt_variant() {
     echo ""
     echo "=== Testing patches on kT variant (v2.1.0+) ==="
 
-    local test_dir=$(mktemp -d)
+    local test_dir
+    test_dir=$(mktemp -d)
     local mock_cli="$test_dir/cli.js"
     local mock_claude="$test_dir/claude"
 
@@ -240,7 +240,8 @@ test_version_selection() {
     echo ""
     echo "=== Testing version selection logic ==="
 
-    local test_dir=$(mktemp -d)
+    local test_dir
+    test_dir=$(mktemp -d)
     local mock_cli="$test_dir/cli.js"
     local mock_claude="$test_dir/claude"
 
@@ -333,7 +334,8 @@ test_backup_creation() {
     echo ""
     echo "=== Testing backup creation ==="
 
-    local test_dir=$(mktemp -d)
+    local test_dir
+    test_dir=$(mktemp -d)
     local mock_cli="$test_dir/cli.js"
     local mock_claude="$test_dir/claude"
 
