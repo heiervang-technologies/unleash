@@ -314,7 +314,8 @@ cmd_wait() {
             return 1
         fi
 
-        local current_size=$(wc -c < "$OUTPUT_FILE" 2>/dev/null || echo 0)
+        local current_size
+        current_size=$(wc -c < "$OUTPUT_FILE" 2>/dev/null || echo 0)
 
         if [[ "$current_size" -eq "$last_size" ]]; then
             stable_count=$((stable_count + 1))

@@ -17,7 +17,6 @@ while [ -L "$SOURCE" ]; do
     [[ $SOURCE != /* ]] && SOURCE="$DIR/$SOURCE"
 done
 SCRIPT_DIR="$(cd -P "$(dirname "$SOURCE")" && pwd)"
-PLUGIN_DIR="$(dirname "$SCRIPT_DIR")"
 
 show_help() {
     echo "unleash - Apply Claude Unleashed patches to Claude Code"
