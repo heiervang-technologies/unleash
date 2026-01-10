@@ -24,6 +24,59 @@ permissions:
   contents: read
 
 jobs:
+  shellcheck:
+    name: ShellCheck Linting
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Run ShellCheck
+        uses: ludeeus/action-shellcheck@master
+        with:
+          scandir: './scripts'
+          severity: warning
+          ignore_paths: 'scripts/patches'
+
+      - name: ShellCheck tests
+        uses: ludeeus/action-shellcheck@master
+        with:
+          scandir: './tests'
+          severity: warning
+
+  test-cutx:
+    name: Test cutx (Headless Mode)
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: [ubuntu-22.04, ubuntu-24.04]
+      fail-fast: false
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install tmux
+        run: sudo apt-get update && sudo apt-get install -y tmux
+
+      - name: Make test scripts executable
+        run: chmod +x tests/*.sh scripts/cutx
+
+      - name: Run cutx tests
+        run: ./tests/test-cutx.sh
+
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: cutx-test-results-${{ matrix.os }}
+          path: |
+            ~/.cache/claude-unleashed/cutx/*.output
+            ~/.cache/claude-unleashed/cutx/*.marker
+          retention-days: 7
+          if-no-files-found: ignore
+
   test-plugins:
     name: Test Plugins
     runs-on: ubuntu-latest
@@ -181,19 +234,35 @@ jobs:
   summary:
     name: Test Summary
     runs-on: ubuntu-latest
-    needs: [test-plugins, test-patches, test-plugins-with-patches]
+    needs: [shellcheck, test-cutx, test-plugins, test-patches, test-plugins-with-patches]
     if: always()
 
     steps:
+      - name: Generate test report
+        run: |
+          echo "# Test Results Summary" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "| Job | Status |" >> $GITHUB_STEP_SUMMARY
+          echo "|-----|--------|" >> $GITHUB_STEP_SUMMARY
+          echo "| ShellCheck Linting | ${{ needs.shellcheck.result == 'success' && '✅ Passed' || '❌ Failed' }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| cutx Tests (Headless Mode) | ${{ needs.test-cutx.result == 'success' && '✅ Passed' || '❌ Failed' }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Plugin Tests | ${{ needs.test-plugins.result == 'success' && '✅ Passed' || '❌ Failed' }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Patch Tests | ${{ needs.test-patches.result == 'success' && '✅ Passed' || '❌ Failed' }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Integration Tests | ${{ needs.test-plugins-with-patches.result == 'success' && '✅ Passed' || '❌ Failed' }} |" >> $GITHUB_STEP_SUMMARY
+
       - name: Check test results
         run: |
-          if [[ "${{ needs.test-plugins.result }}" == "success" ]] && \
+          if [[ "${{ needs.shellcheck.result }}" == "success" ]] && \
+             [[ "${{ needs.test-cutx.result }}" == "success" ]] && \
+             [[ "${{ needs.test-plugins.result }}" == "success" ]] && \
              [[ "${{ needs.test-patches.result }}" == "success" ]] && \
              [[ "${{ needs.test-plugins-with-patches.result }}" == "success" ]]; then
-            echo "All integration tests passed!"
+            echo "✅ All integration tests passed!"
             exit 0
           else
-            echo "Some tests failed:"
+            echo "❌ Some tests failed:"
+            echo "  - shellcheck: ${{ needs.shellcheck.result }}"
+            echo "  - test-cutx: ${{ needs.test-cutx.result }}"
             echo "  - test-plugins: ${{ needs.test-plugins.result }}"
             echo "  - test-patches: ${{ needs.test-patches.result }}"
             echo "  - test-plugins-with-patches: ${{ needs.test-plugins-with-patches.result }}"
