@@ -78,13 +78,18 @@ cmd_start() {
         return 1
     fi
 
-    # Parse --auto flag
+    # Parse flags
     local auto_mode=false
+    local daemon_mode=false
     local claude_args=()
     while [[ $# -gt 0 ]]; do
         case "$1" in
             --auto|-a)
                 auto_mode=true
+                shift
+                ;;
+            -d|--daemon)
+                daemon_mode=true
                 shift
                 ;;
             *)
@@ -107,6 +112,9 @@ cmd_start() {
     if $auto_mode; then
         log_info "Auto mode enabled"
     fi
+    if $daemon_mode; then
+        log_info "Daemon mode: session will close when Claude exits"
+    fi
 
     # Create tmux session with logging
     tmux new-session -d -s "$SESSION_NAME" -x 200 -y 50
@@ -126,6 +134,12 @@ cmd_start() {
     if [[ ${#claude_args[@]} -gt 0 ]]; then
         cmd+=" $(printf '%q ' "${claude_args[@]}")"
     fi
+
+    # In daemon mode, kill session when process exits
+    if $daemon_mode; then
+        cmd+="; tmux kill-session -t ${SESSION_NAME}"
+    fi
+
     tmux send-keys -t "$SESSION_NAME" "$cmd" Enter
 
     log_info "Session started. Use 'cutx attach' to connect interactively"
@@ -319,9 +333,10 @@ USAGE:
     cutx "message"           Send message and wait for response
 
 COMMANDS:
-    start [--auto] [args]
+    start [--auto] [-d] [args]
                     Start a new Claude session in tmux
                     --auto: enable auto mode (Claude won't stop)
+                    -d/--daemon: kill session when Claude exits
                     Additional args are passed to claude-unleashed
 
     send "msg"      Send a message to the running Claude session
