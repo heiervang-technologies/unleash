@@ -1,6 +1,6 @@
 [package]
 name = "claude-unleashed"
-version = "1.0.0-91f740b"
+version = "1.0.0"
 edition = "2024"
 description = "Claude Unleashed - Extended CLI for Claude Code"
 
