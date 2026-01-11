@@ -2,7 +2,7 @@
 # trigger-restart.sh - Trigger Claude Code self-restart
 #
 # Supports two methods:
-#   1. Wrapper method (preferred) - Works if started via claude-wrapper.sh
+#   1. Wrapper method (preferred) - Works if started via cu (Claude Unleashed)
 #   2. tmux method (fallback) - Works if running inside tmux
 #
 # The script auto-detects which method is available.
@@ -181,8 +181,8 @@ case "${METHOD}" in
         echo "Claude Code self-restart requires one of:"
         echo ""
         echo "  1. Wrapper method (recommended):"
-        echo "     Start Claude with: claude-unleashed (or wrapper.sh)"
-        echo "     Location: scripts/wrapper.sh"
+        echo "     Start Claude with: cu (Claude Unleashed)"
+        echo "     Location: scripts/cu"
         echo ""
         echo "  2. tmux method:"
         echo "     Run Claude inside tmux: tmux new-session -s claude"

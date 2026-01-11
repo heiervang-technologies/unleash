@@ -111,17 +111,17 @@ check_tmux() {
 
 # Check if Claude is available
 check_claude() {
-    local launcher="${SCRIPT_DIR}/wrapper.sh"
+    local launcher="${SCRIPT_DIR}/cu"
     if [[ -x "$launcher" ]]; then
         return 0
     fi
-    if command -v claude-unleashed &>/dev/null; then
+    if command -v cu &>/dev/null; then
         return 0
     fi
     if command -v claude &>/dev/null; then
         return 0
     fi
-    log_error "Neither claude-unleashed nor claude command found"
+    log_error "Neither cu nor claude command found"
     return 1
 }
 
@@ -191,9 +191,9 @@ cmd_start() {
     fi
 
     # Determine which launcher to use
-    local launcher="${SCRIPT_DIR}/wrapper.sh"
+    local launcher="${SCRIPT_DIR}/cu"
     if [[ ! -x "$launcher" ]]; then
-        launcher="claude-unleashed"
+        launcher="cu"
         if ! command -v "$launcher" &>/dev/null; then
             launcher="claude"
         fi

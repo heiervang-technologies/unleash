@@ -2,10 +2,10 @@
 name = "claude-unleashed"
 version = "0.1.0"
 edition = "2024"
-description = "Claude Unleashed TUI - Launcher and settings UI for Claude Code"
+description = "Claude Unleashed - Extended CLI for Claude Code"
 
 [[bin]]
-name = "claude-unleashed"
+name = "cui"
 path = "src/main.rs"
 
 [dependencies]

@@ -1,18 +1,17 @@
 #!/usr/bin/env bash
-# claude-wrapper.sh - Wrapper that enables Claude Code self-restart
+# cu - Claude Unleashed main entry point
 #
-# Usage: claude-wrapper [claude args...]
+# Usage: cu [claude args...]
 #
-# This wrapper script enables Claude to restart itself without tmux.
-# It works by:
-#   1. Running Claude as a child process
-#   2. When Claude exits, checking for a restart trigger file
-#   3. If trigger exists, restarting Claude with --continue
+# This wrapper enables Claude Code with extended features:
+#   - Self-restart capability (restart-claude command)
+#   - Plugin system integration
+#   - Auto-patching for unleashed features
+#   - Automatic onboarding bypass
 #
-# To restart from within Claude, simply run:
-#   restart-claude
+# Aliases: cuw (backwards compat), claude-unleashed
 #
-# Version: 1.0.0 (2026-01-06)
+# Version: 1.1.0 (2026-01-11)
 
 set -uo pipefail
 

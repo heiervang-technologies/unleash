@@ -25,7 +25,8 @@ claude-unleashed/
 ├── Cargo.toml                    # TUI build configuration
 ├── scripts/                      # Shell scripts
 │   ├── install.sh               # Installation script
-│   ├── wrapper.sh               # Bash wrapper for self-restart
+│   ├── cu                       # Main CLI entry point
+│   ├── cuw                      # Symlink to cu (backwards compat)
 │   ├── cutx                     # Headless tmux mode CLI
 │   ├── restart-claude           # Restart command
 │   ├── exit-claude              # Exit command
@@ -200,7 +201,9 @@ If you prefer not to use the installer:
 
 ```bash
 # Create symlinks manually
-ln -sf ~/claude-unleashed/scripts/wrapper.sh ~/.local/bin/claude-unleashed
+ln -sf ~/claude-unleashed/scripts/cu ~/.local/bin/cu
+ln -sf ~/.local/bin/cu ~/.local/bin/cuw  # backwards compat
+ln -sf ~/claude-unleashed/scripts/cutx ~/.local/bin/
 ln -sf ~/claude-unleashed/scripts/restart-claude ~/.local/bin/
 ln -sf ~/claude-unleashed/scripts/exit-claude ~/.local/bin/
 
@@ -209,7 +212,7 @@ ln -sf ~/claude-unleashed/scripts/exit-claude ~/.local/bin/
 
 # Optional: Build TUI
 cargo build --release
-cp target/release/claude-unleashed ~/.local/bin/claude-unleashed-tui
+cp target/release/cui ~/.local/bin/cui
 ```
 
 ## Headless Mode (cutx)

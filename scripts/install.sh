@@ -48,7 +48,7 @@ while [[ $# -gt 0 ]]; do
             echo "Usage: $0 [options]"
             echo ""
             echo "Options:"
-            echo "  --no-build    Skip building the TUI (use wrapper.sh only)"
+            echo "  --no-build    Skip building the TUI"
             echo "  --no-patch    Skip patching Claude Code"
             echo "  --bin-dir DIR Install to DIR instead of ~/.local/bin"
             echo "  -h, --help    Show this help"
@@ -86,14 +86,14 @@ if $BUILD_TUI; then
         if cargo build --release; then
             success "TUI built successfully"
 
-            # Install the binary
-            if [[ -f "$REPO_ROOT/target/release/claude-unleashed" ]]; then
-                cp "$REPO_ROOT/target/release/claude-unleashed" "$BIN_DIR/claude-unleashed-tui"
-                chmod +x "$BIN_DIR/claude-unleashed-tui"
-                success "Installed: $BIN_DIR/claude-unleashed-tui"
+            # Install the binary as cui
+            if [[ -f "$REPO_ROOT/target/release/cui" ]]; then
+                cp "$REPO_ROOT/target/release/cui" "$BIN_DIR/cui"
+                chmod +x "$BIN_DIR/cui"
+                success "Installed: cui (TUI interface)"
             fi
         else
-            warn "TUI build failed, falling back to wrapper-only mode"
+            warn "TUI build failed, continuing without TUI"
             BUILD_TUI=false
         fi
     else
@@ -103,33 +103,29 @@ if $BUILD_TUI; then
     fi
 fi
 
-# Step 2: Create symlinks for scripts
+# Step 2: Create symlinks for CLI tools
 info "Creating symlinks..."
 
-# Main entry point
-if $BUILD_TUI && [[ -f "$BIN_DIR/claude-unleashed-tui" ]]; then
-    # TUI is the main entry point
-    ln -sf "$BIN_DIR/claude-unleashed-tui" "$BIN_DIR/claude-unleashed"
-    success "Symlink: claude-unleashed -> TUI binary"
-else
-    # Wrapper is the main entry point
-    ln -sf "$SCRIPT_DIR/wrapper.sh" "$BIN_DIR/claude-unleashed"
-    success "Symlink: claude-unleashed -> wrapper.sh"
-fi
+# Main entry point: cu (Claude Unleashed)
+ln -sf "$SCRIPT_DIR/cu" "$BIN_DIR/cu"
+success "Symlink: cu (main CLI)"
 
-# Wrapper script (always available for TUI to use)
-ln -sf "$SCRIPT_DIR/wrapper.sh" "$BIN_DIR/cuw"
-success "Symlink: cuw -> wrapper.sh (with plugins)"
+# Backwards compatibility: cuw -> cu
+ln -sf "$BIN_DIR/cu" "$BIN_DIR/cuw"
+success "Symlink: cuw -> cu (backwards compat)"
+
+# Legacy alias: claude-unleashed -> cu
+ln -sf "$BIN_DIR/cu" "$BIN_DIR/claude-unleashed"
+success "Symlink: claude-unleashed -> cu"
 
 # Headless tmux mode
 ln -sf "$SCRIPT_DIR/cutx" "$BIN_DIR/cutx"
-success "Symlink: cutx -> headless tmux mode"
+success "Symlink: cutx (headless tmux mode)"
 
 # Helper commands
 ln -sf "$SCRIPT_DIR/restart-claude" "$BIN_DIR/restart-claude"
 ln -sf "$SCRIPT_DIR/exit-claude" "$BIN_DIR/exit-claude"
-success "Symlink: restart-claude"
-success "Symlink: exit-claude"
+success "Symlink: restart-claude, exit-claude"
 
 # Step 3: Patch Claude Code (optional)
 if $RUN_PATCH; then
@@ -152,21 +148,25 @@ echo "╭───────────────────────�
 echo "│        Installation Complete        │"
 echo "╰─────────────────────────────────────╯"
 echo ""
-echo "Installed commands:"
-echo "  claude-unleashed  - Start Claude with unleashed features"
-echo "  cuw               - Short alias (wrapper with plugins)"
-echo "  cutx              - Headless tmux mode"
-echo "  restart-claude    - Restart Claude (preserves session)"
-echo "  exit-claude       - Exit Claude and wrapper"
+echo "CLI Commands:"
+echo "  cu       - Main entry point (Claude Unleashed)"
+echo "  cuw      - Alias for cu (backwards compat)"
+echo "  cutx     - Headless tmux mode"
+if $BUILD_TUI; then
+echo "  cui      - TUI interface"
+fi
 echo ""
-echo "Headless mode usage:"
-echo "  cutx start        - Start Claude in tmux session"
-echo "  cutx send \"msg\"   - Send message to Claude"
-echo "  cutx attach       - Attach to session interactively"
+echo "Helper Commands:"
+echo "  restart-claude  - Restart Claude (preserves session)"
+echo "  exit-claude     - Exit Claude and wrapper"
+echo ""
+echo "Quick start:"
+echo "  cu               - Start Claude with unleashed features"
+echo "  cu -p \"prompt\"   - Headless mode with prompt"
 echo ""
 
 if ! $BUILD_TUI; then
-    echo "Note: TUI not built. Run with cargo to enable:"
+    echo "Note: TUI not built. Install Rust and run:"
     echo "  cd $REPO_ROOT && cargo build --release"
     echo ""
 fi
