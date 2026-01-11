@@ -70,6 +70,9 @@ fi
 SCRIPT_PATH="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)/$(basename "${BASH_SOURCE[0]}")"
 SCRIPT_DIR="$(dirname "$SCRIPT_PATH")"
 
+# Source shared onboarding library
+source "${SCRIPT_DIR}/lib/onboarding.sh"
+
 # Colors
 RED='\033[0;31m'
 GREEN='\033[0;32m'
@@ -203,6 +206,9 @@ cmd_start() {
     if $daemon_mode; then
         log_info "Daemon mode: session will close when Claude exits"
     fi
+
+    # Ensure onboarding is complete before starting
+    ensure_onboarding_complete "$launcher"
 
     # Clear previous output BEFORE starting pipe-pane to avoid race condition
     : > "$OUTPUT_FILE"

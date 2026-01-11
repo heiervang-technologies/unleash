@@ -24,20 +24,24 @@ REPO_ROOT="$(dirname "$SCRIPT_DIR")"
 # Export repo root so plugins/hooks can find resources
 export CLAUDE_UNLEASHED_ROOT="$REPO_ROOT"
 
+# Default Claude command (needed early for onboarding setup)
+CLAUDE_CMD="${CLAUDE_CMD:-claude}"
+
 # Auto-patch Claude Code if version changed
 PATCH_CHECK_SCRIPT="${SCRIPT_DIR}/check-and-patch.sh"
 if [[ -x "$PATCH_CHECK_SCRIPT" ]]; then
     "$PATCH_CHECK_SCRIPT"
 fi
 
+# Source shared onboarding library and ensure onboarding is complete
+source "${SCRIPT_DIR}/lib/onboarding.sh"
+ensure_onboarding_complete "${CLAUDE_CMD}"
+
 # Configuration
 CACHE_DIR="${HOME}/.cache/claude-unleashed/process-restart"
 WRAPPER_PID=$$
 TRIGGER_FILE="${CACHE_DIR}/restart-trigger-${WRAPPER_PID}"
 RESTART_MESSAGE_FILE="${CACHE_DIR}/restart-message-${WRAPPER_PID}"
-
-# Default Claude command
-CLAUDE_CMD="${CLAUDE_CMD:-claude}"
 
 # Build plugin directory arguments
 PLUGIN_ARGS=()
