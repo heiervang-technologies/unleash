@@ -240,6 +240,7 @@ install_claude_code() {
 }
 
 # Download pre-built binary from GitHub releases
+# Tries: gh cli (best for private repos) -> GitHub API -> direct download
 download_binary() {
     local version="$1"
     local temp_dir
@@ -247,11 +248,63 @@ download_binary() {
 
     info "Checking for pre-built binary..."
 
-    # Use artifact name that matches release workflow
-    local download_url="${REPO_URL}/releases/download/${version}/${ARTIFACT_NAME}"
+    local downloaded=false
 
-    # Suppress error output - 404 is expected if no binary exists
-    if ! download "$download_url" "${temp_dir}/cui" 2>/dev/null; then
+    # Method 1: Use gh cli if available (best for private repos, handles auth automatically)
+    if command -v gh &> /dev/null; then
+        # Get asset ID for our artifact
+        local asset_id
+        asset_id=$(gh api "repos/${REPO_OWNER}/${REPO_NAME}/releases/tags/${version}" --jq ".assets[] | select(.name==\"${ARTIFACT_NAME}\") | .id" 2>/dev/null)
+
+        if [[ -n "$asset_id" ]]; then
+            if gh api "repos/${REPO_OWNER}/${REPO_NAME}/releases/assets/${asset_id}" -H "Accept: application/octet-stream" > "${temp_dir}/cui" 2>/dev/null; then
+                downloaded=true
+            fi
+        fi
+    fi
+
+    # Method 2: Use GitHub API with token (for private repos without gh cli)
+    if [[ "$downloaded" != "true" ]] && [[ -n "${GITHUB_TOKEN:-}" ]]; then
+        local api_url="https://api.github.com/repos/${REPO_OWNER}/${REPO_NAME}/releases/tags/${version}"
+        local release_json
+
+        if command -v curl &> /dev/null; then
+            release_json=$(curl -fsSL -H "Authorization: token $GITHUB_TOKEN" "$api_url" 2>/dev/null)
+        elif command -v wget &> /dev/null; then
+            release_json=$(wget -qO- --header="Authorization: token $GITHUB_TOKEN" "$api_url" 2>/dev/null)
+        fi
+
+        if [[ -n "$release_json" ]]; then
+            # Extract asset ID using grep/sed (works without jq)
+            local asset_id
+            # Find the asset block for our artifact and extract its ID
+            asset_id=$(echo "$release_json" | grep -o "\"id\":[0-9]*,\"node_id\":\"[^\"]*\",\"name\":\"${ARTIFACT_NAME}\"" | grep -o "\"id\":[0-9]*" | sed 's/"id"://')
+
+            if [[ -n "$asset_id" ]]; then
+                local asset_api_url="https://api.github.com/repos/${REPO_OWNER}/${REPO_NAME}/releases/assets/${asset_id}"
+
+                if command -v curl &> /dev/null; then
+                    if curl -fsSL -H "Authorization: token $GITHUB_TOKEN" -H "Accept: application/octet-stream" "$asset_api_url" -o "${temp_dir}/cui" 2>/dev/null; then
+                        downloaded=true
+                    fi
+                elif command -v wget &> /dev/null; then
+                    if wget -q --header="Authorization: token $GITHUB_TOKEN" --header="Accept: application/octet-stream" "$asset_api_url" -O "${temp_dir}/cui" 2>/dev/null; then
+                        downloaded=true
+                    fi
+                fi
+            fi
+        fi
+    fi
+
+    # Method 3: Direct download URL (works for public repos only)
+    if [[ "$downloaded" != "true" ]]; then
+        local download_url="${REPO_URL}/releases/download/${version}/${ARTIFACT_NAME}"
+        if download "$download_url" "${temp_dir}/cui" 2>/dev/null; then
+            downloaded=true
+        fi
+    fi
+
+    if [[ "$downloaded" != "true" ]]; then
         rm -rf "$temp_dir"
         return 1
     fi
