@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.1.1](https://github.com/heiervang-technologies/claude-unleashed/compare/v2.1.0...v2.1.1) (2026-01-12)
+
+
+### Bug Fixes
+
+* add trailing newline before reversing version list ([27613a1](https://github.com/heiervang-technologies/claude-unleashed/commit/27613a111d8621af72623651a051df30bc5444f3))
+
 ## [2.1.0](https://github.com/heiervang-technologies/claude-unleashed/compare/v2.0.0...v2.1.0) (2026-01-12)
 
 
