@@ -2,11 +2,19 @@
 # install.sh - Install claude-unleashed
 #
 # This script:
-# 1. Builds the TUI binary (if cargo available)
-# 2. Creates symlinks in ~/.local/bin/
-# 3. Runs initial Claude Code patch
+# 1. Installs Claude Code via npm (if not present)
+# 2. Builds the TUI binary (if cargo available)
+# 3. Creates symlinks in ~/.local/bin/
+# 4. Runs initial Claude Code patch
 #
-# Usage: ./scripts/install.sh [--no-build] [--no-patch]
+# Usage: ./scripts/install.sh [--no-build] [--no-patch] [--no-claude-code]
+#
+# Options:
+#   --no-build         Skip building the TUI
+#   --no-patch         Skip patching Claude Code
+#   --no-claude-code   Skip installing Claude Code
+#   --claude-version   Install specific Claude Code version
+#   --bin-dir DIR      Install to DIR instead of ~/.local/bin
 
 set -euo pipefail
 
@@ -28,6 +36,8 @@ error() { echo -e "${RED}==>${NC} $1"; }
 # Parse arguments
 BUILD_TUI=true
 RUN_PATCH=true
+INSTALL_CLAUDE_CODE=true
+CLAUDE_CODE_VERSION="latest"
 BIN_DIR="${HOME}/.local/bin"
 
 while [[ $# -gt 0 ]]; do
@@ -40,6 +50,14 @@ while [[ $# -gt 0 ]]; do
             RUN_PATCH=false
             shift
             ;;
+        --no-claude-code)
+            INSTALL_CLAUDE_CODE=false
+            shift
+            ;;
+        --claude-version)
+            CLAUDE_CODE_VERSION="$2"
+            shift 2
+            ;;
         --bin-dir)
             BIN_DIR="$2"
             shift 2
@@ -48,10 +66,12 @@ while [[ $# -gt 0 ]]; do
             echo "Usage: $0 [options]"
             echo ""
             echo "Options:"
-            echo "  --no-build    Skip building the TUI"
-            echo "  --no-patch    Skip patching Claude Code"
-            echo "  --bin-dir DIR Install to DIR instead of ~/.local/bin"
-            echo "  -h, --help    Show this help"
+            echo "  --no-build          Skip building the TUI"
+            echo "  --no-patch          Skip patching Claude Code"
+            echo "  --no-claude-code    Skip installing Claude Code"
+            echo "  --claude-version V  Install specific Claude Code version"
+            echo "  --bin-dir DIR       Install to DIR instead of ~/.local/bin"
+            echo "  -h, --help          Show this help"
             exit 0
             ;;
         *)
@@ -76,6 +96,33 @@ if [[ ":$PATH:" != *":$BIN_DIR:"* ]]; then
     echo "    Add this to your shell config:"
     echo "    export PATH=\"\$HOME/.local/bin:\$PATH\""
     echo ""
+fi
+
+# Step 0: Install Claude Code (if requested)
+if $INSTALL_CLAUDE_CODE; then
+    if command -v npm &> /dev/null; then
+        if command -v claude &> /dev/null; then
+            CURRENT_VERSION=$(claude --version 2>/dev/null | head -1 | sed 's/ (Claude Code)//' || echo "unknown")
+            info "Claude Code already installed: v${CURRENT_VERSION}"
+
+            if [[ "$CLAUDE_CODE_VERSION" != "latest" ]] && [[ "$CURRENT_VERSION" != "$CLAUDE_CODE_VERSION" ]]; then
+                info "Installing specific version: $CLAUDE_CODE_VERSION"
+                npm install -g "@anthropic-ai/claude-code@${CLAUDE_CODE_VERSION}"
+                success "Claude Code updated to v${CLAUDE_CODE_VERSION}"
+            fi
+        else
+            info "Installing Claude Code..."
+            if [[ "$CLAUDE_CODE_VERSION" == "latest" ]]; then
+                npm install -g @anthropic-ai/claude-code
+            else
+                npm install -g "@anthropic-ai/claude-code@${CLAUDE_CODE_VERSION}"
+            fi
+            success "Claude Code installed"
+        fi
+    else
+        warn "npm not found, skipping Claude Code installation"
+        warn "Install Node.js from https://nodejs.org/ to install Claude Code"
+    fi
 fi
 
 # Step 1: Build TUI (optional)

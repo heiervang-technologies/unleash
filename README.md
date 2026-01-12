@@ -106,10 +106,58 @@ All while maintaining your custom plugins and configurations.
 
 ### Prerequisites
 
-- [Claude Code](https://github.com/anthropics/claude-code) installed (`npm install -g @anthropic-ai/claude-code`)
+- Node.js/npm (for Claude Code)
 - Git
 - Rust/Cargo (optional, for TUI)
 - Claude Pro or Max subscription (required for authentication)
+
+### One-Line Installation (Recommended)
+
+Install everything with a single command:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/heiervang-technologies/claude-unleashed/main/scripts/install-remote.sh | bash
+```
+
+This will:
+- Install Claude Code via npm (if not already installed)
+- Download the pre-built TUI binary
+- Set up `cu`, `cuw`, `cutx`, and `cui` commands
+- Apply the auto-mode patch
+
+### Installation Options
+
+#### Option 1: curl (recommended)
+```bash
+# Install latest
+curl -fsSL https://raw.githubusercontent.com/heiervang-technologies/claude-unleashed/main/scripts/install-remote.sh | bash
+
+# Install specific Claude Code version
+CLAUDE_CODE_VERSION=2.1.5 curl -fsSL https://raw.githubusercontent.com/heiervang-technologies/claude-unleashed/main/scripts/install-remote.sh | bash
+
+# Build from source instead of downloading binary
+BUILD_FROM_SOURCE=1 curl -fsSL https://raw.githubusercontent.com/heiervang-technologies/claude-unleashed/main/scripts/install-remote.sh | bash
+```
+
+#### Option 2: npm + cargo (from source)
+```bash
+# Install Claude Code
+npm install -g @anthropic-ai/claude-code
+
+# Clone and build
+git clone https://github.com/heiervang-technologies/claude-unleashed.git
+cd claude-unleashed
+cargo build --release
+./scripts/install.sh
+```
+
+#### Option 3: npm only (no TUI)
+```bash
+npm install -g @anthropic-ai/claude-code
+git clone https://github.com/heiervang-technologies/claude-unleashed.git
+cd claude-unleashed
+./scripts/install.sh --no-build
+```
 
 ### Authentication Setup
 
@@ -165,55 +213,49 @@ claude-unleashed
 
 For more details, see the [Claude Code IAM documentation](https://code.claude.com/docs/en/iam).
 
-### Installation
+### Add to PATH
 
-1. **Clone the repository**
-   ```bash
-   git clone https://github.com/heiervang-technologies/claude-unleashed.git
-   cd claude-unleashed
-   ```
-
-2. **Run the installer**
-   ```bash
-   ./scripts/install.sh
-   ```
-
-   This will:
-   - Build the TUI (if Cargo is available)
-   - Create symlinks in `~/.local/bin/`
-   - Patch Claude Code with additional features
-
-3. **Add to PATH** (if needed)
-   ```bash
-   export PATH="$HOME/.local/bin:$PATH"
-   ```
-
-4. **Start using**
-   ```bash
-   claude-unleashed
-   # or the short alias:
-   cu
-   ```
-
-### Manual Installation
-
-If you prefer not to use the installer:
+After installation, add `~/.local/bin` to your PATH if not already:
 
 ```bash
-# Create symlinks manually
-ln -sf ~/claude-unleashed/scripts/cu ~/.local/bin/cu
-ln -sf ~/.local/bin/cu ~/.local/bin/cuw  # backwards compat
-ln -sf ~/claude-unleashed/scripts/cutx ~/.local/bin/
-ln -sf ~/claude-unleashed/scripts/restart-claude ~/.local/bin/
-ln -sf ~/claude-unleashed/scripts/exit-claude ~/.local/bin/
-
-# Patch Claude Code
-./scripts/patch-claude.sh
-
-# Optional: Build TUI
-cargo build --release
-cp target/release/cui ~/.local/bin/cui
+export PATH="$HOME/.local/bin:$PATH"
+# Add to your shell profile (~/.bashrc or ~/.zshrc) for persistence
 ```
+
+### Start Using
+
+```bash
+cu                  # Start Claude with unleashed features
+cui                 # Launch the TUI for profile/version management
+cutx                # Headless tmux mode for automation
+```
+
+## TUI Features
+
+The TUI (`cui`) provides a graphical interface for managing Claude Unleashed:
+
+### Profile Management
+- Create and manage environment profiles
+- Store API keys and environment variables securely
+- Switch between profiles quickly
+
+### Claude Code Version Management
+- View currently installed Claude Code version
+- Browse available versions from npm registry
+- **Switch between versions** with a single selection
+- See which versions have auto-mode patches available (marked with `*`)
+- Automatically patches after version switch
+
+Launch the TUI with:
+```bash
+cui
+```
+
+Navigate with:
+- `j/k` or `↑/↓` - Move selection
+- `Enter` - Select/Confirm
+- `Esc` - Go back
+- `?` - Help
 
 ## Headless Mode (cutx)
 

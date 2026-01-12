@@ -36,6 +36,18 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "9330f8b2ff13f34540b44e946ef35111825727b38d33286ef986142615121801"
 
 [[package]]
+name = "claude-unleashed"
+version = "1.0.0"
+dependencies = [
+ "crossterm",
+ "dirs",
+ "ratatui",
+ "serde",
+ "tempfile",
+ "toml",
+]
+
+[[package]]
 name = "compact_str"
 version = "0.8.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -711,18 +723,6 @@ name = "unicode-width"
 version = "0.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "1fc81956842c57dac11422a97c3b8195a1ff727f06e85c84ed2e8aa277c9a0fd"
-
-[[package]]
-name = "unleashed-tui"
-version = "0.1.0"
-dependencies = [
- "crossterm",
- "dirs",
- "ratatui",
- "serde",
- "tempfile",
- "toml",
-]
 
 [[package]]
 name = "wasi"

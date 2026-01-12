@@ -4,6 +4,7 @@ use crate::config::{AppConfig, Profile, ProfileManager};
 use crate::input::{key_to_action, MenuState, NavAction};
 use crate::pixel_art::mascots;
 use crate::text_input::{censor_sensitive, is_sensitive_key, TextInput};
+use crate::version::{VersionInfo, VersionManager};
 
 use crossterm::event::{Event, KeyCode, KeyEvent, KeyModifiers};
 use ratatui::{
@@ -28,6 +29,8 @@ pub enum Screen {
     Help,
     ConfirmDelete,
     Updating,
+    VersionManagement,
+    VersionInstalling,
 }
 
 /// What we're currently editing
@@ -65,6 +68,12 @@ pub struct App {
     pub key_input: TextInput,
     pub value_input: TextInput,
     pub editing_env_index: Option<usize>,
+
+    // Version management
+    pub version_manager: VersionManager,
+    pub version_menu: MenuState,
+    pub versions: Vec<VersionInfo>,
+    pub selected_version: Option<String>,
 }
 
 impl App {
@@ -79,10 +88,12 @@ impl App {
             .cloned()
             .or_else(|| profiles.first().cloned());
 
+        let version_manager = VersionManager::new();
+
         Ok(Self {
             running: true,
             screen: Screen::Main,
-            main_menu: MenuState::new(5),
+            main_menu: MenuState::new(6), // Added "Claude Code Version" option
             profile_menu: MenuState::new(profiles.len()),
             settings_menu: MenuState::new(3), // Entry Point, Arguments, Reset
             profile_manager,
@@ -97,7 +108,17 @@ impl App {
             key_input: TextInput::new(),
             value_input: TextInput::new(),
             editing_env_index: None,
+            version_manager,
+            version_menu: MenuState::new(0),
+            versions: Vec::new(),
+            selected_version: None,
         })
+    }
+
+    /// Refresh the version list
+    pub fn refresh_versions(&mut self) {
+        self.versions = self.version_manager.get_version_list();
+        self.version_menu.set_items_count(self.versions.len());
     }
 
     pub fn refresh_profiles(&mut self) {
@@ -166,6 +187,8 @@ impl App {
                 Screen::Help => self.handle_help_input(action),
                 Screen::ConfirmDelete => self.handle_confirm_delete_input(action),
                 Screen::Updating => return self.handle_updating_input(action),
+                Screen::VersionManagement => self.handle_version_input(action),
+                Screen::VersionInstalling => {} // Non-interactive while installing
             }
         }
         Ok(None)
@@ -294,6 +317,7 @@ impl App {
             NavAction::Select => {
                 match self.main_menu.selected {
                     0 => {
+                        // Start Session
                         if let Some(profile) = &self.selected_profile {
                             return Ok(Some(AppAction::Launch(LaunchRequest {
                                 profile: profile.clone(),
@@ -305,18 +329,27 @@ impl App {
                         }
                     }
                     1 => {
+                        // Profiles
                         self.screen = Screen::Profiles;
                         self.refresh_profiles();
                     }
                     2 => {
-                        self.screen = Screen::Settings;
+                        // Claude Code Version
+                        self.screen = Screen::VersionManagement;
+                        self.refresh_versions();
+                        self.status_message = Some("Loading versions...".to_string());
                     }
                     3 => {
+                        // Settings
+                        self.screen = Screen::Settings;
+                    }
+                    4 => {
                         // Update TUI
                         self.screen = Screen::Updating;
                         self.status_message = Some("Updating...".to_string());
                     }
-                    4 => {
+                    5 => {
+                        // Quit
                         self.running = false;
                     }
                     _ => {}
@@ -331,6 +364,47 @@ impl App {
             _ => {}
         }
         Ok(None)
+    }
+
+    fn handle_version_input(&mut self, action: NavAction) {
+        match action {
+            NavAction::Up | NavAction::Down => {
+                self.version_menu.handle_action(action);
+            }
+            NavAction::Select => {
+                if let Some(version_info) = self.versions.get(self.version_menu.selected) {
+                    if version_info.is_installed {
+                        self.status_message = Some(format!("v{} is already installed", version_info.version));
+                    } else {
+                        self.selected_version = Some(version_info.version.clone());
+                        self.screen = Screen::VersionInstalling;
+                        self.status_message = Some(format!("Installing v{}...", version_info.version));
+
+                        // Install the version
+                        let version = version_info.version.clone();
+                        match self.version_manager.install_version(&version) {
+                            Ok(()) => {
+                                self.status_message = Some(format!("Installed v{}", version));
+                                // Run patch
+                                if self.version_manager.run_patch().is_ok() {
+                                    self.status_message = Some(format!("Installed and patched v{}", version));
+                                }
+                            }
+                            Err(e) => {
+                                self.status_message = Some(format!("Install failed: {}", e));
+                            }
+                        }
+
+                        self.refresh_versions();
+                        self.screen = Screen::VersionManagement;
+                    }
+                }
+            }
+            NavAction::Back | NavAction::Quit => {
+                self.screen = Screen::Main;
+            }
+            _ => {}
+        }
     }
 
     fn handle_profiles_input(&mut self, action: NavAction) {
@@ -556,6 +630,8 @@ impl App {
                 self.render_confirm_delete_dialog(frame, frame.area());
             }
             Screen::Updating => self.render_updating(frame, chunks[1]),
+            Screen::VersionManagement => self.render_version_management(frame, chunks[1]),
+            Screen::VersionInstalling => self.render_version_installing(frame, chunks[1]),
         }
 
         self.render_status_bar(frame, chunks[2]);
@@ -594,12 +670,14 @@ impl App {
     }
 
     fn render_main_menu(&self, frame: &mut Frame, area: Rect) {
+        let current_version = self.version_manager.get_installed_version().unwrap_or_else(|| "?".to_string());
         let items: Vec<ListItem> = [
-            ("Start Session", "Launch Claude with selected profile"),
-            ("Profiles", "Manage environment profiles"),
-            ("Settings", "Configure launcher settings"),
-            ("Update TUI", "Pull latest and recompile"),
-            ("Quit", "Exit the launcher"),
+            ("Start Session", "Launch Claude with selected profile".to_string()),
+            ("Profiles", "Manage environment profiles".to_string()),
+            ("Claude Code Version", format!("Currently: v{}", current_version)),
+            ("Settings", "Configure launcher settings".to_string()),
+            ("Update TUI", "Pull latest and recompile".to_string()),
+            ("Quit", "Exit the launcher".to_string()),
         ]
         .iter()
         .enumerate()
@@ -965,6 +1043,83 @@ impl App {
         frame.render_widget(content, area);
     }
 
+    fn render_version_management(&self, frame: &mut Frame, area: Rect) {
+        let items: Vec<ListItem> = self
+            .versions
+            .iter()
+            .enumerate()
+            .map(|(i, version_info)| {
+                let is_selected = i == self.version_menu.selected;
+                let style = if is_selected {
+                    Style::default()
+                        .fg(Color::Rgb(217, 119, 87))
+                        .add_modifier(Modifier::BOLD)
+                } else if version_info.is_installed {
+                    Style::default().fg(Color::Green)
+                } else {
+                    Style::default()
+                };
+
+                let prefix = if is_selected { "> " } else { "  " };
+                let installed_marker = if version_info.is_installed { " [installed]" } else { "" };
+                let patch_marker = if version_info.has_patch { " *" } else { "" };
+
+                ListItem::new(vec![
+                    Line::from(vec![
+                        Span::styled(prefix, style),
+                        Span::styled(format!("v{}", version_info.version), style),
+                        Span::styled(installed_marker, Style::default().fg(Color::Green)),
+                        Span::styled(patch_marker, Style::default().fg(Color::Yellow)),
+                    ]),
+                ])
+            })
+            .collect();
+
+        let current = self.version_manager.get_installed_version().unwrap_or_else(|| "?".to_string());
+        let title = format!(" Claude Code Versions (current: v{}) [Enter=install Esc=back] ", current);
+
+        let mut list_items = items;
+
+        // Add legend at the bottom
+        if !list_items.is_empty() {
+            list_items.push(ListItem::new(Line::from("")));
+            list_items.push(ListItem::new(Line::from(Span::styled(
+                "  * = has auto-mode patch available",
+                Style::default().fg(Color::DarkGray),
+            ))));
+        }
+
+        let menu = List::new(list_items).block(
+            Block::default()
+                .borders(Borders::ALL)
+                .title(title),
+        );
+        frame.render_widget(menu, area);
+    }
+
+    fn render_version_installing(&self, frame: &mut Frame, area: Rect) {
+        let version = self.selected_version.as_deref().unwrap_or("?");
+        let lines = vec![
+            Line::from(""),
+            Line::from(Span::styled(
+                format!("  Installing Claude Code v{}...", version),
+                Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD),
+            )),
+            Line::from(""),
+            Line::from("  This may take a moment."),
+            Line::from(""),
+            Line::from(Span::styled(
+                "  Running: npm install -g @anthropic-ai/claude-code@...",
+                Style::default().fg(Color::DarkGray),
+            )),
+        ];
+
+        let content = Paragraph::new(lines)
+            .block(Block::default().borders(Borders::ALL).title(" Installing "))
+            .wrap(Wrap { trim: false });
+        frame.render_widget(content, area);
+    }
+
     fn render_status_bar(&self, frame: &mut Frame, area: Rect) {
         let status = self.status_message.as_deref().unwrap_or("Press ? for help");
         let config_hint = format!("Config: {}", self.profile_manager.config_dir().display());
@@ -1097,7 +1252,7 @@ mod tests {
         let app = App {
             running: true,
             screen: Screen::Main,
-            main_menu: MenuState::new(5),
+            main_menu: MenuState::new(6),
             profile_menu: MenuState::new(profiles.len()),
             settings_menu: MenuState::new(2),
             profile_manager,
@@ -1112,6 +1267,10 @@ mod tests {
             key_input: TextInput::new(),
             value_input: TextInput::new(),
             editing_env_index: None,
+            version_manager: VersionManager::new(),
+            version_menu: MenuState::new(0),
+            versions: Vec::new(),
+            selected_version: None,
         };
 
         (app, temp)

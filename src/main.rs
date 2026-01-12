@@ -3,6 +3,7 @@ mod config;
 mod input;
 mod pixel_art;
 mod text_input;
+mod version;
 
 use app::{App, AppAction};
 use crossterm::{
