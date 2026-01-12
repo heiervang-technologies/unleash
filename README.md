@@ -12,7 +12,8 @@ gh repo clone heiervang-technologies/claude-unleashed /tmp/cu && bash /tmp/cu/sc
 ```
 Or with GitHub token if repo is still private:
 ```bash
-GH_TOKEN=ghp_xxx curl -fsSL -H "Authorization: token $GH_TOKEN" \
+# export GH_TOKEN=ghp_xxx
+curl -fsSL -H "Authorization: token $GH_TOKEN" \
   https://raw.githubusercontent.com/heiervang-technologies/claude-unleashed/main/scripts/install-remote.sh | bash
 ```
 
