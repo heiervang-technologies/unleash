@@ -1,5 +1,29 @@
 # Changelog
 
+## [2.0.0](https://github.com/heiervang-technologies/claude-unleashed/compare/v1.0.0...v2.0.0) (2026-01-12)
+
+
+### ⚠ BREAKING CHANGES
+
+* Binary renamed from `cui` to `cu`. The `cui` and `cutx` commands are now symlinks to the main `cu` binary.
+
+### Features
+
+* add auto mode patch for Claude Code 2.1.5 ([a37dedf](https://github.com/heiervang-technologies/claude-unleashed/commit/a37dedf6789e1139e54d8bc81a1285ae81084301))
+* add installation scripts and TUI version management ([83f4121](https://github.com/heiervang-technologies/claude-unleashed/commit/83f4121ea9390a52a7b88b1b0e071dcc2f320211))
+* add private repo support for installation ([a20a92e](https://github.com/heiervang-technologies/claude-unleashed/commit/a20a92e9d4a181e79f08ce7f6b1b4e33e06493c8))
+* unify cu, cui, cutx into single binary ([3d23a33](https://github.com/heiervang-technologies/claude-unleashed/commit/3d23a338d9683469969c5be81be25061391ed723))
+
+
+### Bug Fixes
+
+* align binary artifact names with release workflow ([41556c7](https://github.com/heiervang-technologies/claude-unleashed/commit/41556c7a9ed030677c2bba017332f8cabd927e7f))
+* improve README structure and installer update logic ([16494c6](https://github.com/heiervang-technologies/claude-unleashed/commit/16494c60dc47ae4e4844ec4ad2b25e07b28b5a79))
+* remove unused TARGET variable in install script ([a59324d](https://github.com/heiervang-technologies/claude-unleashed/commit/a59324dd152e78c1fa8444d23675a1e9b6aaa969))
+* support GH_PAT and GITHUB_TOKEN in addition to GH_TOKEN ([4f4dfde](https://github.com/heiervang-technologies/claude-unleashed/commit/4f4dfde99b3a4986dd7a5c08ab8e82828e374cb0))
+* suppress 404 errors when binary not available ([39e9d2f](https://github.com/heiervang-technologies/claude-unleashed/commit/39e9d2f73886e63c1ffa610931275c9f3266b562))
+* use gh cli for binary downloads from private repos ([8a649cb](https://github.com/heiervang-technologies/claude-unleashed/commit/8a649cb6d745a4d089beb17fee9cbcc88afa6930))
+
 ## [1.0.0-91f740b](https://github.com/heiervang-technologies/claude-unleashed/compare/v0.1.0-91f740b...v1.0.0-91f740b) (2026-01-11)
 
 
