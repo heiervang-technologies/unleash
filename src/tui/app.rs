@@ -75,6 +75,8 @@ pub struct App {
     pub version_menu: MenuState,
     pub versions: Vec<VersionInfo>,
     pub selected_version: Option<String>,
+    /// Cached installed version to avoid calling `claude --version` on every frame
+    pub cached_installed_version: Option<String>,
 }
 
 impl App {
@@ -90,6 +92,8 @@ impl App {
             .or_else(|| profiles.first().cloned());
 
         let version_manager = VersionManager::new();
+        // Cache the installed version once at startup to avoid subprocess on every frame
+        let cached_installed_version = version_manager.get_installed_version();
 
         Ok(Self {
             running: true,
@@ -113,7 +117,13 @@ impl App {
             version_menu: MenuState::new(0),
             versions: Vec::new(),
             selected_version: None,
+            cached_installed_version,
         })
+    }
+
+    /// Refresh the cached installed version (call after installing a new version)
+    pub fn refresh_cached_version(&mut self) {
+        self.cached_installed_version = self.version_manager.get_installed_version();
     }
 
     /// Refresh the version list
@@ -409,6 +419,7 @@ impl App {
                         }
 
                         self.refresh_versions();
+                        self.refresh_cached_version();
                         self.screen = Screen::VersionManagement;
                     }
                 }
@@ -689,7 +700,7 @@ impl App {
     }
 
     fn render_main_menu(&self, frame: &mut Frame, area: Rect) {
-        let current_version = self.version_manager.get_installed_version().unwrap_or_else(|| "?".to_string());
+        let current_version = self.cached_installed_version.clone().unwrap_or_else(|| "?".to_string());
         let items: Vec<ListItem> = [
             ("Start Session", "Launch Claude with selected profile".to_string()),
             ("Profiles", "Manage environment profiles".to_string()),
@@ -1099,7 +1110,7 @@ impl App {
             })
             .collect();
 
-        let current = self.version_manager.get_installed_version().unwrap_or_else(|| "?".to_string());
+        let current = self.cached_installed_version.clone().unwrap_or_else(|| "?".to_string());
         let title = format!(" Claude Code Versions (current: v{}) [Enter=install Esc=back] ", current);
 
         let mut list_items = items;
@@ -1295,6 +1306,7 @@ mod tests {
             version_menu: MenuState::new(0),
             versions: Vec::new(),
             selected_version: None,
+            cached_installed_version: None,
         };
 
         (app, temp)

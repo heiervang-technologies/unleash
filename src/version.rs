@@ -318,6 +318,8 @@ pub fn show_current() -> io::Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::time::Instant;
+    use tempfile::TempDir;
 
     #[test]
     fn test_version_compare() {
@@ -332,5 +334,107 @@ mod tests {
         let vm = VersionManager::new();
         // Should not panic
         let _ = vm.get_supported_versions();
+    }
+
+    /// Create a mock "claude" binary that sleeps before outputting version.
+    /// Returns the temp directory (must be kept alive) and the path to add to PATH.
+    fn create_mock_claude(sleep_ms: u32) -> (TempDir, PathBuf) {
+        let temp = TempDir::new().unwrap();
+        let mock_path = temp.path().to_path_buf();
+        let mock_claude = mock_path.join("claude");
+
+        // Create a shell script that sleeps then outputs version
+        let script = format!(
+            "#!/bin/bash\nsleep {}\necho \"2.1.5 (Claude Code)\"\n",
+            sleep_ms as f64 / 1000.0
+        );
+        std::fs::write(&mock_claude, script).unwrap();
+
+        // Make executable
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let mut perms = std::fs::metadata(&mock_claude).unwrap().permissions();
+            perms.set_mode(0o755);
+            std::fs::set_permissions(&mock_claude, perms).unwrap();
+        }
+
+        (temp, mock_path)
+    }
+
+    /// Test that demonstrates the performance problem with calling get_installed_version
+    /// on every frame vs using a cached value.
+    ///
+    /// This test proves that:
+    /// 1. Calling subprocess 10 times takes significant time (>100ms with 50ms sleep)
+    /// 2. Accessing cached value 10 times is nearly instant (<1ms)
+    /// 3. The cached approach is at least 100x faster
+    #[test]
+    fn test_cached_version_performance() {
+        // Create mock claude that takes 50ms to respond
+        let (_temp, mock_path) = create_mock_claude(50);
+
+        // Prepend mock to PATH
+        let original_path = std::env::var("PATH").unwrap_or_default();
+        let new_path = format!("{}:{}", mock_path.display(), original_path);
+
+        // SAFETY: This test runs single-threaded and restores PATH before returning
+        unsafe {
+            std::env::set_var("PATH", &new_path);
+        }
+
+        let vm = VersionManager::new();
+        const ITERATIONS: u32 = 10;
+
+        // Measure time for subprocess calls (old behavior - calling on every frame)
+        let start = Instant::now();
+        for _ in 0..ITERATIONS {
+            let _ = vm.get_installed_version();
+        }
+        let subprocess_time = start.elapsed();
+
+        // Measure time for cached value access (new behavior)
+        let cached_version = vm.get_installed_version(); // Cache once
+        let start = Instant::now();
+        for _ in 0..ITERATIONS {
+            let _ = cached_version.clone();
+        }
+        let cached_time = start.elapsed();
+
+        // Restore PATH
+        // SAFETY: Restoring original PATH value
+        unsafe {
+            std::env::set_var("PATH", original_path);
+        }
+
+        // Verify the version was correctly parsed
+        assert_eq!(cached_version, Some("2.1.5".to_string()));
+
+        // Assert subprocess calls are slow (should be ~500ms for 10 x 50ms)
+        assert!(
+            subprocess_time.as_millis() > 100,
+            "Subprocess calls should take >100ms, took {}ms",
+            subprocess_time.as_millis()
+        );
+
+        // Assert cached access is fast (should be <1ms)
+        assert!(
+            cached_time.as_millis() < 10,
+            "Cached access should take <10ms, took {}ms",
+            cached_time.as_millis()
+        );
+
+        // Assert cached is at least 100x faster
+        let speedup = subprocess_time.as_nanos() / cached_time.as_nanos().max(1);
+        assert!(
+            speedup > 100,
+            "Cached should be >100x faster, was only {}x",
+            speedup
+        );
+
+        println!(
+            "Performance test results:\n  Subprocess ({} calls): {:?}\n  Cached ({} accesses): {:?}\n  Speedup: {}x",
+            ITERATIONS, subprocess_time, ITERATIONS, cached_time, speedup
+        );
     }
 }
