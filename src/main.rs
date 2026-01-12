@@ -1,113 +1,74 @@
-mod app;
+//! Claude Unleashed - Unified CLI
+//!
+//! Single binary that handles:
+//! - `cu` / `claude-unleashed` - Launch Claude with wrapper features
+//! - `cu tui` / `cui` - TUI for profile/version management
+//! - `cu tmux` / `cutx` - Headless tmux mode
+
+mod cli;
 mod config;
 mod input;
+mod launcher;
+mod patcher;
 mod pixel_art;
 mod text_input;
+mod tmux;
+mod tui;
 mod version;
 
-use app::{App, AppAction};
-use crossterm::{
-    event::{self, DisableMouseCapture, EnableMouseCapture},
-    execute,
-    terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
-};
-use ratatui::prelude::*;
-use std::io::{self, stdout};
-use std::time::Duration;
+use clap::Parser;
+use cli::{Cli, Commands};
+use std::env;
+use std::io;
+use std::path::Path;
 
 fn main() -> io::Result<()> {
-    // Setup terminal
-    enable_raw_mode()?;
-    let mut stdout = stdout();
-    execute!(stdout, EnterAlternateScreen, EnableMouseCapture)?;
-    let backend = CrosstermBackend::new(stdout);
-    let mut terminal = Terminal::new(backend)?;
+    // Check how we were invoked (argv[0])
+    let invoked_as = env::args()
+        .next()
+        .and_then(|arg| {
+            Path::new(&arg)
+                .file_name()
+                .map(|n| n.to_string_lossy().to_string())
+        })
+        .unwrap_or_default();
 
-    // Create app
-    let mut app = App::new()?;
-
-    // Main loop
-    let result = run_app(&mut terminal, &mut app);
-
-    // Restore terminal
-    disable_raw_mode()?;
-    execute!(
-        terminal.backend_mut(),
-        LeaveAlternateScreen,
-        DisableMouseCapture
-    )?;
-    terminal.show_cursor()?;
-
-    // Handle result
-    match result {
-        Ok(Some(action)) => match action {
-            AppAction::Launch(launch_request) => {
-                // Launch Claude directly - no transition messages for seamless flow
-                match launch_request.execute() {
-                    Ok(status) => {
-                        // Check exit code - treat SIGTERM (143) as clean exit
-                        // Exit code 143 = 128 + 15 (SIGTERM), used by exit_claude MCP tool
-                        if let Some(code) = status.code() {
-                            if code != 0 && code != 143 {
-                                // Non-zero exit (excluding SIGTERM) - could indicate an error
-                                // but we still return to TUI for seamless UX
-                            }
-                        }
-                        // Automatically return to TUI after Claude exits
-                        return main();
-                    }
-                    Err(e) => {
-                        eprintln!("Failed to launch Claude: {}", e);
-                        eprintln!("Make sure 'claude' is in your PATH or set claude_path in config.toml");
-                        std::process::exit(1);
-                    }
-                }
-            }
-            AppAction::Update(update_request) => {
-                // Execute update - this will re-exec the new binary on success
-                match update_request.execute() {
-                    Ok(()) => {
-                        // Should not reach here - exec replaces process
-                        unreachable!("exec should not return on success");
-                    }
-                    Err(e) => {
-                        eprintln!("Update failed: {}", e);
-                        eprintln!("\nPress Enter to return to TUI...");
-                        let mut input = String::new();
-                        let _ = std::io::stdin().read_line(&mut input);
-                        return main();
-                    }
-                }
-            }
-        },
-        Ok(None) => {
-            // Normal exit - no message for clean exit
+    // Handle symlink invocations
+    match invoked_as.as_str() {
+        "cui" => return tui::run(),
+        "cutx" => {
+            // Pass remaining args to tmux module
+            let args: Vec<String> = env::args().skip(1).collect();
+            return tmux::run(&args);
         }
-        Err(e) => {
-            eprintln!("Error: {}", e);
-            std::process::exit(1);
-        }
+        _ => {}
     }
 
-    Ok(())
-}
+    // Parse CLI arguments
+    let cli = Cli::parse();
 
-fn run_app(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>, app: &mut App) -> io::Result<Option<AppAction>> {
-    loop {
-        // Draw UI
-        terminal.draw(|f| app.render(f))?;
-
-        // Handle events with timeout for responsiveness
-        if event::poll(Duration::from_millis(100))? {
-            let event = event::read()?;
-            if let Some(action) = app.handle_event(event)? {
-                return Ok(Some(action));
+    match cli.command {
+        Some(Commands::Tui) => tui::run(),
+        Some(Commands::Tmux { args }) => tmux::run(&args),
+        Some(Commands::Patch { check }) => {
+            if check {
+                patcher::check_and_patch()
+            } else {
+                patcher::patch()
             }
         }
-
-        // Check if we should exit
-        if !app.running {
-            return Ok(None);
+        Some(Commands::Version { list, install }) => {
+            if list {
+                version::list_versions()
+            } else if let Some(ver) = install {
+                version::install_version(&ver)
+            } else {
+                version::show_current()
+            }
+        }
+        None => {
+            // Default: launch Claude with wrapper features
+            launcher::run(cli.auto, cli.prompt, cli.args)
         }
     }
 }

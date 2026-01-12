@@ -87,20 +87,20 @@ detect_platform() {
             TARGET="${ARCH}-unknown-linux-gnu"
             # Match artifact naming from release workflow
             if [[ "$ARCH" == "x86_64" ]]; then
-                ARTIFACT_NAME="cui-linux-x86_64"
+                ARTIFACT_NAME="cu-linux-x86_64"
             else
-                ARTIFACT_NAME="cui-linux-${ARCH}"
+                ARTIFACT_NAME="cu-linux-${ARCH}"
             fi
             ;;
         macos)
             TARGET="${ARCH}-apple-darwin"
             # Match artifact naming from release workflow
             if [[ "$ARCH" == "x86_64" ]]; then
-                ARTIFACT_NAME="cui-macos-x86_64"
+                ARTIFACT_NAME="cu-macos-x86_64"
             elif [[ "$ARCH" == "aarch64" ]]; then
-                ARTIFACT_NAME="cui-macos-arm64"
+                ARTIFACT_NAME="cu-macos-arm64"
             else
-                ARTIFACT_NAME="cui-macos-${ARCH}"
+                ARTIFACT_NAME="cu-macos-${ARCH}"
             fi
             ;;
     esac
@@ -257,7 +257,7 @@ download_binary() {
         asset_id=$(gh api "repos/${REPO_OWNER}/${REPO_NAME}/releases/tags/${version}" --jq ".assets[] | select(.name==\"${ARTIFACT_NAME}\") | .id" 2>/dev/null)
 
         if [[ -n "$asset_id" ]]; then
-            if gh api "repos/${REPO_OWNER}/${REPO_NAME}/releases/assets/${asset_id}" -H "Accept: application/octet-stream" > "${temp_dir}/cui" 2>/dev/null; then
+            if gh api "repos/${REPO_OWNER}/${REPO_NAME}/releases/assets/${asset_id}" -H "Accept: application/octet-stream" > "${temp_dir}/cu" 2>/dev/null; then
                 downloaded=true
             fi
         fi
@@ -284,11 +284,11 @@ download_binary() {
                 local asset_api_url="https://api.github.com/repos/${REPO_OWNER}/${REPO_NAME}/releases/assets/${asset_id}"
 
                 if command -v curl &> /dev/null; then
-                    if curl -fsSL -H "Authorization: token $GITHUB_TOKEN" -H "Accept: application/octet-stream" "$asset_api_url" -o "${temp_dir}/cui" 2>/dev/null; then
+                    if curl -fsSL -H "Authorization: token $GITHUB_TOKEN" -H "Accept: application/octet-stream" "$asset_api_url" -o "${temp_dir}/cu" 2>/dev/null; then
                         downloaded=true
                     fi
                 elif command -v wget &> /dev/null; then
-                    if wget -q --header="Authorization: token $GITHUB_TOKEN" --header="Accept: application/octet-stream" "$asset_api_url" -O "${temp_dir}/cui" 2>/dev/null; then
+                    if wget -q --header="Authorization: token $GITHUB_TOKEN" --header="Accept: application/octet-stream" "$asset_api_url" -O "${temp_dir}/cu" 2>/dev/null; then
                         downloaded=true
                     fi
                 fi
@@ -299,7 +299,7 @@ download_binary() {
     # Method 3: Direct download URL (works for public repos only)
     if [[ "$downloaded" != "true" ]]; then
         local download_url="${REPO_URL}/releases/download/${version}/${ARTIFACT_NAME}"
-        if download "$download_url" "${temp_dir}/cui" 2>/dev/null; then
+        if download "$download_url" "${temp_dir}/cu" 2>/dev/null; then
             downloaded=true
         fi
     fi
@@ -310,14 +310,19 @@ download_binary() {
     fi
 
     # Verify we got a real binary, not an error page
-    if [[ ! -s "${temp_dir}/cui" ]] || file "${temp_dir}/cui" 2>/dev/null | grep -q "text\|HTML"; then
+    if [[ ! -s "${temp_dir}/cu" ]] || file "${temp_dir}/cu" 2>/dev/null | grep -q "text\|HTML"; then
         rm -rf "$temp_dir"
         return 1
     fi
 
-    chmod +x "${temp_dir}/cui"
-    mv "${temp_dir}/cui" "${INSTALL_DIR}/cui"
+    chmod +x "${temp_dir}/cu"
+    mv "${temp_dir}/cu" "${INSTALL_DIR}/cu"
     rm -rf "$temp_dir"
+
+    # Create symlinks for cui and cutx
+    ln -sf "${INSTALL_DIR}/cu" "${INSTALL_DIR}/cui"
+    ln -sf "${INSTALL_DIR}/cu" "${INSTALL_DIR}/cutx"
+    ln -sf "${INSTALL_DIR}/cu" "${INSTALL_DIR}/claude-unleashed"
 
     success "Binary downloaded and installed"
     return 0
@@ -340,8 +345,13 @@ build_from_source() {
     cargo build --release
 
     # Install binary
-    cp "target/release/cui" "${INSTALL_DIR}/cui"
-    chmod +x "${INSTALL_DIR}/cui"
+    cp "target/release/cu" "${INSTALL_DIR}/cu"
+    chmod +x "${INSTALL_DIR}/cu"
+
+    # Create symlinks
+    ln -sf "${INSTALL_DIR}/cu" "${INSTALL_DIR}/cui"
+    ln -sf "${INSTALL_DIR}/cu" "${INSTALL_DIR}/cutx"
+    ln -sf "${INSTALL_DIR}/cu" "${INSTALL_DIR}/claude-unleashed"
 
     # Cleanup
     rm -rf "$temp_dir"
@@ -349,43 +359,28 @@ build_from_source() {
     success "Built and installed from source"
 }
 
-# Download and install shell scripts
-install_scripts() {
-    info "Installing shell scripts..."
+# Download and install support files
+install_support_files() {
+    info "Installing support files..."
 
-    local scripts=("cu" "cutx" "restart-claude" "exit-claude" "patch-claude.sh" "check-and-patch.sh")
-    local lib_scripts=("lib/onboarding.sh")
-
-    # Create lib directory
-    mkdir -p "${INSTALL_DIR}/lib"
-
-    # Download main scripts
-    for script in "${scripts[@]}"; do
-        download "${RAW_URL}/scripts/${script}" "${INSTALL_DIR}/${script}"
-        chmod +x "${INSTALL_DIR}/${script}"
-    done
-
-    # Download lib scripts
-    for script in "${lib_scripts[@]}"; do
-        download "${RAW_URL}/scripts/${script}" "${INSTALL_DIR}/${script}"
-        chmod +x "${INSTALL_DIR}/${script}"
-    done
-
-    # Download patches directory
+    # Download patches directory (for auto-mode patching)
     mkdir -p "${INSTALL_DIR}/patches/versions"
 
-    # Get list of patch configs from repo (simple approach: download known versions)
+    # Get list of patch configs from repo
     for version in "2.1.3" "2.1.4" "2.1.5"; do
         if download "${RAW_URL}/scripts/patches/versions/${version}.conf" "${INSTALL_DIR}/patches/versions/${version}.conf" 2>/dev/null; then
             :
         fi
     done
 
-    # Create symlinks
-    ln -sf "${INSTALL_DIR}/cu" "${INSTALL_DIR}/cuw"
-    ln -sf "${INSTALL_DIR}/cu" "${INSTALL_DIR}/claude-unleashed"
+    # Download restart/exit helper scripts (for MCP tools)
+    for script in "restart-claude" "exit-claude"; do
+        if download "${RAW_URL}/scripts/${script}" "${INSTALL_DIR}/${script}" 2>/dev/null; then
+            chmod +x "${INSTALL_DIR}/${script}"
+        fi
+    done
 
-    success "Scripts installed"
+    success "Support files installed"
 }
 
 # Update PATH instructions
@@ -410,10 +405,8 @@ run_patch() {
     if command -v claude &> /dev/null; then
         info "Patching Claude Code for auto mode..."
 
-        # Set SCRIPT_DIR for patch script
-        export SCRIPT_DIR="${INSTALL_DIR}"
-
-        if bash "${INSTALL_DIR}/patch-claude.sh" 2>/dev/null; then
+        # Use the cu binary's built-in patch command
+        if "${INSTALL_DIR}/cu" patch 2>/dev/null; then
             success "Claude Code patched"
         else
             warn "Patch failed (may need to run manually after updating PATH)"
@@ -457,14 +450,14 @@ main() {
             if command -v cargo &> /dev/null; then
                 build_from_source
             else
-                warn "Cargo not found, skipping TUI binary"
-                warn "Install Rust (https://rustup.rs/) to build the TUI"
+                error "Cargo not found. Install Rust (https://rustup.rs/) to build from source."
+                exit 1
             fi
         fi
     fi
 
-    # Install scripts
-    install_scripts
+    # Install support files (patches, helper scripts)
+    install_support_files
 
     # Run patch
     run_patch
@@ -476,17 +469,16 @@ main() {
     echo "╰──────────────────────────────────────────╯"
     echo ""
     echo "Installed commands:"
-    echo "  cu       - Main entry point (Claude Unleashed)"
-    echo "  cuw      - Alias for cu"
+    echo "  cu       - Main CLI (run Claude with unleashed features)"
+    echo "  cui      - TUI mode (profile & version management)"
     echo "  cutx     - Headless tmux mode"
-    if [[ -f "${INSTALL_DIR}/cui" ]]; then
-    echo "  cui      - TUI interface"
-    fi
     echo ""
     echo "Quick start:"
-    echo "  cu                 - Start Claude with unleashed features"
+    echo "  cu                 - Launch Claude directly"
+    echo "  cu --tui           - Launch TUI"
+    echo "  cu --auto          - Launch with auto mode"
     echo "  cu -p \"prompt\"     - Headless mode with prompt"
-    echo "  cui                - Launch TUI for profile management"
+    echo "  cu tmux start      - Start tmux session"
     echo ""
 
     show_path_instructions

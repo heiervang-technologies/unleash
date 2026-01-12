@@ -262,6 +262,59 @@ fn version_compare(a: &str, b: &str) -> std::cmp::Ordering {
     a_parts.len().cmp(&b_parts.len())
 }
 
+// CLI commands for version management
+
+/// List available versions
+pub fn list_versions() -> io::Result<()> {
+    let vm = VersionManager::new();
+    let versions = vm.get_version_list();
+    let current = vm.get_installed_version();
+
+    println!("Claude Code Versions:");
+    println!();
+
+    for info in versions {
+        let installed = if info.is_installed { " [installed]" } else { "" };
+        let patch = if info.has_patch { " *" } else { "" };
+        println!("  v{}{}{}", info.version, installed, patch);
+    }
+
+    println!();
+    println!("  * = has auto-mode patch available");
+    if let Some(v) = current {
+        println!();
+        println!("Currently installed: v{}", v);
+    }
+
+    Ok(())
+}
+
+/// Install a specific version
+pub fn install_version(version: &str) -> io::Result<()> {
+    let vm = VersionManager::new();
+
+    println!("Installing Claude Code v{}...", version);
+    vm.install_version(version)?;
+
+    println!("Running patch...");
+    if vm.run_patch().is_err() {
+        println!("Warning: Patch failed (may not be available for this version)");
+    }
+
+    println!("Done!");
+    Ok(())
+}
+
+/// Show current version
+pub fn show_current() -> io::Result<()> {
+    let vm = VersionManager::new();
+    match vm.get_installed_version() {
+        Some(v) => println!("Claude Code version: {}", v),
+        None => println!("Claude Code is not installed"),
+    }
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

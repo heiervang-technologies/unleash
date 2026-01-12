@@ -1,4 +1,4 @@
-name: Build TUI (Manual)
+name: Build (Manual)
 
 # Manual workflow for testing builds without creating a release
 # Actual releases are handled by release-please.yml
@@ -13,13 +13,13 @@ jobs:
         include:
           - os: ubuntu-latest
             target: x86_64-unknown-linux-gnu
-            artifact: cui-linux-x86_64
+            artifact: cu-linux-x86_64
           - os: macos-latest
             target: x86_64-apple-darwin
-            artifact: cui-macos-x86_64
+            artifact: cu-macos-x86_64
           - os: macos-latest
             target: aarch64-apple-darwin
-            artifact: cui-macos-arm64
+            artifact: cu-macos-arm64
 
     runs-on: ${{ matrix.os }}
 
@@ -37,7 +37,7 @@ jobs:
 
       - name: Rename binary
         run: |
-          cp target/${{ matrix.target }}/release/cui ${{ matrix.artifact }}
+          cp target/${{ matrix.target }}/release/cu ${{ matrix.artifact }}
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4

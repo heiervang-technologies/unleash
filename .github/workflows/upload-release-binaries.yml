@@ -18,13 +18,13 @@ jobs:
         include:
           - os: ubuntu-latest
             target: x86_64-unknown-linux-gnu
-            artifact: cui-linux-x86_64
+            artifact: cu-linux-x86_64
           - os: macos-latest
             target: x86_64-apple-darwin
-            artifact: cui-macos-x86_64
+            artifact: cu-macos-x86_64
           - os: macos-latest
             target: aarch64-apple-darwin
-            artifact: cui-macos-arm64
+            artifact: cu-macos-arm64
 
     runs-on: ${{ matrix.os }}
     permissions:
@@ -46,7 +46,7 @@ jobs:
 
       - name: Rename binary
         run: |
-          cp target/${{ matrix.target }}/release/cui ${{ matrix.artifact }}
+          cp target/${{ matrix.target }}/release/cu ${{ matrix.artifact }}
 
       - name: Upload to release
         uses: softprops/action-gh-release@v2
