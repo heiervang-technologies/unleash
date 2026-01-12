@@ -1,16 +1,12 @@
-# Codex CLI Configuration Examples
+# Codex Unleashed - OpenRouter Configuration
 
-This directory contains example configurations for OpenAI Codex CLI with various providers.
+This directory contains configuration for using OpenAI Codex CLI with OpenRouter models.
 
-## OpenRouter Configuration
-
-See `codex-unleashed/config.toml` - Configuration for using Codex CLI with OpenRouter models
-
-### Setup Instructions
+## Quick Setup
 
 1. Copy the configuration to your Codex config directory:
    ```bash
-   cp codex-unleashed/config.toml ~/.codex/config.toml
+   cp configs/config.toml ~/.codex/config.toml
    ```
 
 2. Set your OpenRouter API key:
@@ -18,46 +14,54 @@ See `codex-unleashed/config.toml` - Configuration for using Codex CLI with OpenR
    export OPENROUTER_API_KEY="your-api-key-here"
    ```
 
-   Add this to your shell profile (`~/.bashrc` or `~/.zshrc`) to make it permanent.
+   Add to your shell profile (`~/.bashrc` or `~/.zshrc`) to make it permanent.
 
 3. Test the configuration:
    ```bash
    codex exec "Hello, test message"
    ```
 
-### Available Models
+## Configuration Details
 
-The configuration includes:
+The `config.toml` file includes:
 
 - **Default model**: `z-ai/glm-4.7` - ZhipuAI GLM-4.7 model
 - **Minimax profile**: `minimax/minimax-m2.1` - Minimax M2.1 model
+- **Provider**: OpenRouter API (`https://openrouter.ai/api/v1`)
+- **Wire API**: `responses` (updated format, no deprecation warnings)
 
-### Usage
+## Usage
 
-**Default model (GLM-4.7):**
+### Default model (GLM-4.7):
 ```bash
 codex exec "your prompt"
 ```
 
-**Use Minimax profile:**
+### Use Minimax profile:
 ```bash
 codex --profile minimax "your prompt"
 ```
 
-**Override with any OpenRouter model:**
+### Override with any OpenRouter model:
 ```bash
 codex --model "anthropic/claude-sonnet-4-5" "your prompt"
 ```
 
-### Configuration Details
+## Repository Structure
 
-- **Provider**: OpenRouter API (`https://openrouter.ai/api/v1`)
-- **Wire API**: `responses` (updated format, no deprecation warnings)
-- **Authentication**: Environment variable `OPENROUTER_API_KEY`
+```
+claude-unleashed/
+├── codex-unleashed/          # OpenAI Codex CLI submodule (main branch)
+└── configs/                  # Configuration directory
+    ├── config.toml           # OpenRouter configuration
+    └── README.md             # This file
+```
 
-### Available OpenRouter Models
+## Available Models
 
 You can use any model from [OpenRouter](https://openrouter.ai/models), including:
+- `z-ai/glm-4.7` (default)
+- `minimax/minimax-m2.1` (profile included)
 - `anthropic/claude-sonnet-4-5`
 - `openai/gpt-4-turbo`
 - `google/gemini-pro`
