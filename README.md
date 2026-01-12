@@ -9,8 +9,9 @@ A powerful extension framework for Claude Code with auto-mode, version managemen
 ```bash
 # Using gh CLI (recommended - handles auth automatically)
 gh repo clone heiervang-technologies/claude-unleashed /tmp/cu && bash /tmp/cu/scripts/install.sh && rm -rf /tmp/cu
-
-# Or with GitHub token
+```
+Or with GitHub token if repo is still private:
+```bash
 GH_TOKEN=ghp_xxx curl -fsSL -H "Authorization: token $GH_TOKEN" \
   https://raw.githubusercontent.com/heiervang-technologies/claude-unleashed/main/scripts/install-remote.sh | bash
 ```
