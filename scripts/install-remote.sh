@@ -217,8 +217,9 @@ get_recommended_claude_code_version() {
     if [[ "$OSTYPE" == "darwin"* ]] && ! command -v tac &> /dev/null; then
         reverse_cmd="tail -r"
     fi
+    # sed -e '$a\' ensures trailing newline to prevent line concatenation when reversing
     versions=$(npm view @anthropic-ai/claude-code versions --json 2>/dev/null | \
-        tr -d '[]"\n ' | tr ',' '\n' | $reverse_cmd)
+        tr -d '[]"\n ' | tr ',' '\n' | sed -e '$a\' | $reverse_cmd)
 
     blacklist=$(get_blacklist)
 
