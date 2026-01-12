@@ -3,9 +3,42 @@
 //! Handles detecting installed version, listing available versions,
 //! and switching between Claude Code versions.
 
+use std::fs;
 use std::io;
 use std::path::PathBuf;
 use std::process::Command;
+
+// Include the generated blacklist from Cargo.toml
+include!(concat!(env!("OUT_DIR"), "/blacklist.rs"));
+
+/// Get the effective blacklist (user override or default from Cargo.toml)
+///
+/// User can override by creating ~/.config/claude-unleashed/blacklist.txt
+/// with one version per line. Empty file means no blacklist.
+pub fn get_blacklist() -> Vec<String> {
+    // Check for user override
+    if let Some(home) = dirs::home_dir() {
+        let user_blacklist = home.join(".config/claude-unleashed/blacklist.txt");
+        if user_blacklist.exists() {
+            if let Ok(content) = fs::read_to_string(&user_blacklist) {
+                return content
+                    .lines()
+                    .map(|l| l.trim())
+                    .filter(|l| !l.is_empty() && !l.starts_with('#'))
+                    .map(|l| l.to_string())
+                    .collect();
+            }
+        }
+    }
+
+    // Use default from Cargo.toml
+    DEFAULT_BLACKLIST.iter().map(|s| s.to_string()).collect()
+}
+
+/// Check if a version is blacklisted
+pub fn is_blacklisted(version: &str) -> bool {
+    get_blacklist().iter().any(|v| v == version)
+}
 
 /// Information about a Claude Code version
 #[derive(Debug, Clone)]
@@ -13,6 +46,7 @@ pub struct VersionInfo {
     pub version: String,
     pub is_installed: bool,
     pub has_patch: bool,
+    pub is_blacklisted: bool,
 }
 
 /// Version manager for Claude Code
@@ -147,6 +181,7 @@ impl VersionManager {
                     version: v.clone(),
                     is_installed: installed.as_ref() == Some(v),
                     has_patch: true,
+                    is_blacklisted: is_blacklisted(v),
                 });
             }
         }
@@ -158,6 +193,7 @@ impl VersionManager {
                     version: v.clone(),
                     is_installed: installed.as_ref() == Some(v),
                     has_patch: supported.contains(v),
+                    is_blacklisted: is_blacklisted(v),
                 });
             }
         }
@@ -436,5 +472,29 @@ mod tests {
             "Performance test results:\n  Subprocess ({} calls): {:?}\n  Cached ({} accesses): {:?}\n  Speedup: {}x",
             ITERATIONS, subprocess_time, ITERATIONS, cached_time, speedup
         );
+    }
+
+    #[test]
+    fn test_default_blacklist() {
+        // Verify the default blacklist from Cargo.toml is loaded
+        assert!(!DEFAULT_BLACKLIST.is_empty(), "Default blacklist should not be empty");
+
+        // Verify expected versions are in the default blacklist
+        assert!(DEFAULT_BLACKLIST.contains(&"2.1.5"), "2.1.5 should be blacklisted");
+        assert!(DEFAULT_BLACKLIST.contains(&"2.1.1"), "2.1.1 should be blacklisted");
+        assert!(DEFAULT_BLACKLIST.contains(&"2.1.0"), "2.1.0 should be blacklisted");
+    }
+
+    #[test]
+    fn test_is_blacklisted() {
+        // Test that blacklisted versions are detected
+        assert!(is_blacklisted("2.1.5"), "2.1.5 should be blacklisted");
+        assert!(is_blacklisted("2.1.1"), "2.1.1 should be blacklisted");
+        assert!(is_blacklisted("2.1.0"), "2.1.0 should be blacklisted");
+
+        // Test that non-blacklisted versions are not detected
+        assert!(!is_blacklisted("2.1.4"), "2.1.4 should not be blacklisted");
+        assert!(!is_blacklisted("2.1.3"), "2.1.3 should not be blacklisted");
+        assert!(!is_blacklisted("2.0.0"), "2.0.0 should not be blacklisted");
     }
 }

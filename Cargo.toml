@@ -37,3 +37,9 @@ tempfile = "3.15"
 lto = true
 codegen-units = 1
 strip = true
+
+# Claude Code version blacklist - versions known to have critical issues
+# These are skipped when installing "latest"
+# Users can override by creating ~/.config/claude-unleashed/blacklist.txt
+[package.metadata.claude-code-blacklist]
+versions = ["2.1.5", "2.1.1", "2.1.0"]

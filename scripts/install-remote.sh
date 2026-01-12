@@ -167,6 +167,73 @@ download() {
     fi
 }
 
+# Fetch blacklisted versions from Cargo.toml in the repo
+get_blacklist() {
+    local cargo_toml=""
+    local blacklist=""
+
+    # Fetch Cargo.toml from repo
+    if command -v curl &> /dev/null; then
+        if [[ -n "${GITHUB_TOKEN:-}" ]]; then
+            cargo_toml=$(curl -fsSL -H "Authorization: token $GITHUB_TOKEN" "${RAW_URL}/Cargo.toml" 2>/dev/null)
+        else
+            cargo_toml=$(curl -fsSL "${RAW_URL}/Cargo.toml" 2>/dev/null)
+        fi
+    elif command -v wget &> /dev/null; then
+        if [[ -n "${GITHUB_TOKEN:-}" ]]; then
+            cargo_toml=$(wget -qO- --header="Authorization: token $GITHUB_TOKEN" "${RAW_URL}/Cargo.toml" 2>/dev/null)
+        else
+            cargo_toml=$(wget -qO- "${RAW_URL}/Cargo.toml" 2>/dev/null)
+        fi
+    fi
+
+    if [[ -n "$cargo_toml" ]]; then
+        # Extract versions array from [package.metadata.claude-code-blacklist] section
+        # Format: versions = ["2.1.5", "2.1.1", "2.1.0"]
+        blacklist=$(echo "$cargo_toml" | grep -A1 '\[package.metadata.claude-code-blacklist\]' | \
+            grep 'versions' | sed 's/.*\[\([^]]*\)\].*/\1/' | tr -d '"' | tr ',' '\n' | tr -d ' ')
+    fi
+
+    echo "$blacklist"
+}
+
+# Check if a version is blacklisted
+is_version_blacklisted() {
+    local version="$1"
+    local blacklist
+    blacklist=$(get_blacklist)
+
+    echo "$blacklist" | grep -qx "$version"
+}
+
+# Get latest non-blacklisted Claude Code version from npm
+get_recommended_claude_code_version() {
+    local versions
+    local blacklist
+
+    # Get available versions from npm (newest first)
+    # Use tac on Linux, tail -r on macOS for reverse order
+    local reverse_cmd="tac"
+    if [[ "$OSTYPE" == "darwin"* ]] && ! command -v tac &> /dev/null; then
+        reverse_cmd="tail -r"
+    fi
+    versions=$(npm view @anthropic-ai/claude-code versions --json 2>/dev/null | \
+        tr -d '[]"\n ' | tr ',' '\n' | $reverse_cmd)
+
+    blacklist=$(get_blacklist)
+
+    # Find first non-blacklisted version
+    for version in $versions; do
+        if ! echo "$blacklist" | grep -qx "$version"; then
+            echo "$version"
+            return 0
+        fi
+    done
+
+    # Fallback to latest if all are blacklisted
+    npm view @anthropic-ai/claude-code version 2>/dev/null
+}
+
 # Get latest release version from GitHub (supports private repos via GITHUB_TOKEN)
 get_latest_version() {
     local api_url="https://api.github.com/repos/${REPO_OWNER}/${REPO_NAME}/releases/latest"
@@ -201,13 +268,28 @@ install_claude_code() {
         info "Claude Code currently installed: v${current_version}"
     fi
 
-    # Get latest version from npm if targeting latest
+    # Get recommended version (latest non-blacklisted) if targeting latest
     if [[ "$target_version" == "latest" ]]; then
-        local npm_latest
-        npm_latest=$(npm view @anthropic-ai/claude-code version 2>/dev/null || echo "")
-        if [[ -n "$npm_latest" ]]; then
-            target_version="$npm_latest"
+        info "Checking for blacklisted versions..."
+        target_version=$(get_recommended_claude_code_version)
+
+        if [[ -n "$target_version" ]]; then
+            local npm_latest
+            npm_latest=$(npm view @anthropic-ai/claude-code version 2>/dev/null || echo "")
+
+            if [[ "$npm_latest" != "$target_version" ]]; then
+                warn "Latest version v${npm_latest} is blacklisted, using v${target_version} instead"
+            else
+                info "Recommended version: v${target_version}"
+            fi
+        else
+            target_version=$(npm view @anthropic-ai/claude-code version 2>/dev/null || echo "")
             info "Latest available version: v${target_version}"
+        fi
+    else
+        # Check if explicitly requested version is blacklisted
+        if is_version_blacklisted "$target_version"; then
+            warn "Version v${target_version} is blacklisted (known issues), proceeding anyway..."
         fi
     fi
 
@@ -224,11 +306,7 @@ install_claude_code() {
         info "Installing Claude Code v${target_version}..."
     fi
 
-    if [[ "$CLAUDE_CODE_VERSION" == "latest" ]]; then
-        npm install -g @anthropic-ai/claude-code
-    else
-        npm install -g "@anthropic-ai/claude-code@${CLAUDE_CODE_VERSION}"
-    fi
+    npm install -g "@anthropic-ai/claude-code@${target_version}"
 
     local new_version
     new_version=$(claude --version 2>/dev/null | head -1 | sed 's/ (Claude Code)//' || echo "unknown")

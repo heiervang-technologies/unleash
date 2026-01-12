@@ -401,16 +401,33 @@ impl App {
                     } else {
                         self.selected_version = Some(version_info.version.clone());
                         self.screen = Screen::VersionInstalling;
-                        self.status_message = Some(format!("Installing v{}...", version_info.version));
+
+                        let warning = if version_info.is_blacklisted {
+                            " (WARNING: blacklisted)"
+                        } else {
+                            ""
+                        };
+                        self.status_message = Some(format!("Installing v{}{}...", version_info.version, warning));
 
                         // Install the version
                         let version = version_info.version.clone();
+                        let is_blacklisted = version_info.is_blacklisted;
                         match self.version_manager.install_version(&version) {
                             Ok(()) => {
-                                self.status_message = Some(format!("Installed v{}", version));
+                                let msg = if is_blacklisted {
+                                    format!("Installed v{} (blacklisted - use at your own risk)", version)
+                                } else {
+                                    format!("Installed v{}", version)
+                                };
+                                self.status_message = Some(msg);
                                 // Run patch
                                 if self.version_manager.run_patch().is_ok() {
-                                    self.status_message = Some(format!("Installed and patched v{}", version));
+                                    let msg = if is_blacklisted {
+                                        format!("Installed and patched v{} (blacklisted)", version)
+                                    } else {
+                                        format!("Installed and patched v{}", version)
+                                    };
+                                    self.status_message = Some(msg);
                                 }
                             }
                             Err(e) => {
@@ -1086,9 +1103,19 @@ impl App {
             .map(|(i, version_info)| {
                 let is_selected = i == self.version_menu.selected;
                 let style = if is_selected {
+                    if version_info.is_blacklisted {
+                        Style::default()
+                            .fg(Color::Red)
+                            .add_modifier(Modifier::BOLD | Modifier::CROSSED_OUT)
+                    } else {
+                        Style::default()
+                            .fg(Color::Rgb(217, 119, 87))
+                            .add_modifier(Modifier::BOLD)
+                    }
+                } else if version_info.is_blacklisted {
                     Style::default()
-                        .fg(Color::Rgb(217, 119, 87))
-                        .add_modifier(Modifier::BOLD)
+                        .fg(Color::DarkGray)
+                        .add_modifier(Modifier::CROSSED_OUT)
                 } else if version_info.is_installed {
                     Style::default().fg(Color::Green)
                 } else {
@@ -1098,6 +1125,7 @@ impl App {
                 let prefix = if is_selected { "> " } else { "  " };
                 let installed_marker = if version_info.is_installed { " [installed]" } else { "" };
                 let patch_marker = if version_info.has_patch { " *" } else { "" };
+                let blacklist_marker = if version_info.is_blacklisted { " ⛔" } else { "" };
 
                 ListItem::new(vec![
                     Line::from(vec![
@@ -1105,6 +1133,7 @@ impl App {
                         Span::styled(format!("v{}", version_info.version), style),
                         Span::styled(installed_marker, Style::default().fg(Color::Green)),
                         Span::styled(patch_marker, Style::default().fg(Color::Yellow)),
+                        Span::styled(blacklist_marker, Style::default().fg(Color::Red)),
                     ]),
                 ])
             })
@@ -1119,7 +1148,7 @@ impl App {
         if !list_items.is_empty() {
             list_items.push(ListItem::new(Line::from("")));
             list_items.push(ListItem::new(Line::from(Span::styled(
-                "  * = has auto-mode patch available",
+                "  * = has auto-mode patch  ⛔ = blacklisted (known issues)",
                 Style::default().fg(Color::DarkGray),
             ))));
         }
