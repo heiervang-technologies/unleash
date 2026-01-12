@@ -1,5 +1,17 @@
 # Changelog
 
+## [2.1.0](https://github.com/heiervang-technologies/claude-unleashed/compare/v2.0.0...v2.1.0) (2026-01-12)
+
+
+### Features
+
+* add version blacklist for Claude Code installations ([#26](https://github.com/heiervang-technologies/claude-unleashed/issues/26)) ([e791193](https://github.com/heiervang-technologies/claude-unleashed/commit/e7911934ad167e018c95a6292e5bbd434355f443))
+
+
+### Bug Fixes
+
+* cache installed version to avoid subprocess on every TUI frame ([#25](https://github.com/heiervang-technologies/claude-unleashed/issues/25)) ([f403428](https://github.com/heiervang-technologies/claude-unleashed/commit/f40342831d25fb8cf74b0b71d6ddc67ddc369daf))
+
 ## [Unreleased]
 
 ### Features
