@@ -6,7 +6,7 @@ This directory contains configuration for using OpenAI Codex CLI with OpenRouter
 
 1. Copy the configuration to your Codex config directory:
    ```bash
-   cp configs/config.toml ~/.codex/config.toml
+   cp codex-unleashed/config.toml ~/.codex/config.toml
    ```
 
 2. Set your OpenRouter API key:
@@ -51,8 +51,8 @@ codex --model "anthropic/claude-sonnet-4-5" "your prompt"
 
 ```
 claude-unleashed/
-├── codex-unleashed/          # OpenAI Codex CLI submodule (main branch)
-└── configs/                  # Configuration directory
+└── codex-unleashed/          # Configuration directory
+    ├── codex/                # OpenAI Codex CLI submodule (main branch)
     ├── config.toml           # OpenRouter configuration
     └── README.md             # This file
 ```
