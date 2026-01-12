@@ -1,10 +1,15 @@
 #!/usr/bin/env bash
 # install-remote.sh - Remote installer for Claude Unleashed
 #
-# Usage:
+# Usage (public repo):
 #   curl -fsSL https://raw.githubusercontent.com/heiervang-technologies/claude-unleashed/main/scripts/install-remote.sh | bash
 #
+# Usage (private repo):
+#   GH_TOKEN=ghp_xxx curl -fsSL -H "Authorization: token $GH_TOKEN" \
+#     https://raw.githubusercontent.com/heiervang-technologies/claude-unleashed/main/scripts/install-remote.sh | bash
+#
 # Options (via environment variables):
+#   GH_TOKEN                 - GitHub token for private repo access
 #   CLAUDE_UNLEASHED_VERSION - Specific version to install (default: latest)
 #   CLAUDE_CODE_VERSION      - Specific Claude Code version (default: latest)
 #   INSTALL_DIR              - Installation directory (default: ~/.local/bin)
@@ -124,26 +129,53 @@ check_prerequisites() {
     success "All prerequisites found"
 }
 
-# Download file using curl or wget
+# Download file using curl or wget (supports private repos via GH_TOKEN)
 download() {
     local url="$1"
     local output="$2"
+    local auth_header=""
+
+    # Use GH_TOKEN for GitHub URLs if available (for private repos)
+    if [[ -n "${GH_TOKEN:-}" ]] && [[ "$url" == *"github.com"* || "$url" == *"githubusercontent.com"* ]]; then
+        auth_header="Authorization: token $GH_TOKEN"
+    fi
 
     if command -v curl &> /dev/null; then
-        curl -fsSL "$url" -o "$output"
+        if [[ -n "$auth_header" ]]; then
+            curl -fsSL -H "$auth_header" "$url" -o "$output"
+        else
+            curl -fsSL "$url" -o "$output"
+        fi
     elif command -v wget &> /dev/null; then
-        wget -q "$url" -O "$output"
+        if [[ -n "$auth_header" ]]; then
+            wget -q --header="$auth_header" "$url" -O "$output"
+        else
+            wget -q "$url" -O "$output"
+        fi
     fi
 }
 
-# Get latest release version from GitHub
+# Get latest release version from GitHub (supports private repos via GH_TOKEN)
 get_latest_version() {
     local api_url="https://api.github.com/repos/${REPO_OWNER}/${REPO_NAME}/releases/latest"
+    local auth_header=""
+
+    if [[ -n "${GH_TOKEN:-}" ]]; then
+        auth_header="Authorization: token $GH_TOKEN"
+    fi
 
     if command -v curl &> /dev/null; then
-        curl -fsSL "$api_url" | grep '"tag_name"' | sed -E 's/.*"tag_name": *"([^"]+)".*/\1/'
+        if [[ -n "$auth_header" ]]; then
+            curl -fsSL -H "$auth_header" "$api_url" | grep '"tag_name"' | sed -E 's/.*"tag_name": *"([^"]+)".*/\1/'
+        else
+            curl -fsSL "$api_url" | grep '"tag_name"' | sed -E 's/.*"tag_name": *"([^"]+)".*/\1/'
+        fi
     elif command -v wget &> /dev/null; then
-        wget -qO- "$api_url" | grep '"tag_name"' | sed -E 's/.*"tag_name": *"([^"]+)".*/\1/'
+        if [[ -n "$auth_header" ]]; then
+            wget -qO- --header="$auth_header" "$api_url" | grep '"tag_name"' | sed -E 's/.*"tag_name": *"([^"]+)".*/\1/'
+        else
+            wget -qO- "$api_url" | grep '"tag_name"' | sed -E 's/.*"tag_name": *"([^"]+)".*/\1/'
+        fi
     fi
 }
 

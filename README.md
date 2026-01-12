@@ -7,7 +7,12 @@ A powerful extension framework for Claude Code with auto-mode, version managemen
 ## Quick Install
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/heiervang-technologies/claude-unleashed/main/scripts/install-remote.sh | bash
+# Using gh CLI (recommended - handles auth automatically)
+gh repo clone heiervang-technologies/claude-unleashed /tmp/cu && bash /tmp/cu/scripts/install.sh && rm -rf /tmp/cu
+
+# Or with GitHub token
+GH_TOKEN=ghp_xxx curl -fsSL -H "Authorization: token $GH_TOKEN" \
+  https://raw.githubusercontent.com/heiervang-technologies/claude-unleashed/main/scripts/install-remote.sh | bash
 ```
 
 This installs/updates both **Claude Code** and **Claude Unleashed**, then applies the auto-mode patch.
@@ -19,7 +24,7 @@ cui     # TUI for profiles & version management
 cutx    # Headless mode for automation
 ```
 
-> **Already have it installed?** Running the same curl command will update to the latest versions.
+> **Already have it installed?** Run the same command to update to latest versions.
 
 ---
 
@@ -145,35 +150,44 @@ This will:
 
 ### Installation Options
 
-#### Option 1: curl (recommended)
+#### Option 1: gh CLI (recommended for private repo)
 ```bash
+# Clone, install, cleanup
+gh repo clone heiervang-technologies/claude-unleashed /tmp/cu && \
+  bash /tmp/cu/scripts/install.sh && \
+  rm -rf /tmp/cu
+
+# With specific Claude Code version
+gh repo clone heiervang-technologies/claude-unleashed /tmp/cu && \
+  bash /tmp/cu/scripts/install.sh --claude-version 2.1.5 && \
+  rm -rf /tmp/cu
+```
+
+#### Option 2: curl with GitHub token
+```bash
+# Set your GitHub token (needs repo access)
+export GH_TOKEN=ghp_xxxxxxxxxxxx
+
 # Install latest
-curl -fsSL https://raw.githubusercontent.com/heiervang-technologies/claude-unleashed/main/scripts/install-remote.sh | bash
+curl -fsSL -H "Authorization: token $GH_TOKEN" \
+  https://raw.githubusercontent.com/heiervang-technologies/claude-unleashed/main/scripts/install-remote.sh | bash
 
 # Install specific Claude Code version
-CLAUDE_CODE_VERSION=2.1.5 curl -fsSL https://raw.githubusercontent.com/heiervang-technologies/claude-unleashed/main/scripts/install-remote.sh | bash
-
-# Build from source instead of downloading binary
-BUILD_FROM_SOURCE=1 curl -fsSL https://raw.githubusercontent.com/heiervang-technologies/claude-unleashed/main/scripts/install-remote.sh | bash
+CLAUDE_CODE_VERSION=2.1.5 curl -fsSL -H "Authorization: token $GH_TOKEN" \
+  https://raw.githubusercontent.com/heiervang-technologies/claude-unleashed/main/scripts/install-remote.sh | bash
 ```
 
-#### Option 2: npm + cargo (from source)
+#### Option 3: Clone and build from source
 ```bash
-# Install Claude Code
-npm install -g @anthropic-ai/claude-code
-
-# Clone and build
-git clone https://github.com/heiervang-technologies/claude-unleashed.git
+# Clone (SSH for private repo)
+git clone git@github.com:heiervang-technologies/claude-unleashed.git
 cd claude-unleashed
+
+# Build TUI and install
 cargo build --release
 ./scripts/install.sh
-```
 
-#### Option 3: npm only (no TUI)
-```bash
-npm install -g @anthropic-ai/claude-code
-git clone https://github.com/heiervang-technologies/claude-unleashed.git
-cd claude-unleashed
+# Or without TUI
 ./scripts/install.sh --no-build
 ```
 
