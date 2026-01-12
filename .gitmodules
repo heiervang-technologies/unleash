@@ -3,7 +3,7 @@
 	url = https://github.com/anthropics/claude-code.git
 	branch = main
 	ignore = dirty
-[submodule "codex-unleashed"]
-	path = codex-unleashed
+[submodule "codex"]
+	path = codex
 	url = https://github.com/openai/codex.git
 	branch = main

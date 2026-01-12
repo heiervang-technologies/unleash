@@ -4,13 +4,13 @@ This directory contains example configurations for OpenAI Codex CLI with various
 
 ## OpenRouter Configuration
 
-`codex-openrouter.toml` - Configuration for using Codex CLI with OpenRouter models
+See `codex-unleashed/config.toml` - Configuration for using Codex CLI with OpenRouter models
 
 ### Setup Instructions
 
 1. Copy the configuration to your Codex config directory:
    ```bash
-   cp configs/codex-openrouter.toml ~/.codex/config.toml
+   cp codex-unleashed/config.toml ~/.codex/config.toml
    ```
 
 2. Set your OpenRouter API key:
