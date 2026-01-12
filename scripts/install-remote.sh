@@ -9,7 +9,7 @@
 #     https://raw.githubusercontent.com/heiervang-technologies/claude-unleashed/main/scripts/install-remote.sh | bash
 #
 # Options (via environment variables):
-#   GH_TOKEN                 - GitHub token for private repo access
+#   GH_TOKEN / GH_PAT / GITHUB_TOKEN - GitHub token for private repo access (any of these work)
 #   CLAUDE_UNLEASHED_VERSION - Specific version to install (default: latest)
 #   CLAUDE_CODE_VERSION      - Specific Claude Code version (default: latest)
 #   INSTALL_DIR              - Installation directory (default: ~/.local/bin)
@@ -23,6 +23,9 @@
 # 5. Runs initial patch
 
 set -euo pipefail
+
+# Support common GitHub token variable names
+GITHUB_TOKEN="${GH_TOKEN:-${GH_PAT:-${GITHUB_TOKEN:-}}}"
 
 # Configuration
 REPO_OWNER="heiervang-technologies"
@@ -129,15 +132,15 @@ check_prerequisites() {
     success "All prerequisites found"
 }
 
-# Download file using curl or wget (supports private repos via GH_TOKEN)
+# Download file using curl or wget (supports private repos via GITHUB_TOKEN)
 download() {
     local url="$1"
     local output="$2"
     local auth_header=""
 
-    # Use GH_TOKEN for GitHub URLs if available (for private repos)
-    if [[ -n "${GH_TOKEN:-}" ]] && [[ "$url" == *"github.com"* || "$url" == *"githubusercontent.com"* ]]; then
-        auth_header="Authorization: token $GH_TOKEN"
+    # Use GITHUB_TOKEN for GitHub URLs if available (for private repos)
+    if [[ -n "${GITHUB_TOKEN:-}" ]] && [[ "$url" == *"github.com"* || "$url" == *"githubusercontent.com"* ]]; then
+        auth_header="Authorization: token $GITHUB_TOKEN"
     fi
 
     if command -v curl &> /dev/null; then
@@ -155,13 +158,13 @@ download() {
     fi
 }
 
-# Get latest release version from GitHub (supports private repos via GH_TOKEN)
+# Get latest release version from GitHub (supports private repos via GITHUB_TOKEN)
 get_latest_version() {
     local api_url="https://api.github.com/repos/${REPO_OWNER}/${REPO_NAME}/releases/latest"
     local auth_header=""
 
-    if [[ -n "${GH_TOKEN:-}" ]]; then
-        auth_header="Authorization: token $GH_TOKEN"
+    if [[ -n "${GITHUB_TOKEN:-}" ]]; then
+        auth_header="Authorization: token $GITHUB_TOKEN"
     fi
 
     if command -v curl &> /dev/null; then
