@@ -81,11 +81,9 @@ detect_platform() {
             ;;
     esac
 
-    # Construct target triple and artifact name
+    # Construct artifact name to match release workflow
     case "$PLATFORM" in
         linux)
-            TARGET="${ARCH}-unknown-linux-gnu"
-            # Match artifact naming from release workflow
             if [[ "$ARCH" == "x86_64" ]]; then
                 ARTIFACT_NAME="cu-linux-x86_64"
             else
@@ -93,8 +91,6 @@ detect_platform() {
             fi
             ;;
         macos)
-            TARGET="${ARCH}-apple-darwin"
-            # Match artifact naming from release workflow
             if [[ "$ARCH" == "x86_64" ]]; then
                 ARTIFACT_NAME="cu-macos-x86_64"
             elif [[ "$ARCH" == "aarch64" ]]; then
