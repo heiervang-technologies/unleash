@@ -133,6 +133,7 @@ check_prerequisites() {
 }
 
 # Download file using curl or wget (supports private repos via GITHUB_TOKEN)
+# Returns 0 on success, 1 on failure (silently)
 download() {
     local url="$1"
     local output="$2"
@@ -145,15 +146,15 @@ download() {
 
     if command -v curl &> /dev/null; then
         if [[ -n "$auth_header" ]]; then
-            curl -fsSL -H "$auth_header" "$url" -o "$output"
+            curl -fsSL -H "$auth_header" "$url" -o "$output" 2>/dev/null
         else
-            curl -fsSL "$url" -o "$output"
+            curl -fsSL "$url" -o "$output" 2>/dev/null
         fi
     elif command -v wget &> /dev/null; then
         if [[ -n "$auth_header" ]]; then
-            wget -q --header="$auth_header" "$url" -O "$output"
+            wget -q --header="$auth_header" "$url" -O "$output" 2>/dev/null
         else
-            wget -q "$url" -O "$output"
+            wget -q "$url" -O "$output" 2>/dev/null
         fi
     fi
 }
@@ -232,14 +233,21 @@ download_binary() {
     local temp_dir
     temp_dir=$(mktemp -d)
 
-    info "Downloading Claude Unleashed ${version}..."
+    info "Checking for pre-built binary..."
 
     # Construct download URL
     local binary_name="cui-${TARGET}"
     local download_url="${REPO_URL}/releases/download/${version}/${binary_name}"
 
-    if ! download "$download_url" "${temp_dir}/cui"; then
-        warn "Pre-built binary not found for ${TARGET}"
+    # Suppress error output - 404 is expected if no binary exists
+    if ! download "$download_url" "${temp_dir}/cui" 2>/dev/null; then
+        rm -rf "$temp_dir"
+        return 1
+    fi
+
+    # Verify we got a real binary, not an error page
+    if [[ ! -s "${temp_dir}/cui" ]] || file "${temp_dir}/cui" 2>/dev/null | grep -q "text\|HTML"; then
+        rm -rf "$temp_dir"
         return 1
     fi
 
