@@ -116,6 +116,48 @@ The Stop hook must be configured in `~/.claude/settings.json`:
 }
 ```
 
+### Customizing the Stop Prompt
+
+By default, when Claude tries to exit in auto mode, it receives the message:
+```
+To exit: run 'exit-claude' via Bash tool. Do not end your turn without taking action.
+```
+
+You can customize this message globally using either the CLI or TUI.
+
+#### Via CLI
+
+```bash
+# Set a custom prompt
+cu --stop-prompt="Keep working on the task until complete!"
+
+# Edit with your $EDITOR
+cu --stop-prompt-edit
+
+# Reset to default
+cu --stop-prompt-clear
+```
+
+#### Via TUI
+
+```bash
+cui  # Launch the TUI
+# Navigate to: Settings > Stop Prompt
+# Press Enter to edit, type your custom message, press Enter to save
+```
+
+The custom prompt is stored in `~/.config/claude-unleashed/config.toml` and applies to all future auto-mode sessions.
+
+#### Prompt Priority
+
+The stop hook uses the following priority when determining which message to show:
+
+1. **Session-specific** (highest): `~/.cache/claude-unleashed/auto-mode/reminder-${PID}`
+   - Set programmatically for specific sessions
+2. **Global config**: `~/.config/claude-unleashed/config.toml` (stop_prompt field)
+   - Set via CLI flags or TUI
+3. **Default** (lowest): Hardcoded message in the hook script
+
 ## Use Cases
 
 - Long-running autonomous coding tasks

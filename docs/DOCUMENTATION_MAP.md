@@ -10,7 +10,10 @@ docs/
 │
 ├── extensions/                        # Extension Development Guides
 │   ├── plugin-development.md          # PRIMARY: Creating plugins (1195 lines)
+│   ├── configuration.md               # Configuration options (CLI, TUI, settings)
 │   ├── core-patches.md                # RARE: Core modifications policy (710 lines)
+│   ├── headless-mode.md               # Headless tmux mode (cutx) usage
+│   ├── restart-refresh.md             # Process restart and MCP refresh
 │   ├── snail-integration.md           # GitHub Actions workflows (1332 lines)
 │   └── testing-guide.md               # Testing strategies (1372 lines)
 │
@@ -25,6 +28,13 @@ docs/
 │      ├─ Commands, agents, skills? → plugin-development.md (Component Types)
 │      ├─ Testing my plugin? → testing-guide.md (Local Plugin Testing)
 │      └─ Cannot be a plugin? → core-patches.md (very rare!)
+│
+┌─ I want to configure settings
+│  └─> START: configuration.md
+│      ├─ CLI flags? → configuration.md (CLI Configuration)
+│      ├─ TUI settings? → configuration.md (TUI Settings)
+│      ├─ Stop prompt? → configuration.md (Stop Prompt Configuration)
+│      └─ Config files? → configuration.md (Configuration Files)
 │
 ┌─ I want to integrate with GitHub
 │  └─> START: snail-integration.md
@@ -58,6 +68,9 @@ docs/
 | Create skill | plugin-development.md § Skills | - |
 | Create hook | plugin-development.md § Hooks | testing-guide.md § Testing Hooks |
 | Add MCP server | plugin-development.md § MCP Servers | snail-integration.md § Available MCP Servers |
+| Configure CLI | configuration.md § CLI Configuration | - |
+| Configure TUI | configuration.md § TUI Settings | - |
+| Customize stop prompt | configuration.md § Stop Prompt Configuration | plugins/unleashed/auto-mode/README.md |
 | Test locally | testing-guide.md § Local Plugin Testing | - |
 | Test workflows | testing-guide.md § GitHub Workflow Testing | snail-integration.md |
 | Debug issues | testing-guide.md § Debugging Tips | - |
@@ -174,6 +187,10 @@ docs/
 - **Skill**: plugin-development.md § Skills
 - **Hook**: plugin-development.md § Hooks
 - **MCP**: plugin-development.md § MCP Servers
+- **Configuration**: configuration.md
+- **CLI flags**: configuration.md § CLI Configuration
+- **TUI settings**: configuration.md § TUI Settings
+- **Stop prompt**: configuration.md § Stop Prompt Configuration
 - **Testing**: testing-guide.md
 - **Debug**: testing-guide.md § Debugging Tips
 - **Workflow**: snail-integration.md

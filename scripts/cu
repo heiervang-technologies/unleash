@@ -53,12 +53,81 @@ if [[ -d "$PLUGINS_DIR" ]]; then
     done
 fi
 
-# Parse --auto flag from args
+# Stop prompt configuration helpers
+CONFIG_DIR="${HOME}/.config/claude-unleashed"
+CONFIG_FILE="${CONFIG_DIR}/config.toml"
+
+get_stop_prompt() {
+    if [[ -f "${CONFIG_FILE}" ]]; then
+        # Extract stop_prompt value from TOML (handles quoted strings)
+        grep -E "^stop_prompt\s*=" "${CONFIG_FILE}" 2>/dev/null | \
+            sed -E 's/^stop_prompt\s*=\s*"(.*)"\s*$/\1/' | head -1
+    fi
+}
+
+set_stop_prompt() {
+    local prompt="$1"
+    mkdir -p "${CONFIG_DIR}"
+
+    if [[ -f "${CONFIG_FILE}" ]]; then
+        # Check if stop_prompt exists in file
+        if grep -qE "^stop_prompt\s*=" "${CONFIG_FILE}" 2>/dev/null; then
+            # Update existing value - escape special chars
+            local escaped
+            escaped=$(printf '%s' "$prompt" | sed 's/[&/\]/\\&/g; s/"/\\"/g')
+            sed -i -E "s/^stop_prompt\s*=.*/stop_prompt = \"${escaped}\"/" "${CONFIG_FILE}"
+        else
+            # Append new value
+            echo "stop_prompt = \"${prompt}\"" >> "${CONFIG_FILE}"
+        fi
+    else
+        # Create new config file with minimal content
+        cat > "${CONFIG_FILE}" <<EOF
+current_profile = "default"
+claude_path = "cuw"
+claude_args = []
+stop_prompt = "${prompt}"
+EOF
+    fi
+}
+
+clear_stop_prompt() {
+    if [[ -f "${CONFIG_FILE}" ]]; then
+        # Remove the stop_prompt line
+        sed -i -E '/^stop_prompt\s*=/d' "${CONFIG_FILE}"
+    fi
+}
+
+# Parse flags from args
 CLAUDE_ARGS=()
+STOP_PROMPT_MODE=""
+STOP_PROMPT_VALUE=""
+NEXT_IS_PROMPT=false
+
 for arg in "$@"; do
+    if [[ "$NEXT_IS_PROMPT" == true ]]; then
+        STOP_PROMPT_VALUE="$arg"
+        NEXT_IS_PROMPT=false
+        continue
+    fi
+
     case "$arg" in
         --auto|-a)
             export CLAUDE_AUTO_MODE=1
+            ;;
+        --stop-prompt=*)
+            STOP_PROMPT_MODE="set"
+            STOP_PROMPT_VALUE="${arg#*=}"
+            ;;
+        --stop-prompt)
+            STOP_PROMPT_MODE="set"
+            NEXT_IS_PROMPT=true
+            ;;
+        --stop-prompt-edit)
+            STOP_PROMPT_MODE="edit"
+            ;;
+        --stop-prompt-clear)
+            STOP_PROMPT_MODE="clear"
             ;;
         *)
             CLAUDE_ARGS+=("$arg")
@@ -70,6 +139,46 @@ if [[ ${#CLAUDE_ARGS[@]} -gt 0 ]]; then
 else
     set --
 fi
+
+# Handle stop-prompt configuration commands (exit after handling)
+case "${STOP_PROMPT_MODE}" in
+    set)
+        if [[ -n "${STOP_PROMPT_VALUE}" ]]; then
+            set_stop_prompt "${STOP_PROMPT_VALUE}"
+            echo "Stop prompt set to: ${STOP_PROMPT_VALUE}"
+        else
+            echo "Error: --stop-prompt requires a value"
+            echo "Usage: cu --stop-prompt=\"Your message here\""
+            exit 1
+        fi
+        exit 0
+        ;;
+    edit)
+        TEMP_FILE=$(mktemp)
+        current=$(get_stop_prompt)
+        if [[ -n "$current" ]]; then
+            echo "$current" > "${TEMP_FILE}"
+        else
+            echo "To exit: run 'exit-claude' via Bash tool. Do not end your turn without taking action." > "${TEMP_FILE}"
+        fi
+        ${EDITOR:-${VISUAL:-vi}} "${TEMP_FILE}"
+        new_prompt=$(cat "${TEMP_FILE}")
+        rm -f "${TEMP_FILE}"
+        if [[ -n "$new_prompt" ]]; then
+            set_stop_prompt "$new_prompt"
+            echo "Stop prompt updated."
+        else
+            clear_stop_prompt
+            echo "Stop prompt cleared (will use default)."
+        fi
+        exit 0
+        ;;
+    clear)
+        clear_stop_prompt
+        echo "Stop prompt reset to default."
+        exit 0
+        ;;
+esac
 
 # Export marker so scripts know we're in the wrapper
 export CLAUDE_UNLEASHED=1

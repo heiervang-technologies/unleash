@@ -43,6 +43,7 @@ pub enum EditField {
     EnvValue,
     ClaudePath,
     ClaudeArgs,
+    StopPrompt,
 }
 
 /// Main application state
@@ -95,7 +96,7 @@ impl App {
             screen: Screen::Main,
             main_menu: MenuState::new(6), // Added "Claude Code Version" option
             profile_menu: MenuState::new(profiles.len()),
-            settings_menu: MenuState::new(3), // Entry Point, Arguments, Reset
+            settings_menu: MenuState::new(4), // Entry Point, Arguments, Stop Prompt, Reset
             profile_manager,
             app_config,
             profiles,
@@ -199,7 +200,7 @@ impl App {
             EditField::EnvKey => &mut self.key_input,
             EditField::EnvValue => &mut self.value_input,
             EditField::ProfileName | EditField::ProfileDescription => &mut self.key_input,
-            EditField::ClaudePath | EditField::ClaudeArgs => &mut self.key_input,
+            EditField::ClaudePath | EditField::ClaudeArgs | EditField::StopPrompt => &mut self.key_input,
             EditField::None => return None,
         };
 
@@ -244,6 +245,18 @@ impl App {
                             .collect();
                         let _ = self.profile_manager.save_app_config(&self.app_config);
                         self.status_message = Some("Arguments saved".to_string());
+                        self.edit_field = EditField::None;
+                    }
+                    EditField::StopPrompt => {
+                        // Save stop_prompt (empty string = None/default)
+                        let value = self.key_input.value.trim().to_string();
+                        self.app_config.stop_prompt = if value.is_empty() {
+                            None
+                        } else {
+                            Some(value)
+                        };
+                        let _ = self.profile_manager.save_app_config(&self.app_config);
+                        self.status_message = Some("Stop prompt saved".to_string());
                         self.edit_field = EditField::None;
                     }
                     _ => {
@@ -531,6 +544,12 @@ impl App {
                         self.edit_field = EditField::ClaudeArgs;
                     }
                     2 => {
+                        // Edit stop prompt
+                        let current = self.app_config.stop_prompt.clone().unwrap_or_default();
+                        self.key_input = TextInput::new().with_value(&current);
+                        self.edit_field = EditField::StopPrompt;
+                    }
+                    3 => {
                         // Reset settings to defaults
                         self.app_config = AppConfig::default();
                         if let Err(e) = self.profile_manager.save_app_config(&self.app_config) {
@@ -914,9 +933,13 @@ impl App {
 
     fn render_settings(&self, frame: &mut Frame, area: Rect) {
         let args_str = self.app_config.claude_args.join(" ");
+        let stop_prompt_display = self.app_config.stop_prompt
+            .clone()
+            .unwrap_or_else(|| "(default)".to_string());
         let settings: Vec<(&str, String, &str)> = vec![
             ("Entry Point", self.app_config.claude_path.clone(), "Command to launch (e.g., cuw, claude)"),
             ("Arguments", args_str, "Additional command-line arguments"),
+            ("Stop Prompt", stop_prompt_display, "Auto-mode stop hook message (empty = default)"),
             ("Reset Settings", "".to_string(), "Reset all settings to defaults"),
         ];
 
@@ -930,6 +953,7 @@ impl App {
                 let is_editing = is_selected && match i {
                     0 => self.edit_field == EditField::ClaudePath,
                     1 => self.edit_field == EditField::ClaudeArgs,
+                    2 => self.edit_field == EditField::StopPrompt,
                     _ => false,
                 };
 

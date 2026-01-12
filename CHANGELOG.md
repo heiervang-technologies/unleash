@@ -1,5 +1,16 @@
 # Changelog
 
+## [Unreleased]
+
+### Features
+
+* **config**: add configurable stop-hook prompts
+  - CLI flags: `--stop-prompt`, `--stop-prompt-edit`, `--stop-prompt-clear`
+  - TUI settings screen for stop prompt configuration
+  - Global config storage in `~/.config/claude-unleashed/config.toml`
+  - Three-tier priority: session-specific > global config > default
+  - Documentation in `docs/extensions/configuration.md`
+
 ## [2.0.0](https://github.com/heiervang-technologies/claude-unleashed/compare/v1.0.0...v2.0.0) (2026-01-12)
 
 

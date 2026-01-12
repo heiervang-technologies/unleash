@@ -256,13 +256,49 @@ export PATH="$HOME/.local/bin:$PATH"
 # Add to your shell profile (~/.bashrc or ~/.zshrc) for persistence
 ```
 
-### Start Using
+## CLI Usage
+
+### Basic Commands
 
 ```bash
-cu                  # Start Claude with unleashed features
-cui                 # Launch the TUI for profile/version management
-cutx                # Headless tmux mode for automation
+cu                    # Start Claude with plugins
+cu --auto             # Start in autonomous mode
+cui                   # Launch TUI interface
+cutx                  # Headless mode (see below)
+restart-claude        # Restart Claude (preserves session)
+exit-claude           # Exit Claude cleanly
 ```
+
+### Configuration Options
+
+#### Stop Prompt Customization
+
+Customize the message Claude receives when auto-mode blocks it from exiting:
+
+```bash
+# Set a custom prompt
+cu --stop-prompt="Keep working until tests pass!"
+
+# Edit with your $EDITOR
+cu --stop-prompt-edit
+
+# Reset to default
+cu --stop-prompt-clear
+```
+
+You can also configure this via the TUI:
+```bash
+cui  # Navigate to Settings > Stop Prompt
+```
+
+The prompt is stored globally in `~/.config/claude-unleashed/config.toml` and applies to all future auto-mode sessions.
+
+**Priority order:**
+1. Session-specific override (programmatic)
+2. Global config (CLI/TUI)
+3. Default hardcoded message
+
+For detailed configuration options, see [docs/extensions/configuration.md](docs/extensions/configuration.md).
 
 ## TUI Features
 
@@ -279,11 +315,6 @@ The TUI (`cui`) provides a graphical interface for managing Claude Unleashed:
 - **Switch between versions** with a single selection
 - See which versions have auto-mode patches available (marked with `*`)
 - Automatically patches after version switch
-
-Launch the TUI with:
-```bash
-cui
-```
 
 Navigate with:
 - `j/k` or `↑/↓` - Move selection

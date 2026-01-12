@@ -80,6 +80,9 @@ pub struct AppConfig {
     /// Additional arguments to pass to claude
     #[serde(default)]
     pub claude_args: Vec<String>,
+    /// Custom stop-hook prompt for auto-mode (None = use default)
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub stop_prompt: Option<String>,
 }
 
 fn default_profile_name() -> String {
@@ -103,6 +106,7 @@ impl Default for AppConfig {
             current_profile: default_profile_name(),
             claude_path: default_claude_path(),
             claude_args: Vec::new(),
+            stop_prompt: None,
         }
     }
 }
