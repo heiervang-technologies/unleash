@@ -81,15 +81,27 @@ detect_platform() {
             ;;
     esac
 
-    # Construct target triple
+    # Construct target triple and artifact name
     case "$PLATFORM" in
         linux)
             TARGET="${ARCH}-unknown-linux-gnu"
-            BINARY_SUFFIX=""
+            # Match artifact naming from release workflow
+            if [[ "$ARCH" == "x86_64" ]]; then
+                ARTIFACT_NAME="cui-linux-x86_64"
+            else
+                ARTIFACT_NAME="cui-linux-${ARCH}"
+            fi
             ;;
         macos)
             TARGET="${ARCH}-apple-darwin"
-            BINARY_SUFFIX=""
+            # Match artifact naming from release workflow
+            if [[ "$ARCH" == "x86_64" ]]; then
+                ARTIFACT_NAME="cui-macos-x86_64"
+            elif [[ "$ARCH" == "aarch64" ]]; then
+                ARTIFACT_NAME="cui-macos-arm64"
+            else
+                ARTIFACT_NAME="cui-macos-${ARCH}"
+            fi
             ;;
     esac
 
@@ -235,9 +247,8 @@ download_binary() {
 
     info "Checking for pre-built binary..."
 
-    # Construct download URL
-    local binary_name="cui-${TARGET}"
-    local download_url="${REPO_URL}/releases/download/${version}/${binary_name}"
+    # Use artifact name that matches release workflow
+    local download_url="${REPO_URL}/releases/download/${version}/${ARTIFACT_NAME}"
 
     # Suppress error output - 404 is expected if no binary exists
     if ! download "$download_url" "${temp_dir}/cui" 2>/dev/null; then
