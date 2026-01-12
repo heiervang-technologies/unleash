@@ -147,26 +147,48 @@ get_latest_version() {
     fi
 }
 
-# Install Claude Code via npm
+# Install or update Claude Code via npm
 install_claude_code() {
-    if command -v claude &> /dev/null; then
-        local current_version
-        current_version=$(claude --version 2>/dev/null | head -1 | sed 's/ (Claude Code)//' || echo "unknown")
-        info "Claude Code already installed: v${current_version}"
+    local current_version=""
+    local target_version="$CLAUDE_CODE_VERSION"
 
-        if [[ "$CLAUDE_CODE_VERSION" != "latest" ]] && [[ "$current_version" != "$CLAUDE_CODE_VERSION" ]]; then
-            info "Installing specific version: $CLAUDE_CODE_VERSION"
-            npm install -g "@anthropic-ai/claude-code@${CLAUDE_CODE_VERSION}"
-        fi
-    else
-        info "Installing Claude Code..."
-        if [[ "$CLAUDE_CODE_VERSION" == "latest" ]]; then
-            npm install -g @anthropic-ai/claude-code
-        else
-            npm install -g "@anthropic-ai/claude-code@${CLAUDE_CODE_VERSION}"
-        fi
-        success "Claude Code installed"
+    if command -v claude &> /dev/null; then
+        current_version=$(claude --version 2>/dev/null | head -1 | sed 's/ (Claude Code)//' || echo "unknown")
+        info "Claude Code currently installed: v${current_version}"
     fi
+
+    # Get latest version from npm if targeting latest
+    if [[ "$target_version" == "latest" ]]; then
+        local npm_latest
+        npm_latest=$(npm view @anthropic-ai/claude-code version 2>/dev/null || echo "")
+        if [[ -n "$npm_latest" ]]; then
+            target_version="$npm_latest"
+            info "Latest available version: v${target_version}"
+        fi
+    fi
+
+    # Check if update needed
+    if [[ -n "$current_version" ]] && [[ "$current_version" == "$target_version" ]]; then
+        success "Claude Code is already up to date (v${current_version})"
+        return 0
+    fi
+
+    # Install or update
+    if [[ -n "$current_version" ]]; then
+        info "Updating Claude Code: v${current_version} -> v${target_version}..."
+    else
+        info "Installing Claude Code v${target_version}..."
+    fi
+
+    if [[ "$CLAUDE_CODE_VERSION" == "latest" ]]; then
+        npm install -g @anthropic-ai/claude-code
+    else
+        npm install -g "@anthropic-ai/claude-code@${CLAUDE_CODE_VERSION}"
+    fi
+
+    local new_version
+    new_version=$(claude --version 2>/dev/null | head -1 | sed 's/ (Claude Code)//' || echo "unknown")
+    success "Claude Code installed: v${new_version}"
 }
 
 # Download pre-built binary from GitHub releases

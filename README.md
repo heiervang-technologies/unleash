@@ -2,8 +2,26 @@
 
 ![claude-unleashed](https://github.com/user-attachments/assets/6379164d-9a51-4ca1-8909-09eefe546aa2)
 
+A powerful extension framework for Claude Code with auto-mode, version management, and plugin support.
 
-A powerful extension framework for Claude Code that maintains upstream compatibility while adding custom functionality through a plugin-first architecture.
+## Quick Install
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/heiervang-technologies/claude-unleashed/main/scripts/install-remote.sh | bash
+```
+
+This installs/updates both **Claude Code** and **Claude Unleashed**, then applies the auto-mode patch.
+
+**After install:**
+```bash
+cu      # Start Claude with unleashed features
+cui     # TUI for profiles & version management
+cutx    # Headless mode for automation
+```
+
+> **Already have it installed?** Running the same curl command will update to the latest versions.
+
+---
 
 ## Overview
 
