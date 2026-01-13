@@ -38,12 +38,12 @@ pub fn key_to_action(key: KeyEvent) -> NavAction {
         KeyCode::Enter => NavAction::Select,
         KeyCode::Char(' ') => NavAction::Select,
 
-        // Back/Cancel
-        KeyCode::Esc => NavAction::Back,
+        // Back/Cancel (Backspace only - Esc handled separately per screen)
         KeyCode::Backspace => NavAction::Back,
 
         // Quit
         KeyCode::Char('q') => NavAction::Quit,
+        KeyCode::Esc => NavAction::Quit,
         KeyCode::Char('c') if key.modifiers.contains(KeyModifiers::CONTROL) => NavAction::Quit,
 
         // Actions
