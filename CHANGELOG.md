@@ -1,5 +1,17 @@
 # Changelog
 
+## [2.5.0](https://github.com/heiervang-technologies/claude-unleashed/compare/v2.4.0...v2.5.0) (2026-01-13)
+
+
+### Features
+
+* make install runs full script, add uninstall command ([1223f37](https://github.com/heiervang-technologies/claude-unleashed/commit/1223f37ba3c4ccc25c4f7c613ace8084d6878ac1))
+
+
+### Bug Fixes
+
+* auto-merge should run whenever PR exists ([9f919be](https://github.com/heiervang-technologies/claude-unleashed/commit/9f919be73ffbdc56eb7ba4bc9e4cb22c9957d0b4))
+
 ## [2.4.0](https://github.com/heiervang-technologies/claude-unleashed/compare/v2.3.1...v2.4.0) (2026-01-13)
 
 
