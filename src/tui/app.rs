@@ -215,11 +215,43 @@ impl App {
         };
 
         match key.code {
-            KeyCode::Char(c) => input.insert(c),
-            KeyCode::Backspace => input.backspace(),
+            KeyCode::Char(c) => {
+                // Handle Ctrl+key shortcuts
+                if key.modifiers.contains(KeyModifiers::CONTROL) {
+                    match c {
+                        'a' => input.move_home(),      // Ctrl+A: go to start
+                        'e' => input.move_end(),       // Ctrl+E: go to end
+                        'w' => input.delete_word_back(), // Ctrl+W: delete word
+                        'u' => input.delete_to_start(), // Ctrl+U: delete to start
+                        'k' => input.delete_to_end(),  // Ctrl+K: delete to end
+                        _ => {} // Ignore other ctrl combinations
+                    }
+                } else {
+                    input.insert(c);
+                }
+            }
+            KeyCode::Backspace => {
+                if key.modifiers.contains(KeyModifiers::CONTROL) {
+                    input.delete_word_back(); // Ctrl+Backspace: delete word
+                } else {
+                    input.backspace();
+                }
+            }
             KeyCode::Delete => input.delete(),
-            KeyCode::Left => input.move_left(),
-            KeyCode::Right => input.move_right(),
+            KeyCode::Left => {
+                if key.modifiers.contains(KeyModifiers::CONTROL) {
+                    input.move_word_left(); // Ctrl+Left: word left
+                } else {
+                    input.move_left();
+                }
+            }
+            KeyCode::Right => {
+                if key.modifiers.contains(KeyModifiers::CONTROL) {
+                    input.move_word_right(); // Ctrl+Right: word right
+                } else {
+                    input.move_right();
+                }
+            }
             KeyCode::Home => input.move_home(),
             KeyCode::End => input.move_end(),
             KeyCode::Enter => {
