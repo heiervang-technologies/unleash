@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.6.0](https://github.com/heiervang-technologies/claude-unleashed/compare/v2.5.0...v2.6.0) (2026-01-13)
+
+
+### Features
+
+* make TUI optional for headless environments ([d12eb1e](https://github.com/heiervang-technologies/claude-unleashed/commit/d12eb1ec267cf36f11c4aab55721b9c5348983c9))
+
 ## [2.5.0](https://github.com/heiervang-technologies/claude-unleashed/compare/v2.4.0...v2.5.0) (2026-01-13)
 
 
