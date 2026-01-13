@@ -29,7 +29,7 @@ jobs:
   # Auto-merge minor/patch releases, require manual merge for major releases
   auto-merge-release:
     needs: release-please
-    if: ${{ needs.release-please.outputs.pr && !needs.release-please.outputs.release_created }}
+    if: ${{ needs.release-please.outputs.pr }}
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
