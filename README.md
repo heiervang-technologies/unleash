@@ -134,6 +134,16 @@ All while maintaining your custom plugins and configurations.
 - Rust/Cargo (optional, for TUI)
 - Claude Pro or Max subscription (required for authentication)
 
+### Headless Environments
+
+If you're running in a headless environment (Docker containers, Kubernetes pods, CI/CD pipelines), build without TUI support to avoid terminal dependencies:
+
+```bash
+cargo build --release --no-default-features
+```
+
+This creates a minimal binary without crossterm/ratatui dependencies that works perfectly in non-interactive environments. All commands (`auth`, `patch`, `version`, `go`) work normally - only the `tui` command is disabled.
+
 ### One-Line Installation (Recommended)
 
 Install everything with a single command:

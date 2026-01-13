@@ -8,13 +8,16 @@
 mod auth;
 mod cli;
 mod config;
+#[cfg(feature = "tui")]
 mod input;
 mod json_output;
 mod launcher;
 mod patcher;
 mod pixel_art;
+#[cfg(feature = "tui")]
 mod text_input;
 mod tmux;
+#[cfg(feature = "tui")]
 mod tui;
 mod version;
 
@@ -51,7 +54,14 @@ fn main() -> io::Result<()> {
 
     // Handle symlink invocations
     match invoked_as.as_str() {
+        #[cfg(feature = "tui")]
         "cui" => return tui::run(),
+        #[cfg(not(feature = "tui"))]
+        "cui" => {
+            eprintln!("Error: TUI support is not compiled in this build");
+            eprintln!("Rebuild with: cargo build --features tui");
+            std::process::exit(1);
+        }
         "cug" => {
             // Shorthand for `cu go` - launch Claude wrapper
             let args: Vec<String> = env::args().skip(1).collect();
@@ -84,6 +94,7 @@ fn main() -> io::Result<()> {
             // Launch Claude with wrapper features
             launcher::run(auto, prompt, args)
         }
+        #[cfg(feature = "tui")]
         Some(Commands::Tui) => tui::run(),
         Some(Commands::Tmux { args }) => tmux::run(&args),
         Some(Commands::Patch { check }) => {

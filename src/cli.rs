@@ -94,6 +94,7 @@ pub enum Commands {
     },
 
     /// Launch the TUI for profile and version management
+    #[cfg(feature = "tui")]
     #[command(alias = "ui")]
     Tui,
 
