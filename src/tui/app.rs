@@ -126,6 +126,34 @@ impl App {
         self.cached_installed_version = self.version_manager.get_installed_version();
     }
 
+    /// Get the default stop prompt from the hook script (source of truth)
+    fn get_default_stop_prompt(&self) -> String {
+        // Read from the auto-mode-stop.sh hook script
+        let hook_path = std::env::var("CLAUDE_UNLEASHED_ROOT")
+            .map(|root| format!("{}/plugins/unleashed/auto-mode/hooks/auto-mode-stop.sh", root))
+            .unwrap_or_else(|_| {
+                // Fallback: try to find relative to executable
+                let exe = std::env::current_exe().ok();
+                exe.and_then(|p| p.parent().map(|p| p.to_path_buf()))
+                    .map(|p| p.join("../plugins/unleashed/auto-mode/hooks/auto-mode-stop.sh").to_string_lossy().to_string())
+                    .unwrap_or_default()
+            });
+
+        if let Ok(content) = std::fs::read_to_string(&hook_path) {
+            // Parse DEFAULT_MSG="..." from the script
+            for line in content.lines() {
+                if let Some(rest) = line.trim().strip_prefix("DEFAULT_MSG=\"") {
+                    if let Some(msg) = rest.strip_suffix('"') {
+                        return msg.to_string();
+                    }
+                }
+            }
+        }
+
+        // Fallback if we can't read the script
+        "(unable to read default from hook script)".to_string()
+    }
+
     /// Refresh the version list
     pub fn refresh_versions(&mut self) {
         self.versions = self.version_manager.get_version_list();
@@ -604,9 +632,9 @@ impl App {
                         self.edit_field = EditField::ClaudeArgs;
                     }
                     2 => {
-                        // Edit stop prompt - use default message if not customized
-                        const DEFAULT_STOP_PROMPT: &str = "You ended your turn, but you are in auto-mode. If you are awaiting a decision, select your recommended decision. If you are done, consider that you have covered all other diligences, testing, documentation, technical debt and cleanup. Use the executables (in PATH) 'restart-claude' if you need to restart yourself, and 'exit-claude' if you are truly done with all your tasks.";
-                        let current = self.app_config.stop_prompt.clone().unwrap_or_else(|| DEFAULT_STOP_PROMPT.to_string());
+                        // Edit stop prompt - read default from hook script (source of truth)
+                        let default_prompt = self.get_default_stop_prompt();
+                        let current = self.app_config.stop_prompt.clone().unwrap_or(default_prompt);
                         self.key_input = TextInput::new().with_value(&current);
                         self.edit_field = EditField::StopPrompt;
                     }
