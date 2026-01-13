@@ -1,5 +1,23 @@
 # Changelog
 
+## [2.2.0](https://github.com/heiervang-technologies/claude-unleashed/compare/v2.1.1...v2.2.0) (2026-01-13)
+
+
+### Features
+
+* add 2.1.4 patch config and improve TUI text input ([02c6c4b](https://github.com/heiervang-technologies/claude-unleashed/commit/02c6c4bfb7dc7fbd955662b879ce8380e4d1559b))
+* add comprehensive CLI improvements to cu ([#34](https://github.com/heiervang-technologies/claude-unleashed/issues/34)) ([18f3aa6](https://github.com/heiervang-technologies/claude-unleashed/commit/18f3aa6a320f28f1f97bf7532a6fb1060f4b8b27))
+
+
+### Bug Fixes
+
+* allow Escape to quit/exit in addition to q ([1b0b5a7](https://github.com/heiervang-technologies/claude-unleashed/commit/1b0b5a71e903c3cf31519c9c25e018b2a810053f))
+* install plugins globally for /auto command to work everywhere ([#35](https://github.com/heiervang-technologies/claude-unleashed/issues/35)) ([275a53e](https://github.com/heiervang-technologies/claude-unleashed/commit/275a53e26bff45b85f60672e593456b76c90f111))
+* pre-populate stop prompt field with default message ([84c8d1d](https://github.com/heiervang-technologies/claude-unleashed/commit/84c8d1de743d40dc16928267afa5b896968fbda8))
+* read default stop prompt from hook script (source of truth) ([60c1a82](https://github.com/heiervang-technologies/claude-unleashed/commit/60c1a8298c93a5b9d4a4b31c685d5deadf4d64a2))
+* restore comprehensive default stop prompt for auto-mode ([c437ee1](https://github.com/heiervang-technologies/claude-unleashed/commit/c437ee1d7adb26a74c9f70ee7cd6fe0d3bb62f6a))
+* use reusable mention-trigger workflow from core ([#32](https://github.com/heiervang-technologies/claude-unleashed/issues/32)) ([2457e50](https://github.com/heiervang-technologies/claude-unleashed/commit/2457e50966152244b211da74d71d5e978189bcb1))
+
 ## [2.1.1](https://github.com/heiervang-technologies/claude-unleashed/compare/v2.1.0...v2.1.1) (2026-01-12)
 
 
