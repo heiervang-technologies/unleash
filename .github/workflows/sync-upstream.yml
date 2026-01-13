@@ -9,7 +9,7 @@ on:
 jobs:
   # Job 1: Sync fork from upstream and merge to unleashed-main
   sync-fork:
-    runs-on: ubuntu-latest
+    runs-on: self-hosted
     outputs:
       has_conflicts: ${{ steps.merge-unleashed.outputs.has_conflicts }}
       conflict_files: ${{ steps.merge-unleashed.outputs.conflict_files }}
@@ -51,11 +51,109 @@ jobs:
           git merge --ff-only upstream/main
           echo "Successfully fast-forwarded main from upstream/main"
 
+      # Push updated main to origin
+      - name: Push to origin/main
+        run: |
+          git push origin main
+          echo "Pushed updated main branch to origin"
+
+      # Checkout unleashed-main branch
+      - name: Checkout unleashed-main
+        run: |
+          git checkout unleashed-main
+
+      # Attempt to merge main into unleashed-main
+      - name: Merge main into unleashed-main
+        id: merge-unleashed
+        run: |
+          # Attempt merge
+          if git merge main --no-edit; then
+            echo "Merge successful, no conflicts"
+            echo "has_conflicts=false" >> $GITHUB_OUTPUT
+            echo "conflict_files=" >> $GITHUB_OUTPUT
+          else
+            echo "Merge conflicts detected"
+
+            # Capture conflict files
+            CONFLICT_FILES=$(git diff --name-only --diff-filter=U | tr '\n' ',' | sed 's/,$//')
+            echo "Conflicting files: $CONFLICT_FILES"
+
+            # Abort the merge
+            git merge --abort
+
+            # Set outputs
+            echo "has_conflicts=true" >> $GITHUB_OUTPUT
+            echo "conflict_files=$CONFLICT_FILES" >> $GITHUB_OUTPUT
+
+            exit 0  # Don't fail the job, let the conflict handler deal with it
+          fi
+
+      # If merge was successful, commit and push
+      - name: Push unleashed-main
+        if: steps.merge-unleashed.outputs.has_conflicts == 'false'
+        run: |
+          git push origin unleashed-main
+          echo "Successfully pushed unleashed-main with merged changes"
+
+  # Job 2: Handle merge conflicts by creating a GitHub issue
+  handle-conflicts-ai:
+    needs: sync-fork
+    if: needs.sync-fork.outputs.has_conflicts == 'true'
+    runs-on: self-hosted
+
+    steps:
+      # Create GitHub issue to notify about conflicts
+      - name: Create conflict issue
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            const date = new Date().toISOString().split('T')[0];
+            const conflictFiles = '${{ needs.sync-fork.outputs.conflict_files }}';
+            const fileList = conflictFiles.split(',').map(f => `- \`${f}\``).join('\n');
+
+            const issueBody = `## Upstream Sync Conflict Detected
+
+            The automated daily sync from \`anthropics/claude-code\` to \`anthropics/claude-code\` (unleashed-main branch) has encountered merge conflicts.
+
+            ### Conflict Details
+
+            - **Date**: ${date}
+            - **Source**: upstream/main → anthropics/claude-code:main → anthropics/claude-code:unleashed-main
+            - **Status**: Merge aborted due to conflicts
+
+            ### Conflicting Files
+
+            ${fileList}
+
+            ### Action Required
+
+            @anthropics Please review and manually resolve these conflicts:
+
+            1. Clone the repository: \`git clone https://github.com/anthropics/claude-code.git\`
+            2. Checkout unleashed-main: \`git checkout unleashed-main\`
+            3. Merge main: \`git merge main\`
+            4. Resolve conflicts in the files listed above
+            5. Commit and push: \`git add . && git commit && git push\`
+
+            ### Workflow Run
+
+            [View workflow run](https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }})
+            `;
+
+            await github.rest.issues.create({
+              owner: 'heiervang-technologies',
+              repo: 'claude-unleashed',
+              title: `🔀 Upstream Sync Conflict - ${date}`,
+              body: issueBody,
+              labels: ['upstream-sync', 'conflict']
+            });
+
   # Job 3: Update submodule reference on successful sync
   notify-success:
     needs: sync-fork
     if: needs.sync-fork.outputs.has_conflicts == 'false'
-    runs-on: ubuntu-latest
+    runs-on: self-hosted
 
     steps:
       # Checkout the parent repository

@@ -13,7 +13,7 @@ permissions:
 
 jobs:
   extract-context:
-    runs-on: ubuntu-latest
+    runs-on: self-hosted
     # TODO: Change the assignee and sender filters to match your setup
     # - assignee should be your agent's GitHub username
     # - sender should be the human user(s) who can assign to the agent
@@ -161,7 +161,7 @@ jobs:
 
   update-progress-on-failure:
     needs: [extract-context, spawn-agent]
-    runs-on: ubuntu-latest
+    runs-on: self-hosted
     if: always() && needs.spawn-agent.result == 'failure' && needs.extract-context.outputs.progress_comment_id != ''
     steps:
       - name: Update progress comment on failure

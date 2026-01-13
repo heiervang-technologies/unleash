@@ -11,7 +11,7 @@ jobs:
     strategy:
       matrix:
         include:
-          - os: ubuntu-latest
+          - os: self-hosted
             target: x86_64-unknown-linux-gnu
             artifact: cu-linux-x86_64
           - os: macos-latest
