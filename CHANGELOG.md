@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.8.0](https://github.com/heiervang-technologies/claude-unleashed/compare/v2.7.0...v2.8.0) (2026-01-13)
+
+
+### Features
+
+* use self-hosted runners for all GitHub Actions workflows ([#47](https://github.com/heiervang-technologies/claude-unleashed/issues/47)) ([65ad326](https://github.com/heiervang-technologies/claude-unleashed/commit/65ad326c3fe6afbd05532fa087a896cebf011153))
+
 ## [2.7.0](https://github.com/heiervang-technologies/claude-unleashed/compare/v2.6.0...v2.7.0) (2026-01-13)
 
 
