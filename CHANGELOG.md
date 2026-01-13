@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.4.0](https://github.com/heiervang-technologies/claude-unleashed/compare/v2.3.1...v2.4.0) (2026-01-13)
+
+
+### Features
+
+* auto-merge minor/patch releases, require PR for major ([acf3695](https://github.com/heiervang-technologies/claude-unleashed/commit/acf36959cf29899fb34e541172dadf1cebd70659))
+
 ## [2.3.1](https://github.com/heiervang-technologies/claude-unleashed/compare/v2.3.0...v2.3.1) (2026-01-13)
 
 
