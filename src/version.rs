@@ -3,6 +3,7 @@
 //! Handles detecting installed version, listing available versions,
 //! and switching between Claude Code versions.
 
+use crate::json_output::{self, VersionListItem, VersionListOutput, VersionOutput};
 use std::fs;
 use std::io;
 use std::path::PathBuf;
@@ -301,43 +302,80 @@ fn version_compare(a: &str, b: &str) -> std::cmp::Ordering {
 // CLI commands for version management
 
 /// List available versions
-pub fn list_versions() -> io::Result<()> {
+pub fn list_versions(json: bool) -> io::Result<()> {
     let vm = VersionManager::new();
     let versions = vm.get_version_list();
     let current = vm.get_installed_version();
 
-    println!("Claude Code Versions:");
-    println!();
-
-    for info in versions {
-        let installed = if info.is_installed { " [installed]" } else { "" };
-        let patch = if info.has_patch { " *" } else { "" };
-        println!("  v{}{}{}", info.version, installed, patch);
-    }
-
-    println!();
-    println!("  * = has auto-mode patch available");
-    if let Some(v) = current {
+    if json {
+        let output = VersionListOutput {
+            currently_installed: current,
+            versions: versions
+                .into_iter()
+                .map(|info| VersionListItem {
+                    version: info.version,
+                    is_installed: info.is_installed,
+                    has_patch: info.has_patch,
+                    is_blacklisted: info.is_blacklisted,
+                })
+                .collect(),
+        };
+        json_output::print_json(&output);
+    } else {
+        println!("Claude Code Versions:");
         println!();
-        println!("Currently installed: v{}", v);
+
+        for info in versions {
+            let installed = if info.is_installed { " [installed]" } else { "" };
+            let patch = if info.has_patch { " *" } else { "" };
+            println!("  v{}{}{}", info.version, installed, patch);
+        }
+
+        println!();
+        println!("  * = has auto-mode patch available");
+        if let Some(v) = current {
+            println!();
+            println!("Currently installed: v{}", v);
+        }
     }
 
     Ok(())
 }
 
 /// Install a specific version
-pub fn install_version(version: &str) -> io::Result<()> {
+pub fn install_version(version: &str, json: bool) -> io::Result<()> {
     let vm = VersionManager::new();
 
-    println!("Installing Claude Code v{}...", version);
-    vm.install_version(version)?;
-
-    println!("Running patch...");
-    if vm.run_patch().is_err() {
-        println!("Warning: Patch failed (may not be available for this version)");
+    if !json {
+        println!("Installing Claude Code v{}...", version);
     }
 
-    println!("Done!");
+    vm.install_version(version)?;
+
+    if !json {
+        println!("Running patch...");
+    }
+
+    let patch_result = vm.run_patch();
+    let patch_warning = patch_result.is_err();
+
+    if !json {
+        if patch_warning {
+            println!("Warning: Patch failed (may not be available for this version)");
+        }
+        println!("Done!");
+    } else {
+        let message = if patch_warning {
+            format!(
+                "Successfully installed Claude Code v{} (patch not available)",
+                version
+            )
+        } else {
+            format!("Successfully installed Claude Code v{}", version)
+        };
+        json_output::print_success_json(&message);
+    }
+
     Ok(())
 }
 
@@ -349,6 +387,22 @@ pub fn show_current() -> io::Result<()> {
         None => println!("Claude Code is not installed"),
     }
     Ok(())
+}
+
+/// Show current version as JSON
+pub fn show_current_json() {
+    let cu_version = env!("CARGO_PKG_VERSION");
+    let vm = VersionManager::new();
+    let claude_code_version = vm.get_installed_version().unwrap_or_else(|| "not installed".to_string());
+    let is_installed = vm.get_installed_version().is_some();
+
+    let output = VersionOutput {
+        claude_unleashed_version: cu_version.to_string(),
+        claude_code_version,
+        claude_code_installed: is_installed,
+    };
+
+    json_output::print_json(&output);
 }
 
 #[cfg(test)]

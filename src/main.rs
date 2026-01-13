@@ -5,9 +5,11 @@
 //! - `cu tui` / `cui` - TUI for profile/version management
 //! - `cu tmux` / `cutx` - Headless tmux mode
 
+mod auth;
 mod cli;
 mod config;
 mod input;
+mod json_output;
 mod launcher;
 mod patcher;
 mod pixel_art;
@@ -23,6 +25,20 @@ use std::io;
 use std::path::Path;
 
 fn main() -> io::Result<()> {
+    // Check for --version or -V flag before clap processing
+    // This allows us to show both Claude Unleashed and Claude Code versions
+    let args: Vec<String> = env::args().collect();
+    let has_json_flag = args.iter().any(|arg| arg == "--json");
+
+    if args.len() >= 2 && (args[1] == "--version" || args[1] == "-V") {
+        if has_json_flag {
+            version::show_current_json();
+        } else {
+            println!("{}", cli::get_full_version());
+        }
+        return Ok(());
+    }
+
     // Check how we were invoked (argv[0])
     let invoked_as = env::args()
         .next()
@@ -59,12 +75,25 @@ fn main() -> io::Result<()> {
         }
         Some(Commands::Version { list, install }) => {
             if list {
-                version::list_versions()
+                version::list_versions(cli.json)
             } else if let Some(ver) = install {
-                version::install_version(&ver)
+                version::install_version(&ver, cli.json)
             } else {
-                version::show_current()
+                if cli.json {
+                    version::show_current_json();
+                    Ok(())
+                } else {
+                    version::show_current()
+                }
             }
+        }
+        Some(Commands::AuthCheck { verbose, quiet }) => {
+            let exit_code = auth::run(verbose, cli.json, quiet)?;
+            std::process::exit(if exit_code == std::process::ExitCode::SUCCESS {
+                0
+            } else {
+                1
+            });
         }
         None => {
             // Default: launch Claude with wrapper features

@@ -234,16 +234,37 @@ claude
 
 #### Verifying Authentication
 
-Claude Unleashed automatically checks for authentication on startup:
+Claude Unleashed automatically checks for authentication on startup. You can also verify authentication status manually:
 
 ```bash
-claude-unleashed
-# You'll see one of:
-# ✓ Using OAuth token from CLAUDE_CODE_OAUTH_TOKEN environment variable
-# ✓ Using credentials from ~/.claude/.credentials.json
-# ✓ Found credentials in macOS Keychain
-# ⚠ WARNING: Claude Code authentication not configured
+# Quick check
+cu auth-check
+# ✓ Authentication configured
+
+# Detailed check
+cu auth-check --verbose
+# ✓ Authentication configured
+#
+# Authentication method:
+#   • OAuth token from CLAUDE_CODE_OAUTH_TOKEN environment variable
+#   • Token preview: sk-ant-oat...g-1JzO1QAA
+#
+# Status: Ready to use Claude Code
+
+# JSON output (for scripting)
+cu auth-check --json
+# {"authenticated":true,"method":"oauth_token","details":null}
+
+# Quiet mode (only exit code, no output)
+cu auth-check -q
+# (no output, only exit code: 0=success, 1=failure)
 ```
+
+The auth-check command verifies authentication without launching Claude, making it perfect for:
+- CI/CD pipelines and automation scripts
+- Pre-flight checks before running Claude
+- Debugging authentication issues
+- Integration with other tools
 
 For more details, see the [Claude Code IAM documentation](https://code.claude.com/docs/en/iam).
 
@@ -263,6 +284,10 @@ export PATH="$HOME/.local/bin:$PATH"
 ```bash
 cu                    # Start Claude with plugins
 cu --auto             # Start in autonomous mode
+cu auth-check         # Check authentication status
+cu auth-check -v      # Check with detailed information
+cu auth-check -q      # Check quietly (only exit code)
+cu auth-check --json  # Output as JSON for scripting
 cui                   # Launch TUI interface
 cutx                  # Headless mode (see below)
 restart-claude        # Restart Claude (preserves session)
