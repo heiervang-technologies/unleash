@@ -438,7 +438,8 @@ impl App {
                     _ => {}
                 }
             }
-            NavAction::Quit => {
+            NavAction::Quit | NavAction::Back => {
+                // Back on main menu = quit
                 self.running = false;
             }
             NavAction::Help => {

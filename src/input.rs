@@ -38,12 +38,12 @@ pub fn key_to_action(key: KeyEvent) -> NavAction {
         KeyCode::Enter => NavAction::Select,
         KeyCode::Char(' ') => NavAction::Select,
 
-        // Back/Cancel (Backspace only - Esc handled separately per screen)
+        // Back/Cancel
+        KeyCode::Esc => NavAction::Back,
         KeyCode::Backspace => NavAction::Back,
 
         // Quit
         KeyCode::Char('q') => NavAction::Quit,
-        KeyCode::Esc => NavAction::Quit,
         KeyCode::Char('c') if key.modifiers.contains(KeyModifiers::CONTROL) => NavAction::Quit,
 
         // Actions
@@ -180,7 +180,7 @@ mod tests {
         );
         assert_eq!(
             key_to_action(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE)),
-            NavAction::Quit
+            NavAction::Back
         );
         assert_eq!(
             key_to_action(KeyEvent::new(KeyCode::Char('q'), KeyModifiers::NONE)),
