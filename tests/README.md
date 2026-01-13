@@ -5,7 +5,7 @@ This directory contains test scripts for validating Claude Unleashed functionali
 ## Test Scripts
 
 ### `test_auth_check.sh`
-Basic test script for `cu auth-check` command functionality.
+Basic test script for `cu auth` command functionality.
 
 **Usage:**
 ```bash
@@ -114,7 +114,7 @@ The comprehensive test script:
 
 ### Authentication Check Logic
 
-The `cu auth-check` command checks authentication in this order:
+The `cu auth` command checks authentication in this order:
 
 1. **Environment Variable**: `CLAUDE_CODE_OAUTH_TOKEN`
 2. **Credentials File**: `~/.claude/.credentials.json`
@@ -160,13 +160,13 @@ If tests fail:
 
 1. **Check build**: Ensure `cargo build --release` succeeded
 2. **Check binary**: Verify `./target/release/cu` exists
-3. **Manual test**: Run `cu auth-check --verbose` manually
+3. **Manual test**: Run `cu auth --verbose` manually
 4. **Check output**: Failed tests show actual vs expected output
 5. **Isolated test**: Comment out passing tests to focus on failures
 
 ## Contributing
 
-When adding new features to `cu auth-check`:
+When adding new features to `cu auth`:
 
 1. Add corresponding tests to `test_auth_check_comprehensive.sh`
 2. Test both success and failure cases

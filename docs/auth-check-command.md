@@ -2,7 +2,7 @@
 
 ## Overview
 
-The `cu auth-check` command provides a standalone way to verify Claude Code authentication status without launching the full Claude CLI. This is particularly useful for:
+The `cu auth` command provides a standalone way to verify Claude Code authentication status without launching the full Claude CLI. This is particularly useful for:
 
 - CI/CD pipelines and automation scripts
 - Pre-flight checks before running Claude
@@ -14,7 +14,7 @@ The `cu auth-check` command provides a standalone way to verify Claude Code auth
 ### Basic Check
 
 ```bash
-cu auth-check
+cu auth
 ```
 
 Output:
@@ -27,7 +27,7 @@ Exit code: `0` if authenticated, `1` if not
 ### Verbose Check
 
 ```bash
-cu auth-check --verbose
+cu auth --verbose
 ```
 
 Output:
@@ -46,7 +46,7 @@ Status: Ready to use Claude Code
 For scripting and automation:
 
 ```bash
-cu auth-check --json
+cu auth --json
 ```
 
 Output:
@@ -61,7 +61,7 @@ Output:
 With verbose details:
 
 ```bash
-cu auth-check --json --verbose
+cu auth --json --verbose
 ```
 
 Output:
@@ -78,13 +78,13 @@ Output:
 For scripts where you only need the exit code:
 
 ```bash
-cu auth-check -q
+cu auth -q
 ```
 
 This produces **no output** - only the exit code (0 for success, 1 for failure). Useful in conditional checks:
 
 ```bash
-if cu auth-check -q; then
+if cu auth -q; then
     echo "Authenticated"
 fi
 ```
@@ -116,7 +116,7 @@ The command checks for authentication in the following order:
 ```bash
 #!/bin/bash
 # Using quiet mode for clean conditionals
-if ! cu auth-check -q; then
+if ! cu auth -q; then
     echo "Error: Claude Code authentication not configured"
     echo "Run: claude setup-token"
     exit 1
@@ -129,7 +129,7 @@ cu --auto "Run the tests"
 Without quiet mode (shows status message):
 ```bash
 #!/bin/bash
-if ! cu auth-check > /dev/null 2>&1; then
+if ! cu auth > /dev/null 2>&1; then
     echo "Error: Claude Code authentication not configured"
     exit 1
 fi
@@ -140,7 +140,7 @@ fi
 ```yaml
 - name: Check Claude Authentication
   run: |
-    if ! cu auth-check; then
+    if ! cu auth; then
       echo "::error::Claude authentication not configured"
       exit 1
     fi
@@ -153,7 +153,7 @@ fi
 
 ```bash
 #!/bin/bash
-AUTH_STATUS=$(cu auth-check --json)
+AUTH_STATUS=$(cu auth --json)
 AUTHENTICATED=$(echo "$AUTH_STATUS" | jq -r '.authenticated')
 METHOD=$(echo "$AUTH_STATUS" | jq -r '.method')
 
@@ -172,7 +172,7 @@ fi
 echo "Checking prerequisites..."
 
 # Check Claude authentication
-if cu auth-check --verbose; then
+if cu auth --verbose; then
     echo "✓ Claude authentication OK"
 else
     echo "✗ Claude authentication missing"
@@ -198,7 +198,7 @@ cu --auto "$@"
 - **src/main.rs**: Added auth module and command handler
 - **src/auth.rs**: New module implementing authentication checking logic
 - **src/json_output.rs**: Added `AuthCheckOutput` structure (already existed)
-- **README.md**: Updated documentation with auth-check examples
+- **README.md**: Updated documentation with auth examples
 
 ### Authentication Logic
 

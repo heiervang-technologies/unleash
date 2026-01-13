@@ -21,9 +21,10 @@ This installs/updates both **Claude Code** and **Claude Unleashed**, then applie
 
 **After install:**
 ```bash
-cu      # Start Claude with unleashed features
-cui     # TUI for profiles & version management
-cutx    # Headless mode for automation
+cu          # Show help and available commands
+cug         # Start Claude with unleashed features (shorthand for 'cu go')
+cui         # TUI for profiles & version management
+cutx        # Headless mode for automation
 ```
 
 > **Already have it installed?** Run the same command to update to latest versions.
@@ -50,9 +51,6 @@ claude-unleashed/
 ├── Cargo.toml                    # TUI build configuration
 ├── scripts/                      # Shell scripts
 │   ├── install.sh               # Installation script
-│   ├── cu                       # Main CLI entry point
-│   ├── cuw                      # Symlink to cu (backwards compat)
-│   ├── cutx                     # Headless tmux mode CLI
 │   ├── restart-claude           # Restart command
 │   ├── exit-claude              # Exit command
 │   ├── patch-claude.sh          # Apply Claude Code patches
@@ -238,11 +236,11 @@ Claude Unleashed automatically checks for authentication on startup. You can als
 
 ```bash
 # Quick check
-cu auth-check
+cu auth
 # ✓ Authentication configured
 
 # Detailed check
-cu auth-check --verbose
+cu auth --verbose
 # ✓ Authentication configured
 #
 # Authentication method:
@@ -252,15 +250,15 @@ cu auth-check --verbose
 # Status: Ready to use Claude Code
 
 # JSON output (for scripting)
-cu auth-check --json
+cu auth --json
 # {"authenticated":true,"method":"oauth_token","details":null}
 
 # Quiet mode (only exit code, no output)
-cu auth-check -q
+cu auth -q
 # (no output, only exit code: 0=success, 1=failure)
 ```
 
-The auth-check command verifies authentication without launching Claude, making it perfect for:
+The auth command verifies authentication without launching Claude, making it perfect for:
 - CI/CD pipelines and automation scripts
 - Pre-flight checks before running Claude
 - Debugging authentication issues
@@ -279,17 +277,23 @@ export PATH="$HOME/.local/bin:$PATH"
 
 ## CLI Usage
 
-### Basic Commands
+### Command Overview
 
 ```bash
-cu                    # Start Claude with plugins
-cu --auto             # Start in autonomous mode
-cu auth-check         # Check authentication status
-cu auth-check -v      # Check with detailed information
-cu auth-check -q      # Check quietly (only exit code)
-cu auth-check --json  # Output as JSON for scripting
-cui                   # Launch TUI interface
-cutx                  # Headless mode (see below)
+cu                    # Show help and available commands
+cu go                 # Start Claude with unleashed features
+cu go --auto          # Start in autonomous mode
+cug                   # Shorthand for 'cu go'
+cug --auto            # Shorthand for 'cu go --auto'
+cu ui / cui           # Launch TUI interface
+cu tmux / cutx        # Headless mode (see below)
+cu auth               # Check authentication status
+cu auth -v            # Check with detailed information
+cu auth -q            # Check quietly (only exit code)
+cu auth --json        # Output as JSON for scripting
+cu patch              # Apply Claude Code patches
+cu version            # Show installed version
+cu version --list     # List available versions
 restart-claude        # Restart Claude (preserves session)
 exit-claude           # Exit Claude cleanly
 ```
@@ -302,13 +306,13 @@ Customize the message Claude receives when auto-mode blocks it from exiting:
 
 ```bash
 # Set a custom prompt
-cu --stop-prompt="Keep working until tests pass!"
+cug --stop-prompt="Keep working until tests pass!"
 
 # Edit with your $EDITOR
-cu --stop-prompt-edit
+cug --stop-prompt-edit
 
 # Reset to default
-cu --stop-prompt-clear
+cug --stop-prompt-clear
 ```
 
 You can also configure this via the TUI:

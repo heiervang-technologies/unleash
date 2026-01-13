@@ -180,7 +180,7 @@ mod tests {
         );
         assert_eq!(
             key_to_action(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE)),
-            NavAction::Back
+            NavAction::Quit
         );
         assert_eq!(
             key_to_action(KeyEvent::new(KeyCode::Char('q'), KeyModifiers::NONE)),
