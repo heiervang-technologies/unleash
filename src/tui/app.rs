@@ -604,8 +604,9 @@ impl App {
                         self.edit_field = EditField::ClaudeArgs;
                     }
                     2 => {
-                        // Edit stop prompt
-                        let current = self.app_config.stop_prompt.clone().unwrap_or_default();
+                        // Edit stop prompt - use default message if not customized
+                        const DEFAULT_STOP_PROMPT: &str = "You ended your turn, but you are in auto-mode. If you are awaiting a decision, select your recommended decision. If you are done, consider that you have covered all other diligences, testing, documentation, technical debt and cleanup. Use the executables (in PATH) 'restart-claude' if you need to restart yourself, and 'exit-claude' if you are truly done with all your tasks.";
+                        let current = self.app_config.stop_prompt.clone().unwrap_or_else(|| DEFAULT_STOP_PROMPT.to_string());
                         self.key_input = TextInput::new().with_value(&current);
                         self.edit_field = EditField::StopPrompt;
                     }
