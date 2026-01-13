@@ -15,8 +15,23 @@ use ratatui::prelude::*;
 use std::io::{self, stdout};
 use std::time::Duration;
 
+/// Check if we're running in a TTY environment
+fn is_tty() -> bool {
+    use std::io::IsTerminal;
+    std::io::stdin().is_terminal()
+}
+
 /// Run the TUI application
 pub fn run() -> io::Result<()> {
+    // Verify we have a TTY before attempting terminal operations
+    if !is_tty() {
+        return Err(io::Error::new(
+            io::ErrorKind::Unsupported,
+            "TUI requires a terminal (TTY). This command cannot run in headless environments.\n\
+             Use non-TUI commands instead: cu auth, cu version, cu patch, cu go",
+        ));
+    }
+
     // Setup terminal
     enable_raw_mode()?;
     let mut stdout = stdout();
