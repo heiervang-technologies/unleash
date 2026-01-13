@@ -5,7 +5,8 @@
 # 1. Installs Claude Code via npm (if not present)
 # 2. Builds the TUI binary (if cargo available)
 # 3. Creates symlinks in ~/.local/bin/
-# 4. Runs initial Claude Code patch
+# 4. Installs plugins to ~/.local/share/claude-unleashed/plugins
+# 5. Runs initial Claude Code patch
 #
 # Usage: ./scripts/install.sh [--no-build] [--no-patch] [--no-claude-code]
 #
@@ -191,7 +192,23 @@ ln -sf "$SCRIPT_DIR/restart-claude" "$BIN_DIR/restart-claude"
 ln -sf "$SCRIPT_DIR/exit-claude" "$BIN_DIR/exit-claude"
 success "Symlink: restart-claude, exit-claude"
 
-# Step 3: Patch Claude Code (optional)
+# Step 3: Install plugins globally
+info "Installing plugins..."
+PLUGINS_DIR="${HOME}/.local/share/claude-unleashed/plugins"
+mkdir -p "$PLUGINS_DIR"
+
+if [[ -d "$REPO_ROOT/plugins/unleashed" ]]; then
+    cp -r "$REPO_ROOT/plugins/unleashed/"* "$PLUGINS_DIR/"
+    success "Plugins installed to $PLUGINS_DIR"
+    echo "  • auto-mode"
+    echo "  • mcp-refresh"
+    echo "  • process-restart"
+    echo "  • voice-output"
+else
+    warn "Plugin directory not found: $REPO_ROOT/plugins/unleashed"
+fi
+
+# Step 4: Patch Claude Code (optional)
 if $RUN_PATCH; then
     if command -v claude &> /dev/null; then
         info "Patching Claude Code..."
@@ -206,7 +223,7 @@ if $RUN_PATCH; then
     fi
 fi
 
-# Step 4: Print summary
+# Step 5: Print summary
 echo ""
 echo "╭─────────────────────────────────────╮"
 echo "│        Installation Complete        │"
