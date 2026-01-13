@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.3.1](https://github.com/heiervang-technologies/claude-unleashed/compare/v2.3.0...v2.3.1) (2026-01-13)
+
+
+### Bug Fixes
+
+* Esc is Back, Back on main menu quits ([0a56eb5](https://github.com/heiervang-technologies/claude-unleashed/commit/0a56eb5065cca77e34c53ae05a3e17fb9a409523))
+
 ## [2.3.0](https://github.com/heiervang-technologies/claude-unleashed/compare/v2.2.0...v2.3.0) (2026-01-13)
 
 
