@@ -1,7 +1,10 @@
-.PHONY: install build clean test
+.PHONY: install uninstall build clean test
 
 install:
-	cargo install --path .
+	./scripts/install.sh
+
+uninstall:
+	./scripts/uninstall.sh
 
 build:
 	cargo build --release
