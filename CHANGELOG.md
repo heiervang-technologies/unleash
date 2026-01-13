@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.3.0](https://github.com/heiervang-technologies/claude-unleashed/compare/v2.2.0...v2.3.0) (2026-01-13)
+
+
+### Features
+
+* restructure CLI with subcommands ([0305ba7](https://github.com/heiervang-technologies/claude-unleashed/commit/0305ba7d5f7e0b5ac3d0829ffc99462ba39378cf))
+
 ## [2.2.0](https://github.com/heiervang-technologies/claude-unleashed/compare/v2.1.1...v2.2.0) (2026-01-13)
 
 
