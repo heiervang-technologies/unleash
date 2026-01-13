@@ -520,6 +520,11 @@ See: [Sync Process - Manual Resolution](./sync-process.md#manual-resolution-step
 
 ### Internal Documentation
 
+**CLI Reference:**
+- [Authentication Check Command](./auth-check-command.md) - Verify Claude Code authentication
+- [JSON Output Specification](../JSON_OUTPUT.md) - JSON output format for scripting
+
+**Extension Development:**
 - [Plugin Development Guide](./extensions/plugin-development.md) - Comprehensive plugin creation
 - [Core Patches Guide](./extensions/core-patches.md) - Core modification policy
 - [Snail Integration Guide](./extensions/snail-integration.md) - GitHub Actions integration
@@ -605,6 +610,6 @@ This repository inherits the license from Claude Code. See LICENSE.md for detail
 
 ---
 
-**Last Updated**: 2026-01-01
+**Last Updated**: 2026-01-13
 
 For questions or suggestions about this documentation, please create an issue.
