@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.7.0](https://github.com/heiervang-technologies/claude-unleashed/compare/v2.6.0...v2.7.0) (2026-01-13)
+
+
+### Features
+
+* add defensive TTY check before TUI initialization ([06dbe90](https://github.com/heiervang-technologies/claude-unleashed/commit/06dbe904fe4ec27a2bc45c1731d42bd082609ea8))
+
 ## [2.6.0](https://github.com/heiervang-technologies/claude-unleashed/compare/v2.5.0...v2.6.0) (2026-01-13)
 
 
