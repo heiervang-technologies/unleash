@@ -52,6 +52,22 @@ fn main() -> io::Result<()> {
     // Handle symlink invocations
     match invoked_as.as_str() {
         "cui" => return tui::run(),
+        "cug" => {
+            // Shorthand for `cu go` - launch Claude wrapper
+            let args: Vec<String> = env::args().skip(1).collect();
+            // Parse args for --auto and -p flags
+            let auto = args.iter().any(|a| a == "--auto" || a == "-a");
+            let prompt = args
+                .iter()
+                .position(|a| a == "-p" || a == "--prompt")
+                .and_then(|i| args.get(i + 1).cloned());
+            // Filter out the flags we consumed
+            let pass_args: Vec<String> = args
+                .into_iter()
+                .filter(|a| a != "--auto" && a != "-a" && a != "-p" && a != "--prompt")
+                .collect();
+            return launcher::run(auto, prompt, pass_args);
+        }
         "cutx" => {
             // Pass remaining args to tmux module
             let args: Vec<String> = env::args().skip(1).collect();
@@ -64,6 +80,10 @@ fn main() -> io::Result<()> {
     let cli = Cli::parse();
 
     match cli.command {
+        Some(Commands::Go { auto, prompt, args }) => {
+            // Launch Claude with wrapper features
+            launcher::run(auto, prompt, args)
+        }
         Some(Commands::Tui) => tui::run(),
         Some(Commands::Tmux { args }) => tmux::run(&args),
         Some(Commands::Patch { check }) => {
@@ -87,7 +107,7 @@ fn main() -> io::Result<()> {
                 }
             }
         }
-        Some(Commands::AuthCheck { verbose, quiet }) => {
+        Some(Commands::Auth { verbose, quiet }) => {
             let exit_code = auth::run(verbose, cli.json, quiet)?;
             std::process::exit(if exit_code == std::process::ExitCode::SUCCESS {
                 0
@@ -96,8 +116,11 @@ fn main() -> io::Result<()> {
             });
         }
         None => {
-            // Default: launch Claude with wrapper features
-            launcher::run(cli.auto, cli.prompt, cli.args)
+            // No subcommand: show help
+            use clap::CommandFactory;
+            Cli::command().print_help().ok();
+            println!(); // Add newline after help
+            Ok(())
         }
     }
 }

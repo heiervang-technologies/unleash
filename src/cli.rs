@@ -68,21 +68,9 @@ USAGE NOTES:
   For wrapper-specific help: cu --help
   For TUI help: cui --help (or this command)"#)]
 pub struct Cli {
-    /// Enable auto mode (Claude won't wait for confirmations)
-    #[arg(short, long)]
-    pub auto: bool,
-
-    /// Run in headless mode with this prompt
-    #[arg(short, long)]
-    pub prompt: Option<String>,
-
-    /// Output results as JSON
+    /// Output results as JSON (supported by: auth, version)
     #[arg(long, global = true)]
     pub json: bool,
-
-    /// Additional arguments to pass to Claude
-    #[arg(trailing_var_arg = true)]
-    pub args: Vec<String>,
 
     #[command(subcommand)]
     pub command: Option<Commands>,
@@ -90,6 +78,21 @@ pub struct Cli {
 
 #[derive(Subcommand, Debug)]
 pub enum Commands {
+    /// Start Claude with unleashed features
+    Go {
+        /// Enable auto mode (Claude won't wait for confirmations)
+        #[arg(short, long)]
+        auto: bool,
+
+        /// Run in headless mode with this prompt
+        #[arg(short, long)]
+        prompt: Option<String>,
+
+        /// Additional arguments to pass to Claude
+        #[arg(trailing_var_arg = true)]
+        args: Vec<String>,
+    },
+
     /// Launch the TUI for profile and version management
     #[command(alias = "ui")]
     Tui,
@@ -121,8 +124,7 @@ pub enum Commands {
     },
 
     /// Check Claude Code authentication status
-    #[command(name = "auth-check")]
-    AuthCheck {
+    Auth {
         /// Show verbose output with debugging information
         #[arg(short, long)]
         verbose: bool,

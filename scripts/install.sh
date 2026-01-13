@@ -143,51 +143,52 @@ if $INSTALL_CLAUDE_CODE; then
     fi
 fi
 
-# Step 1: Build TUI (optional)
+# Step 1: Build CLI binary
 if $BUILD_TUI; then
     if command -v cargo &> /dev/null; then
-        info "Building TUI binary..."
+        info "Building CLI binary..."
         cd "$REPO_ROOT"
         if cargo build --release; then
-            success "TUI built successfully"
+            success "CLI built successfully"
 
-            # Install the binary as cui
-            if [[ -f "$REPO_ROOT/target/release/cui" ]]; then
-                cp "$REPO_ROOT/target/release/cui" "$BIN_DIR/cui"
-                chmod +x "$BIN_DIR/cui"
-                success "Installed: cui (TUI interface)"
+            # Install the binary as cu
+            if [[ -f "$REPO_ROOT/target/release/cu" ]]; then
+                cp "$REPO_ROOT/target/release/cu" "$BIN_DIR/cu"
+                chmod +x "$BIN_DIR/cu"
+                success "Installed: cu (main CLI)"
             fi
         else
-            warn "TUI build failed, continuing without TUI"
+            warn "Build failed, continuing without CLI binary"
             BUILD_TUI=false
         fi
     else
-        warn "Cargo not found, skipping TUI build"
-        warn "Install Rust to build the TUI: https://rustup.rs"
+        warn "Cargo not found, skipping CLI build"
+        warn "Install Rust to build the CLI: https://rustup.rs"
         BUILD_TUI=false
     fi
 fi
 
-# Step 2: Create symlinks for CLI tools
+# Step 2: Create symlinks for CLI shortcuts
 info "Creating symlinks..."
 
-# Main entry point: cu (Claude Unleashed)
-ln -sf "$SCRIPT_DIR/cu" "$BIN_DIR/cu"
-success "Symlink: cu (main CLI)"
+# Symlinks that invoke cu with different argv[0]
+ln -sf "$BIN_DIR/cu" "$BIN_DIR/cui"
+success "Symlink: cui -> cu (TUI shorthand)"
 
-# Backwards compatibility: cuw -> cu
+ln -sf "$BIN_DIR/cu" "$BIN_DIR/cug"
+success "Symlink: cug -> cu (go shorthand)"
+
+ln -sf "$BIN_DIR/cu" "$BIN_DIR/cutx"
+success "Symlink: cutx -> cu (tmux shorthand)"
+
+# Backwards compatibility
 ln -sf "$BIN_DIR/cu" "$BIN_DIR/cuw"
 success "Symlink: cuw -> cu (backwards compat)"
 
-# Legacy alias: claude-unleashed -> cu
 ln -sf "$BIN_DIR/cu" "$BIN_DIR/claude-unleashed"
 success "Symlink: claude-unleashed -> cu"
 
-# Headless tmux mode
-ln -sf "$SCRIPT_DIR/cutx" "$BIN_DIR/cutx"
-success "Symlink: cutx (headless tmux mode)"
-
-# Helper commands
+# Helper commands (bash scripts)
 ln -sf "$SCRIPT_DIR/restart-claude" "$BIN_DIR/restart-claude"
 ln -sf "$SCRIPT_DIR/exit-claude" "$BIN_DIR/exit-claude"
 success "Symlink: restart-claude, exit-claude"
@@ -230,24 +231,27 @@ echo "│        Installation Complete        │"
 echo "╰─────────────────────────────────────╯"
 echo ""
 echo "CLI Commands:"
-echo "  cu       - Main entry point (Claude Unleashed)"
-echo "  cuw      - Alias for cu (backwards compat)"
-echo "  cutx     - Headless tmux mode"
-if $BUILD_TUI; then
-echo "  cui      - TUI interface"
-fi
+echo "  cu             - Show help"
+echo "  cu go          - Start Claude with unleashed features"
+echo "  cug            - Shorthand for 'cu go'"
+echo "  cu ui / cui    - TUI for profile/version management"
+echo "  cu tmux / cutx - Headless tmux mode"
+echo "  cu auth        - Check authentication status"
+echo "  cu patch       - Patch Claude Code for auto mode"
+echo "  cu version     - Manage Claude Code versions"
 echo ""
 echo "Helper Commands:"
 echo "  restart-claude  - Restart Claude (preserves session)"
 echo "  exit-claude     - Exit Claude and wrapper"
 echo ""
 echo "Quick start:"
-echo "  cu               - Start Claude with unleashed features"
-echo "  cu -p \"prompt\"   - Headless mode with prompt"
+echo "  cug              - Start Claude with unleashed features"
+echo "  cug --auto       - Start in auto mode"
+echo "  cug -p \"prompt\"  - Headless mode with prompt"
 echo ""
 
 if ! $BUILD_TUI; then
-    echo "Note: TUI not built. Install Rust and run:"
+    echo "Note: CLI not built. Install Rust and run:"
     echo "  cd $REPO_ROOT && cargo build --release"
     echo ""
 fi
