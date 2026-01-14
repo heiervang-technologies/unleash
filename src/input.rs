@@ -56,11 +56,13 @@ pub fn key_to_action(key: KeyEvent) -> NavAction {
     }
 }
 
-/// A simple menu state manager
+/// A simple menu state manager with scroll support
 #[derive(Debug, Clone)]
 pub struct MenuState {
     pub selected: usize,
     pub items_count: usize,
+    /// Scroll offset for when items exceed viewport
+    pub scroll_offset: usize,
 }
 
 impl MenuState {
@@ -68,6 +70,7 @@ impl MenuState {
         Self {
             selected: 0,
             items_count,
+            scroll_offset: 0,
         }
     }
 
@@ -98,6 +101,37 @@ impl MenuState {
         if self.selected >= count && count > 0 {
             self.selected = count - 1;
         }
+        // Reset scroll if items reduced
+        if self.scroll_offset >= count {
+            self.scroll_offset = 0;
+        }
+    }
+
+    /// Adjust scroll offset to ensure selected item is visible
+    /// Call this after changing selection and before rendering
+    /// `visible_count` is how many items fit in the viewport
+    pub fn ensure_visible(&mut self, visible_count: usize) {
+        if visible_count == 0 {
+            return;
+        }
+
+        // If selected is above visible area, scroll up
+        if self.selected < self.scroll_offset {
+            self.scroll_offset = self.selected;
+        }
+
+        // If selected is below visible area, scroll down
+        if self.selected >= self.scroll_offset + visible_count {
+            self.scroll_offset = self.selected.saturating_sub(visible_count - 1);
+        }
+    }
+
+    /// Get the range of items to display
+    /// Returns (start_index, items_to_show)
+    pub fn visible_range(&self, visible_count: usize) -> (usize, usize) {
+        let start = self.scroll_offset;
+        let count = visible_count.min(self.items_count.saturating_sub(start));
+        (start, count)
     }
 
     /// Handle a navigation action, returns true if handled

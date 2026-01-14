@@ -4,7 +4,7 @@ use crate::config::{AppConfig, Profile, ProfileManager};
 use crate::input::{key_to_action, MenuState, NavAction};
 use crate::pixel_art::mascots;
 use crate::text_input::{censor_sensitive, is_sensitive_key, TextInput};
-use crate::version::{VersionInfo, VersionManager};
+use crate::version::{InstallResult, VersionInfo, VersionManager};
 
 use crossterm::event::{Event, KeyCode, KeyEvent, KeyModifiers};
 use ratatui::{
@@ -17,6 +17,9 @@ use ratatui::{
 use std::io;
 use std::path::PathBuf;
 use std::process::Command;
+use std::sync::mpsc::{self, Receiver};
+use std::thread::{self, JoinHandle};
+use std::time::Instant;
 
 /// Application screens
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -45,6 +48,35 @@ pub enum EditField {
     ClaudeArgs,
     StopPrompt,
 }
+
+/// State for async version installation
+pub struct InstallState {
+    pub version: String,
+    pub is_blacklisted: bool,
+    pub receiver: Receiver<InstallStepResult>,
+    pub _handle: JoinHandle<()>,
+    pub start_time: Instant,
+    pub current_step: InstallStep,
+    pub install_result: Option<InstallResult>,
+    pub patch_result: Option<InstallResult>,
+}
+
+/// Current step in the installation process
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum InstallStep {
+    Installing,
+    Patching,
+    Done,
+}
+
+/// Result from a single installation step
+pub enum InstallStepResult {
+    InstallComplete(InstallResult),
+    PatchComplete(InstallResult),
+}
+
+/// Spinner animation frames
+const SPINNER_FRAMES: &[&str] = &["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
 
 /// Main application state
 pub struct App {
@@ -77,6 +109,10 @@ pub struct App {
     pub selected_version: Option<String>,
     /// Cached installed version to avoid calling `claude --version` on every frame
     pub cached_installed_version: Option<String>,
+    /// Async installation state
+    pub install_state: Option<InstallState>,
+    /// Animation frame counter (increments each tick)
+    pub animation_frame: usize,
 }
 
 impl App {
@@ -118,12 +154,79 @@ impl App {
             versions: Vec::new(),
             selected_version: None,
             cached_installed_version,
+            install_state: None,
+            animation_frame: 0,
         })
     }
 
     /// Refresh the cached installed version (call after installing a new version)
     pub fn refresh_cached_version(&mut self) {
         self.cached_installed_version = self.version_manager.get_installed_version();
+    }
+
+    /// Called on each tick to advance animation and poll async operations
+    pub fn tick(&mut self) {
+        self.animation_frame = self.animation_frame.wrapping_add(1);
+
+        // Poll installation progress
+        if let Some(ref mut state) = self.install_state {
+            // Try to receive results without blocking
+            while let Ok(result) = state.receiver.try_recv() {
+                match result {
+                    InstallStepResult::InstallComplete(install_result) => {
+                        state.install_result = Some(install_result.clone());
+                        if install_result.success {
+                            state.current_step = InstallStep::Patching;
+                        } else {
+                            state.current_step = InstallStep::Done;
+                        }
+                    }
+                    InstallStepResult::PatchComplete(patch_result) => {
+                        state.patch_result = Some(patch_result);
+                        state.current_step = InstallStep::Done;
+                    }
+                }
+            }
+
+            // If done, update status and return to version list
+            if state.current_step == InstallStep::Done {
+                let version = state.version.clone();
+                let is_blacklisted = state.is_blacklisted;
+                let install_ok = state.install_result.as_ref().is_some_and(|r| r.success);
+                let patch_ok = state.patch_result.as_ref().is_some_and(|r| r.success);
+
+                self.status_message = Some(if !install_ok {
+                    let err = state
+                        .install_result
+                        .as_ref()
+                        .and_then(|r| r.error.clone())
+                        .unwrap_or_else(|| "unknown error".to_string());
+                    format!("Install failed: {}", err)
+                } else if patch_ok {
+                    if is_blacklisted {
+                        format!("Installed and patched v{} (blacklisted)", version)
+                    } else {
+                        format!("Installed and patched v{}", version)
+                    }
+                } else {
+                    if is_blacklisted {
+                        format!("Installed v{} (blacklisted, patch unavailable)", version)
+                    } else {
+                        format!("Installed v{} (patch unavailable)", version)
+                    }
+                });
+
+                self.install_state = None;
+                self.refresh_versions();
+                self.refresh_cached_version();
+                self.screen = Screen::VersionManagement;
+            }
+        }
+    }
+
+    /// Get the current spinner frame
+    pub fn spinner_frame(&self) -> &'static str {
+        SPINNER_FRAMES[self.animation_frame % SPINNER_FRAMES.len()]
     }
 
     /// Get the default stop prompt from the hook script (source of truth)
@@ -460,45 +563,65 @@ impl App {
                     if version_info.is_installed {
                         self.status_message = Some(format!("v{} is already installed", version_info.version));
                     } else {
-                        self.selected_version = Some(version_info.version.clone());
+                        // Start async installation
+                        let version = version_info.version.clone();
+                        let is_blacklisted = version_info.is_blacklisted;
+
+                        self.selected_version = Some(version.clone());
                         self.screen = Screen::VersionInstalling;
 
-                        let warning = if version_info.is_blacklisted {
+                        let warning = if is_blacklisted {
                             " (WARNING: blacklisted)"
                         } else {
                             ""
                         };
-                        self.status_message = Some(format!("Installing v{}{}...", version_info.version, warning));
+                        self.status_message = Some(format!("Installing v{}{}...", version, warning));
 
-                        // Install the version
-                        let version = version_info.version.clone();
-                        let is_blacklisted = version_info.is_blacklisted;
-                        match self.version_manager.install_version(&version) {
-                            Ok(()) => {
-                                let msg = if is_blacklisted {
-                                    format!("Installed v{} (blacklisted - use at your own risk)", version)
-                                } else {
-                                    format!("Installed v{}", version)
-                                };
-                                self.status_message = Some(msg);
-                                // Run patch
-                                if self.version_manager.run_patch().is_ok() {
-                                    let msg = if is_blacklisted {
-                                        format!("Installed and patched v{} (blacklisted)", version)
-                                    } else {
-                                        format!("Installed and patched v{}", version)
-                                    };
-                                    self.status_message = Some(msg);
+                        // Create channel for receiving results
+                        let (tx, rx) = mpsc::channel();
+
+                        // Spawn background thread for installation
+                        let version_clone = version.clone();
+                        let handle = thread::spawn(move || {
+                            // Create a new VersionManager in the thread
+                            let vm = VersionManager::new();
+
+                            // Step 1: Install
+                            let install_result = vm.install_version(&version_clone).unwrap_or_else(|e| {
+                                InstallResult {
+                                    success: false,
+                                    stdout: String::new(),
+                                    stderr: String::new(),
+                                    error: Some(e.to_string()),
                                 }
-                            }
-                            Err(e) => {
-                                self.status_message = Some(format!("Install failed: {}", e));
-                            }
-                        }
+                            });
+                            let install_ok = install_result.success;
+                            let _ = tx.send(InstallStepResult::InstallComplete(install_result));
 
-                        self.refresh_versions();
-                        self.refresh_cached_version();
-                        self.screen = Screen::VersionManagement;
+                            // Step 2: Patch (only if install succeeded)
+                            if install_ok {
+                                let patch_result = vm.run_patch().unwrap_or_else(|e| {
+                                    InstallResult {
+                                        success: false,
+                                        stdout: String::new(),
+                                        stderr: String::new(),
+                                        error: Some(e.to_string()),
+                                    }
+                                });
+                                let _ = tx.send(InstallStepResult::PatchComplete(patch_result));
+                            }
+                        });
+
+                        self.install_state = Some(InstallState {
+                            version,
+                            is_blacklisted,
+                            receiver: rx,
+                            _handle: handle,
+                            start_time: Instant::now(),
+                            current_step: InstallStep::Installing,
+                            install_result: None,
+                            patch_result: None,
+                        });
                     }
                 }
             }
@@ -712,7 +835,7 @@ impl App {
     }
 
     /// Render the UI
-    pub fn render(&self, frame: &mut Frame) {
+    pub fn render(&mut self, frame: &mut Frame) {
         let chunks = Layout::default()
             .direction(Direction::Vertical)
             .constraints([
@@ -778,38 +901,57 @@ impl App {
         frame.render_widget(title, chunks[1]);
     }
 
-    fn render_main_menu(&self, frame: &mut Frame, area: Rect) {
+    fn render_main_menu(&mut self, frame: &mut Frame, area: Rect) {
         let current_version = self.cached_installed_version.clone().unwrap_or_else(|| "?".to_string());
-        let items: Vec<ListItem> = [
+        let menu_items = [
             ("Start Session", "Launch Claude with selected profile".to_string()),
             ("Profiles", "Manage environment profiles".to_string()),
             ("Claude Code Version", format!("Currently: v{}", current_version)),
             ("Settings", "Configure launcher settings".to_string()),
             ("Update TUI", "Pull latest and recompile".to_string()),
             ("Quit", "Exit the launcher".to_string()),
-        ]
-        .iter()
-        .enumerate()
-        .map(|(i, (name, desc))| {
-            let style = if i == self.main_menu.selected {
-                Style::default()
-                    .fg(Color::Rgb(217, 119, 87))
-                    .add_modifier(Modifier::BOLD)
-            } else {
-                Style::default()
-            };
-            let prefix = if i == self.main_menu.selected { "> " } else { "  " };
-            ListItem::new(vec![
-                Line::from(Span::styled(format!("{}{}", prefix, name), style)),
-                Line::from(Span::styled(format!("    {}", desc), Style::default().fg(Color::DarkGray))),
-            ])
-        })
-        .collect();
+        ];
+
+        // Each menu item takes 2 lines, calculate visible count
+        // Area height minus 2 for borders, divided by 2 for lines per item
+        let visible_items = (area.height.saturating_sub(2) / 2) as usize;
+
+        // Ensure selected item is visible
+        self.main_menu.ensure_visible(visible_items);
+        let scroll_offset = self.main_menu.scroll_offset;
+
+        let items: Vec<ListItem> = menu_items
+            .iter()
+            .enumerate()
+            .skip(scroll_offset)
+            .take(visible_items)
+            .map(|(i, (name, desc))| {
+                let style = if i == self.main_menu.selected {
+                    Style::default()
+                        .fg(Color::Rgb(217, 119, 87))
+                        .add_modifier(Modifier::BOLD)
+                } else {
+                    Style::default()
+                };
+                let prefix = if i == self.main_menu.selected { "> " } else { "  " };
+                ListItem::new(vec![
+                    Line::from(Span::styled(format!("{}{}", prefix, name), style)),
+                    Line::from(Span::styled(format!("    {}", desc), Style::default().fg(Color::DarkGray))),
+                ])
+            })
+            .collect();
+
+        // Show scroll indicator if needed
+        let scroll_hint = if menu_items.len() > visible_items {
+            format!(" [{}/{}]", scroll_offset + 1, menu_items.len().saturating_sub(visible_items) + 1)
+        } else {
+            String::new()
+        };
 
         let menu = List::new(items).block(
             Block::default()
                 .borders(Borders::ALL)
-                .title(" Menu [j/k ↑/↓ Enter q ?] "),
+                .title(format!(" Menu{} [j/k ↑/↓ Enter q ?] ", scroll_hint)),
         );
         frame.render_widget(menu, area);
     }
@@ -1157,11 +1299,23 @@ impl App {
         frame.render_widget(content, area);
     }
 
-    fn render_version_management(&self, frame: &mut Frame, area: Rect) {
+    fn render_version_management(&mut self, frame: &mut Frame, area: Rect) {
+        // Calculate visible height (area minus borders minus legend)
+        let visible_height = area.height.saturating_sub(2 + 2) as usize; // 2 for borders, 2 for legend
+
+        // Ensure selected item is visible
+        self.version_menu.ensure_visible(visible_height);
+
+        // Get the scroll offset
+        let scroll_offset = self.version_menu.scroll_offset;
+
+        // Build items with scroll awareness
         let items: Vec<ListItem> = self
             .versions
             .iter()
             .enumerate()
+            .skip(scroll_offset)
+            .take(visible_height)
             .map(|(i, version_info)| {
                 let is_selected = i == self.version_menu.selected;
                 let style = if is_selected {
@@ -1202,12 +1356,21 @@ impl App {
             .collect();
 
         let current = self.cached_installed_version.clone().unwrap_or_else(|| "?".to_string());
-        let title = format!(" Claude Code Versions (current: v{}) [Enter=install Esc=back] ", current);
+
+        // Show scroll indicator if needed
+        let scroll_indicator = if self.versions.len() > visible_height {
+            let pos = scroll_offset + 1;
+            let total = self.versions.len().saturating_sub(visible_height) + 1;
+            format!(" [{}/{}]", pos, total)
+        } else {
+            String::new()
+        };
+        let title = format!(" Claude Code Versions (current: v{}){} [Enter=install Esc=back] ", current, scroll_indicator);
 
         let mut list_items = items;
 
         // Add legend at the bottom
-        if !list_items.is_empty() {
+        if !self.versions.is_empty() {
             list_items.push(ListItem::new(Line::from("")));
             list_items.push(ListItem::new(Line::from(Span::styled(
                 "  * = has auto-mode patch  ⛔ = blacklisted (known issues)",
@@ -1225,17 +1388,55 @@ impl App {
 
     fn render_version_installing(&self, frame: &mut Frame, area: Rect) {
         let version = self.selected_version.as_deref().unwrap_or("?");
+        let spinner = self.spinner_frame();
+
+        // Determine current step info
+        let (step_text, command_text) = if let Some(ref state) = self.install_state {
+            match state.current_step {
+                InstallStep::Installing => (
+                    format!("{} Installing Claude Code v{}...", spinner, version),
+                    "npm install -g @anthropic-ai/claude-code@...".to_string(),
+                ),
+                InstallStep::Patching => (
+                    format!("{} Applying patches for v{}...", spinner, version),
+                    "patch-claude.sh".to_string(),
+                ),
+                InstallStep::Done => (
+                    format!("✓ Installation complete for v{}", version),
+                    "Done!".to_string(),
+                ),
+            }
+        } else {
+            (
+                format!("{} Installing Claude Code v{}...", spinner, version),
+                "npm install -g @anthropic-ai/claude-code@...".to_string(),
+            )
+        };
+
+        // Calculate elapsed time
+        let elapsed = self
+            .install_state
+            .as_ref()
+            .map(|s| s.start_time.elapsed().as_secs())
+            .unwrap_or(0);
+        let elapsed_text = if elapsed > 0 {
+            format!("  Elapsed: {}s", elapsed)
+        } else {
+            String::new()
+        };
+
         let lines = vec![
             Line::from(""),
             Line::from(Span::styled(
-                format!("  Installing Claude Code v{}...", version),
+                format!("  {}", step_text),
                 Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD),
             )),
             Line::from(""),
             Line::from("  This may take a moment."),
+            Line::from(Span::styled(elapsed_text, Style::default().fg(Color::DarkGray))),
             Line::from(""),
             Line::from(Span::styled(
-                "  Running: npm install -g @anthropic-ai/claude-code@...",
+                format!("  Running: {}", command_text),
                 Style::default().fg(Color::DarkGray),
             )),
         ];
@@ -1398,6 +1599,8 @@ mod tests {
             versions: Vec::new(),
             selected_version: None,
             cached_installed_version: None,
+            install_state: None,
+            animation_frame: 0,
         };
 
         (app, temp)

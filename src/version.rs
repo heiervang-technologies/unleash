@@ -50,6 +50,15 @@ pub struct VersionInfo {
     pub is_blacklisted: bool,
 }
 
+/// Result of an installation attempt
+#[derive(Debug, Clone)]
+pub struct InstallResult {
+    pub success: bool,
+    pub stdout: String,
+    pub stderr: String,
+    pub error: Option<String>,
+}
+
 /// Version manager for Claude Code
 pub struct VersionManager {
     /// Path to patches directory (for checking supported versions)
@@ -206,37 +215,59 @@ impl VersionManager {
     }
 
     /// Install a specific version of Claude Code
-    pub fn install_version(&self, version: &str) -> io::Result<()> {
-        let status = Command::new("npm")
+    /// Returns (success, stdout, stderr) for TUI to display if needed
+    pub fn install_version(&self, version: &str) -> io::Result<InstallResult> {
+        let output = Command::new("npm")
             .args(["install", "-g", &format!("@anthropic-ai/claude-code@{}", version)])
-            .status()?;
+            .output()?;
 
-        if status.success() {
-            Ok(())
+        let stdout = String::from_utf8_lossy(&output.stdout).to_string();
+        let stderr = String::from_utf8_lossy(&output.stderr).to_string();
+
+        if output.status.success() {
+            Ok(InstallResult {
+                success: true,
+                stdout,
+                stderr,
+                error: None,
+            })
         } else {
-            Err(io::Error::new(
-                io::ErrorKind::Other,
-                format!("Failed to install Claude Code {}", version),
-            ))
+            Ok(InstallResult {
+                success: false,
+                stdout,
+                stderr,
+                error: Some(format!("npm install exited with status {}", output.status)),
+            })
         }
     }
 
     /// Run the patch script for the installed version
-    pub fn run_patch(&self) -> io::Result<()> {
+    /// Returns InstallResult with captured output
+    pub fn run_patch(&self) -> io::Result<InstallResult> {
         // Try to find patch script
         let patch_script = self.find_patch_script()?;
 
-        let status = Command::new("bash")
+        let output = Command::new("bash")
             .arg(&patch_script)
-            .status()?;
+            .output()?;
 
-        if status.success() {
-            Ok(())
+        let stdout = String::from_utf8_lossy(&output.stdout).to_string();
+        let stderr = String::from_utf8_lossy(&output.stderr).to_string();
+
+        if output.status.success() {
+            Ok(InstallResult {
+                success: true,
+                stdout,
+                stderr,
+                error: None,
+            })
         } else {
-            Err(io::Error::new(
-                io::ErrorKind::Other,
-                "Patch script failed",
-            ))
+            Ok(InstallResult {
+                success: false,
+                stdout,
+                stderr,
+                error: Some("Patch script failed".to_string()),
+            })
         }
     }
 
@@ -350,14 +381,26 @@ pub fn install_version(version: &str, json: bool) -> io::Result<()> {
         println!("Installing Claude Code v{}...", version);
     }
 
-    vm.install_version(version)?;
+    let install_result = vm.install_version(version)?;
+    if !install_result.success {
+        if !json {
+            eprintln!("Install failed: {}", install_result.error.unwrap_or_default());
+            if !install_result.stderr.is_empty() {
+                eprintln!("{}", install_result.stderr);
+            }
+        }
+        return Err(io::Error::new(
+            io::ErrorKind::Other,
+            format!("Failed to install Claude Code {}", version),
+        ));
+    }
 
     if !json {
         println!("Running patch...");
     }
 
     let patch_result = vm.run_patch();
-    let patch_warning = patch_result.is_err();
+    let patch_warning = patch_result.is_err() || patch_result.as_ref().is_ok_and(|r| !r.success);
 
     if !json {
         if patch_warning {

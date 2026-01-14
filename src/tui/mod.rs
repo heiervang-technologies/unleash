@@ -113,11 +113,21 @@ fn run_app(
     app: &mut App,
 ) -> io::Result<Option<AppAction>> {
     loop {
+        // Tick to advance animations and poll async operations
+        app.tick();
+
         // Draw UI
         terminal.draw(|f| app.render(f))?;
 
         // Handle events with timeout for responsiveness
-        if event::poll(Duration::from_millis(100))? {
+        // Use shorter timeout during installation for smoother animation
+        let timeout = if app.install_state.is_some() {
+            Duration::from_millis(50)
+        } else {
+            Duration::from_millis(100)
+        };
+
+        if event::poll(timeout)? {
             let event = event::read()?;
             if let Some(action) = app.handle_event(event)? {
                 return Ok(Some(action));
