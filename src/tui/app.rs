@@ -1169,7 +1169,7 @@ impl App {
             .clone()
             .unwrap_or_else(|| "(default)".to_string());
         let settings: Vec<(&str, String, &str)> = vec![
-            ("Entry Point", self.app_config.claude_path.clone(), "Command to launch (e.g., cuw, claude)"),
+            ("Entry Point", self.app_config.claude_path.clone(), "Command to launch (e.g., claude)"),
             ("Arguments", args_str, "Additional command-line arguments"),
             ("Stop Prompt", stop_prompt_display, "Auto-mode stop hook message (empty = default)"),
             ("Reset Settings", "".to_string(), "Reset all settings to defaults"),

@@ -143,22 +143,24 @@ if $INSTALL_CLAUDE_CODE; then
     fi
 fi
 
-# Step 1: Build CLI binary
+# Step 1: Build CLI binaries
 if $BUILD_TUI; then
     if command -v cargo &> /dev/null; then
-        info "Building CLI binary..."
+        info "Building CLI binaries..."
         cd "$REPO_ROOT"
         if cargo build --release; then
             success "CLI built successfully"
 
-            # Install the binary as cu
-            if [[ -f "$REPO_ROOT/target/release/cu" ]]; then
-                cp "$REPO_ROOT/target/release/cu" "$BIN_DIR/cu"
-                chmod +x "$BIN_DIR/cu"
-                success "Installed: cu (main CLI)"
-            fi
+            # Install all binaries (cu, cui, cug, cutx)
+            for bin in cu cui cug cutx; do
+                if [[ -f "$REPO_ROOT/target/release/$bin" ]]; then
+                    cp "$REPO_ROOT/target/release/$bin" "$BIN_DIR/$bin"
+                    chmod +x "$BIN_DIR/$bin"
+                    success "Installed: $bin"
+                fi
+            done
         else
-            warn "Build failed, continuing without CLI binary"
+            warn "Build failed, continuing without CLI binaries"
             BUILD_TUI=false
         fi
     else
@@ -168,23 +170,10 @@ if $BUILD_TUI; then
     fi
 fi
 
-# Step 2: Create symlinks for CLI shortcuts
+# Step 2: Create symlinks for additional commands
 info "Creating symlinks..."
 
-# Symlinks that invoke cu with different argv[0]
-ln -sf "$BIN_DIR/cu" "$BIN_DIR/cui"
-success "Symlink: cui -> cu (TUI shorthand)"
-
-ln -sf "$BIN_DIR/cu" "$BIN_DIR/cug"
-success "Symlink: cug -> cu (go shorthand)"
-
-ln -sf "$BIN_DIR/cu" "$BIN_DIR/cutx"
-success "Symlink: cutx -> cu (tmux shorthand)"
-
-# Backwards compatibility
-ln -sf "$BIN_DIR/cu" "$BIN_DIR/cuw"
-success "Symlink: cuw -> cu (backwards compat)"
-
+# claude-unleashed is an alias for cu
 ln -sf "$BIN_DIR/cu" "$BIN_DIR/claude-unleashed"
 success "Symlink: claude-unleashed -> cu"
 

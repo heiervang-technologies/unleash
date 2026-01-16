@@ -19,7 +19,7 @@
 # 1. Checks prerequisites (npm, optionally cargo)
 # 2. Installs Claude Code via npm if not present
 # 3. Downloads pre-built binary or builds from source
-# 4. Sets up cu/cui/cuw/cutx commands
+# 4. Sets up cu/cui/cug/cutx commands
 # 5. Runs initial patch
 
 set -euo pipefail
@@ -394,8 +394,9 @@ download_binary() {
     mv "${temp_dir}/cu" "${INSTALL_DIR}/cu"
     rm -rf "$temp_dir"
 
-    # Create symlinks for cui and cutx
+    # Create symlinks for cui, cug, and cutx
     ln -sf "${INSTALL_DIR}/cu" "${INSTALL_DIR}/cui"
+    ln -sf "${INSTALL_DIR}/cu" "${INSTALL_DIR}/cug"
     ln -sf "${INSTALL_DIR}/cu" "${INSTALL_DIR}/cutx"
     ln -sf "${INSTALL_DIR}/cu" "${INSTALL_DIR}/claude-unleashed"
 
@@ -419,13 +420,15 @@ build_from_source() {
     cd "$temp_dir"
     cargo build --release
 
-    # Install binary
-    cp "target/release/cu" "${INSTALL_DIR}/cu"
-    chmod +x "${INSTALL_DIR}/cu"
+    # Install all binaries (cu, cui, cug, cutx)
+    for bin in cu cui cug cutx; do
+        if [[ -f "target/release/$bin" ]]; then
+            cp "target/release/$bin" "${INSTALL_DIR}/$bin"
+            chmod +x "${INSTALL_DIR}/$bin"
+        fi
+    done
 
-    # Create symlinks
-    ln -sf "${INSTALL_DIR}/cu" "${INSTALL_DIR}/cui"
-    ln -sf "${INSTALL_DIR}/cu" "${INSTALL_DIR}/cutx"
+    # claude-unleashed is an alias for cu
     ln -sf "${INSTALL_DIR}/cu" "${INSTALL_DIR}/claude-unleashed"
 
     # Cleanup

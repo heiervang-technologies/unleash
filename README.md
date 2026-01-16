@@ -155,7 +155,7 @@ curl -fsSL https://raw.githubusercontent.com/heiervang-technologies/claude-unlea
 This will:
 - Install Claude Code via npm (if not already installed)
 - Download the pre-built TUI binary
-- Set up `cu`, `cuw`, `cutx`, and `cui` commands
+- Set up `cu`, `cug`, `cutx`, and `cui` commands
 - Apply the auto-mode patch
 
 ### Installation Options

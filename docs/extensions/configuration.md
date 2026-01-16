@@ -34,7 +34,7 @@ Located at `~/.config/claude-unleashed/config.toml`, this file stores:
 Example:
 ```toml
 current_profile = "default"
-claude_path = "cuw"
+claude_path = "claude"
 claude_args = []
 stop_prompt = "Keep working on the task!"
 ```
@@ -242,7 +242,7 @@ The TUI (`cui`) provides a visual interface for managing configuration.
 
 | Setting | Description | Access |
 |---------|-------------|--------|
-| Entry Point | Command to launch Claude (e.g., `cuw`, `claude`) | Settings > Entry Point |
+| Entry Point | Command to launch Claude (e.g., `claude`) | Settings > Entry Point |
 | Arguments | Default CLI arguments to pass to Claude | Settings > Arguments |
 | Stop Prompt | Auto-mode stop hook message | Settings > Stop Prompt |
 | Reset Settings | Restore all settings to defaults | Settings > Reset Settings |
