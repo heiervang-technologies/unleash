@@ -36,10 +36,22 @@ echo "--------------------------------------"
 $CU version --list --json | jq -r '.versions[] | select(.has_patch == true) | .version' | head -5
 echo
 
-echo "6. Counting blacklisted versions"
+echo "6. Counting whitelisted versions"
+echo "--------------------------------------"
+WHITELISTED_COUNT=$($CU version --list --json | jq '[.versions[] | select(.is_whitelisted == true)] | length')
+echo "Number of whitelisted versions: $WHITELISTED_COUNT"
+echo
+
+echo "6b. Counting blacklisted versions"
 echo "--------------------------------------"
 BLACKLISTED_COUNT=$($CU version --list --json | jq '[.versions[] | select(.is_blacklisted == true)] | length')
 echo "Number of blacklisted versions: $BLACKLISTED_COUNT"
+echo
+
+echo "6c. Checking version filter mode"
+echo "--------------------------------------"
+FILTER_MODE=$($CU version --list --json | jq -r '.filter_mode')
+echo "Current filter mode: $FILTER_MODE"
 echo
 
 echo "7. Testing cu auth-check --json"

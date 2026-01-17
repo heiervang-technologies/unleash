@@ -18,6 +18,7 @@ pub struct VersionListItem {
     pub version: String,
     pub is_installed: bool,
     pub has_patch: bool,
+    pub is_whitelisted: bool,
     pub is_blacklisted: bool,
 }
 
@@ -25,6 +26,7 @@ pub struct VersionListItem {
 #[derive(Debug, Serialize, Deserialize)]
 pub struct VersionListOutput {
     pub currently_installed: Option<String>,
+    pub filter_mode: String,
     pub versions: Vec<VersionListItem>,
 }
 

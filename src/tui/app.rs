@@ -4,7 +4,7 @@ use crate::config::{AppConfig, Profile, ProfileManager};
 use crate::input::{key_to_action, MenuState, NavAction};
 use crate::pixel_art::mascots;
 use crate::text_input::{censor_sensitive, is_sensitive_key, TextInput};
-use crate::version::{InstallResult, VersionInfo, VersionManager};
+use crate::version::{get_version_filter_mode, is_version_allowed, InstallResult, VersionFilterMode, VersionInfo, VersionManager};
 
 use crossterm::event::{Event, KeyCode, KeyEvent, KeyModifiers};
 use ratatui::{
@@ -52,7 +52,7 @@ pub enum EditField {
 /// State for async version installation
 pub struct InstallState {
     pub version: String,
-    pub is_blacklisted: bool,
+    pub is_allowed: bool,
     pub receiver: Receiver<InstallStepResult>,
     pub _handle: JoinHandle<()>,
     pub start_time: Instant,
@@ -191,7 +191,7 @@ impl App {
             // If done, update status and return to version list
             if state.current_step == InstallStep::Done {
                 let version = state.version.clone();
-                let is_blacklisted = state.is_blacklisted;
+                let is_allowed = state.is_allowed;
                 let install_ok = state.install_result.as_ref().is_some_and(|r| r.success);
                 let patch_ok = state.patch_result.as_ref().is_some_and(|r| r.success);
 
@@ -203,14 +203,14 @@ impl App {
                         .unwrap_or_else(|| "unknown error".to_string());
                     format!("Install failed: {}", err)
                 } else if patch_ok {
-                    if is_blacklisted {
-                        format!("Installed and patched v{} (blacklisted)", version)
+                    if !is_allowed {
+                        format!("Installed and patched v{} (not recommended)", version)
                     } else {
                         format!("Installed and patched v{}", version)
                     }
                 } else {
-                    if is_blacklisted {
-                        format!("Installed v{} (blacklisted, patch unavailable)", version)
+                    if !is_allowed {
+                        format!("Installed v{} (not recommended, patch unavailable)", version)
                     } else {
                         format!("Installed v{} (patch unavailable)", version)
                     }
@@ -565,13 +565,13 @@ impl App {
                     } else {
                         // Start async installation
                         let version = version_info.version.clone();
-                        let is_blacklisted = version_info.is_blacklisted;
+                        let is_allowed = is_version_allowed(&version);
 
                         self.selected_version = Some(version.clone());
                         self.screen = Screen::VersionInstalling;
 
-                        let warning = if is_blacklisted {
-                            " (WARNING: blacklisted)"
+                        let warning = if !is_allowed {
+                            " (WARNING: not recommended)"
                         } else {
                             ""
                         };
@@ -614,7 +614,7 @@ impl App {
 
                         self.install_state = Some(InstallState {
                             version,
-                            is_blacklisted,
+                            is_allowed,
                             receiver: rx,
                             _handle: handle,
                             start_time: Instant::now(),
@@ -1301,13 +1301,16 @@ impl App {
 
     fn render_version_management(&mut self, frame: &mut Frame, area: Rect) {
         // Calculate visible height (area minus borders minus legend)
-        let visible_height = area.height.saturating_sub(2 + 2) as usize; // 2 for borders, 2 for legend
+        let visible_height = area.height.saturating_sub(2 + 3) as usize; // 2 for borders, 3 for legend
 
         // Ensure selected item is visible
         self.version_menu.ensure_visible(visible_height);
 
         // Get the scroll offset
         let scroll_offset = self.version_menu.scroll_offset;
+
+        // Get the current filter mode
+        let filter_mode = get_version_filter_mode();
 
         // Build items with scroll awareness
         let items: Vec<ListItem> = self
@@ -1318,17 +1321,19 @@ impl App {
             .take(visible_height)
             .map(|(i, version_info)| {
                 let is_selected = i == self.version_menu.selected;
+                let is_allowed = is_version_allowed(&version_info.version);
+
                 let style = if is_selected {
-                    if version_info.is_blacklisted {
+                    if !is_allowed {
                         Style::default()
-                            .fg(Color::Red)
+                            .fg(Color::Yellow)
                             .add_modifier(Modifier::BOLD | Modifier::CROSSED_OUT)
                     } else {
                         Style::default()
                             .fg(Color::Rgb(217, 119, 87))
                             .add_modifier(Modifier::BOLD)
                     }
-                } else if version_info.is_blacklisted {
+                } else if !is_allowed {
                     Style::default()
                         .fg(Color::DarkGray)
                         .add_modifier(Modifier::CROSSED_OUT)
@@ -1341,6 +1346,7 @@ impl App {
                 let prefix = if is_selected { "> " } else { "  " };
                 let installed_marker = if version_info.is_installed { " [installed]" } else { "" };
                 let patch_marker = if version_info.has_patch { " *" } else { "" };
+                let whitelist_marker = if version_info.is_whitelisted { " ✓" } else { "" };
                 let blacklist_marker = if version_info.is_blacklisted { " ⛔" } else { "" };
 
                 ListItem::new(vec![
@@ -1349,6 +1355,7 @@ impl App {
                         Span::styled(format!("v{}", version_info.version), style),
                         Span::styled(installed_marker, Style::default().fg(Color::Green)),
                         Span::styled(patch_marker, Style::default().fg(Color::Yellow)),
+                        Span::styled(whitelist_marker, Style::default().fg(Color::Green)),
                         Span::styled(blacklist_marker, Style::default().fg(Color::Red)),
                     ]),
                 ])
@@ -1365,7 +1372,11 @@ impl App {
         } else {
             String::new()
         };
-        let title = format!(" Claude Code Versions (current: v{}){} [Enter=install Esc=back] ", current, scroll_indicator);
+        let mode_str = match filter_mode {
+            VersionFilterMode::Whitelist => "whitelist",
+            VersionFilterMode::Blacklist => "blacklist",
+        };
+        let title = format!(" Claude Code Versions (v{}, mode: {}){} [Enter=install Esc=back] ", current, mode_str, scroll_indicator);
 
         let mut list_items = items;
 
@@ -1373,7 +1384,15 @@ impl App {
         if !self.versions.is_empty() {
             list_items.push(ListItem::new(Line::from("")));
             list_items.push(ListItem::new(Line::from(Span::styled(
-                "  * = has auto-mode patch  ⛔ = blacklisted (known issues)",
+                "  * = has auto-mode patch  ✓ = whitelisted  ⛔ = blacklisted",
+                Style::default().fg(Color::DarkGray),
+            ))));
+            let mode_hint = match filter_mode {
+                VersionFilterMode::Whitelist => "  Mode: whitelist (only ✓ versions allowed)",
+                VersionFilterMode::Blacklist => "  Mode: blacklist (all except ⛔ allowed)",
+            };
+            list_items.push(ListItem::new(Line::from(Span::styled(
+                mode_hint,
                 Style::default().fg(Color::DarkGray),
             ))));
         }

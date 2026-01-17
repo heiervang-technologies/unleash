@@ -2,6 +2,10 @@
 //!
 //! Handles detecting installed version, listing available versions,
 //! and switching between Claude Code versions.
+//!
+//! Supports two filtering modes:
+//! - **Whitelist mode** (default): Only whitelisted versions are allowed
+//! - **Blacklist mode**: All versions except blacklisted ones are allowed
 
 use crate::json_output::{self, VersionListItem, VersionListOutput, VersionOutput};
 use std::fs;
@@ -9,13 +13,94 @@ use std::io;
 use std::path::PathBuf;
 use std::process::Command;
 
-// Include the generated blacklist from Cargo.toml
-include!(concat!(env!("OUT_DIR"), "/blacklist.rs"));
+// Include the generated version lists from Cargo.toml
+include!(concat!(env!("OUT_DIR"), "/version_lists.rs"));
+
+/// Version filter mode
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum VersionFilterMode {
+    /// Only whitelisted versions are allowed (default)
+    Whitelist,
+    /// All versions except blacklisted ones are allowed
+    Blacklist,
+}
+
+impl Default for VersionFilterMode {
+    fn default() -> Self {
+        match DEFAULT_VERSION_FILTER_MODE {
+            "blacklist" => VersionFilterMode::Blacklist,
+            _ => VersionFilterMode::Whitelist,
+        }
+    }
+}
+
+impl std::fmt::Display for VersionFilterMode {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            VersionFilterMode::Whitelist => write!(f, "whitelist"),
+            VersionFilterMode::Blacklist => write!(f, "blacklist"),
+        }
+    }
+}
+
+/// Get the version filter mode from config or default
+///
+/// User can override in ~/.config/claude-unleashed/config.toml with:
+/// ```toml
+/// version_filter_mode = "blacklist"  # or "whitelist"
+/// ```
+pub fn get_version_filter_mode() -> VersionFilterMode {
+    if let Some(home) = dirs::home_dir() {
+        let config_path = home.join(".config/claude-unleashed/config.toml");
+        if config_path.exists() {
+            if let Ok(content) = fs::read_to_string(&config_path) {
+                for line in content.lines() {
+                    let trimmed = line.trim();
+                    if trimmed.starts_with("version_filter_mode") {
+                        if let Some(eq_pos) = trimmed.find('=') {
+                            let value = trimmed[eq_pos + 1..].trim().trim_matches('"').trim_matches('\'');
+                            return match value {
+                                "blacklist" => VersionFilterMode::Blacklist,
+                                _ => VersionFilterMode::Whitelist,
+                            };
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    VersionFilterMode::default()
+}
+
+/// Get the effective whitelist (user override or default from Cargo.toml)
+///
+/// User can override by creating ~/.config/claude-unleashed/whitelist.txt
+/// with one version per line. Empty file means no whitelist (all versions blocked).
+pub fn get_whitelist() -> Vec<String> {
+    // Check for user override
+    if let Some(home) = dirs::home_dir() {
+        let user_whitelist = home.join(".config/claude-unleashed/whitelist.txt");
+        if user_whitelist.exists() {
+            if let Ok(content) = fs::read_to_string(&user_whitelist) {
+                return content
+                    .lines()
+                    .map(|l| l.trim())
+                    .filter(|l| !l.is_empty() && !l.starts_with('#'))
+                    .map(|l| l.to_string())
+                    .collect();
+            }
+        }
+    }
+
+    // Use default from Cargo.toml
+    DEFAULT_WHITELIST.iter().map(|s| s.to_string()).collect()
+}
 
 /// Get the effective blacklist (user override or default from Cargo.toml)
 ///
 /// User can override by creating ~/.config/claude-unleashed/blacklist.txt
-/// with one version per line. Empty file means no blacklist.
+/// with one version per line. Empty file means no blacklist (all versions allowed).
 pub fn get_blacklist() -> Vec<String> {
     // Check for user override
     if let Some(home) = dirs::home_dir() {
@@ -36,9 +121,25 @@ pub fn get_blacklist() -> Vec<String> {
     DEFAULT_BLACKLIST.iter().map(|s| s.to_string()).collect()
 }
 
-/// Check if a version is blacklisted
+/// Check if a version is whitelisted (verified to work)
+pub fn is_whitelisted(version: &str) -> bool {
+    get_whitelist().iter().any(|v| v == version)
+}
+
+/// Check if a version is blacklisted (known issues)
 pub fn is_blacklisted(version: &str) -> bool {
     get_blacklist().iter().any(|v| v == version)
+}
+
+/// Check if a version is allowed based on the current filter mode
+///
+/// - In whitelist mode: version must be in the whitelist
+/// - In blacklist mode: version must NOT be in the blacklist
+pub fn is_version_allowed(version: &str) -> bool {
+    match get_version_filter_mode() {
+        VersionFilterMode::Whitelist => is_whitelisted(version),
+        VersionFilterMode::Blacklist => !is_blacklisted(version),
+    }
 }
 
 /// Information about a Claude Code version
@@ -47,6 +148,7 @@ pub struct VersionInfo {
     pub version: String,
     pub is_installed: bool,
     pub has_patch: bool,
+    pub is_whitelisted: bool,
     pub is_blacklisted: bool,
 }
 
@@ -191,6 +293,7 @@ impl VersionManager {
                     version: v.clone(),
                     is_installed: installed.as_ref() == Some(v),
                     has_patch: true,
+                    is_whitelisted: is_whitelisted(v),
                     is_blacklisted: is_blacklisted(v),
                 });
             }
@@ -203,6 +306,7 @@ impl VersionManager {
                     version: v.clone(),
                     is_installed: installed.as_ref() == Some(v),
                     has_patch: supported.contains(v),
+                    is_whitelisted: is_whitelisted(v),
                     is_blacklisted: is_blacklisted(v),
                 });
             }
@@ -337,33 +441,40 @@ pub fn list_versions(json: bool) -> io::Result<()> {
     let vm = VersionManager::new();
     let versions = vm.get_version_list();
     let current = vm.get_installed_version();
+    let mode = get_version_filter_mode();
 
     if json {
         let output = VersionListOutput {
             currently_installed: current,
+            filter_mode: mode.to_string(),
             versions: versions
                 .into_iter()
                 .map(|info| VersionListItem {
                     version: info.version,
                     is_installed: info.is_installed,
                     has_patch: info.has_patch,
+                    is_whitelisted: info.is_whitelisted,
                     is_blacklisted: info.is_blacklisted,
                 })
                 .collect(),
         };
         json_output::print_json(&output);
     } else {
-        println!("Claude Code Versions:");
+        println!("Claude Code Versions (mode: {}):", mode);
         println!();
 
         for info in versions {
             let installed = if info.is_installed { " [installed]" } else { "" };
             let patch = if info.has_patch { " *" } else { "" };
-            println!("  v{}{}{}", info.version, installed, patch);
+            let whitelisted = if info.is_whitelisted { " ✓" } else { "" };
+            let blacklisted = if info.is_blacklisted { " ⛔" } else { "" };
+            println!("  v{}{}{}{}{}", info.version, installed, patch, whitelisted, blacklisted);
         }
 
         println!();
         println!("  * = has auto-mode patch available");
+        println!("  ✓ = whitelisted (verified working)");
+        println!("  ⛔ = blacklisted (known issues)");
         if let Some(v) = current {
             println!();
             println!("Currently installed: v{}", v);
@@ -572,6 +683,18 @@ mod tests {
     }
 
     #[test]
+    fn test_default_whitelist() {
+        // Verify the default whitelist from Cargo.toml is loaded
+        assert!(!DEFAULT_WHITELIST.is_empty(), "Default whitelist should not be empty");
+
+        // Verify expected versions are in the default whitelist
+        assert!(DEFAULT_WHITELIST.contains(&"2.1.4"), "2.1.4 should be whitelisted");
+        assert!(DEFAULT_WHITELIST.contains(&"2.1.3"), "2.1.3 should be whitelisted");
+        assert!(DEFAULT_WHITELIST.contains(&"2.1.2"), "2.1.2 should be whitelisted");
+        assert!(DEFAULT_WHITELIST.contains(&"2.0.77"), "2.0.77 should be whitelisted");
+    }
+
+    #[test]
     fn test_default_blacklist() {
         // Verify the default blacklist from Cargo.toml is loaded
         assert!(!DEFAULT_BLACKLIST.is_empty(), "Default blacklist should not be empty");
@@ -580,6 +703,21 @@ mod tests {
         assert!(DEFAULT_BLACKLIST.contains(&"2.1.5"), "2.1.5 should be blacklisted");
         assert!(DEFAULT_BLACKLIST.contains(&"2.1.1"), "2.1.1 should be blacklisted");
         assert!(DEFAULT_BLACKLIST.contains(&"2.1.0"), "2.1.0 should be blacklisted");
+    }
+
+    #[test]
+    fn test_is_whitelisted() {
+        // Test that whitelisted versions are detected
+        assert!(is_whitelisted("2.1.4"), "2.1.4 should be whitelisted");
+        assert!(is_whitelisted("2.1.3"), "2.1.3 should be whitelisted");
+        assert!(is_whitelisted("2.1.2"), "2.1.2 should be whitelisted");
+        assert!(is_whitelisted("2.0.77"), "2.0.77 should be whitelisted");
+
+        // Test that non-whitelisted versions are not detected
+        assert!(!is_whitelisted("2.1.5"), "2.1.5 should not be whitelisted");
+        assert!(!is_whitelisted("2.1.1"), "2.1.1 should not be whitelisted");
+        assert!(!is_whitelisted("2.1.0"), "2.1.0 should not be whitelisted");
+        assert!(!is_whitelisted("9.9.9"), "9.9.9 should not be whitelisted");
     }
 
     #[test]
@@ -592,6 +730,13 @@ mod tests {
         // Test that non-blacklisted versions are not detected
         assert!(!is_blacklisted("2.1.4"), "2.1.4 should not be blacklisted");
         assert!(!is_blacklisted("2.1.3"), "2.1.3 should not be blacklisted");
-        assert!(!is_blacklisted("2.0.0"), "2.0.0 should not be blacklisted");
+        assert!(!is_blacklisted("2.0.77"), "2.0.77 should not be blacklisted");
+        assert!(!is_blacklisted("9.9.9"), "9.9.9 should not be blacklisted");
+    }
+
+    #[test]
+    fn test_default_filter_mode() {
+        // Verify default mode is whitelist
+        assert_eq!(DEFAULT_VERSION_FILTER_MODE, "whitelist");
     }
 }

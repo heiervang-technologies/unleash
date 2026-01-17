@@ -55,17 +55,27 @@ Lists all available Claude Code versions with metadata.
 ```json
 {
   "currently_installed": "2.1.4",
+  "filter_mode": "whitelist",
   "versions": [
     {
       "version": "2.1.6",
       "is_installed": false,
       "has_patch": false,
+      "is_whitelisted": false,
       "is_blacklisted": false
+    },
+    {
+      "version": "2.1.5",
+      "is_installed": false,
+      "has_patch": true,
+      "is_whitelisted": false,
+      "is_blacklisted": true
     },
     {
       "version": "2.1.4",
       "is_installed": true,
       "has_patch": true,
+      "is_whitelisted": true,
       "is_blacklisted": false
     }
   ]
@@ -74,11 +84,17 @@ Lists all available Claude Code versions with metadata.
 
 **Fields:**
 - `currently_installed` - Currently installed version (or null if not installed)
+- `filter_mode` - Current version filter mode: `whitelist` or `blacklist`
 - `versions` - Array of version objects:
   - `version` - Version number
   - `is_installed` - Whether this version is currently installed
   - `has_patch` - Whether auto-mode patch is available for this version
+  - `is_whitelisted` - Whether this version is verified to work correctly
   - `is_blacklisted` - Whether this version has known critical issues
+
+**Filter Mode Behavior:**
+- `whitelist` (default): Only whitelisted versions are recommended for installation
+- `blacklist`: All versions except blacklisted ones are allowed
 
 ### 4. Authentication Check (`cu auth-check --json`)
 
@@ -186,10 +202,22 @@ fi
 cu version --list --json | jq '.versions[] | select(.is_installed == true)'
 ```
 
-### Find latest non-blacklisted version
+### Find latest whitelisted version
 
 ```bash
-cu version --list --json | jq -r '.versions[] | select(.is_blacklisted == false) | .version' | head -1
+cu version --list --json | jq -r '.versions[] | select(.is_whitelisted == true) | .version' | head -1
+```
+
+### Find versions that are not blacklisted
+
+```bash
+cu version --list --json | jq -r '.versions[] | select(.is_blacklisted == false) | .version'
+```
+
+### Check the current filter mode
+
+```bash
+cu version --list --json | jq -r '.filter_mode'
 ```
 
 ### Monitor authentication status

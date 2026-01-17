@@ -167,34 +167,84 @@ download() {
     fi
 }
 
-# Fetch blacklisted versions from Cargo.toml in the repo
-get_blacklist() {
-    local cargo_toml=""
-    local blacklist=""
+# Cache for Cargo.toml content
+CARGO_TOML_CACHE=""
 
-    # Fetch Cargo.toml from repo
+# Fetch Cargo.toml from repo (cached)
+fetch_cargo_toml() {
+    if [[ -n "$CARGO_TOML_CACHE" ]]; then
+        echo "$CARGO_TOML_CACHE"
+        return
+    fi
+
     if command -v curl &> /dev/null; then
         if [[ -n "${GITHUB_TOKEN:-}" ]]; then
-            cargo_toml=$(curl -fsSL -H "Authorization: token $GITHUB_TOKEN" "${RAW_URL}/Cargo.toml" 2>/dev/null)
+            CARGO_TOML_CACHE=$(curl -fsSL -H "Authorization: token $GITHUB_TOKEN" "${RAW_URL}/Cargo.toml" 2>/dev/null)
         else
-            cargo_toml=$(curl -fsSL "${RAW_URL}/Cargo.toml" 2>/dev/null)
+            CARGO_TOML_CACHE=$(curl -fsSL "${RAW_URL}/Cargo.toml" 2>/dev/null)
         fi
     elif command -v wget &> /dev/null; then
         if [[ -n "${GITHUB_TOKEN:-}" ]]; then
-            cargo_toml=$(wget -qO- --header="Authorization: token $GITHUB_TOKEN" "${RAW_URL}/Cargo.toml" 2>/dev/null)
+            CARGO_TOML_CACHE=$(wget -qO- --header="Authorization: token $GITHUB_TOKEN" "${RAW_URL}/Cargo.toml" 2>/dev/null)
         else
-            cargo_toml=$(wget -qO- "${RAW_URL}/Cargo.toml" 2>/dev/null)
+            CARGO_TOML_CACHE=$(wget -qO- "${RAW_URL}/Cargo.toml" 2>/dev/null)
         fi
     fi
 
+    echo "$CARGO_TOML_CACHE"
+}
+
+# Fetch whitelisted versions from Cargo.toml in the repo
+get_whitelist() {
+    local cargo_toml
+    cargo_toml=$(fetch_cargo_toml)
+
+    if [[ -n "$cargo_toml" ]]; then
+        # Extract versions array from [package.metadata.claude-code-whitelist] section
+        echo "$cargo_toml" | grep -A1 '\[package.metadata.claude-code-whitelist\]' | \
+            grep 'versions' | sed 's/.*\[\([^]]*\)\].*/\1/' | tr -d '"' | tr ',' '\n' | tr -d ' '
+    fi
+}
+
+# Fetch blacklisted versions from Cargo.toml in the repo
+get_blacklist() {
+    local cargo_toml
+    cargo_toml=$(fetch_cargo_toml)
+
     if [[ -n "$cargo_toml" ]]; then
         # Extract versions array from [package.metadata.claude-code-blacklist] section
-        # Format: versions = ["2.1.5", "2.1.1", "2.1.0"]
-        blacklist=$(echo "$cargo_toml" | grep -A1 '\[package.metadata.claude-code-blacklist\]' | \
-            grep 'versions' | sed 's/.*\[\([^]]*\)\].*/\1/' | tr -d '"' | tr ',' '\n' | tr -d ' ')
+        echo "$cargo_toml" | grep -A1 '\[package.metadata.claude-code-blacklist\]' | \
+            grep 'versions' | sed 's/.*\[\([^]]*\)\].*/\1/' | tr -d '"' | tr ',' '\n' | tr -d ' '
+    fi
+}
+
+# Get the default filter mode from Cargo.toml
+get_default_mode() {
+    local cargo_toml
+    cargo_toml=$(fetch_cargo_toml)
+
+    if [[ -n "$cargo_toml" ]]; then
+        # Extract default_mode from [package.metadata.claude-code-versions] section
+        local mode
+        mode=$(echo "$cargo_toml" | grep -A1 '\[package.metadata.claude-code-versions\]' | \
+            grep 'default_mode' | sed 's/.*= *"\([^"]*\)".*/\1/')
+        if [[ -n "$mode" ]]; then
+            echo "$mode"
+            return
+        fi
     fi
 
-    echo "$blacklist"
+    # Default to whitelist mode
+    echo "whitelist"
+}
+
+# Check if a version is whitelisted
+is_version_whitelisted() {
+    local version="$1"
+    local whitelist
+    whitelist=$(get_whitelist)
+
+    echo "$whitelist" | grep -qx "$version"
 }
 
 # Check if a version is blacklisted
@@ -206,10 +256,26 @@ is_version_blacklisted() {
     echo "$blacklist" | grep -qx "$version"
 }
 
-# Get latest non-blacklisted Claude Code version from npm
+# Check if a version is allowed based on the filter mode
+is_version_allowed() {
+    local version="$1"
+    local mode
+    mode=$(get_default_mode)
+
+    if [[ "$mode" == "blacklist" ]]; then
+        # In blacklist mode, allow if NOT blacklisted
+        ! is_version_blacklisted "$version"
+    else
+        # In whitelist mode (default), allow if whitelisted
+        is_version_whitelisted "$version"
+    fi
+}
+
+# Get latest allowed Claude Code version from npm based on filter mode
 get_recommended_claude_code_version() {
     local versions
-    local blacklist
+    local mode
+    mode=$(get_default_mode)
 
     # Get available versions from npm (newest first)
     # Use tac on Linux, tail -r on macOS for reverse order
@@ -221,18 +287,35 @@ get_recommended_claude_code_version() {
     versions=$(npm view @anthropic-ai/claude-code versions --json 2>/dev/null | \
         tr -d '[]"\n ' | tr ',' '\n' | sed -e '$a\' | $reverse_cmd)
 
-    blacklist=$(get_blacklist)
+    if [[ "$mode" == "blacklist" ]]; then
+        local blacklist
+        blacklist=$(get_blacklist)
 
-    # Find first non-blacklisted version
-    for version in $versions; do
-        if ! echo "$blacklist" | grep -qx "$version"; then
-            echo "$version"
-            return 0
-        fi
-    done
+        # Find first non-blacklisted version (newest first)
+        for version in $versions; do
+            if ! echo "$blacklist" | grep -qx "$version"; then
+                echo "$version"
+                return 0
+            fi
+        done
 
-    # Fallback to latest if all are blacklisted
-    npm view @anthropic-ai/claude-code version 2>/dev/null
+        # Fallback to npm latest if all are blacklisted (unlikely)
+        npm view @anthropic-ai/claude-code version 2>/dev/null
+    else
+        local whitelist
+        whitelist=$(get_whitelist)
+
+        # Find first whitelisted version (newest first)
+        for version in $versions; do
+            if echo "$whitelist" | grep -qx "$version"; then
+                echo "$version"
+                return 0
+            fi
+        done
+
+        # Fallback to first whitelisted version if none available on npm
+        echo "$whitelist" | head -1
+    fi
 }
 
 # Get latest release version from GitHub (supports private repos via GITHUB_TOKEN)
@@ -263,15 +346,19 @@ get_latest_version() {
 install_claude_code() {
     local current_version=""
     local target_version="$CLAUDE_CODE_VERSION"
+    local mode
+    mode=$(get_default_mode)
 
     if command -v claude &> /dev/null; then
         current_version=$(claude --version 2>/dev/null | head -1 | sed 's/ (Claude Code)//' || echo "unknown")
         info "Claude Code currently installed: v${current_version}"
     fi
 
-    # Get recommended version (latest non-blacklisted) if targeting latest
+    info "Version filter mode: ${mode}"
+
+    # Get recommended version if targeting latest
     if [[ "$target_version" == "latest" ]]; then
-        info "Checking for blacklisted versions..."
+        info "Checking for recommended versions..."
         target_version=$(get_recommended_claude_code_version)
 
         if [[ -n "$target_version" ]]; then
@@ -279,18 +366,30 @@ install_claude_code() {
             npm_latest=$(npm view @anthropic-ai/claude-code version 2>/dev/null || echo "")
 
             if [[ "$npm_latest" != "$target_version" ]]; then
-                warn "Latest version v${npm_latest} is blacklisted, using v${target_version} instead"
+                if [[ "$mode" == "blacklist" ]]; then
+                    warn "Latest version v${npm_latest} is blacklisted, using v${target_version} instead"
+                else
+                    warn "Latest version v${npm_latest} is not whitelisted, using v${target_version} instead"
+                fi
             else
                 info "Recommended version: v${target_version}"
             fi
         else
-            target_version=$(npm view @anthropic-ai/claude-code version 2>/dev/null || echo "")
-            info "Latest available version: v${target_version}"
+            if [[ "$mode" == "blacklist" ]]; then
+                warn "No allowed version found (all are blacklisted)"
+            else
+                warn "No whitelisted version found, please check whitelist in Cargo.toml"
+            fi
+            return 1
         fi
     else
-        # Check if explicitly requested version is blacklisted
-        if is_version_blacklisted "$target_version"; then
-            warn "Version v${target_version} is blacklisted (known issues), proceeding anyway..."
+        # Check if explicitly requested version is allowed
+        if ! is_version_allowed "$target_version"; then
+            if [[ "$mode" == "blacklist" ]]; then
+                warn "Version v${target_version} is blacklisted (known issues), proceeding anyway..."
+            else
+                warn "Version v${target_version} is not whitelisted (may have issues), proceeding anyway..."
+            fi
         fi
     fi
 
