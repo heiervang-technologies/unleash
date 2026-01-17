@@ -1,5 +1,12 @@
 # Changelog
 
+## [4.2.0](https://github.com/heiervang-technologies/claude-unleashed/compare/v4.1.2...v4.2.0) (2026-01-17)
+
+
+### Features
+
+* add patch config for Claude Code 2.1.12 and stop hook integration tests ([#67](https://github.com/heiervang-technologies/claude-unleashed/issues/67)) ([1e769ec](https://github.com/heiervang-technologies/claude-unleashed/commit/1e769ec316fcd84e91be5d949fcdcd6618dad28e))
+
 ## [4.1.2](https://github.com/heiervang-technologies/claude-unleashed/compare/v4.1.1...v4.1.2) (2026-01-17)
 
 
