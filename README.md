@@ -30,6 +30,10 @@ cutx        # Headless mode for automation
 > **Already have it installed?** Run the same command to update to latest versions.
 
 ---
+<p align="center">
+  <img src="demo-tui.gif" alt="Claude Unleashed TUI Demo" width="800">
+</p>
+---
 
 ## Overview
 
@@ -342,10 +346,6 @@ For detailed configuration options, see [docs/extensions/configuration.md](docs/
 ## TUI Features
 
 The TUI (`cui`) provides a graphical interface for managing Claude Unleashed:
-
-<p align="center">
-  <img src="demo-tui.gif" alt="Claude Unleashed TUI Demo" width="800">
-</p>
 
 ### Profile Management
 - Create and manage environment profiles
