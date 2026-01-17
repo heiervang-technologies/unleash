@@ -1,5 +1,16 @@
 # Changelog
 
+## [4.0.0](https://github.com/heiervang-technologies/claude-unleashed/compare/v3.0.0...v4.0.0) (2026-01-17)
+
+
+### ⚠ BREAKING CHANGES
+
+* The blacklist system has been replaced with a whitelist system. Only whitelisted versions will be installed when using "latest".
+
+### Features
+
+* change blacklist system to whitelist system ([#53](https://github.com/heiervang-technologies/claude-unleashed/issues/53)) ([ad51a07](https://github.com/heiervang-technologies/claude-unleashed/commit/ad51a073a69b9ebd52ebcb0c720bc6c437b49a12))
+
 ## [3.0.0](https://github.com/heiervang-technologies/claude-unleashed/compare/v2.8.0...v3.0.0) (2026-01-16)
 
 
