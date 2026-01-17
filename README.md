@@ -1,6 +1,8 @@
 # Claude Unleashed
 
-![claude-unleashed](https://github.com/user-attachments/assets/6379164d-9a51-4ca1-8909-09eefe546aa2)
+<p align="center">
+  <img src="demo-animation.gif" alt="Claude Unleashed - Smooth menu animations" width="900">
+</p>
 
 A powerful extension framework for Claude Code with auto-mode, version management, and plugin support.
 

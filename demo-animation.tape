@@ -1,77 +1,72 @@
 # VHS Demo: Claude Slide Animation
-# Watch Claude slide across the screen when navigating between menus!
-# The full figure appears during transition, then clips at the sidebar edge.
+# Watch Claude smoothly slide across the screen when navigating menus!
 
 Output demo-animation.gif
 
 Require cui
 
 Set FontSize 14
-Set Width 1400
-Set Height 800
+Set Width 1200
+Set Height 700
 Set Framerate 60
 
 # Start the TUI
 Type "cui"
 Enter
-Sleep 1500ms
+Sleep 1s
 
-# Show the main menu - Claude is on the left side
-Sleep 500ms
+# Main menu - Claude is on the right side
+Sleep 300ms
 
-# Navigate to Profiles - Claude slides from left to right!
+# Navigate to Profiles - Claude slides left!
 Down
-Sleep 100ms
+Sleep 50ms
 Enter
-Sleep 800ms
+Sleep 700ms
+Sleep 300ms
 
-# Pause to admire the result
-Sleep 800ms
-
-# Go back - Claude slides back from right to left!
+# Go back - Claude slides right!
 Escape
-Sleep 800ms
-Sleep 500ms
+Sleep 700ms
+Sleep 300ms
 
-# Do it again to show the smooth animation
+# Navigate to Settings - Claude slides left again!
 Down
-Sleep 100ms
+Down
+Sleep 50ms
 Enter
-Sleep 800ms
-Sleep 500ms
+Sleep 700ms
+Sleep 300ms
+
+# Go back - Claude slides right!
+Escape
+Sleep 700ms
+Sleep 300ms
+
+# Navigate to Help
+Down
+Down
+Down
+Sleep 50ms
+Enter
+Sleep 700ms
+Sleep 300ms
 
 # Go back
 Escape
-Sleep 800ms
-Sleep 500ms
+Sleep 700ms
+Sleep 300ms
 
-# Navigate to Claude Code Version
-Down
-Sleep 100ms
-Enter
-Sleep 800ms
-Sleep 500ms
-
-# Go back
-Escape
-Sleep 800ms
-Sleep 500ms
-
-# Quick demo - rapid navigation showing continuous sliding
+# Quick navigation demo
 Down
 Enter
-Sleep 800ms
+Sleep 700ms
 Escape
-Sleep 800ms
-Down
-Enter
-Sleep 800ms
-Escape
-Sleep 800ms
+Sleep 700ms
 
 # Final pause
-Sleep 1s
+Sleep 500ms
 
 # Quit
 Type "q"
-Sleep 500ms
+Sleep 300ms
