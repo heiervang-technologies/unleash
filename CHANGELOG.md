@@ -1,5 +1,16 @@
 # Changelog
 
+## [3.0.0](https://github.com/heiervang-technologies/claude-unleashed/compare/v2.8.0...v3.0.0) (2026-01-16)
+
+
+### ⚠ BREAKING CHANGES
+
+* The `cuw` command has been removed. Use `cu go` or `cug` instead.
+
+### Features
+
+* remove cuw, use multiple cargo binaries for all commands ([#51](https://github.com/heiervang-technologies/claude-unleashed/issues/51)) ([2a3fc24](https://github.com/heiervang-technologies/claude-unleashed/commit/2a3fc24cb62275c74e079a9f0ed32b114a34d9c2))
+
 ## [2.8.0](https://github.com/heiervang-technologies/claude-unleashed/compare/v2.7.0...v2.8.0) (2026-01-13)
 
 
