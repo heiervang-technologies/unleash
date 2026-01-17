@@ -322,8 +322,9 @@ impl VersionManager {
     /// Install a specific version of Claude Code
     /// Returns (success, stdout, stderr) for TUI to display if needed
     pub fn install_version(&self, version: &str) -> io::Result<InstallResult> {
+        // Use --force to allow downgrading to older versions
         let output = Command::new("npm")
-            .args(["install", "-g", &format!("@anthropic-ai/claude-code@{}", version)])
+            .args(["install", "-g", "--force", &format!("@anthropic-ai/claude-code@{}", version)])
             .output()?;
 
         let stdout = String::from_utf8_lossy(&output.stdout).to_string();
@@ -740,5 +741,95 @@ mod tests {
     fn test_default_filter_mode() {
         // Verify default mode is whitelist
         assert_eq!(DEFAULT_VERSION_FILTER_MODE, "whitelist");
+    }
+
+    /// Create a mock "npm" binary that captures arguments to a file.
+    /// Returns the temp directory (must be kept alive), the path to add to PATH,
+    /// and the path to the args capture file.
+    fn create_mock_npm() -> (TempDir, PathBuf, PathBuf) {
+        let temp = TempDir::new().unwrap();
+        let mock_path = temp.path().to_path_buf();
+        let mock_npm = mock_path.join("npm");
+        let args_file = mock_path.join("npm_args.txt");
+
+        // Create a shell script that captures all arguments to a file
+        let script = format!(
+            "#!/bin/bash\necho \"$@\" > \"{}\"\nexit 0\n",
+            args_file.display()
+        );
+        std::fs::write(&mock_npm, script).unwrap();
+
+        // Make executable
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let mut perms = std::fs::metadata(&mock_npm).unwrap().permissions();
+            perms.set_mode(0o755);
+            std::fs::set_permissions(&mock_npm, perms).unwrap();
+        }
+
+        (temp, mock_path, args_file)
+    }
+
+    /// Test that install_version uses --force flag to allow downgrades.
+    ///
+    /// This is critical because npm won't downgrade a globally installed package
+    /// to an older version without --force. Without this flag, users cannot
+    /// install older whitelisted versions when a newer version is installed.
+    #[test]
+    fn test_install_version_uses_force_flag() {
+        // Create mock npm that captures arguments
+        let (_temp, mock_path, args_file) = create_mock_npm();
+
+        // Prepend mock to PATH
+        let original_path = std::env::var("PATH").unwrap_or_default();
+        let new_path = format!("{}:{}", mock_path.display(), original_path);
+
+        // SAFETY: This test runs single-threaded and restores PATH before returning
+        unsafe {
+            std::env::set_var("PATH", &new_path);
+        }
+
+        let vm = VersionManager::new();
+        let result = vm.install_version("2.1.4");
+
+        // Restore PATH before any assertions
+        // SAFETY: Restoring original PATH value
+        unsafe {
+            std::env::set_var("PATH", original_path);
+        }
+
+        // Verify the install succeeded (mock returns exit 0)
+        assert!(result.is_ok(), "install_version should not return an error");
+        let install_result = result.unwrap();
+        assert!(install_result.success, "install should succeed with mock npm");
+
+        // Read the captured arguments
+        let captured_args = std::fs::read_to_string(&args_file)
+            .expect("Should be able to read captured npm arguments");
+
+        // Verify --force flag is present
+        assert!(
+            captured_args.contains("--force"),
+            "npm install should include --force flag for downgrades. Got: {}",
+            captured_args.trim()
+        );
+
+        // Verify the full expected command structure
+        assert!(
+            captured_args.contains("install"),
+            "Should contain 'install' command. Got: {}",
+            captured_args.trim()
+        );
+        assert!(
+            captured_args.contains("-g"),
+            "Should contain '-g' for global install. Got: {}",
+            captured_args.trim()
+        );
+        assert!(
+            captured_args.contains("@anthropic-ai/claude-code@2.1.4"),
+            "Should contain package@version. Got: {}",
+            captured_args.trim()
+        );
     }
 }
