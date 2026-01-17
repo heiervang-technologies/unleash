@@ -40,6 +40,7 @@ RUN_PATCH=true
 INSTALL_CLAUDE_CODE=true
 CLAUDE_CODE_VERSION="latest"
 BIN_DIR="${HOME}/.local/bin"
+INTERACTIVE=false
 
 while [[ $# -gt 0 ]]; do
     case $1 in
@@ -63,6 +64,10 @@ while [[ $# -gt 0 ]]; do
             BIN_DIR="$2"
             shift 2
             ;;
+        -i|--interactive)
+            INTERACTIVE=true
+            shift
+            ;;
         -h|--help)
             echo "Usage: $0 [options]"
             echo ""
@@ -72,6 +77,7 @@ while [[ $# -gt 0 ]]; do
             echo "  --no-claude-code    Skip installing Claude Code"
             echo "  --claude-version V  Install specific Claude Code version"
             echo "  --bin-dir DIR       Install to DIR instead of ~/.local/bin"
+            echo "  -i, --interactive   Show splash screen before installation"
             echo "  -h, --help          Show this help"
             exit 0
             ;;
@@ -81,6 +87,21 @@ while [[ $# -gt 0 ]]; do
             ;;
     esac
 done
+
+# Interactive splash screen
+if $INTERACTIVE; then
+    clear
+    # Display the muscular Claude ANSI art
+    if [[ -f "$REPO_ROOT/ct4-right.ans" ]]; then
+        cat "$REPO_ROOT/ct4-right.ans"
+    elif [[ -f "$REPO_ROOT/src/assets/ct4-right.ans" ]]; then
+        cat "$REPO_ROOT/src/assets/ct4-right.ans"
+    fi
+    echo ""
+    echo -e "${GREEN}Press Enter to unleash Claude...${NC}"
+    read -r
+    clear
+fi
 
 echo ""
 echo "╭─────────────────────────────────────╮"

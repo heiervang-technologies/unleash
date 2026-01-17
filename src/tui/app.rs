@@ -78,6 +78,17 @@ pub enum InstallStepResult {
 /// Spinner animation frames
 const SPINNER_FRAMES: &[&str] = &["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
 
+/// Art layout configuration
+/// Controls where Claude mascot appears relative to content
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum ArtLayout {
+    /// Left-facing Claude on right side of content (default for main view)
+    #[default]
+    ArtRight,
+    /// Right-facing Claude on left side of content
+    ArtLeft,
+}
+
 /// Main application state
 pub struct App {
     pub running: bool,
@@ -113,6 +124,8 @@ pub struct App {
     pub install_state: Option<InstallState>,
     /// Animation frame counter (increments each tick)
     pub animation_frame: usize,
+    /// Art layout preference for main view (non-main views use the opposite)
+    pub art_layout: ArtLayout,
 }
 
 impl App {
@@ -156,6 +169,7 @@ impl App {
             cached_installed_version,
             install_state: None,
             animation_frame: 0,
+            art_layout: ArtLayout::ArtRight,
         })
     }
 
@@ -560,34 +574,46 @@ impl App {
             }
             NavAction::Select => {
                 if let Some(version_info) = self.versions.get(self.version_menu.selected) {
-                    if version_info.is_installed {
-                        self.status_message = Some(format!("v{} is already installed", version_info.version));
+                    // Allow installation/reinstallation of any version
+                    let version = version_info.version.clone();
+                    let is_allowed = is_version_allowed(&version);
+                    let is_reinstall = version_info.is_installed;
+
+                    self.selected_version = Some(version.clone());
+                    self.screen = Screen::VersionInstalling;
+
+                    let action = if is_reinstall { "Reinstalling" } else { "Installing" };
+                    let warning = if !is_allowed {
+                        " (WARNING: not recommended)"
                     } else {
-                        // Start async installation
-                        let version = version_info.version.clone();
-                        let is_allowed = is_version_allowed(&version);
+                        ""
+                    };
+                    self.status_message = Some(format!("{} v{}{}...", action, version, warning));
 
-                        self.selected_version = Some(version.clone());
-                        self.screen = Screen::VersionInstalling;
+                    // Create channel for receiving results
+                    let (tx, rx) = mpsc::channel();
 
-                        let warning = if !is_allowed {
-                            " (WARNING: not recommended)"
-                        } else {
-                            ""
-                        };
-                        self.status_message = Some(format!("Installing v{}{}...", version, warning));
+                    // Spawn background thread for installation
+                    let version_clone = version.clone();
+                    let handle = thread::spawn(move || {
+                        // Create a new VersionManager in the thread
+                        let vm = VersionManager::new();
 
-                        // Create channel for receiving results
-                        let (tx, rx) = mpsc::channel();
+                        // Step 1: Install
+                        let install_result = vm.install_version(&version_clone).unwrap_or_else(|e| {
+                            InstallResult {
+                                success: false,
+                                stdout: String::new(),
+                                stderr: String::new(),
+                                error: Some(e.to_string()),
+                            }
+                        });
+                        let install_ok = install_result.success;
+                        let _ = tx.send(InstallStepResult::InstallComplete(install_result));
 
-                        // Spawn background thread for installation
-                        let version_clone = version.clone();
-                        let handle = thread::spawn(move || {
-                            // Create a new VersionManager in the thread
-                            let vm = VersionManager::new();
-
-                            // Step 1: Install
-                            let install_result = vm.install_version(&version_clone).unwrap_or_else(|e| {
+                        // Step 2: Patch (only if install succeeded)
+                        if install_ok {
+                            let patch_result = vm.run_patch().unwrap_or_else(|e| {
                                 InstallResult {
                                     success: false,
                                     stdout: String::new(),
@@ -595,34 +621,20 @@ impl App {
                                     error: Some(e.to_string()),
                                 }
                             });
-                            let install_ok = install_result.success;
-                            let _ = tx.send(InstallStepResult::InstallComplete(install_result));
+                            let _ = tx.send(InstallStepResult::PatchComplete(patch_result));
+                        }
+                    });
 
-                            // Step 2: Patch (only if install succeeded)
-                            if install_ok {
-                                let patch_result = vm.run_patch().unwrap_or_else(|e| {
-                                    InstallResult {
-                                        success: false,
-                                        stdout: String::new(),
-                                        stderr: String::new(),
-                                        error: Some(e.to_string()),
-                                    }
-                                });
-                                let _ = tx.send(InstallStepResult::PatchComplete(patch_result));
-                            }
-                        });
-
-                        self.install_state = Some(InstallState {
-                            version,
-                            is_allowed,
-                            receiver: rx,
-                            _handle: handle,
-                            start_time: Instant::now(),
-                            current_step: InstallStep::Installing,
-                            install_result: None,
-                            patch_result: None,
-                        });
-                    }
+                    self.install_state = Some(InstallState {
+                        version,
+                        is_allowed,
+                        receiver: rx,
+                        _handle: handle,
+                        start_time: Instant::now(),
+                        current_step: InstallStep::Installing,
+                        install_result: None,
+                        patch_result: None,
+                    });
                 }
             }
             NavAction::Back | NavAction::Quit => {
@@ -834,56 +846,160 @@ impl App {
         Ok(None)
     }
 
+    /// Calculate the minimum content width needed for the current screen
+    fn content_width(&self) -> u16 {
+        match self.screen {
+            Screen::Main => {
+                // Calculate based on actual menu content
+                let current_version = self.cached_installed_version.as_deref().unwrap_or("?");
+                let menu_items = [
+                    ("Start Session", format!("Launch Claude with selected profile")),
+                    ("Profiles", format!("Manage environment profiles")),
+                    ("Claude Code Version", format!("Currently: v{}", current_version)),
+                    ("Settings", format!("Configure launcher settings")),
+                    ("Update TUI", format!("Pull latest and recompile")),
+                    ("Quit", format!("Exit the launcher")),
+                ];
+                let max_name = menu_items.iter().map(|(n, _)| n.len()).max().unwrap_or(0);
+                let max_desc = menu_items.iter().map(|(_, d)| d.len()).max().unwrap_or(0);
+                // "> " prefix (2) + name, or "    " prefix (4) + desc
+                let name_width = 2 + max_name;
+                let desc_width = 4 + max_desc;
+                (name_width.max(desc_width) + 2) as u16
+            }
+            Screen::Profiles | Screen::ConfirmDelete => {
+                // Based on profile names + " *" marker + "    X env vars"
+                let max_name = self.profiles.iter().map(|p| p.name.len()).max().unwrap_or(10);
+                let name_width = 2 + max_name + 2; // "> " + name + " *"
+                let desc_width = 4 + 12; // "    X env vars"
+                (name_width.max(desc_width) + 2) as u16
+            }
+            Screen::Settings => {
+                // Settings items
+                let items = ["Claude Entry Point", "Arguments", "Auto-stop Prompt", "Reset to Defaults"];
+                let max_len = items.iter().map(|s| s.len()).max().unwrap_or(20);
+                (2 + max_len + 2) as u16
+            }
+            Screen::Help => {
+                // Help screen has fixed text
+                40
+            }
+            Screen::Updating => {
+                // Update status messages
+                35
+            }
+            Screen::VersionManagement | Screen::VersionInstalling => {
+                // Version list: "1.0.xxx [installed]"
+                45
+            }
+            Screen::ProfileEdit | Screen::EnvVarEdit => {
+                // Profile editing needs more space for env var keys/values
+                50
+            }
+        }
+    }
+
     /// Render the UI
     pub fn render(&mut self, frame: &mut Frame) {
-        let chunks = Layout::default()
+        // Main layout: content area + status bar at bottom
+        let main_chunks = Layout::default()
             .direction(Direction::Vertical)
             .constraints([
-                Constraint::Length(7),
                 Constraint::Min(10),
                 Constraint::Length(3),
             ])
             .split(frame.area());
 
-        self.render_header(frame, chunks[0]);
+        // Determine layout for current screen:
+        // - Main screen uses art_layout setting directly
+        // - All other screens use the opposite layout
+        let use_art_left = match self.screen {
+            Screen::Main => self.art_layout == ArtLayout::ArtLeft,
+            _ => self.art_layout == ArtLayout::ArtRight, // Flip for non-main screens
+        };
 
-        match self.screen {
-            Screen::Main => self.render_main_menu(frame, chunks[1]),
-            Screen::Profiles => self.render_profiles(frame, chunks[1]),
-            Screen::ProfileEdit => self.render_profile_edit(frame, chunks[1]),
-            Screen::EnvVarEdit => {
-                self.render_profile_edit(frame, chunks[1]);
-                self.render_env_var_dialog(frame, frame.area());
-            }
-            Screen::Settings => self.render_settings(frame, chunks[1]),
-            Screen::Help => self.render_help(frame, chunks[1]),
-            Screen::ConfirmDelete => {
-                self.render_profiles(frame, chunks[1]);
-                self.render_confirm_delete_dialog(frame, frame.area());
-            }
-            Screen::Updating => self.render_updating(frame, chunks[1]),
-            Screen::VersionManagement => self.render_version_management(frame, chunks[1]),
-            Screen::VersionInstalling => self.render_version_installing(frame, chunks[1]),
+        let content_width = self.content_width();
+
+        if use_art_left {
+            // Art on left (right-facing Claude), content on right
+            let content_chunks = Layout::default()
+                .direction(Direction::Horizontal)
+                .constraints([
+                    Constraint::Length(53),            // Art on left (exact width)
+                    Constraint::Length(content_width), // Content on right (dynamic)
+                    Constraint::Min(0),                // Remaining space
+                ])
+                .split(main_chunks[0]);
+
+            self.render_art_sidebar(frame, content_chunks[0]); // Right-facing on left
+            self.render_screen_content(frame, content_chunks[1]);
+        } else {
+            // Content on left, art on right (left-facing Claude)
+            let content_chunks = Layout::default()
+                .direction(Direction::Horizontal)
+                .constraints([
+                    Constraint::Length(content_width), // Content on left (dynamic)
+                    Constraint::Length(53),            // Art on right (exact width)
+                    Constraint::Min(0),                // Remaining space
+                ])
+                .split(main_chunks[0]);
+
+            self.render_art_sidebar_left(frame, content_chunks[1]); // Left-facing on right
+            self.render_screen_content(frame, content_chunks[0]);
         }
 
-        self.render_status_bar(frame, chunks[2]);
+        self.render_status_bar(frame, main_chunks[1]);
     }
 
-    fn render_header(&self, frame: &mut Frame, area: Rect) {
+    /// Render the content for the current screen
+    fn render_screen_content(&mut self, frame: &mut Frame, area: Rect) {
+        match self.screen {
+            Screen::Main => self.render_main_menu(frame, area),
+            Screen::Profiles => self.render_profiles(frame, area),
+            Screen::ProfileEdit => self.render_profile_edit(frame, area),
+            Screen::EnvVarEdit => {
+                self.render_profile_edit(frame, area);
+                self.render_env_var_dialog(frame, frame.area());
+            }
+            Screen::Settings => self.render_settings(frame, area),
+            Screen::Help => self.render_help(frame, area),
+            Screen::ConfirmDelete => {
+                self.render_profiles(frame, area);
+                self.render_confirm_delete_dialog(frame, frame.area());
+            }
+            Screen::VersionManagement => self.render_version_management(frame, area),
+            Screen::VersionInstalling => self.render_version_installing(frame, area),
+            Screen::Updating => self.render_updating(frame, area),
+        }
+    }
+
+    fn render_art_sidebar(&self, frame: &mut Frame, area: Rect) {
+        // Render muscular Claude ANSI art (right-facing), fitting to available height
+        let max_lines = area.height as usize;
+        let art_lines: Vec<Line> = mascots::unleashed_claude_ratatui(max_lines);
+        let art_widget = Paragraph::new(art_lines);
+        frame.render_widget(art_widget, area);
+    }
+
+    fn render_art_sidebar_left(&self, frame: &mut Frame, area: Rect) {
+        // Render muscular Claude ANSI art (left-facing), fitting to available height
+        let max_lines = area.height as usize;
+        let art_lines: Vec<Line> = mascots::unleashed_claude_left_ratatui(max_lines);
+        let art_widget = Paragraph::new(art_lines);
+        frame.render_widget(art_widget, area);
+    }
+
+    fn render_main_menu(&mut self, frame: &mut Frame, area: Rect) {
+        // Split area for title and menu
         let chunks = Layout::default()
-            .direction(Direction::Horizontal)
-            .constraints([Constraint::Length(18), Constraint::Min(30)])
+            .direction(Direction::Vertical)
+            .constraints([
+                Constraint::Length(5), // Title area
+                Constraint::Min(10),   // Menu area
+            ])
             .split(area);
 
-        let mascot = mascots::orange_snail_small();
-        let mascot_lines: Vec<Line> = mascot
-            .to_lines_halfblock()
-            .into_iter()
-            .map(Line::raw)
-            .collect();
-        let mascot_widget = Paragraph::new(mascot_lines);
-        frame.render_widget(mascot_widget, chunks[0]);
-
+        // Render title
         let title_text = vec![
             Line::from(Span::styled(
                 "Claude Unleashed",
@@ -898,10 +1014,8 @@ impl App {
             )),
         ];
         let title = Paragraph::new(title_text);
-        frame.render_widget(title, chunks[1]);
-    }
+        frame.render_widget(title, chunks[0]);
 
-    fn render_main_menu(&mut self, frame: &mut Frame, area: Rect) {
         let current_version = self.cached_installed_version.clone().unwrap_or_else(|| "?".to_string());
         let menu_items = [
             ("Start Session", "Launch Claude with selected profile".to_string()),
@@ -914,7 +1028,8 @@ impl App {
 
         // Each menu item takes 2 lines, calculate visible count
         // Area height minus 2 for borders, divided by 2 for lines per item
-        let visible_items = (area.height.saturating_sub(2) / 2) as usize;
+        let menu_area = chunks[1];
+        let visible_items = (menu_area.height.saturating_sub(2) / 2) as usize;
 
         // Ensure selected item is visible
         self.main_menu.ensure_visible(visible_items);
@@ -948,12 +1063,8 @@ impl App {
             String::new()
         };
 
-        let menu = List::new(items).block(
-            Block::default()
-                .borders(Borders::ALL)
-                .title(format!(" Menu{} [j/k ↑/↓ Enter q ?] ", scroll_hint)),
-        );
-        frame.render_widget(menu, area);
+        let menu = List::new(items);
+        frame.render_widget(menu, menu_area);
     }
 
     fn render_profiles(&self, frame: &mut Frame, area: Rect) {
@@ -982,11 +1093,7 @@ impl App {
             })
             .collect();
 
-        let menu = List::new(items).block(
-            Block::default()
-                .borders(Borders::ALL)
-                .title(" Profiles [Enter=select e=edit n=new d=delete] "),
-        );
+        let menu = List::new(items);
         frame.render_widget(menu, area);
     }
 
@@ -1035,11 +1142,7 @@ impl App {
             add_style,
         ))));
 
-        let menu = List::new(items).block(
-            Block::default()
-                .borders(Borders::ALL)
-                .title(format!(" {} [Enter=edit n=new d=delete Esc=back] ", profile.name)),
-        );
+        let menu = List::new(items);
         frame.render_widget(menu, area);
     }
 
@@ -1115,7 +1218,7 @@ impl App {
         ];
 
         let dialog = Paragraph::new(lines)
-            .block(Block::default().borders(Borders::ALL).title(title).style(
+            .block(Block::default().style(
                 Style::default().bg(Color::Black),
             ))
             .wrap(Wrap { trim: false });
@@ -1155,8 +1258,6 @@ impl App {
         let dialog = Paragraph::new(lines)
             .block(
                 Block::default()
-                    .borders(Borders::ALL)
-                    .title(" Confirm Delete ")
                     .style(Style::default().bg(Color::Black).fg(Color::Red)),
             );
 
@@ -1241,11 +1342,7 @@ impl App {
             " Settings [Enter=edit Esc=back] "
         };
 
-        let menu = List::new(menu_items).block(
-            Block::default()
-                .borders(Borders::ALL)
-                .title(hint),
-        );
+        let menu = List::new(menu_items);
         frame.render_widget(menu, area);
     }
 
@@ -1269,7 +1366,6 @@ impl App {
         ];
 
         let content = Paragraph::new(lines)
-            .block(Block::default().borders(Borders::ALL).title(" Help [Esc=close] "))
             .wrap(Wrap { trim: false });
         frame.render_widget(content, area);
     }
@@ -1278,23 +1374,22 @@ impl App {
         let lines = vec![
             Line::from(""),
             Line::from(Span::styled(
-                "  Updating TUI...",
+                "Updating TUI...",
                 Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD),
             )),
             Line::from(""),
-            Line::from("  This will:"),
-            Line::from("    1. Pull latest changes from git"),
-            Line::from("    2. Recompile with cargo build --release"),
-            Line::from("    3. Replace current binary and restart"),
+            Line::from("This will:"),
+            Line::from("  1. Pull latest changes from git"),
+            Line::from("  2. Recompile with cargo build --release"),
+            Line::from("  3. Replace current binary and restart"),
             Line::from(""),
             Line::from(Span::styled(
-                "  Press Enter to continue, Esc to cancel",
+                "Press Enter to continue, Esc to cancel",
                 Style::default().fg(Color::DarkGray),
             )),
         ];
 
         let content = Paragraph::new(lines)
-            .block(Block::default().borders(Borders::ALL).title(" Update TUI "))
             .wrap(Wrap { trim: false });
         frame.render_widget(content, area);
     }
@@ -1397,11 +1492,7 @@ impl App {
             ))));
         }
 
-        let menu = List::new(list_items).block(
-            Block::default()
-                .borders(Borders::ALL)
-                .title(title),
-        );
+        let menu = List::new(list_items);
         frame.render_widget(menu, area);
     }
 
@@ -1461,7 +1552,6 @@ impl App {
         ];
 
         let content = Paragraph::new(lines)
-            .block(Block::default().borders(Borders::ALL).title(" Installing "))
             .wrap(Wrap { trim: false });
         frame.render_widget(content, area);
     }
@@ -1620,6 +1710,7 @@ mod tests {
             cached_installed_version: None,
             install_state: None,
             animation_frame: 0,
+            art_layout: ArtLayout::default(),
         };
 
         (app, temp)
@@ -1630,6 +1721,37 @@ mod tests {
         let (app, _temp) = test_app();
         assert!(app.running);
         assert_eq!(app.screen, Screen::Main);
+    }
+
+    #[test]
+    fn test_art_layout_default() {
+        assert_eq!(ArtLayout::default(), ArtLayout::ArtRight);
+    }
+
+    #[test]
+    fn test_content_width_main_screen() {
+        let (app, _temp) = test_app();
+        let width = app.content_width();
+        // Main menu should have reasonable width (based on menu item text)
+        assert!(width >= 30 && width <= 50);
+    }
+
+    #[test]
+    fn test_content_width_varies_by_screen() {
+        let (mut app, _temp) = test_app();
+
+        let main_width = app.content_width();
+
+        app.screen = Screen::Settings;
+        let settings_width = app.content_width();
+
+        app.screen = Screen::Help;
+        let help_width = app.content_width();
+
+        // Different screens can have different widths
+        assert!(main_width > 0);
+        assert!(settings_width > 0);
+        assert!(help_width > 0);
     }
 
     #[test]
