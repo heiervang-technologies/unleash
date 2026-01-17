@@ -286,6 +286,7 @@ fn check_authentication() {
 }
 
 /// Create restart trigger file (called by restart-claude command)
+#[allow(dead_code)]
 pub fn trigger_restart(wrapper_pid: u32, message: Option<&str>) -> io::Result<()> {
     let trigger_file = cache_dir().join(format!("restart-trigger-{}", wrapper_pid));
     let message_file = cache_dir().join(format!("restart-message-{}", wrapper_pid));
@@ -301,6 +302,7 @@ pub fn trigger_restart(wrapper_pid: u32, message: Option<&str>) -> io::Result<()
 }
 
 /// Exit without restart (called by exit-claude command)
+#[allow(dead_code)]
 pub fn trigger_exit(wrapper_pid: u32) -> io::Result<()> {
     // Just send SIGTERM to the wrapper process
     use nix::sys::signal::{kill, Signal};

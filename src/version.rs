@@ -156,6 +156,7 @@ pub struct VersionInfo {
 #[derive(Debug, Clone)]
 pub struct InstallResult {
     pub success: bool,
+    #[allow(dead_code)]
     pub stdout: String,
     pub stderr: String,
     pub error: Option<String>,
@@ -534,6 +535,7 @@ pub fn install_version(version: &str, json: bool) -> io::Result<()> {
 }
 
 /// Show current version
+#[allow(dead_code)]
 pub fn show_current() -> io::Result<()> {
     let vm = VersionManager::new();
     match vm.get_installed_version() {

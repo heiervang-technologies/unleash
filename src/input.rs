@@ -86,10 +86,12 @@ impl MenuState {
         }
     }
 
+    #[allow(dead_code)]
     pub fn select_first(&mut self) {
         self.selected = 0;
     }
 
+    #[allow(dead_code)]
     pub fn select_last(&mut self) {
         if self.items_count > 0 {
             self.selected = self.items_count - 1;
@@ -128,6 +130,7 @@ impl MenuState {
 
     /// Get the range of items to display
     /// Returns (start_index, items_to_show)
+    #[allow(dead_code)]
     pub fn visible_range(&self, visible_count: usize) -> (usize, usize) {
         let start = self.scroll_offset;
         let count = visible_count.min(self.items_count.saturating_sub(start));

@@ -4,7 +4,7 @@
 
 mod app;
 
-pub use app::{App, AppAction, LaunchRequest, UpdateRequest};
+pub use app::{App, AppAction};
 
 use crossterm::{
     event::{self, DisableMouseCapture, EnableMouseCapture},

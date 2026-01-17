@@ -42,6 +42,7 @@ impl Profile {
     }
 
     /// Create a profile with common Anthropic env vars
+    #[allow(dead_code)]
     pub fn with_api_key(name: &str, api_key: &str) -> Self {
         let mut env = HashMap::new();
         env.insert("ANTHROPIC_API_KEY".to_string(), api_key.to_string());
@@ -53,16 +54,19 @@ impl Profile {
     }
 
     /// Set an environment variable
+    #[allow(dead_code)]
     pub fn set_env(&mut self, key: &str, value: &str) {
         self.env.insert(key.to_string(), value.to_string());
     }
 
     /// Get an environment variable
+    #[allow(dead_code)]
     pub fn get_env(&self, key: &str) -> Option<&String> {
         self.env.get(key)
     }
 
     /// Remove an environment variable
+    #[allow(dead_code)]
     pub fn remove_env(&mut self, key: &str) -> Option<String> {
         self.env.remove(key)
     }

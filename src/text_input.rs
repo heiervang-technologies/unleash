@@ -34,6 +34,7 @@ impl TextInput {
         self
     }
 
+    #[allow(dead_code)]
     pub fn hidden(mut self) -> Self {
         self.hidden = true;
         self
@@ -157,6 +158,7 @@ impl TextInput {
     }
 
     /// Get display value (censored if hidden)
+    #[allow(dead_code)]
     pub fn display_value(&self) -> String {
         if self.value.is_empty() {
             return self.placeholder.clone();

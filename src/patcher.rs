@@ -249,6 +249,7 @@ pub fn patch() -> io::Result<()> {
 }
 
 /// Show current version
+#[allow(dead_code)]
 pub fn show_current() -> io::Result<()> {
     match get_claude_version() {
         Ok(v) => println!("Claude Code version: {}", v),

@@ -96,6 +96,17 @@ if $INTERACTIVE; then
         cat "$REPO_ROOT/ct4-right.ans"
     elif [[ -f "$REPO_ROOT/src/assets/ct4-right.ans" ]]; then
         cat "$REPO_ROOT/src/assets/ct4-right.ans"
+    else
+        # Fallback ASCII art if ANSI art file not found
+        echo ""
+        echo "   ╭─────────────────────────────────────╮"
+        echo "   │                                     │"
+        echo "   │      ⚡ CLAUDE UNLEASHED ⚡         │"
+        echo "   │                                     │"
+        echo "   │      Breaking free from limits      │"
+        echo "   │                                     │"
+        echo "   ╰─────────────────────────────────────╯"
+        echo ""
     fi
     echo ""
     echo -e "${GREEN}Press Enter to unleash Claude...${NC}"

@@ -3,6 +3,8 @@
 //! Renders arbitrary "images" as colored ASCII grids in the terminal.
 //! Supports 24-bit RGB colors via ANSI escape sequences.
 
+#![allow(dead_code)]
+
 use std::collections::HashMap;
 use std::io::{self, Write};
 

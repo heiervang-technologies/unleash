@@ -46,6 +46,7 @@ pub struct SuccessOutput {
 }
 
 /// Generic error response
+#[allow(dead_code)]
 #[derive(Debug, Serialize, Deserialize)]
 pub struct ErrorOutput {
     pub success: bool,
@@ -61,6 +62,7 @@ pub fn print_json<T: Serialize>(value: &T) {
 }
 
 /// Output an error as JSON to stdout
+#[allow(dead_code)]
 pub fn print_error_json(error: &str) {
     print_json(&ErrorOutput {
         success: false,

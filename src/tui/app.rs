@@ -21,6 +21,9 @@ use std::sync::mpsc::{self, Receiver};
 use std::thread::{self, JoinHandle};
 use std::time::Instant;
 
+/// Width of the ANSI art sidebar (both left and right versions are the same width)
+const ART_WIDTH: u16 = 53;
+
 /// Application screens
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Screen {
@@ -40,7 +43,9 @@ pub enum Screen {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum EditField {
     None,
+    #[allow(dead_code)]
     ProfileName,
+    #[allow(dead_code)]
     ProfileDescription,
     EnvKey,
     EnvValue,
@@ -925,7 +930,7 @@ impl App {
             let content_chunks = Layout::default()
                 .direction(Direction::Horizontal)
                 .constraints([
-                    Constraint::Length(53),            // Art on left (exact width)
+                    Constraint::Length(ART_WIDTH),     // Art on left (exact width)
                     Constraint::Length(content_width), // Content on right (dynamic)
                     Constraint::Min(0),                // Remaining space
                 ])
@@ -939,7 +944,7 @@ impl App {
                 .direction(Direction::Horizontal)
                 .constraints([
                     Constraint::Length(content_width), // Content on left (dynamic)
-                    Constraint::Length(53),            // Art on right (exact width)
+                    Constraint::Length(ART_WIDTH),     // Art on right (exact width)
                     Constraint::Min(0),                // Remaining space
                 ])
                 .split(main_chunks[0]);
@@ -1057,7 +1062,7 @@ impl App {
             .collect();
 
         // Show scroll indicator if needed
-        let scroll_hint = if menu_items.len() > visible_items {
+        let _scroll_hint = if menu_items.len() > visible_items {
             format!(" [{}/{}]", scroll_offset + 1, menu_items.len().saturating_sub(visible_items) + 1)
         } else {
             String::new()
@@ -1098,7 +1103,7 @@ impl App {
     }
 
     fn render_profile_edit(&self, frame: &mut Frame, area: Rect) {
-        let profile = match &self.editing_profile {
+        let _profile = match &self.editing_profile {
             Some(p) => p,
             None => return,
         };
@@ -1156,7 +1161,7 @@ impl App {
 
         frame.render_widget(Clear, dialog_area);
 
-        let title = if self.editing_env_index.is_some() { " Edit Variable " } else { " New Variable " };
+        let _title = if self.editing_env_index.is_some() { " Edit Variable " } else { " New Variable " };
 
         let key_style = if self.edit_field == EditField::EnvKey {
             Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)
@@ -1336,7 +1341,7 @@ impl App {
             )),
         ]));
 
-        let hint = if self.edit_field != EditField::None {
+        let _hint = if self.edit_field != EditField::None {
             " [Enter=save Esc=cancel] "
         } else {
             " Settings [Enter=edit Esc=back] "
@@ -1471,7 +1476,7 @@ impl App {
             VersionFilterMode::Whitelist => "whitelist",
             VersionFilterMode::Blacklist => "blacklist",
         };
-        let title = format!(" Claude Code Versions (v{}, mode: {}){} [Enter=install Esc=back] ", current, mode_str, scroll_indicator);
+        let _title = format!(" Claude Code Versions (v{}, mode: {}){} [Enter=install Esc=back] ", current, mode_str, scroll_indicator);
 
         let mut list_items = items;
 
