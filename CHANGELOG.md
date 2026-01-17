@@ -1,5 +1,12 @@
 # Changelog
 
+## [4.3.0](https://github.com/heiervang-technologies/claude-unleashed/compare/v4.2.0...v4.3.0) (2026-01-17)
+
+
+### Features
+
+* add smooth slide animation for art sidebar ([#65](https://github.com/heiervang-technologies/claude-unleashed/issues/65)) ([ea2841d](https://github.com/heiervang-technologies/claude-unleashed/commit/ea2841daf79f4629b6834cc0f0a9ee1d3bb88361))
+
 ## [4.2.0](https://github.com/heiervang-technologies/claude-unleashed/compare/v4.1.2...v4.2.0) (2026-01-17)
 
 
