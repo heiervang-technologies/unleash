@@ -19,10 +19,93 @@ use std::path::PathBuf;
 use std::process::Command;
 use std::sync::mpsc::{self, Receiver};
 use std::thread::{self, JoinHandle};
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 /// Width of the ANSI art sidebar (both left and right versions are the same width)
 const ART_WIDTH: u16 = 53;
+
+/// Duration of slide animation in milliseconds
+const ANIMATION_DURATION_MS: u64 = 600;
+
+/// State of the art slide animation
+///
+/// The animation slides Claude from one side of the screen to the other.
+/// The sprite starts at its current render position and ends at its destination position.
+/// Progress 0.0 = start position, 1.0 = end position.
+#[derive(Debug, Clone)]
+pub struct ArtAnimation {
+    /// When the animation started
+    pub start_time: Instant,
+    /// Duration of the animation
+    pub duration: Duration,
+    /// True if moving from right side to left side
+    pub to_left_side: bool,
+    /// X position where the art is rendered in the source screen (content_width or 0)
+    pub start_art_x: u16,
+    /// X position where the art is rendered in the destination screen (0 or content_width)
+    pub end_art_x: u16,
+}
+
+impl ArtAnimation {
+    /// Create a new slide animation
+    pub fn new(to_left_side: bool, start_art_x: u16, end_art_x: u16) -> Self {
+        Self {
+            start_time: Instant::now(),
+            duration: Duration::from_millis(ANIMATION_DURATION_MS),
+            to_left_side,
+            start_art_x,
+            end_art_x,
+        }
+    }
+
+    /// Calculate figure_x position based on animation progress
+    /// Returns the X coordinate for the left edge of the full 106-char sprite
+    pub fn figure_x(&self) -> i32 {
+        let progress = self.progress();
+        let art_w = ART_WIDTH as i32;
+
+        // The full sprite is 106 chars (2 * ART_WIDTH).
+        // At start: we want the visible half to align with start_art_x
+        // At end: we want the visible half to align with end_art_x
+        //
+        // When art is on right (start_art_x = content_width):
+        //   - Left half is visible, figure_x = start_art_x (left half at start_art_x..start_art_x+53)
+        // When art is on left (end_art_x = 0):
+        //   - Right half is visible, figure_x = -ART_WIDTH (right half at 0..53)
+        let (start_x, end_x) = if self.to_left_side {
+            // Moving right to left: start with left half visible, end with right half visible
+            (self.start_art_x as i32, -art_w)
+        } else {
+            // Moving left to right: start with right half visible, end with left half visible
+            (-art_w, self.end_art_x as i32)
+        };
+
+        start_x + ((end_x - start_x) as f64 * progress) as i32
+    }
+
+    /// Get animation progress (0.0 to 1.0) with easing
+    pub fn progress(&self) -> f64 {
+        let elapsed = self.start_time.elapsed();
+        if elapsed >= self.duration {
+            return 1.0;
+        }
+
+        // Calculate raw progress (0.0 to 1.0)
+        let progress = elapsed.as_secs_f64() / self.duration.as_secs_f64();
+
+        // Apply ease-in-out cubic easing for smooth acceleration and deceleration
+        if progress < 0.5 {
+            4.0 * progress * progress * progress
+        } else {
+            1.0 - (-2.0 * progress + 2.0).powi(3) / 2.0
+        }
+    }
+
+    /// Check if the animation is complete
+    pub fn is_complete(&self) -> bool {
+        self.start_time.elapsed() >= self.duration
+    }
+}
 
 /// Application screens
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -131,6 +214,12 @@ pub struct App {
     pub animation_frame: usize,
     /// Art layout preference for main view (non-main views use the opposite)
     pub art_layout: ArtLayout,
+    /// Current art slide animation (if any)
+    pub art_animation: Option<ArtAnimation>,
+    /// Whether animations are enabled
+    pub animations_enabled: bool,
+    /// Pending screen transition (waits for animation to complete)
+    pub pending_screen: Option<Screen>,
 }
 
 impl App {
@@ -175,6 +264,9 @@ impl App {
             install_state: None,
             animation_frame: 0,
             art_layout: ArtLayout::ArtRight,
+            art_animation: None,
+            animations_enabled: true,
+            pending_screen: None,
         })
     }
 
@@ -186,6 +278,22 @@ impl App {
     /// Called on each tick to advance animation and poll async operations
     pub fn tick(&mut self) {
         self.animation_frame = self.animation_frame.wrapping_add(1);
+
+        // Clear completed art animations and complete pending screen transitions
+        if let Some(ref animation) = self.art_animation {
+            if animation.is_complete() {
+                self.art_animation = None;
+                // Complete pending screen transition
+                if let Some(next_screen) = self.pending_screen.take() {
+                    self.screen = next_screen;
+                    self.refresh_screen_data();
+                }
+            }
+        } else if let Some(next_screen) = self.pending_screen.take() {
+            // No animation (animations disabled) - complete transition immediately
+            self.screen = next_screen;
+            self.refresh_screen_data();
+        }
 
         // Poll installation progress
         if let Some(ref mut state) = self.install_state {
@@ -246,6 +354,66 @@ impl App {
     /// Get the current spinner frame
     pub fn spinner_frame(&self) -> &'static str {
         SPINNER_FRAMES[self.animation_frame % SPINNER_FRAMES.len()]
+    }
+
+    /// Trigger a slide animation when transitioning between screens
+    /// Call this when navigating from Main to a submenu or vice versa
+    fn trigger_screen_animation(&mut self, from_main: bool, dest_screen: Screen) {
+        if !self.animations_enabled {
+            return;
+        }
+
+        // Determine if Claude should end up on the left side or right side
+        // Main view: art on right by default (art_layout setting)
+        // Submenu: art on opposite side
+        let to_left_side = if from_main {
+            // Going to submenu: Claude moves to opposite of main layout
+            self.art_layout == ArtLayout::ArtRight
+        } else {
+            // Going back to main: Claude moves to main layout side
+            self.art_layout == ArtLayout::ArtLeft
+        };
+
+        // Calculate art X positions based on content widths
+        // Art on right: x = content_width (art starts after content)
+        // Art on left: x = 0 (art starts at left edge)
+        let current_content_width = self.content_width();
+        let dest_content_width = self.content_width_for_screen(dest_screen);
+
+        let (start_art_x, end_art_x) = if to_left_side {
+            // Moving from right to left
+            // Start: art on right side at content_width
+            // End: art on left side at 0
+            (current_content_width, 0)
+        } else {
+            // Moving from left to right
+            // Start: art on left side at 0
+            // End: art on right side at dest_content_width
+            (0, dest_content_width)
+        };
+
+        self.art_animation = Some(ArtAnimation::new(to_left_side, start_art_x, end_art_x));
+    }
+
+    /// Load data for the current screen (called after animation completes)
+    fn refresh_screen_data(&mut self) {
+        match self.screen {
+            Screen::Profiles => self.refresh_profiles(),
+            Screen::VersionManagement => {
+                self.refresh_versions();
+                self.status_message = Some("Loading versions...".to_string());
+            }
+            Screen::Updating => {
+                self.status_message = Some("Updating...".to_string());
+            }
+            Screen::Main
+            | Screen::ProfileEdit
+            | Screen::EnvVarEdit
+            | Screen::Settings
+            | Screen::Help
+            | Screen::ConfirmDelete
+            | Screen::VersionInstalling => {}
+        }
     }
 
     /// Get the default stop prompt from the hook script (source of truth)
@@ -535,23 +703,23 @@ impl App {
                     }
                     1 => {
                         // Profiles
-                        self.screen = Screen::Profiles;
-                        self.refresh_profiles();
+                        self.trigger_screen_animation(true, Screen::Profiles);
+                        self.pending_screen = Some(Screen::Profiles);
                     }
                     2 => {
                         // Claude Code Version
-                        self.screen = Screen::VersionManagement;
-                        self.refresh_versions();
-                        self.status_message = Some("Loading versions...".to_string());
+                        self.trigger_screen_animation(true, Screen::VersionManagement);
+                        self.pending_screen = Some(Screen::VersionManagement);
                     }
                     3 => {
                         // Settings
-                        self.screen = Screen::Settings;
+                        self.trigger_screen_animation(true, Screen::Settings);
+                        self.pending_screen = Some(Screen::Settings);
                     }
                     4 => {
                         // Update TUI
-                        self.screen = Screen::Updating;
-                        self.status_message = Some("Updating...".to_string());
+                        self.trigger_screen_animation(true, Screen::Updating);
+                        self.pending_screen = Some(Screen::Updating);
                     }
                     5 => {
                         // Quit
@@ -565,7 +733,8 @@ impl App {
                 self.running = false;
             }
             NavAction::Help => {
-                self.screen = Screen::Help;
+                self.trigger_screen_animation(true, Screen::Help);
+                self.pending_screen = Some(Screen::Help);
             }
             _ => {}
         }
@@ -643,7 +812,8 @@ impl App {
                 }
             }
             NavAction::Back | NavAction::Quit => {
-                self.screen = Screen::Main;
+                self.trigger_screen_animation(false, Screen::Main);
+                self.pending_screen = Some(Screen::Main);
             }
             _ => {}
         }
@@ -687,7 +857,8 @@ impl App {
                 }
             }
             NavAction::Back | NavAction::Quit => {
-                self.screen = Screen::Main;
+                self.trigger_screen_animation(false, Screen::Main);
+                self.pending_screen = Some(Screen::Main);
             }
             _ => {}
         }
@@ -792,7 +963,8 @@ impl App {
                 }
             }
             NavAction::Back | NavAction::Quit => {
-                self.screen = Screen::Main;
+                self.trigger_screen_animation(false, Screen::Main);
+                self.pending_screen = Some(Screen::Main);
             }
             _ => {}
         }
@@ -801,7 +973,8 @@ impl App {
     fn handle_help_input(&mut self, action: NavAction) {
         match action {
             NavAction::Back | NavAction::Quit | NavAction::Select => {
-                self.screen = Screen::Main;
+                self.trigger_screen_animation(false, Screen::Main);
+                self.pending_screen = Some(Screen::Main);
             }
             _ => {}
         }
@@ -844,7 +1017,8 @@ impl App {
                 return Ok(Some(AppAction::Update(UpdateRequest { repo_dir })));
             }
             NavAction::Back | NavAction::Quit => {
-                self.screen = Screen::Main;
+                self.trigger_screen_animation(false, Screen::Main);
+                self.pending_screen = Some(Screen::Main);
             }
             _ => {}
         }
@@ -853,7 +1027,12 @@ impl App {
 
     /// Calculate the minimum content width needed for the current screen
     fn content_width(&self) -> u16 {
-        match self.screen {
+        self.content_width_for_screen(self.screen)
+    }
+
+    /// Calculate the minimum content width needed for a specific screen
+    fn content_width_for_screen(&self, screen: Screen) -> u16 {
+        match screen {
             Screen::Main => {
                 // Calculate based on actual menu content
                 let current_version = self.cached_installed_version.as_deref().unwrap_or("?");
@@ -925,32 +1104,75 @@ impl App {
 
         let content_width = self.content_width();
 
-        if use_art_left {
-            // Art on left (right-facing Claude), content on right
-            let content_chunks = Layout::default()
-                .direction(Direction::Horizontal)
-                .constraints([
-                    Constraint::Length(ART_WIDTH),     // Art on left (exact width)
-                    Constraint::Length(content_width), // Content on right (dynamic)
-                    Constraint::Min(0),                // Remaining space
-                ])
-                .split(main_chunks[0]);
+        // Check if animation is in progress
+        if let Some(ref animation) = self.art_animation {
+            // During animation: Show the FULL 106-char merged sprite sliding across
+            // Sprite starts at its render position, becomes fully visible in the middle,
+            // and ends at its destination render position with clipping at art boundaries
+            let figure_width = ART_WIDTH * 2; // 106 chars for full sprite
 
-            self.render_art_sidebar(frame, content_chunks[0]); // Right-facing on left
-            self.render_screen_content(frame, content_chunks[1]);
+            // Calculate figure position based on animation progress
+            let figure_x = animation.figure_x();
+
+            // Define clipping boundaries (the "invisible borders"):
+            // - Left boundary: always at x=0
+            // - Right boundary: right edge of the right-side art area
+            // The visible area during animation is the union of both art areas
+            let right_boundary = animation.start_art_x.max(animation.end_art_x) + ART_WIDTH;
+
+            // Calculate visible portion with clipping at both boundaries
+            let (render_x, scroll_x, render_width) = {
+                // Left clipping: if figure starts before x=0
+                let left_clip = if figure_x < 0 { (-figure_x) as u16 } else { 0 };
+                let visible_start = figure_x.max(0) as u16;
+
+                // Right clipping: figure can't extend beyond right_boundary
+                let figure_right = (figure_x + figure_width as i32) as u16;
+                let visible_end = figure_right.min(right_boundary);
+
+                // Calculate final render parameters
+                let width = visible_end.saturating_sub(visible_start);
+                (visible_start, left_clip, width)
+            };
+
+            let figure_rect = Rect {
+                x: main_chunks[0].x + render_x,
+                y: main_chunks[0].y,
+                width: render_width,
+                height: main_chunks[0].height,
+            };
+
+            let max_lines = figure_rect.height as usize;
+            let art_lines: Vec<Line> = mascots::unleashed_claude_full_ratatui(max_lines);
+            let art_widget = Paragraph::new(art_lines).scroll((0, scroll_x));
+            frame.render_widget(art_widget, figure_rect);
         } else {
-            // Content on left, art on right (left-facing Claude)
-            let content_chunks = Layout::default()
-                .direction(Direction::Horizontal)
-                .constraints([
-                    Constraint::Length(content_width), // Content on left (dynamic)
-                    Constraint::Length(ART_WIDTH),     // Art on right (exact width)
-                    Constraint::Min(0),                // Remaining space
-                ])
-                .split(main_chunks[0]);
+            // Not animating: render the appropriate half
+            if use_art_left {
+                let content_chunks = Layout::default()
+                    .direction(Direction::Horizontal)
+                    .constraints([
+                        Constraint::Length(ART_WIDTH),
+                        Constraint::Length(content_width),
+                        Constraint::Min(0),
+                    ])
+                    .split(main_chunks[0]);
 
-            self.render_art_sidebar_left(frame, content_chunks[1]); // Left-facing on right
-            self.render_screen_content(frame, content_chunks[0]);
+                self.render_art_sidebar(frame, content_chunks[0]); // Right-facing on left
+                self.render_screen_content(frame, content_chunks[1]);
+            } else {
+                let content_chunks = Layout::default()
+                    .direction(Direction::Horizontal)
+                    .constraints([
+                        Constraint::Length(content_width),
+                        Constraint::Length(ART_WIDTH),
+                        Constraint::Min(0),
+                    ])
+                    .split(main_chunks[0]);
+
+                self.render_art_sidebar_left(frame, content_chunks[1]); // Left-facing on right
+                self.render_screen_content(frame, content_chunks[0]);
+            }
         }
 
         self.render_status_bar(frame, main_chunks[1]);
@@ -1727,6 +1949,9 @@ mod tests {
             install_state: None,
             animation_frame: 0,
             art_layout: ArtLayout::default(),
+            art_animation: None,
+            animations_enabled: true,
+            pending_screen: None,
         };
 
         (app, temp)
@@ -1783,11 +2008,16 @@ mod tests {
     fn test_screen_transitions() {
         let (mut app, _temp) = test_app();
 
+        // Disable animations for instant transitions in test
+        app.animations_enabled = false;
+
         app.main_menu.selected = 1;
         let _ = app.handle_main_input(NavAction::Select);
+        app.tick(); // Complete pending transition
         assert_eq!(app.screen, Screen::Profiles);
 
         app.handle_profiles_input(NavAction::Back);
+        app.tick(); // Complete pending transition
         assert_eq!(app.screen, Screen::Main);
     }
 

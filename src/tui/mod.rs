@@ -125,11 +125,11 @@ fn run_app(
         terminal.draw(|f| app.render(f))?;
 
         // Handle events with timeout for responsiveness
-        // Use shorter timeout during installation for smoother animation
-        let timeout = if app.install_state.is_some() {
-            Duration::from_millis(50)
+        // Use shorter timeout during animations for smooth 60 FPS
+        let timeout = if app.art_animation.is_some() || app.install_state.is_some() {
+            Duration::from_millis(16) // ~60 FPS for smooth animation
         } else {
-            Duration::from_millis(100)
+            Duration::from_millis(100) // Lower FPS when idle to save CPU
         };
 
         if event::poll(timeout)? {

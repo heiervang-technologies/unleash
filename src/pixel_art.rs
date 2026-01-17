@@ -476,6 +476,24 @@ pub mod mascots {
             .collect()
     }
 
+    /// Full-figure Claude (both halves merged) - 106 chars wide
+    pub fn unleashed_claude_full() -> String {
+        include_str!("assets/ct4-full.ans").to_string()
+    }
+
+    /// Get full-figure Claude art as ratatui Lines (parsed ANSI)
+    #[cfg(feature = "tui")]
+    pub fn unleashed_claude_full_ratatui(max_lines: usize) -> Vec<RatatuiLine<'static>> {
+        let art = unleashed_claude_full();
+        let all_lines = super::parse_ansi_to_ratatui(&art);
+        // Skip leading blank lines to align art to top
+        all_lines
+            .into_iter()
+            .skip_while(|line| line.spans.iter().all(|s| s.content.trim().is_empty()))
+            .take(max_lines)
+            .collect()
+    }
+
     /// Orange snail mascot for Claude Unleashed
     pub fn orange_snail() -> PixelArt {
         let orange = Color::CLAUDE_ORANGE;
