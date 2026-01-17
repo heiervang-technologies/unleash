@@ -1,5 +1,12 @@
 # Changelog
 
+## [4.5.0](https://github.com/heiervang-technologies/claude-unleashed/compare/v4.4.0...v4.5.0) (2026-01-17)
+
+
+### Features
+
+* Add cutx go command and cutxg shorthand ([1da5a46](https://github.com/heiervang-technologies/claude-unleashed/commit/1da5a460074f0fb265af699123192d257010cb32))
+
 ## [4.4.0](https://github.com/heiervang-technologies/claude-unleashed/compare/v4.3.0...v4.4.0) (2026-01-17)
 
 
