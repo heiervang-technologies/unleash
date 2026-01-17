@@ -1,5 +1,12 @@
 # Changelog
 
+## [4.1.2](https://github.com/heiervang-technologies/claude-unleashed/compare/v4.1.1...v4.1.2) (2026-01-17)
+
+
+### Bug Fixes
+
+* add --force flag to npm install for version downgrades ([#60](https://github.com/heiervang-technologies/claude-unleashed/issues/60)) ([e30a1f5](https://github.com/heiervang-technologies/claude-unleashed/commit/e30a1f53eedf71ea1bf43fda007e5bc5e4d91aab))
+
 ## [4.1.1](https://github.com/heiervang-technologies/claude-unleashed/compare/v4.1.0...v4.1.1) (2026-01-17)
 
 
