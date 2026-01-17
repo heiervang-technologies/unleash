@@ -83,6 +83,12 @@ fn main() -> io::Result<()> {
             let args: Vec<String> = env::args().skip(1).collect();
             return tmux::run(&args);
         }
+        "cutxg" => {
+            // Shorthand for 'cutx go' - start and attach to tmux session
+            let mut args: Vec<String> = vec!["go".to_string()];
+            args.extend(env::args().skip(1));
+            return tmux::run(&args);
+        }
         _ => {}
     }
 

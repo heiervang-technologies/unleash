@@ -183,8 +183,8 @@ if $BUILD_TUI; then
         if cargo build --release; then
             success "CLI built successfully"
 
-            # Install all binaries (cu, cui, cug, cutx)
-            for bin in cu cui cug cutx; do
+            # Install all binaries (cu, cui, cug, cutx, cutxg)
+            for bin in cu cui cug cutx cutxg; do
                 if [[ -f "$REPO_ROOT/target/release/$bin" ]]; then
                     cp "$REPO_ROOT/target/release/$bin" "$BIN_DIR/$bin"
                     chmod +x "$BIN_DIR/$bin"
@@ -253,10 +253,10 @@ echo "╰───────────────────────�
 echo ""
 echo "CLI Commands:"
 echo "  cu             - Show help"
-echo "  cu go          - Start Claude with unleashed features"
-echo "  cug            - Shorthand for 'cu go'"
+echo "  cu go / cug    - Start Claude with unleashed features"
 echo "  cu ui / cui    - TUI for profile/version management"
 echo "  cu tmux / cutx - Headless tmux mode"
+echo "  cutx go / cutxg - Start tmux session and attach"
 echo "  cu auth        - Check authentication status"
 echo "  cu patch       - Patch Claude Code for auto mode"
 echo "  cu version     - Manage Claude Code versions"
@@ -268,7 +268,7 @@ echo ""
 echo "Quick start:"
 echo "  cug              - Start Claude with unleashed features"
 echo "  cug --auto       - Start in auto mode"
-echo "  cug -p \"prompt\"  - Headless mode with prompt"
+echo "  cutxg            - Start Claude in tmux and attach"
 echo ""
 
 if ! $BUILD_TUI; then
