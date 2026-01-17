@@ -1,5 +1,17 @@
 # Changelog
 
+## [4.4.0](https://github.com/heiervang-technologies/claude-unleashed/compare/v4.3.0...v4.4.0) (2026-01-17)
+
+
+### Features
+
+* Update README with animation demo GIF ([73c6126](https://github.com/heiervang-technologies/claude-unleashed/commit/73c61260ecffe5173f82e5f7ad7a85bbd8c7891a))
+
+
+### Bug Fixes
+
+* Async version loading and settings text truncation ([6bed2df](https://github.com/heiervang-technologies/claude-unleashed/commit/6bed2df607feeab6a8095d7273c7ba0e3840c9eb))
+
 ## [4.3.0](https://github.com/heiervang-technologies/claude-unleashed/compare/v4.2.0...v4.3.0) (2026-01-17)
 
 
