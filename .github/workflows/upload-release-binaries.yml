@@ -13,14 +13,7 @@ on:
 
 jobs:
   build-and-upload:
-    strategy:
-      matrix:
-        include:
-          - os: self-hosted
-            target: x86_64-unknown-linux-gnu
-            artifact: cu-linux-x86_64
-
-    runs-on: ${{ matrix.os }}
+    runs-on: self-hosted
     permissions:
       contents: write
 
@@ -33,17 +26,17 @@ jobs:
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
         with:
-          targets: ${{ matrix.target }}
+          targets: x86_64-unknown-linux-gnu
 
       - name: Build release
-        run: cargo build --release --target ${{ matrix.target }}
+        run: cargo build --release --target x86_64-unknown-linux-gnu
 
       - name: Rename binary
         run: |
-          cp target/${{ matrix.target }}/release/cu ${{ matrix.artifact }}
+          cp target/x86_64-unknown-linux-gnu/release/cu cu-linux-x86_64
 
       - name: Upload to release
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ github.event.inputs.tag_name }}
-          files: ${{ matrix.artifact }}
+          files: cu-linux-x86_64
