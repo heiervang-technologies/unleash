@@ -1,5 +1,12 @@
 # Changelog
 
+## [4.1.0](https://github.com/heiervang-technologies/claude-unleashed/compare/v4.0.0...v4.1.0) (2026-01-17)
+
+
+### Features
+
+* add muscular Claude artwork to TUI and installer ([#56](https://github.com/heiervang-technologies/claude-unleashed/issues/56)) ([48e2bd4](https://github.com/heiervang-technologies/claude-unleashed/commit/48e2bd40c99e8cf9e4df606673733883685d2b5c))
+
 ## [4.0.0](https://github.com/heiervang-technologies/claude-unleashed/compare/v3.0.0...v4.0.0) (2026-01-17)
 
 
