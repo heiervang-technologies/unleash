@@ -58,6 +58,11 @@ pub fn run() -> io::Result<()> {
     match result {
         Ok(Some(action)) => match action {
             AppAction::Launch(launch_request) => {
+                // Ensure patches are applied before launching
+                if let Err(e) = crate::patcher::check_and_patch() {
+                    eprintln!("Warning: Failed to check/apply patches: {}", e);
+                }
+
                 // Launch Claude directly - no transition messages for seamless flow
                 match launch_request.execute() {
                     Ok(status) => {

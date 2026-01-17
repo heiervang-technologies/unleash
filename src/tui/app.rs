@@ -1620,9 +1620,20 @@ impl LaunchRequest {
         let wrapper_pid = std::process::id();
         cmd.env("CLAUDE_WRAPPER_PID", wrapper_pid.to_string());
 
-        // Set process name to include wrapper PID for identification
-        // Format: "claude:<pid>" - allows correlating with conversation later
-        cmd.arg0(format!("claude:{}", wrapper_pid));
+        // Only override arg0 for direct claude invocations.
+        // When launching cug/cu, we must preserve argv[0] so the binary
+        // can detect it was invoked as "cug" and run the launcher mode.
+        let cmd_name = std::path::Path::new(&self.claude_path)
+            .file_name()
+            .and_then(|n| n.to_str())
+            .unwrap_or("");
+
+        if cmd_name == "claude" {
+            // Set process name to include wrapper PID for identification
+            // Format: "claude:<pid>" - allows correlating with conversation later
+            cmd.arg0(format!("claude:{}", wrapper_pid));
+        }
+        // For cug/cu, let the binary see its natural argv[0]
 
         cmd.args(&self.claude_args);
         cmd.status()

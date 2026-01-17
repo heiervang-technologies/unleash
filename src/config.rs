@@ -78,7 +78,7 @@ pub struct AppConfig {
     /// The currently selected profile name
     #[serde(default = "default_profile_name")]
     pub current_profile: String,
-    /// Path to claude executable (default: "claude")
+    /// Path to claude executable (default: "cug" for full unleashed features)
     #[serde(default = "default_claude_path")]
     pub claude_path: String,
     /// Additional arguments to pass to claude
@@ -94,8 +94,12 @@ fn default_profile_name() -> String {
 }
 
 fn default_claude_path() -> String {
-    // Default to plain claude - use `cu go` or `cug` for unleashed features
-    "claude".to_string()
+    // Default to cug (cu go) for full unleashed features:
+    // - Auto-patching for auto mode
+    // - Restart/resurrection support
+    // - Plugin loading
+    // - Extended timeouts
+    "cug".to_string()
 }
 
 impl Default for AppConfig {

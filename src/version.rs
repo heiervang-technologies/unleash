@@ -691,6 +691,7 @@ mod tests {
         assert!(!DEFAULT_WHITELIST.is_empty(), "Default whitelist should not be empty");
 
         // Verify expected versions are in the default whitelist
+        assert!(DEFAULT_WHITELIST.contains(&"2.1.12"), "2.1.12 should be whitelisted");
         assert!(DEFAULT_WHITELIST.contains(&"2.1.4"), "2.1.4 should be whitelisted");
         assert!(DEFAULT_WHITELIST.contains(&"2.1.3"), "2.1.3 should be whitelisted");
         assert!(DEFAULT_WHITELIST.contains(&"2.1.2"), "2.1.2 should be whitelisted");

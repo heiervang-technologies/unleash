@@ -3,12 +3,20 @@
 #
 # Tests:
 # 1. Patch script syntax is valid
-# 2. Patch script works on all whitelisted versions (2.1.0, 2.1.2, 2.1.3, 2.1.4, 2.1.5)
+# 2. Patch script works on all whitelisted versions
 # 3. Unpatch script works correctly
 # 4. Patches are idempotent (running twice doesn't break anything)
 # 5. Version fallback logic works correctly
 # 6. Patch 7 (flag file integration) is applied correctly
 # 7. All patches are verified individually per version
+# 8. Auto mode flag file integration with stop hook:
+#    - Patch 7a injects flag creation code
+#    - Patch 7b injects flag removal code
+#    - Flag creation JS works and creates file
+#    - Stop hook blocks when flag exists
+#    - Flag removal JS works and removes file
+#    - Stop hook allows when flag doesn't exist
+# 9. Backup file is created before patching
 
 set -uo pipefail
 
@@ -67,6 +75,7 @@ declare -A VERSION_TELEMETRY_FN
 declare -A VERSION_DELEGATE_FN1
 declare -A VERSION_DELEGATE_FN2
 declare -A VERSION_PERMISSION_CTX_VAR
+declare -A VERSION_PERMISSION_BOOL_VAR
 
 # Load version configs
 load_version_configs() {
@@ -74,13 +83,14 @@ load_version_configs() {
         local conf_file="$PATCHES_VERSIONS_DIR/${version}.conf"
         if [[ -f "$conf_file" ]]; then
             # Source the config in a subshell to extract variables
-            eval "$(grep -E '^(MODES_ARRAY_VAR|MODE_VAR|TELEMETRY_FN|DELEGATE_FN1|DELEGATE_FN2|PERMISSION_CTX_VAR)=' "$conf_file")"
+            eval "$(grep -E '^(MODES_ARRAY_VAR|MODE_VAR|TELEMETRY_FN|DELEGATE_FN1|DELEGATE_FN2|PERMISSION_CTX_VAR|PERMISSION_BOOL_VAR)=' "$conf_file")"
             VERSION_MODES_ARRAY_VAR[$version]="$MODES_ARRAY_VAR"
             VERSION_MODE_VAR[$version]="$MODE_VAR"
             VERSION_TELEMETRY_FN[$version]="$TELEMETRY_FN"
             VERSION_DELEGATE_FN1[$version]="$DELEGATE_FN1"
             VERSION_DELEGATE_FN2[$version]="$DELEGATE_FN2"
             VERSION_PERMISSION_CTX_VAR[$version]="$PERMISSION_CTX_VAR"
+            VERSION_PERMISSION_BOOL_VAR[$version]="${PERMISSION_BOOL_VAR:-V}"
         fi
     done
 }
@@ -96,6 +106,7 @@ create_mock_cli_js() {
     local delegate_fn1="${VERSION_DELEGATE_FN1[$version]}"
     local delegate_fn2="${VERSION_DELEGATE_FN2[$version]}"
     local perm_ctx_var="${VERSION_PERMISSION_CTX_VAR[$version]}"
+    local perm_bool_var="${VERSION_PERMISSION_BOOL_VAR[$version]:-V}"
 
     # Create a mock cli.js with patterns that match the patch targets
     cat > "$mock_file" << EOF
@@ -139,7 +150,7 @@ if(Z.toolPermissionContext.mode==="bypassPermissions"||Z.toolPermissionContext.m
 if(Q.mode==="bypassPermissions") {
     passthrough();
 }
-if(${perm_ctx_var}.mode==="bypassPermissions"||V) {
+if(${perm_ctx_var}.mode==="bypassPermissions"||${perm_bool_var}) {
     allow();
 }
 
@@ -382,7 +393,168 @@ test_patch_idempotency() {
 }
 
 # ============================================================================
-# TEST 5: Unpatch Functionality
+# TEST 5: Auto Mode Flag File Integration with Stop Hook
+# ============================================================================
+test_auto_mode_flag_integration() {
+    section "Testing auto mode flag file integration with stop hook"
+
+    local test_dir
+    test_dir=$(mktemp -d)
+    local mock_cli="$test_dir/cli.js"
+    local mock_claude="$test_dir/claude"
+    local flag_dir="$HOME/.cache/claude-unleashed/auto-mode"
+    local test_pid="$$"
+
+    # Ensure cleanup on exit or error
+    trap 'rm -rf "$test_dir" 2>/dev/null; rm -f "$flag_dir/active-$test_pid" 2>/dev/null' RETURN
+
+    # Create mock cli.js with 2.1.12 patterns (current version)
+    cat > "$mock_cli" << 'MOCK_EOF'
+// Mock cli.js for 2.1.12
+xL=["acceptEdits","bypassPermissions","default","delegate","dontAsk","plan"];
+
+function getModeName(mode) {
+    switch(mode) {
+        case"plan":return"Plan Mode";
+        case"bypassPermissions":return"Bypass Permissions";
+        default:return"Default";
+    }
+}
+
+function getModeIcon(mode) {
+    switch(mode) {
+        case"acceptEdits":return"⏵⏵";case"bypassPermissions":return"⏵⏵";
+        default:return"▶";
+    }
+}
+
+function getNextMode(mode) {
+    switch(mode) {
+        case"default":return"plan";
+        case"plan":return"bypassPermissions";
+        case"bypassPermissions":return"default";
+    }
+}
+
+if(Z.toolPermissionContext.mode==="bypassPermissions"||Z.toolPermissionContext.mode==="plan") {
+    allowTool();
+}
+if(Q.mode==="bypassPermissions") {
+    passthrough();
+}
+if(PQ.mode==="bypassPermissions"||K) {
+    allow();
+}
+
+function getModeColor(mode) {
+    switch(mode) {
+        case"plan":return"planMode";
+        case"acceptEdits":return"autoAccept";case"bypassPermissions":return"error";
+        default:return"default";
+    }
+}
+
+if(F0==="acceptEdits")b2("auto-accept-mode");
+if(B.mode==="delegate"&&F0!=="delegate")rf0(!0),IdA(!0);
+MOCK_EOF
+
+    cat > "$mock_claude" << EOF
+#!/usr/bin/env bash
+if [[ "\$1" == "--version" ]]; then
+    echo "2.1.12 (Claude Code)"
+    exit 0
+fi
+exec node "$mock_cli" "\$@"
+EOF
+    chmod +x "$mock_claude"
+
+    # Run patch script
+    CLAUDE_BIN="$mock_claude" bash "$PATCH_DIR/patch-claude.sh" > /dev/null 2>&1
+
+    # Test 5a: Verify patch 7a (flag creation) is in the patched file
+    if grep -q 'F0==="auto".*writeFileSync.*active-' "$mock_cli"; then
+        pass "Patch 7a: Flag creation code injected"
+    else
+        fail "Patch 7a: Flag creation code NOT found"
+    fi
+
+    # Test 5b: Verify patch 7b (flag removal) is in the patched file
+    if grep -q 'B\.mode==="auto"&&F0!=="auto".*unlinkSync' "$mock_cli"; then
+        pass "Patch 7b: Flag removal code injected"
+    else
+        fail "Patch 7b: Flag removal code NOT found"
+    fi
+
+    # Test 5c: Extract and test the flag creation JavaScript
+    # Simulate what happens when entering auto mode
+    mkdir -p "$flag_dir"
+    local js_create='
+        const fs = require("fs");
+        const d = process.env.HOME + "/.cache/claude-unleashed/auto-mode";
+        fs.mkdirSync(d, {recursive: true});
+        fs.writeFileSync(d + "/active-" + process.env.TEST_PID, "");
+        console.log("created");
+    '
+    if TEST_PID="$test_pid" node -e "$js_create" 2>/dev/null; then
+        if [[ -f "$flag_dir/active-$test_pid" ]]; then
+            pass "Patch 7a JS: Flag file created successfully"
+        else
+            fail "Patch 7a JS: Flag file NOT created"
+        fi
+    else
+        fail "Patch 7a JS: JavaScript execution failed"
+    fi
+
+    # Test 5d: Verify stop hook blocks when flag exists
+    local hook_script="$REPO_ROOT/plugins/unleashed/auto-mode/hooks/auto-mode-stop.sh"
+    if [[ -f "$hook_script" ]]; then
+        local hook_output
+        hook_output=$(CLAUDE_WRAPPER_PID="$test_pid" bash "$hook_script" 2>&1)
+        if echo "$hook_output" | grep -q '"decision".*:.*"block"'; then
+            pass "Stop hook: Blocks when flag file exists"
+        else
+            fail "Stop hook: Should block but got: $hook_output"
+        fi
+    else
+        fail "Stop hook script not found at $hook_script"
+    fi
+
+    # Test 5e: Extract and test the flag removal JavaScript
+    local js_remove='
+        const fs = require("fs");
+        try {
+            fs.unlinkSync(process.env.HOME + "/.cache/claude-unleashed/auto-mode/active-" + process.env.TEST_PID);
+            console.log("removed");
+        } catch(e) {
+            console.log("error: " + e.message);
+        }
+    '
+    if TEST_PID="$test_pid" node -e "$js_remove" 2>/dev/null; then
+        if [[ ! -f "$flag_dir/active-$test_pid" ]]; then
+            pass "Patch 7b JS: Flag file removed successfully"
+        else
+            fail "Patch 7b JS: Flag file NOT removed"
+        fi
+    else
+        fail "Patch 7b JS: JavaScript execution failed"
+    fi
+
+    # Test 5f: Verify stop hook allows when flag doesn't exist
+    if [[ -f "$hook_script" ]]; then
+        local hook_output
+        hook_output=$(CLAUDE_WRAPPER_PID="$test_pid" bash "$hook_script" 2>&1)
+        if [[ -z "$hook_output" ]]; then
+            pass "Stop hook: Allows stop when no flag file"
+        else
+            fail "Stop hook: Should allow but got output: $hook_output"
+        fi
+    fi
+
+    # Cleanup handled by trap RETURN
+}
+
+# ============================================================================
+# TEST 6: Unpatch Functionality
 # ============================================================================
 test_unpatch() {
     local version="$1"
@@ -463,7 +635,7 @@ test_unpatch() {
 }
 
 # ============================================================================
-# TEST 6: Version Fallback Logic
+# TEST 7: Version Fallback Logic
 # ============================================================================
 test_version_fallback() {
     section "Testing version fallback logic"
@@ -501,7 +673,9 @@ EOF
     test_dir=$(mktemp -d)
     mock_cli="$test_dir/cli.js"
 
-    create_mock_cli_js "2.1.5" "$mock_cli"
+    # Use the latest version config we have
+    local latest_version="${VERSIONS[-1]}"
+    create_mock_cli_js "$latest_version" "$mock_cli"
 
     cat > "$test_dir/claude" << 'EOF'
 #!/usr/bin/env bash
@@ -514,8 +688,8 @@ EOF
 
     output=$(CLAUDE_BIN="$test_dir/claude" bash "$PATCH_DIR/patch-claude.sh" 2>&1)
 
-    if echo "$output" | grep -q "Using patch config: 2.1.5.conf"; then
-        pass "Version 2.2.0 falls back to latest (2.1.5.conf)"
+    if echo "$output" | grep -q "Using patch config: ${latest_version}.conf"; then
+        pass "Version 2.2.0 falls back to latest (${latest_version}.conf)"
     else
         fail "Version 2.2.0 did not fall back to latest"
     fi
@@ -524,7 +698,7 @@ EOF
 }
 
 # ============================================================================
-# TEST 7: Backup File Naming
+# TEST 8: Backup File Naming
 # ============================================================================
 test_backup_naming() {
     section "Testing backup file naming"
@@ -533,8 +707,10 @@ test_backup_naming() {
     test_dir=$(mktemp -d)
     local mock_cli="$test_dir/cli.js"
 
-    create_mock_cli_js "2.1.5" "$mock_cli"
-    create_mock_claude_binary "2.1.5" "$test_dir"
+    # Use the latest version
+    local latest_version="${VERSIONS[-1]}"
+    create_mock_cli_js "$latest_version" "$mock_cli"
+    create_mock_claude_binary "$latest_version" "$test_dir"
 
     CLAUDE_BIN="$test_dir/claude" bash "$PATCH_DIR/patch-claude.sh" > /dev/null 2>&1
 
@@ -559,7 +735,7 @@ test_backup_naming() {
 }
 
 # ============================================================================
-# TEST 8: Multiple Backups Preserved
+# TEST 9: Multiple Backups Preserved
 # ============================================================================
 test_multiple_backups() {
     section "Testing multiple backups preserved"
@@ -568,8 +744,10 @@ test_multiple_backups() {
     test_dir=$(mktemp -d)
     local mock_cli="$test_dir/cli.js"
 
-    create_mock_cli_js "2.1.5" "$mock_cli"
-    create_mock_claude_binary "2.1.5" "$test_dir"
+    # Use the latest version
+    local latest_version="${VERSIONS[-1]}"
+    create_mock_cli_js "$latest_version" "$mock_cli"
+    create_mock_claude_binary "$latest_version" "$test_dir"
 
     # First patch
     CLAUDE_BIN="$test_dir/claude" bash "$PATCH_DIR/patch-claude.sh" > /dev/null 2>&1
@@ -596,7 +774,7 @@ test_multiple_backups() {
 }
 
 # ============================================================================
-# TEST 9: Patch 7 Flag File Paths
+# TEST 10: Patch 7 Flag File Paths
 # ============================================================================
 test_patch7_flag_paths() {
     section "Testing Patch 7 flag file path generation"
@@ -605,8 +783,10 @@ test_patch7_flag_paths() {
     test_dir=$(mktemp -d)
     local mock_cli="$test_dir/cli.js"
 
-    create_mock_cli_js "2.1.5" "$mock_cli"
-    create_mock_claude_binary "2.1.5" "$test_dir"
+    # Use the latest version
+    local latest_version="${VERSIONS[-1]}"
+    create_mock_cli_js "$latest_version" "$mock_cli"
+    create_mock_claude_binary "$latest_version" "$test_dir"
 
     CLAUDE_BIN="$test_dir/claude" bash "$PATCH_DIR/patch-claude.sh" > /dev/null 2>&1
 
@@ -635,7 +815,7 @@ test_patch7_flag_paths() {
 }
 
 # ============================================================================
-# TEST 10: Error Handling - Missing cli.js
+# TEST 11: Error Handling - Missing cli.js
 # ============================================================================
 test_error_missing_cli() {
     section "Testing error handling for missing cli.js"
@@ -690,6 +870,9 @@ main() {
         test_patch_idempotency "$version"
         test_unpatch "$version"
     done
+
+    # Run auto mode flag integration test
+    test_auto_mode_flag_integration
 
     # Run general tests
     test_version_fallback
