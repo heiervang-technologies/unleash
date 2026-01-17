@@ -120,10 +120,130 @@ jobs:
       - name: Run patch tests
         run: ./tests/test-patches.sh
 
+  test-patches-matrix:
+    name: Test Patches (${{ matrix.version }})
+    runs-on: self-hosted
+    strategy:
+      fail-fast: false
+      matrix:
+        version: ["2.1.0", "2.1.2", "2.1.3", "2.1.4", "2.1.5"]
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Make scripts executable
+        run: chmod +x tests/*.sh scripts/*.sh
+
+      - name: Create version-specific mock environment
+        run: |
+          MOCK_DIR=$(mktemp -d)
+          echo "MOCK_DIR=$MOCK_DIR" >> $GITHUB_ENV
+
+          # Source the version config
+          source scripts/patches/versions/${{ matrix.version }}.conf
+
+          # Create mock cli.js with version-specific patterns
+          cat > "$MOCK_DIR/cli.js" << MOCKEOF
+          // Mock cli.js for ${{ matrix.version }}
+          ${MODES_ARRAY_VAR}=["acceptEdits","bypassPermissions","default","delegate","dontAsk","plan"];
+          function getModeName(mode){switch(mode){case"plan":return"Plan Mode";case"bypassPermissions":return"Bypass Permissions";case"acceptEdits":return"Accept Edits";default:return"Default"}}
+          function getModeIcon(mode){switch(mode){case"acceptEdits":return"⏵⏵";case"bypassPermissions":return"⏵⏵";default:return"▶"}}
+          function getNextMode(mode){switch(mode){case"default":return"plan";case"plan":return"bypassPermissions";case"bypassPermissions":return"default"}}
+          if(Z.toolPermissionContext.mode==="bypassPermissions"||Z.toolPermissionContext.mode==="plan"){allowTool()}
+          if(Q.mode==="bypassPermissions"){passthrough()}
+          if(${PERMISSION_CTX_VAR}.mode==="bypassPermissions"||V){allow()}
+          function getModeColor(mode){switch(mode){case"plan":return"planMode";case"acceptEdits":return"autoAccept";case"bypassPermissions":return"error";default:return"default"}}
+          if(${MODE_VAR}==="acceptEdits")${TELEMETRY_FN}("auto-accept-mode");
+          if(B.mode==="delegate"&&${MODE_VAR}!=="delegate")${DELEGATE_FN1}(!0),${DELEGATE_FN2}(!0);
+          MOCKEOF
+
+          # Create mock claude binary
+          cat > "$MOCK_DIR/claude" << SCRIPTEOF
+          #!/usr/bin/env bash
+          if [[ "\$1" == "--version" ]]; then
+            echo "${{ matrix.version }} (Claude Code)"
+            exit 0
+          fi
+          exec node "$MOCK_DIR/cli.js" "\$@"
+          SCRIPTEOF
+          chmod +x "$MOCK_DIR/claude"
+
+      - name: Apply patches for version ${{ matrix.version }}
+        run: |
+          CLAUDE_BIN="$MOCK_DIR/claude" ./scripts/patch-claude.sh
+
+      - name: Verify all patches for version ${{ matrix.version }}
+        run: |
+          CLI="$MOCK_DIR/cli.js"
+          source scripts/patches/versions/${{ matrix.version }}.conf
+
+          echo "Verifying patches for version ${{ matrix.version }}..."
+
+          # Patch 1: auto in modes array
+          grep -q "${MODES_ARRAY_VAR}=\[.*\"auto\"" "$CLI" || (echo "FAIL: Patch 1 - auto not in modes array" && exit 1)
+          echo "✓ Patch 1: auto added to modes array (${MODES_ARRAY_VAR})"
+
+          # Patch 2: display name
+          grep -q 'case"auto":return"Auto Mode"' "$CLI" || (echo "FAIL: Patch 2 - display name missing" && exit 1)
+          echo "✓ Patch 2: display name added"
+
+          # Patch 3: icon
+          grep -q 'case"auto":return"»»"' "$CLI" || (echo "FAIL: Patch 3 - icon missing" && exit 1)
+          echo "✓ Patch 3: icon added"
+
+          # Patch 4: cycling logic (check BOTH patterns)
+          grep -q 'case"bypassPermissions":return"auto"' "$CLI" || (echo "FAIL: Patch 4a - bypass->auto cycling missing" && exit 1)
+          grep -q 'case"auto":return"default"' "$CLI" || (echo "FAIL: Patch 4b - auto->default cycling missing" && exit 1)
+          echo "✓ Patch 4: cycling logic updated (bypass->auto->default)"
+
+          # Patch 5a: Main permission check (Z.toolPermissionContext)
+          grep -q 'mode==="auto"||Z\.toolPermissionContext\.mode==="plan"' "$CLI" || (echo "FAIL: Patch 5a - main permission check missing" && exit 1)
+          echo "✓ Patch 5a: main permission check updated"
+
+          # Patch 5b: Q.mode passthrough
+          grep -q 'Q\.mode==="bypassPermissions"||Q\.mode==="auto"' "$CLI" || (echo "FAIL: Patch 5b - Q.mode passthrough missing" && exit 1)
+          echo "✓ Patch 5b: Q.mode passthrough updated"
+
+          # Patch 5c: Permission context variable check
+          grep -q "${PERMISSION_CTX_VAR}\.mode===\"auto\"" "$CLI" || (echo "FAIL: Patch 5c - ${PERMISSION_CTX_VAR}.mode check missing" && exit 1)
+          echo "✓ Patch 5c: ${PERMISSION_CTX_VAR}.mode permission check updated"
+
+          # Patch 6: color
+          grep -q 'case"auto":return"warning"' "$CLI" || (echo "FAIL: Patch 6 - color missing" && exit 1)
+          echo "✓ Patch 6: warning color added"
+
+          # Patch 7a: flag file creation
+          grep -q "${MODE_VAR}===\"auto\")import(\"fs\")" "$CLI" || (echo "FAIL: Patch 7a - flag creation pattern missing" && exit 1)
+          grep -q 'mkdirSync' "$CLI" && grep -q 'auto-mode' "$CLI" || (echo "FAIL: Patch 7a - flag creation logic missing" && exit 1)
+          echo "✓ Patch 7a: flag file creation injected (${MODE_VAR})"
+
+          # Patch 7b: flag file removal
+          grep -q 'B\.mode==="auto"' "$CLI" || (echo "FAIL: Patch 7b - auto mode exit check missing" && exit 1)
+          grep -q 'unlinkSync' "$CLI" || (echo "FAIL: Patch 7b - flag removal missing" && exit 1)
+          echo "✓ Patch 7b: flag file removal injected"
+
+          echo "All patches verified for version ${{ matrix.version }}!"
+
+      - name: Test idempotency for version ${{ matrix.version }}
+        run: |
+          output=$(CLAUDE_BIN="$MOCK_DIR/claude" ./scripts/patch-claude.sh 2>&1)
+          if echo "$output" | grep -q "Already patched"; then
+            echo "✓ Idempotency check passed"
+          else
+            echo "FAIL: Second patch should detect already-patched state"
+            exit 1
+          fi
+
   test-plugins-with-patches:
     name: Test Plugins + Patches Combined
     runs-on: self-hosted
-    needs: [test-plugins, test-patches]
+    needs: [test-plugins, test-patches, test-patches-matrix]
 
     steps:
       - name: Checkout repository
@@ -239,7 +359,7 @@ jobs:
   summary:
     name: Test Summary
     runs-on: self-hosted
-    needs: [shellcheck, test-cutx, test-plugins, test-patches, test-plugins-with-patches]
+    needs: [shellcheck, test-cutx, test-plugins, test-patches, test-patches-matrix, test-plugins-with-patches]
     if: always()
 
     steps:
@@ -252,7 +372,8 @@ jobs:
           echo "| ShellCheck Linting | ${{ needs.shellcheck.result == 'success' && '✅ Passed' || '❌ Failed' }} |" >> $GITHUB_STEP_SUMMARY
           echo "| cutx Tests (Headless Mode) | ${{ needs.test-cutx.result == 'success' && '✅ Passed' || '❌ Failed' }} |" >> $GITHUB_STEP_SUMMARY
           echo "| Plugin Tests | ${{ needs.test-plugins.result == 'success' && '✅ Passed' || '❌ Failed' }} |" >> $GITHUB_STEP_SUMMARY
-          echo "| Patch Tests | ${{ needs.test-patches.result == 'success' && '✅ Passed' || '❌ Failed' }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Patch Tests (Comprehensive) | ${{ needs.test-patches.result == 'success' && '✅ Passed' || '❌ Failed' }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Patch Tests (Matrix: 2.1.0-2.1.5) | ${{ needs.test-patches-matrix.result == 'success' && '✅ Passed' || '❌ Failed' }} |" >> $GITHUB_STEP_SUMMARY
           echo "| Integration Tests | ${{ needs.test-plugins-with-patches.result == 'success' && '✅ Passed' || '❌ Failed' }} |" >> $GITHUB_STEP_SUMMARY
 
       - name: Check test results
@@ -261,6 +382,7 @@ jobs:
              [[ "${{ needs.test-cutx.result }}" == "success" ]] && \
              [[ "${{ needs.test-plugins.result }}" == "success" ]] && \
              [[ "${{ needs.test-patches.result }}" == "success" ]] && \
+             [[ "${{ needs.test-patches-matrix.result }}" == "success" ]] && \
              [[ "${{ needs.test-plugins-with-patches.result }}" == "success" ]]; then
             echo "✅ All integration tests passed!"
             exit 0
@@ -270,6 +392,7 @@ jobs:
             echo "  - test-cutx: ${{ needs.test-cutx.result }}"
             echo "  - test-plugins: ${{ needs.test-plugins.result }}"
             echo "  - test-patches: ${{ needs.test-patches.result }}"
+            echo "  - test-patches-matrix: ${{ needs.test-patches-matrix.result }}"
             echo "  - test-plugins-with-patches: ${{ needs.test-plugins-with-patches.result }}"
             exit 1
           fi
