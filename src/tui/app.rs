@@ -208,6 +208,8 @@ pub struct App {
     pub selected_version: Option<String>,
     /// Cached installed version to avoid calling `claude --version` on every frame
     pub cached_installed_version: Option<String>,
+    /// Receiver for async version fetch (None once received)
+    version_fetch_receiver: Option<Receiver<Option<String>>>,
     /// Async installation state
     pub install_state: Option<InstallState>,
     /// Animation frame counter (increments each tick)
@@ -235,8 +237,14 @@ impl App {
             .or_else(|| profiles.first().cloned());
 
         let version_manager = VersionManager::new();
-        // Cache the installed version once at startup to avoid subprocess on every frame
-        let cached_installed_version = version_manager.get_installed_version();
+
+        // Spawn a background thread to fetch the installed version asynchronously
+        // This prevents blocking the TUI startup
+        let (version_tx, version_rx) = mpsc::channel();
+        thread::spawn(move || {
+            let version = VersionManager::new().get_installed_version();
+            let _ = version_tx.send(version);
+        });
 
         Ok(Self {
             running: true,
@@ -260,7 +268,8 @@ impl App {
             version_menu: MenuState::new(0),
             versions: Vec::new(),
             selected_version: None,
-            cached_installed_version,
+            cached_installed_version: None, // Will be populated async
+            version_fetch_receiver: Some(version_rx),
             install_state: None,
             animation_frame: 0,
             art_layout: ArtLayout::ArtRight,
@@ -278,6 +287,14 @@ impl App {
     /// Called on each tick to advance animation and poll async operations
     pub fn tick(&mut self) {
         self.animation_frame = self.animation_frame.wrapping_add(1);
+
+        // Poll async version fetch
+        if let Some(ref receiver) = self.version_fetch_receiver {
+            if let Ok(version) = receiver.try_recv() {
+                self.cached_installed_version = version;
+                self.version_fetch_receiver = None;
+            }
+        }
 
         // Clear completed art animations and complete pending screen transitions
         if let Some(ref animation) = self.art_animation {
@@ -1539,15 +1556,33 @@ impl App {
                     Style::default().fg(Color::Cyan)
                 };
 
-                ListItem::new(vec![
-                    Line::from(vec![
-                        Span::styled(prefix, style),
-                        Span::styled(*name, style),
-                        Span::styled(": ", Style::default().fg(Color::DarkGray)),
-                        Span::styled(display_value, value_style),
-                    ]),
-                    Line::from(Span::styled(format!("    {}", desc), Style::default().fg(Color::DarkGray))),
-                ])
+                // Show value on separate line if it's long (> 30 chars) for better visibility
+                let value_on_new_line = display_value.len() > 30;
+
+                if value_on_new_line {
+                    ListItem::new(vec![
+                        Line::from(vec![
+                            Span::styled(prefix, style),
+                            Span::styled(*name, style),
+                            Span::styled(":", Style::default().fg(Color::DarkGray)),
+                        ]),
+                        Line::from(vec![
+                            Span::raw("    "),
+                            Span::styled(display_value, value_style),
+                        ]),
+                        Line::from(Span::styled(format!("    {}", desc), Style::default().fg(Color::DarkGray))),
+                    ])
+                } else {
+                    ListItem::new(vec![
+                        Line::from(vec![
+                            Span::styled(prefix, style),
+                            Span::styled(*name, style),
+                            Span::styled(": ", Style::default().fg(Color::DarkGray)),
+                            Span::styled(display_value, value_style),
+                        ]),
+                        Line::from(Span::styled(format!("    {}", desc), Style::default().fg(Color::DarkGray))),
+                    ])
+                }
             })
             .collect();
 
@@ -1946,6 +1981,7 @@ mod tests {
             versions: Vec::new(),
             selected_version: None,
             cached_installed_version: None,
+            version_fetch_receiver: None,
             install_state: None,
             animation_frame: 0,
             art_layout: ArtLayout::default(),
