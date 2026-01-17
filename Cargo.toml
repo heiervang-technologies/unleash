@@ -1,6 +1,6 @@
 [package]
 name = "claude-unleashed"
-version = "4.1.0"
+version = "4.1.1"
 edition = "2021"
 description = "Claude Unleashed - Extended CLI for Claude Code"
 authors = ["Heiervang Technologies"]

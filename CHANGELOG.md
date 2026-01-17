@@ -1,5 +1,12 @@
 # Changelog
 
+## [4.1.1](https://github.com/heiervang-technologies/claude-unleashed/compare/v4.1.0...v4.1.1) (2026-01-17)
+
+
+### Bug Fixes
+
+* address code review issues ([#61](https://github.com/heiervang-technologies/claude-unleashed/issues/61)) ([0a27c3b](https://github.com/heiervang-technologies/claude-unleashed/commit/0a27c3b47a45f1a833f710b33084cf8d6e439fff))
+
 ## [4.1.0](https://github.com/heiervang-technologies/claude-unleashed/compare/v4.0.0...v4.1.0) (2026-01-17)
 
 
