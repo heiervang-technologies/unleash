@@ -1,5 +1,12 @@
 # Changelog
 
+## [4.5.1](https://github.com/heiervang-technologies/claude-unleashed/compare/v4.5.0...v4.5.1) (2026-01-19)
+
+
+### Bug Fixes
+
+* use Zot registry instead of Docker Hub for snail image ([#75](https://github.com/heiervang-technologies/claude-unleashed/issues/75)) ([23ca208](https://github.com/heiervang-technologies/claude-unleashed/commit/23ca208a348a14ab90672ef7735c714d7702ba64))
+
 ## [4.5.0](https://github.com/heiervang-technologies/claude-unleashed/compare/v4.4.0...v4.5.0) (2026-01-17)
 
 
