@@ -28,7 +28,7 @@ jobs:
       mention_handle: 'marksverdhai'
       agent_name: 'marksverdhai'
       agent_type: 'single-task'
-      snail_image_default: 'marksverdhei/snail:dev-gpu'
+      snail_image_default: '192.168.8.170:30501/snail:dev-gpu'
       postgrest_url: ${{ vars.POSTGREST_URL }}
       issue_number: ${{ inputs.issue_number }}
       test_prompt: ${{ inputs.test_prompt }}
