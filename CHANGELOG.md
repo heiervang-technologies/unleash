@@ -1,5 +1,13 @@
 # Changelog
 
+## [4.6.1](https://github.com/heiervang-technologies/claude-unleashed/compare/v4.6.0...v4.6.1) (2026-01-21)
+
+
+### Bug Fixes
+
+* add auto-onboard bypass and whitelist version 2.1.14 ([a53e720](https://github.com/heiervang-technologies/claude-unleashed/commit/a53e720d7ba41fed9c4284e6711ede81762d796c)), closes [#83](https://github.com/heiervang-technologies/claude-unleashed/issues/83)
+* remove 2.1.14 from whitelist ([0f4c2eb](https://github.com/heiervang-technologies/claude-unleashed/commit/0f4c2eb8dee77b29f67c1a111df0f71080df22df))
+
 ## [4.6.0](https://github.com/heiervang-technologies/claude-unleashed/compare/v4.5.2...v4.6.0) (2026-01-21)
 
 
