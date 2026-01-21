@@ -691,7 +691,6 @@ mod tests {
         assert!(!DEFAULT_WHITELIST.is_empty(), "Default whitelist should not be empty");
 
         // Verify expected versions are in the default whitelist
-        assert!(DEFAULT_WHITELIST.contains(&"2.1.14"), "2.1.14 should be whitelisted");
         assert!(DEFAULT_WHITELIST.contains(&"2.1.12"), "2.1.12 should be whitelisted");
         assert!(DEFAULT_WHITELIST.contains(&"2.1.4"), "2.1.4 should be whitelisted");
         assert!(DEFAULT_WHITELIST.contains(&"2.1.3"), "2.1.3 should be whitelisted");
@@ -713,7 +712,6 @@ mod tests {
     #[test]
     fn test_is_whitelisted() {
         // Test that whitelisted versions are detected
-        assert!(is_whitelisted("2.1.14"), "2.1.14 should be whitelisted");
         assert!(is_whitelisted("2.1.12"), "2.1.12 should be whitelisted");
         assert!(is_whitelisted("2.1.4"), "2.1.4 should be whitelisted");
         assert!(is_whitelisted("2.1.3"), "2.1.3 should be whitelisted");
@@ -721,6 +719,7 @@ mod tests {
         assert!(is_whitelisted("2.0.77"), "2.0.77 should be whitelisted");
 
         // Test that non-whitelisted versions are not detected
+        assert!(!is_whitelisted("2.1.14"), "2.1.14 should not be whitelisted");
         assert!(!is_whitelisted("2.1.5"), "2.1.5 should not be whitelisted");
         assert!(!is_whitelisted("2.1.1"), "2.1.1 should not be whitelisted");
         assert!(!is_whitelisted("2.1.0"), "2.1.0 should not be whitelisted");

@@ -544,7 +544,7 @@ install_support_files() {
     mkdir -p "${INSTALL_DIR}/patches/versions"
 
     # Get list of patch configs from repo
-    for version in "2.1.0" "2.1.2" "2.1.3" "2.1.4" "2.1.5" "2.1.12" "2.1.14"; do
+    for version in "2.1.0" "2.1.2" "2.1.3" "2.1.4" "2.1.5" "2.1.12"; do
         if download "${RAW_URL}/scripts/patches/versions/${version}.conf" "${INSTALL_DIR}/patches/versions/${version}.conf" 2>/dev/null; then
             :
         fi
