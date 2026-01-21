@@ -1,5 +1,12 @@
 # Changelog
 
+## [4.6.0](https://github.com/heiervang-technologies/claude-unleashed/compare/v4.5.2...v4.6.0) (2026-01-21)
+
+
+### Features
+
+* Add OpenRouter configuration for Codex CLI ([c7ecdb0](https://github.com/heiervang-technologies/claude-unleashed/commit/c7ecdb009c1194ee4fd48512087517b9c52c584b))
+
 ## [4.5.2](https://github.com/heiervang-technologies/claude-unleashed/compare/v4.5.1...v4.5.2) (2026-01-21)
 
 
