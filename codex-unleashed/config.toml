@@ -1,0 +1,17 @@
+# OpenRouter Configuration
+model_provider = "openrouter"
+model = "z-ai/glm-4.7"
+
+[model_providers.openrouter]
+name = "OpenRouter"
+base_url = "https://openrouter.ai/api/v1"
+env_key = "OPENROUTER_API_KEY"
+wire_api = "responses"
+
+# Profile for Minimax model
+[profiles.minimax]
+model = "minimax/minimax-m2.1"
+model_provider = "openrouter"
+
+[projects."/home/me/claude-unleashed"]
+trust_level = "trusted"
