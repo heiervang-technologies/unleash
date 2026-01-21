@@ -544,7 +544,7 @@ install_support_files() {
     mkdir -p "${INSTALL_DIR}/patches/versions"
 
     # Get list of patch configs from repo
-    for version in "2.1.0" "2.1.2" "2.1.3" "2.1.4" "2.1.5" "2.1.12"; do
+    for version in "2.1.0" "2.1.2" "2.1.3" "2.1.4" "2.1.5" "2.1.12" "2.1.14"; do
         if download "${RAW_URL}/scripts/patches/versions/${version}.conf" "${INSTALL_DIR}/patches/versions/${version}.conf" 2>/dev/null; then
             :
         fi
@@ -575,6 +575,57 @@ show_path_instructions() {
         echo -e "  ${CYAN}source ~/.bashrc${NC}  # or ~/.zshrc"
         echo ""
     fi
+}
+
+# Ensure onboarding is completed (bypasses interactive prompts)
+ensure_onboarding_complete() {
+    local claude_json="${HOME}/.claude.json"
+    local claude_dir="${HOME}/.claude"
+
+    # Ensure .claude directory exists
+    mkdir -p "$claude_dir"
+
+    # Get current Claude version for lastOnboardingVersion
+    local claude_version
+    claude_version=$(claude --version 2>/dev/null | head -1 | sed 's/ (Claude Code)//' || echo "2.1.0")
+
+    if [[ -f "$claude_json" ]]; then
+        # File exists - update required fields using jq or sed
+        if command -v jq &>/dev/null; then
+            local tmp_file
+            tmp_file=$(mktemp)
+            if jq --arg ver "$claude_version" '
+                .hasCompletedOnboarding = true |
+                .bypassPermissionsModeAccepted = true |
+                .lastOnboardingVersion = $ver
+            ' "$claude_json" > "$tmp_file" 2>/dev/null; then
+                mv "$tmp_file" "$claude_json"
+            else
+                rm -f "$tmp_file"
+            fi
+        else
+            # Fallback: use sed for simple updates
+            if grep -q '"hasCompletedOnboarding"' "$claude_json"; then
+                sed -i 's/"hasCompletedOnboarding":\s*false/"hasCompletedOnboarding": true/g' "$claude_json"
+            fi
+            if grep -q '"bypassPermissionsModeAccepted"' "$claude_json"; then
+                sed -i 's/"bypassPermissionsModeAccepted":\s*false/"bypassPermissionsModeAccepted": true/g' "$claude_json"
+            fi
+        fi
+    else
+        # Create new file with required fields
+        cat > "$claude_json" << EOF
+{
+  "hasCompletedOnboarding": true,
+  "lastOnboardingVersion": "${claude_version}",
+  "bypassPermissionsModeAccepted": true,
+  "numStartups": 1,
+  "installMethod": "claude-unleashed"
+}
+EOF
+    fi
+
+    success "Onboarding bypass configured"
 }
 
 # Run initial patch
@@ -638,6 +689,9 @@ main() {
 
     # Run patch
     run_patch
+
+    # Configure onboarding bypass
+    ensure_onboarding_complete
 
     # Show completion message
     echo ""
