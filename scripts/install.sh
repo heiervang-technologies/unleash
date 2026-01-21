@@ -169,6 +169,30 @@ if $INSTALL_CLAUDE_CODE; then
             NEW_VERSION=$(claude --version 2>/dev/null | head -1 | sed 's/ (Claude Code)//' || echo "unknown")
             success "Claude Code installed: v${NEW_VERSION}"
         fi
+
+        # Create symlink for claude binary in BIN_DIR
+        CLAUDE_BIN=$(command -v claude 2>/dev/null || true)
+        if [[ -n "$CLAUDE_BIN" ]]; then
+            # Resolve to actual binary path to avoid circular symlinks
+            # (e.g., when ~/.local/bin/claude is already a symlink and in PATH)
+            CLAUDE_REAL=$(readlink -f "$CLAUDE_BIN" 2>/dev/null || realpath "$CLAUDE_BIN" 2>/dev/null || echo "$CLAUDE_BIN")
+            TARGET_PATH="$BIN_DIR/claude"
+
+            # Get real path of target to compare (if it exists)
+            TARGET_REAL=""
+            if [[ -e "$TARGET_PATH" ]] || [[ -L "$TARGET_PATH" ]]; then
+                TARGET_REAL=$(readlink -f "$TARGET_PATH" 2>/dev/null || realpath "$TARGET_PATH" 2>/dev/null || echo "$TARGET_PATH")
+            fi
+
+            if [[ "$CLAUDE_REAL" == "$TARGET_REAL" ]]; then
+                success "Symlink already correct: $TARGET_PATH"
+            elif [[ ! -e "$TARGET_PATH" ]] || [[ -L "$TARGET_PATH" ]]; then
+                ln -sf "$CLAUDE_REAL" "$TARGET_PATH"
+                success "Symlink: $TARGET_PATH -> $CLAUDE_REAL"
+            else
+                warn "$TARGET_PATH exists and is not a symlink, skipping"
+            fi
+        fi
     else
         warn "npm not found, skipping Claude Code installation"
         warn "Install Node.js from https://nodejs.org/ to install Claude Code"
