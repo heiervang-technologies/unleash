@@ -1,5 +1,13 @@
 # Changelog
 
+## [4.5.2](https://github.com/heiervang-technologies/claude-unleashed/compare/v4.5.1...v4.5.2) (2026-01-21)
+
+
+### Bug Fixes
+
+* update TUI update logic, documentation paths, and install scripts ([b88220e](https://github.com/heiervang-technologies/claude-unleashed/commit/b88220e4a09abb15c3f6e11591fd2e665c453c36))
+* update TUI update logic, documentation paths, and install scripts ([7a1f78c](https://github.com/heiervang-technologies/claude-unleashed/commit/7a1f78c7a8a4a350ae4d9d8a247474c098ec993a))
+
 ## [4.5.1](https://github.com/heiervang-technologies/claude-unleashed/compare/v4.5.0...v4.5.1) (2026-01-19)
 
 
