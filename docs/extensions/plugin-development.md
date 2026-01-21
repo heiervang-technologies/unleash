@@ -523,7 +523,7 @@ Model Context Protocol servers for external tool integration.
 
 1. **Create Plugin Directory**:
 ```bash
-cd /home/me/claude-unleashed/claude-code/plugins
+cd plugins/unleashed
 mkdir my-plugin
 cd my-plugin
 ```
@@ -573,7 +573,7 @@ EOF
 
 2. **Test Command**:
 ```bash
-cc --plugin-dir /home/me/claude-unleashed/claude-code/plugins/my-plugin
+cc --plugin-dir plugins/unleashed/my-plugin
 # In Claude: /my-command
 ```
 
@@ -721,7 +721,7 @@ See [Testing Plugins Locally](#testing-plugins-locally) section.
 
 1. **Use --plugin-dir Flag**:
 ```bash
-cc --plugin-dir /home/me/claude-unleashed/claude-code/plugins/my-plugin
+cc --plugin-dir plugins/unleashed/my-plugin
 ```
 
 This loads only your plugin for isolated testing.
@@ -1058,9 +1058,9 @@ git checkout -b feature/my-plugin-name
 
 2. **Develop and Test**:
 ```bash
-# Create plugin in claude-code/plugins/
+# Create plugin in plugins/unleashed/
 # Test locally
-cc --plugin-dir claude-code/plugins/my-plugin
+cc --plugin-dir plugins/unleashed/my-plugin
 
 # Run any tests
 # Verify functionality
@@ -1068,7 +1068,7 @@ cc --plugin-dir claude-code/plugins/my-plugin
 
 3. **Commit Changes**:
 ```bash
-git add claude-code/plugins/my-plugin/
+git add plugins/unleashed/my-plugin/
 git commit -m "feat(plugins): add my-plugin for X functionality"
 ```
 
@@ -1132,7 +1132,7 @@ Reviewers should verify:
 
 After merge:
 
-1. Plugin available in claude-code/plugins/
+1. Plugin available in plugins/unleashed/
 2. Users can load with `--plugin-dir`
 3. Consider adding to marketplace
 4. Monitor for issues/feedback
@@ -1188,8 +1188,6 @@ Version bump guidelines:
 
 ## Getting Help
 
-- Review existing plugins in `claude-code/plugins/`
-- Check plugin-dev toolkit: `cc --plugin-dir claude-code/plugins/plugin-dev`
-- Use `/plugin-dev:create-plugin` for guided creation
+- Review existing plugins in `plugins/unleashed/`
 - Ask in project discussions
 - Review Claude Code documentation: https://docs.claude.com/claude-code

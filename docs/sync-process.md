@@ -359,7 +359,7 @@ jobs:
 **Example**:
 ```
 Our changes:
-+ claude-code/plugins/my-plugin/
++ plugins/unleashed/my-plugin/
 
 Upstream changes:
   claude-code/src/core/engine.ts
@@ -498,7 +498,7 @@ You are resolving merge conflicts between our claude-code fork and upstream.
 ## Resolution Strategy
 
 ### High Priority (Keep Ours)
-- Plugins in claude-code/plugins/
+- Plugins in plugins/unleashed/
 - GitHub workflow files in .github/workflows/
 - Documentation in docs/
 

@@ -20,8 +20,8 @@ Claude-unleashed is a fork of [Claude Code](https://github.com/anthropic/claude-
 ```
 claude-unleashed/
 ├── .github/workflows/     # GitHub Actions for agent automation
-├── claude-code/           # Submodule: Fork of Claude Code
-│   └── plugins/           # Custom plugin extensions
+├── claude-code/           # Submodule: Original Claude Code (pristine)
+├── plugins/unleashed/     # Custom plugin extensions
 ├── docs/                  # This documentation
 │   ├── extensions/        # Plugin and extension guides
 │   └── sync-process.md    # Upstream sync documentation
@@ -47,21 +47,36 @@ Located in `docs/extensions/`:
    - Testing and deployment
    - **Start here** for creating new functionality
 
-2. **[Core Patches Guide](./extensions/core-patches.md)**
+2. **[Configuration Guide](./extensions/configuration.md)**
+   - Configuration options for CLI and TUI
+   - Profile management and environment variables
+   - Global settings and stop prompt customization
+
+3. **[Headless Mode (cutx)](./extensions/headless-mode.md)**
+   - Running Claude in tmux sessions for automation
+   - Programmatic access and scripting
+   - Environment variables and session management
+
+4. **[Restart & Refresh Guide](./extensions/restart-refresh.md)**
+   - Process restart capability (resurrection)
+   - MCP configuration change detection
+   - Preserving session state across restarts
+
+5. **[Core Patches Guide](./extensions/core-patches.md)**
    - When and how to patch Claude Code core
    - Policy: Plugin-first approach (patches are rare)
    - Documentation requirements
    - Conflict risk assessment
    - Migration from patches to plugins
 
-3. **[Snail Integration Guide](./extensions/snail-integration.md)**
+6. **[Snail Integration Guide](./extensions/snail-integration.md)**
    - GitHub Actions workflow integration
    - Agent automation via issue/PR triggers
    - MCP server configuration
    - Example commands and agents for GitHub workflows
    - Secrets and configuration management
 
-4. **[Testing Guide](./extensions/testing-guide.md)**
+7. **[Testing Guide](./extensions/testing-guide.md)**
    - Local plugin testing with `--plugin-dir`
    - GitHub workflow testing
    - Integration testing strategies
@@ -219,10 +234,10 @@ See [Sync Process](./sync-process.md) for details.
 
 ```bash
 # Create plugin structure
-mkdir -p claude-code/plugins/my-plugin/{.claude-plugin,commands,agents}
+mkdir -p plugins/unleashed/my-plugin/{.claude-plugin,commands,agents}
 
 # Create manifest
-cat > claude-code/plugins/my-plugin/.claude-plugin/plugin.json <<EOF
+cat > plugins/unleashed/my-plugin/.claude-plugin/plugin.json <<EOF
 {
   "name": "my-plugin",
   "version": "1.0.0",
@@ -231,7 +246,7 @@ cat > claude-code/plugins/my-plugin/.claude-plugin/plugin.json <<EOF
 EOF
 
 # Create command
-cat > claude-code/plugins/my-plugin/commands/my-command.md <<EOF
+cat > plugins/unleashed/my-plugin/commands/my-command.md <<EOF
 ---
 name: my-command
 description: Does something useful
@@ -241,7 +256,7 @@ Implementation here...
 EOF
 
 # Test locally
-cc --plugin-dir claude-code/plugins/my-plugin
+cc --plugin-dir plugins/unleashed/my-plugin
 ```
 
 See full guide: [Plugin Development](./extensions/plugin-development.md)
@@ -399,18 +414,14 @@ See: [Snail Integration - Automated Bug Fix Agent](./extensions/snail-integratio
 
 ## Existing Plugins
 
-The repository includes several pre-built plugins in `claude-code/plugins/`:
+The repository includes several pre-built plugins in `plugins/unleashed/`:
 
 | Plugin | Purpose | Components |
 |--------|---------|------------|
-| **agent-sdk-dev** | Agent SDK development | Commands, Agents |
-| **code-review** | Automated PR review | Command, 5 Agents |
-| **commit-commands** | Git workflow automation | 3 Commands |
-| **feature-dev** | Structured feature development | Command, 3 Agents |
-| **hookify** | Easy hook creation | 4 Commands, Agent |
-| **plugin-dev** | Plugin development toolkit | Command, 3 Agents, 7 Skills |
-| **pr-review-toolkit** | Comprehensive PR review | Command, 6 Agents |
-| **security-guidance** | Security validation | Hooks |
+| **auto-mode** | Autonomous operation mode | Commands, Hooks, Scripts |
+| **mcp-refresh** | MCP config change detection | Commands, Hooks |
+| **process-restart** | Self-restart capability | Commands, Hooks |
+| **voice-output** | Text-to-speech for Claude | Commands, Hooks, Providers |
 
 See plugin README files for usage details.
 
