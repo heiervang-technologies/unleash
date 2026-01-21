@@ -9,18 +9,17 @@ on:
 jobs:
   # Job 1: Sync fork from upstream and merge to unleashed-main
   sync-fork:
-    runs-on: ubuntu-latest
+    runs-on: self-hosted
     outputs:
       has_conflicts: ${{ steps.merge-unleashed.outputs.has_conflicts }}
       conflict_files: ${{ steps.merge-unleashed.outputs.conflict_files }}
 
     steps:
       # Checkout the fork repository with full history
-      - name: Checkout marksverdhai/claude-code
+      - name: Checkout anthropics/claude-code
         uses: actions/checkout@v4
         with:
-          repository: marksverdhai/claude-code
-          token: ${{ secrets.GITHUB_TOKEN }}
+          repository: anthropics/claude-code
           fetch-depth: 0  # Full history for proper merge
           ref: main
 
@@ -100,7 +99,7 @@ jobs:
   handle-conflicts-ai:
     needs: sync-fork
     if: needs.sync-fork.outputs.has_conflicts == 'true'
-    runs-on: ubuntu-latest
+    runs-on: self-hosted
 
     steps:
       # Create GitHub issue to notify about conflicts
@@ -115,12 +114,12 @@ jobs:
 
             const issueBody = `## Upstream Sync Conflict Detected
 
-            The automated daily sync from \`anthropics/claude-code\` to \`marksverdhai/claude-code\` (unleashed-main branch) has encountered merge conflicts.
+            The automated daily sync from \`anthropics/claude-code\` to \`anthropics/claude-code\` (unleashed-main branch) has encountered merge conflicts.
 
             ### Conflict Details
 
             - **Date**: ${date}
-            - **Source**: upstream/main → marksverdhai/claude-code:main → marksverdhai/claude-code:unleashed-main
+            - **Source**: upstream/main → anthropics/claude-code:main → anthropics/claude-code:unleashed-main
             - **Status**: Merge aborted due to conflicts
 
             ### Conflicting Files
@@ -129,9 +128,9 @@ jobs:
 
             ### Action Required
 
-            @marksverdhai Please review and manually resolve these conflicts:
+            @anthropics Please review and manually resolve these conflicts:
 
-            1. Clone the repository: \`git clone https://github.com/marksverdhai/claude-code.git\`
+            1. Clone the repository: \`git clone https://github.com/anthropics/claude-code.git\`
             2. Checkout unleashed-main: \`git checkout unleashed-main\`
             3. Merge main: \`git merge main\`
             4. Resolve conflicts in the files listed above
@@ -154,7 +153,7 @@ jobs:
   notify-success:
     needs: sync-fork
     if: needs.sync-fork.outputs.has_conflicts == 'false'
-    runs-on: ubuntu-latest
+    runs-on: self-hosted
 
     steps:
       # Checkout the parent repository

@@ -42,6 +42,7 @@ impl Profile {
     }
 
     /// Create a profile with common Anthropic env vars
+    #[allow(dead_code)]
     pub fn with_api_key(name: &str, api_key: &str) -> Self {
         let mut env = HashMap::new();
         env.insert("ANTHROPIC_API_KEY".to_string(), api_key.to_string());
@@ -53,16 +54,19 @@ impl Profile {
     }
 
     /// Set an environment variable
+    #[allow(dead_code)]
     pub fn set_env(&mut self, key: &str, value: &str) {
         self.env.insert(key.to_string(), value.to_string());
     }
 
     /// Get an environment variable
+    #[allow(dead_code)]
     pub fn get_env(&self, key: &str) -> Option<&String> {
         self.env.get(key)
     }
 
     /// Remove an environment variable
+    #[allow(dead_code)]
     pub fn remove_env(&mut self, key: &str) -> Option<String> {
         self.env.remove(key)
     }
@@ -74,7 +78,7 @@ pub struct AppConfig {
     /// The currently selected profile name
     #[serde(default = "default_profile_name")]
     pub current_profile: String,
-    /// Path to claude executable (default: "claude")
+    /// Path to claude executable (default: "cug" for full unleashed features)
     #[serde(default = "default_claude_path")]
     pub claude_path: String,
     /// Additional arguments to pass to claude
@@ -90,14 +94,12 @@ fn default_profile_name() -> String {
 }
 
 fn default_claude_path() -> String {
-    // Use wrapper if available (loads plugins), fallback to plain claude
-    let home = std::env::var("HOME").unwrap_or_default();
-    let cuw_path = format!("{}/.local/bin/cuw", home);
-    if std::path::Path::new(&cuw_path).exists() {
-        "cuw".to_string()
-    } else {
-        "claude".to_string()
-    }
+    // Default to cug (cu go) for full unleashed features:
+    // - Auto-patching for auto mode
+    // - Restart/resurrection support
+    // - Plugin loading
+    // - Extended timeouts
+    "cug".to_string()
 }
 
 impl Default for AppConfig {

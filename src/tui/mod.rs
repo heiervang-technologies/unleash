@@ -4,7 +4,7 @@
 
 mod app;
 
-pub use app::{App, AppAction, LaunchRequest, UpdateRequest};
+pub use app::{App, AppAction};
 
 use crossterm::{
     event::{self, DisableMouseCapture, EnableMouseCapture},
@@ -15,8 +15,23 @@ use ratatui::prelude::*;
 use std::io::{self, stdout};
 use std::time::Duration;
 
+/// Check if we're running in a TTY environment
+fn is_tty() -> bool {
+    use std::io::IsTerminal;
+    std::io::stdin().is_terminal()
+}
+
 /// Run the TUI application
 pub fn run() -> io::Result<()> {
+    // Verify we have a TTY before attempting terminal operations
+    if !is_tty() {
+        return Err(io::Error::new(
+            io::ErrorKind::Unsupported,
+            "TUI requires a terminal (TTY). This command cannot run in headless environments.\n\
+             Use non-TUI commands instead: cu auth, cu version, cu patch, cu go",
+        ));
+    }
+
     // Setup terminal
     enable_raw_mode()?;
     let mut stdout = stdout();
@@ -43,6 +58,11 @@ pub fn run() -> io::Result<()> {
     match result {
         Ok(Some(action)) => match action {
             AppAction::Launch(launch_request) => {
+                // Ensure patches are applied before launching
+                if let Err(e) = crate::patcher::check_and_patch() {
+                    eprintln!("Warning: Failed to check/apply patches: {}", e);
+                }
+
                 // Launch Claude directly - no transition messages for seamless flow
                 match launch_request.execute() {
                     Ok(status) => {
@@ -98,11 +118,21 @@ fn run_app(
     app: &mut App,
 ) -> io::Result<Option<AppAction>> {
     loop {
+        // Tick to advance animations and poll async operations
+        app.tick();
+
         // Draw UI
         terminal.draw(|f| app.render(f))?;
 
         // Handle events with timeout for responsiveness
-        if event::poll(Duration::from_millis(100))? {
+        // Use shorter timeout during animations for smooth 60 FPS
+        let timeout = if app.art_animation.is_some() || app.install_state.is_some() {
+            Duration::from_millis(16) // ~60 FPS for smooth animation
+        } else {
+            Duration::from_millis(100) // Lower FPS when idle to save CPU
+        };
+
+        if event::poll(timeout)? {
             let event = event::read()?;
             if let Some(action) = app.handle_event(event)? {
                 return Ok(Some(action));

@@ -8,6 +8,8 @@ Quick visual guide to finding the right documentation.
 docs/
 ├── README.md                          # START HERE - Overview and navigation
 │
+├── auth-check-command.md              # CLI: Authentication verification command
+│
 ├── extensions/                        # Extension Development Guides
 │   ├── plugin-development.md          # PRIMARY: Creating plugins (1195 lines)
 │   ├── configuration.md               # Configuration options (CLI, TUI, settings)
@@ -17,7 +19,11 @@ docs/
 │   ├── snail-integration.md           # GitHub Actions workflows (1332 lines)
 │   └── testing-guide.md               # Testing strategies (1372 lines)
 │
-└── sync-process.md                    # Upstream synchronization (1138 lines)
+├── sync-process.md                    # Upstream synchronization (1138 lines)
+│
+└── (root)
+    ├── JSON_OUTPUT.md                 # CLI: JSON output specification
+    └── tests/README.md                # Test suite documentation
 ```
 
 ## Decision Tree: Which Doc Do I Need?
@@ -28,6 +34,12 @@ docs/
 │      ├─ Commands, agents, skills? → plugin-development.md (Component Types)
 │      ├─ Testing my plugin? → testing-guide.md (Local Plugin Testing)
 │      └─ Cannot be a plugin? → core-patches.md (very rare!)
+│
+┌─ I want to use CLI tools
+│  └─> START: auth-check-command.md
+│      ├─ Check authentication? → auth-check-command.md
+│      ├─ JSON output? → JSON_OUTPUT.md
+│      └─ Run tests? → tests/README.md
 │
 ┌─ I want to configure settings
 │  └─> START: configuration.md
@@ -63,6 +75,9 @@ docs/
 
 | Task | Primary Doc | Related Docs |
 |------|-------------|--------------|
+| Check authentication | auth-check-command.md | JSON_OUTPUT.md |
+| Use JSON output | JSON_OUTPUT.md | auth-check-command.md |
+| Run tests | tests/README.md | - |
 | Create new command | plugin-development.md § Commands | testing-guide.md § Testing Commands |
 | Create agent | plugin-development.md § Agents | snail-integration.md § Example Agents |
 | Create skill | plugin-development.md § Skills | - |
@@ -181,6 +196,10 @@ docs/
 
 ### Quick Search Index
 
+- **Authentication**: auth-check-command.md
+- **auth-check**: auth-check-command.md
+- **JSON output**: JSON_OUTPUT.md
+- **Test suite**: tests/README.md
 - **Plugin creation**: plugin-development.md
 - **Command**: plugin-development.md § Commands
 - **Agent**: plugin-development.md § Agents
@@ -220,6 +239,6 @@ If you can't find what you need:
 
 ---
 
-**Documentation Version**: 1.0.0
-**Last Updated**: 2026-01-01
-**Total Coverage**: 6357 lines across 6 comprehensive guides
+**Documentation Version**: 1.1.0
+**Last Updated**: 2026-01-13
+**Total Coverage**: 6800+ lines across 8 comprehensive guides

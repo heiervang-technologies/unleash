@@ -22,7 +22,7 @@ The `--plugin-dir` flag allows isolated testing of plugins during development.
 
 ```bash
 # Test single plugin
-cc --plugin-dir /home/me/claude-unleashed/claude-code/plugins/my-plugin
+cc --plugin-dir plugins/unleashed/my-plugin
 
 # Test multiple plugins
 cc --plugin-dir /path/to/plugin1 --plugin-dir /path/to/plugin2
@@ -49,7 +49,7 @@ git commit -m "Initial commit"
 2. **Load Plugin**:
 ```bash
 # Launch Claude Code with plugin
-cc --plugin-dir /home/me/claude-unleashed/claude-code/plugins/my-plugin
+cc --plugin-dir plugins/unleashed/my-plugin
 ```
 
 3. **Test Components**:
@@ -789,10 +789,10 @@ git log --oneline -5
 EOF
 
 # 2. Add plugin to repository
-cp -r test-plugin /home/me/claude-unleashed/claude-code/plugins/
+cp -r test-plugin plugins/unleashed/
 
 # 3. Commit and push
-git add claude-code/plugins/test-plugin
+git add plugins/unleashed/test-plugin
 git commit -m "test: add workflow integration test plugin"
 git push
 
@@ -1133,13 +1133,13 @@ EOF
 **Solutions**:
 ```bash
 # 1. Ensure plugin committed to repository
-git add claude-code/plugins/my-plugin
+git add plugins/unleashed/my-plugin
 git commit -m "Add my-plugin"
 git push
 
 # 2. Verify plugin in repository
 gh repo view --web
-# Navigate to claude-code/plugins/
+# Navigate to plugins/unleashed/
 
 # 3. Check workflow mounts plugin directory
 # In spawn-agent.yml, verify repository is mounted
@@ -1323,7 +1323,7 @@ name: Test Plugins
 on:
   pull_request:
     paths:
-      - 'claude-code/plugins/**'
+      - 'plugins/unleashed/**'
 
 jobs:
   test-plugins:
@@ -1336,7 +1336,7 @@ jobs:
 
       - name: Test changed plugins
         run: |
-          for plugin in claude-code/plugins/*/; do
+          for plugin in plugins/unleashed/*/; do
             echo "Testing $plugin"
             ./scripts/test-plugin.sh "$plugin"
           done

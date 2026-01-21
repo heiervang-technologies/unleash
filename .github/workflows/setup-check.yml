@@ -14,7 +14,7 @@ permissions:
 
 jobs:
   check-setup:
-    runs-on: ubuntu-latest
+    runs-on: self-hosted
     outputs:
       setup_complete: ${{ steps.check.outputs.setup_complete }}
       missing_secrets: ${{ steps.check.outputs.missing_secrets }}
@@ -103,7 +103,7 @@ jobs:
   create-setup-issue:
     needs: check-setup
     if: needs.check-setup.outputs.setup_complete == 'false'
-    runs-on: ubuntu-latest
+    runs-on: self-hosted
 
     steps:
       - name: Check if issue already exists
@@ -273,7 +273,7 @@ jobs:
   close-setup-issue:
     needs: check-setup
     if: needs.check-setup.outputs.setup_complete == 'true'
-    runs-on: ubuntu-latest
+    runs-on: self-hosted
 
     steps:
       - name: Close any existing setup issues

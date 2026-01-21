@@ -6,13 +6,19 @@
 set -euo pipefail
 
 # Find Claude Code installation
-CLAUDE_BIN=$(which claude 2>/dev/null || echo "")
+# Allow override via environment variable for testing
+CLAUDE_BIN="${CLAUDE_BIN:-$(which claude 2>/dev/null || echo "")}"
 if [[ -z "$CLAUDE_BIN" ]]; then
     echo "Error: Claude Code not found in PATH"
     exit 1
 fi
 
-CLAUDE_REAL=$(readlink -f "$CLAUDE_BIN")
+# Resolve symlinks in a portable way (works on both Linux and macOS)
+if [[ -L "$CLAUDE_BIN" ]]; then
+    CLAUDE_REAL="$(cd "$(dirname "$CLAUDE_BIN")" && cd "$(dirname "$(readlink "$CLAUDE_BIN")")" && pwd -P)/$(basename "$(readlink "$CLAUDE_BIN")")"
+else
+    CLAUDE_REAL="$CLAUDE_BIN"
+fi
 CLAUDE_DIR=$(dirname "$CLAUDE_REAL")
 CLI_JS="$CLAUDE_DIR/cli.js"
 

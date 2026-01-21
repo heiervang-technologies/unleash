@@ -141,6 +141,7 @@ pub fn run(args: &[String]) -> io::Result<()> {
     let cmd = args.first().map(|s| s.as_str()).unwrap_or("");
 
     match cmd {
+        "go" => cmd_go(&config, &args[1..]),
         "start" => cmd_start(&config, &args[1..]),
         "send" => cmd_send(&config, &args[1..]),
         "read" => cmd_read(&config),
@@ -258,6 +259,28 @@ fn cmd_start(config: &Config, args: &[String]) -> io::Result<()> {
     log_info("Or use 'cutx send \"message\"' to send commands");
 
     Ok(())
+}
+
+/// Start and attach to a Claude session (session closes when Claude exits)
+fn cmd_go(config: &Config, args: &[String]) -> io::Result<()> {
+    check_tmux()?;
+
+    // If session already exists, just attach
+    if session_exists(&config.session_name) {
+        log_info(&format!("Session '{}' already running, attaching...", config.session_name));
+        return cmd_attach(config, false);
+    }
+
+    // Start with daemon mode (session closes when Claude exits)
+    let mut start_args = vec!["--daemon".to_string()];
+    start_args.extend(args.iter().cloned());
+    cmd_start(config, &start_args)?;
+
+    // Small delay to let session initialize
+    thread::sleep(Duration::from_millis(100));
+
+    // Attach to the session
+    cmd_attach(config, false)
 }
 
 /// Send a message to Claude
@@ -480,8 +503,13 @@ fn cmd_help() {
 USAGE:
     cutx <command> [args]
     cutx "message"           Send message and wait for response
+    cutxg                    Shorthand for 'cutx go'
 
 COMMANDS:
+    go [args]       Start session and attach (closes when Claude exits)
+                    This is the recommended way to use cutx interactively.
+                    Shorthand: cutxg
+
     start [--auto] [-d] [args]
                     Start a new Claude session in tmux
                     --auto: enable auto mode (Claude won't stop)
@@ -514,16 +542,21 @@ ENVIRONMENT:
     CUTX_INIT_WAIT         Seconds to wait for Claude to initialize (default: 5)
 
 EXAMPLES:
-    # Start a session and send a message
+    # Start and attach interactively (recommended)
+    cutx go
+    # Or use the shorthand:
+    cutxg
+
+    # Start a background session and send messages
     cutx start
     cutx send "Hello Claude, how are you?"
     cutx wait
     cutx read
 
-    # Or use the shorthand
+    # Or use the query shorthand
     cutx "Hello Claude, how are you?"
 
-    # Attach for interactive use
+    # Attach to existing session
     cutx attach
 
     # Start with auto mode

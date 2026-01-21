@@ -1,25 +1,47 @@
 [package]
 name = "claude-unleashed"
-version = "2.1.0"
-edition = "2024"
+version = "4.5.1"
+edition = "2021"
 description = "Claude Unleashed - Extended CLI for Claude Code"
 authors = ["Heiervang Technologies"]
 license = "MIT"
 
+# All binaries point to the same source - behavior determined by argv[0]
 [[bin]]
 name = "cu"
 path = "src/main.rs"
+
+[[bin]]
+name = "cui"
+path = "src/main.rs"
+
+[[bin]]
+name = "cug"
+path = "src/main.rs"
+
+[[bin]]
+name = "cutx"
+path = "src/main.rs"
+
+[[bin]]
+name = "cutxg"
+path = "src/main.rs"
+
+[features]
+default = ["tui"]
+tui = ["ratatui", "crossterm"]
 
 [dependencies]
 # CLI
 clap = { version = "4.5", features = ["derive", "env"] }
 
-# TUI
-ratatui = "0.29"
-crossterm = "0.28"
+# TUI (optional - disable for headless environments)
+ratatui = { version = "0.29", optional = true }
+crossterm = { version = "0.28", optional = true }
 
 # Config
 serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
 toml = "0.8"
 dirs = "6.0"
 
@@ -38,8 +60,20 @@ lto = true
 codegen-units = 1
 strip = true
 
-# Claude Code version blacklist - versions known to have critical issues
-# These are skipped when installing "latest"
+# Claude Code version management
+# default_mode: "whitelist" (only allow listed) or "blacklist" (block listed)
+# Users can override mode in ~/.config/claude-unleashed/config.toml with version_filter_mode
+[package.metadata.claude-code-versions]
+default_mode = "whitelist"
+
+# Whitelist - verified working versions (used when mode = "whitelist")
+# Only these versions will be installed when using "latest"
+# Users can override by creating ~/.config/claude-unleashed/whitelist.txt
+[package.metadata.claude-code-whitelist]
+versions = ["2.1.12", "2.1.4", "2.1.3", "2.1.2", "2.0.77"]
+
+# Blacklist - versions with known critical issues (used when mode = "blacklist")
+# These versions are skipped when installing "latest"
 # Users can override by creating ~/.config/claude-unleashed/blacklist.txt
 [package.metadata.claude-code-blacklist]
 versions = ["2.1.5", "2.1.1", "2.1.0"]

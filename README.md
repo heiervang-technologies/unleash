@@ -1,6 +1,8 @@
 # Claude Unleashed
 
-![claude-unleashed](https://github.com/user-attachments/assets/6379164d-9a51-4ca1-8909-09eefe546aa2)
+<p align="center">
+  <img src="demo-animation.gif" alt="Claude Unleashed - Smooth menu animations" width="900">
+</p>
 
 A powerful extension framework for Claude Code with auto-mode, version management, and plugin support.
 
@@ -21,13 +23,18 @@ This installs/updates both **Claude Code** and **Claude Unleashed**, then applie
 
 **After install:**
 ```bash
-cu      # Start Claude with unleashed features
-cui     # TUI for profiles & version management
-cutx    # Headless mode for automation
+cu          # Show help and available commands
+cug         # Start Claude with unleashed features (shorthand for 'cu go')
+cui         # TUI for profiles & version management
+cutx        # Headless mode for automation
 ```
 
 > **Already have it installed?** Run the same command to update to latest versions.
 
+---
+<p align="center">
+  <img src="demo-tui.gif" alt="Claude Unleashed TUI Demo" width="800">
+</p>
 ---
 
 ## Overview
@@ -50,9 +57,6 @@ claude-unleashed/
 ├── Cargo.toml                    # TUI build configuration
 ├── scripts/                      # Shell scripts
 │   ├── install.sh               # Installation script
-│   ├── cu                       # Main CLI entry point
-│   ├── cuw                      # Symlink to cu (backwards compat)
-│   ├── cutx                     # Headless tmux mode CLI
 │   ├── restart-claude           # Restart command
 │   ├── exit-claude              # Exit command
 │   ├── patch-claude.sh          # Apply Claude Code patches
@@ -95,11 +99,7 @@ All customizations are implemented as plugins. This keeps the core clean and mak
 
 ### Available Plugins
 
-- **heiervang-snail-integration**: Integration with Heiervang's Snail AI agent system
-- **heiervang-workflows**: Custom GitHub Actions workflows for team automation
-- **commit-commands**: Enhanced commit command shortcuts and templates
-- **feature-dev**: Feature branch workflow automation
-- **code-review**: Automated code review helpers and PR templates
+- **auto-mode**: Autonomous operation mode for Claude
 - **mcp-refresh**: Automatically detect MCP configuration changes and notify for reload
 - **process-restart**: Restart Claude Code while preserving session state and conversation history
 - **voice-output**: Multi-provider text-to-speech for Claude's responses (VibeVoice, OpenAI, ElevenLabs)
@@ -136,6 +136,16 @@ All while maintaining your custom plugins and configurations.
 - Rust/Cargo (optional, for TUI)
 - Claude Pro or Max subscription (required for authentication)
 
+### Headless Environments
+
+If you're running in a headless environment (Docker containers, Kubernetes pods, CI/CD pipelines), build without TUI support to avoid terminal dependencies:
+
+```bash
+cargo build --release --no-default-features
+```
+
+This creates a minimal binary without crossterm/ratatui dependencies that works perfectly in non-interactive environments. All commands (`auth`, `patch`, `version`, `go`) work normally - only the `tui` command is disabled.
+
 ### One-Line Installation (Recommended)
 
 Install everything with a single command:
@@ -147,7 +157,7 @@ curl -fsSL https://raw.githubusercontent.com/heiervang-technologies/claude-unlea
 This will:
 - Install Claude Code via npm (if not already installed)
 - Download the pre-built TUI binary
-- Set up `cu`, `cuw`, `cutx`, and `cui` commands
+- Set up `cu`, `cug`, `cutx`, and `cui` commands
 - Apply the auto-mode patch
 
 ### Installation Options
@@ -234,16 +244,37 @@ claude
 
 #### Verifying Authentication
 
-Claude Unleashed automatically checks for authentication on startup:
+Claude Unleashed automatically checks for authentication on startup. You can also verify authentication status manually:
 
 ```bash
-claude-unleashed
-# You'll see one of:
-# ✓ Using OAuth token from CLAUDE_CODE_OAUTH_TOKEN environment variable
-# ✓ Using credentials from ~/.claude/.credentials.json
-# ✓ Found credentials in macOS Keychain
-# ⚠ WARNING: Claude Code authentication not configured
+# Quick check
+cu auth
+# ✓ Authentication configured
+
+# Detailed check
+cu auth --verbose
+# ✓ Authentication configured
+#
+# Authentication method:
+#   • OAuth token from CLAUDE_CODE_OAUTH_TOKEN environment variable
+#   • Token preview: sk-ant-oat...g-1JzO1QAA
+#
+# Status: Ready to use Claude Code
+
+# JSON output (for scripting)
+cu auth --json
+# {"authenticated":true,"method":"oauth_token","details":null}
+
+# Quiet mode (only exit code, no output)
+cu auth -q
+# (no output, only exit code: 0=success, 1=failure)
 ```
+
+The auth command verifies authentication without launching Claude, making it perfect for:
+- CI/CD pipelines and automation scripts
+- Pre-flight checks before running Claude
+- Debugging authentication issues
+- Integration with other tools
 
 For more details, see the [Claude Code IAM documentation](https://code.claude.com/docs/en/iam).
 
@@ -258,13 +289,23 @@ export PATH="$HOME/.local/bin:$PATH"
 
 ## CLI Usage
 
-### Basic Commands
+### Command Overview
 
 ```bash
-cu                    # Start Claude with plugins
-cu --auto             # Start in autonomous mode
-cui                   # Launch TUI interface
-cutx                  # Headless mode (see below)
+cu                    # Show help and available commands
+cu go                 # Start Claude with unleashed features
+cu go --auto          # Start in autonomous mode
+cug                   # Shorthand for 'cu go'
+cug --auto            # Shorthand for 'cu go --auto'
+cu ui / cui           # Launch TUI interface
+cu tmux / cutx        # Headless mode (see below)
+cu auth               # Check authentication status
+cu auth -v            # Check with detailed information
+cu auth -q            # Check quietly (only exit code)
+cu auth --json        # Output as JSON for scripting
+cu patch              # Apply Claude Code patches
+cu version            # Show installed version
+cu version --list     # List available versions
 restart-claude        # Restart Claude (preserves session)
 exit-claude           # Exit Claude cleanly
 ```
@@ -277,13 +318,13 @@ Customize the message Claude receives when auto-mode blocks it from exiting:
 
 ```bash
 # Set a custom prompt
-cu --stop-prompt="Keep working until tests pass!"
+cug --stop-prompt="Keep working until tests pass!"
 
 # Edit with your $EDITOR
-cu --stop-prompt-edit
+cug --stop-prompt-edit
 
 # Reset to default
-cu --stop-prompt-clear
+cug --stop-prompt-clear
 ```
 
 You can also configure this via the TUI:
@@ -446,8 +487,8 @@ See `docs/extensions/` for detailed plugin development guides.
 
 - **Plugin Development**: `docs/extensions/plugin-development.md`
 - **MCP Refresh & Process Restart**: `docs/extensions/restart-refresh.md`
-- **Upstream Sync**: `docs/extensions/upstream-sync.md`
-- **GitHub Integration**: `docs/extensions/github-integration.md`
+- **Upstream Sync**: `docs/sync-process.md`
+- **GitHub Integration**: `docs/extensions/snail-integration.md`
 - **Agent Instructions**: `CLAUDE.md`
 - **Upstream Docs**: `claude-code/README.md`
 

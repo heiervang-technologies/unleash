@@ -20,7 +20,7 @@ restart-claude "Continue working on the feature"
 
 ## Requirements
 
-You must be running under the `cuw` wrapper (check: `echo $CLAUDE_UNLEASHED` should return `1`).
+You must be running under the `cu go` or `cug` wrapper (check: `echo $CLAUDE_UNLEASHED` should return `1`).
 
 ## What Happens
 

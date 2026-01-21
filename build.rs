@@ -1,4 +1,4 @@
-//! Build script to generate version blacklist from Cargo.toml metadata
+//! Build script to generate version whitelist and blacklist from Cargo.toml metadata
 
 use std::env;
 use std::fs;
@@ -8,50 +8,63 @@ fn main() {
     // Read Cargo.toml
     let manifest = fs::read_to_string("Cargo.toml").expect("Failed to read Cargo.toml");
 
-    // Parse the blacklist section manually (avoid adding toml as build dependency)
-    let blacklist = parse_blacklist(&manifest);
+    // Parse both whitelist and blacklist sections
+    let whitelist = parse_version_list(&manifest, "claude-code-whitelist");
+    let blacklist = parse_version_list(&manifest, "claude-code-blacklist");
+    let default_mode = parse_default_mode(&manifest);
 
     // Generate the output file
     let out_dir = env::var("OUT_DIR").expect("OUT_DIR not set");
-    let dest_path = Path::new(&out_dir).join("blacklist.rs");
+    let dest_path = Path::new(&out_dir).join("version_lists.rs");
 
     let code = format!(
-        r#"/// Official blacklist from Cargo.toml
+        r#"/// Official whitelist from Cargo.toml (verified working versions)
+pub const DEFAULT_WHITELIST: &[&str] = &[{}];
+
+/// Official blacklist from Cargo.toml (versions with known issues)
 pub const DEFAULT_BLACKLIST: &[&str] = &[{}];
+
+/// Default version filter mode from Cargo.toml
+pub const DEFAULT_VERSION_FILTER_MODE: &str = "{}";
 "#,
-        blacklist
-            .iter()
-            .map(|v| format!("\"{}\"", v))
-            .collect::<Vec<_>>()
-            .join(", ")
+        format_version_array(&whitelist),
+        format_version_array(&blacklist),
+        default_mode
     );
 
-    fs::write(&dest_path, code).expect("Failed to write blacklist.rs");
+    fs::write(&dest_path, code).expect("Failed to write version_lists.rs");
 
     // Rerun if Cargo.toml changes
     println!("cargo:rerun-if-changed=Cargo.toml");
 }
 
-fn parse_blacklist(manifest: &str) -> Vec<String> {
-    // Look for versions = ["x.y.z", ...] in the blacklist section
-    let mut in_blacklist_section = false;
+fn format_version_array(versions: &[String]) -> String {
+    versions
+        .iter()
+        .map(|v| format!("\"{}\"", v))
+        .collect::<Vec<_>>()
+        .join(", ")
+}
+
+fn parse_version_list(manifest: &str, section_name: &str) -> Vec<String> {
+    let section_header = format!("[package.metadata.{}]", section_name);
+    let mut in_section = false;
     let mut versions = Vec::new();
 
     for line in manifest.lines() {
         let trimmed = line.trim();
 
-        if trimmed == "[package.metadata.claude-code-blacklist]" {
-            in_blacklist_section = true;
+        if trimmed == section_header {
+            in_section = true;
             continue;
         }
 
         // Exit section on new section header
-        if in_blacklist_section && trimmed.starts_with('[') {
+        if in_section && trimmed.starts_with('[') {
             break;
         }
 
-        if in_blacklist_section && trimmed.starts_with("versions") {
-            // Parse versions = ["2.1.5", "2.1.1", "2.1.0"]
+        if in_section && trimmed.starts_with("versions") {
             if let Some(array_start) = trimmed.find('[') {
                 if let Some(array_end) = trimmed.find(']') {
                     let array_content = &trimmed[array_start + 1..array_end];
@@ -67,4 +80,34 @@ fn parse_blacklist(manifest: &str) -> Vec<String> {
     }
 
     versions
+}
+
+fn parse_default_mode(manifest: &str) -> String {
+    let section_header = "[package.metadata.claude-code-versions]";
+    let mut in_section = false;
+
+    for line in manifest.lines() {
+        let trimmed = line.trim();
+
+        if trimmed == section_header {
+            in_section = true;
+            continue;
+        }
+
+        // Exit section on new section header
+        if in_section && trimmed.starts_with('[') {
+            break;
+        }
+
+        if in_section && trimmed.starts_with("default_mode") {
+            // Parse default_mode = "whitelist" or default_mode = "blacklist"
+            if let Some(eq_pos) = trimmed.find('=') {
+                let value = trimmed[eq_pos + 1..].trim().trim_matches('"').trim_matches('\'');
+                return value.to_string();
+            }
+        }
+    }
+
+    // Default to whitelist mode if not specified
+    "whitelist".to_string()
 }

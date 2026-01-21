@@ -24,14 +24,38 @@ if [[ -z "$CLAUDE_BIN" ]]; then
     exit 1
 fi
 
-# Resolve symlinks in a portable way (works on both Linux and macOS)
-if [[ -L "$CLAUDE_BIN" ]]; then
-    CLAUDE_REAL="$(cd "$(dirname "$CLAUDE_BIN")" && cd "$(dirname "$(readlink "$CLAUDE_BIN")")" && pwd -P)/$(basename "$(readlink "$CLAUDE_BIN")")"
-else
-    CLAUDE_REAL="$CLAUDE_BIN"
-fi
+# Resolve symlinks fully (handles multiple levels)
+# Includes protection against infinite loops from circular symlinks
+resolve_symlink() {
+    local path="$1"
+    local dir
+    local link
+    local max_depth=20
+    local depth=0
+    while [[ -L "$path" ]]; do
+        if (( depth++ >= max_depth )); then
+            echo "Error: Too many symlink levels (possible circular symlink)" >&2
+            return 1
+        fi
+        dir="$(dirname "$path")"
+        link="$(readlink "$path")"
+        if [[ "$link" == /* ]]; then
+            path="$link"
+        else
+            path="$(cd "$dir" && cd "$(dirname "$link")" && pwd -P)/$(basename "$link")"
+        fi
+    done
+    echo "$path"
+}
+
+CLAUDE_REAL="$(resolve_symlink "$CLAUDE_BIN")"
 CLAUDE_DIR=$(dirname "$CLAUDE_REAL")
-CLI_JS="$CLAUDE_DIR/cli.js"
+CLI_JS="$CLAUDE_REAL"
+
+# If CLAUDE_REAL is not cli.js itself, look for cli.js in same directory
+if [[ "$(basename "$CLAUDE_REAL")" != "cli.js" ]]; then
+    CLI_JS="$CLAUDE_DIR/cli.js"
+fi
 
 if [[ ! -f "$CLI_JS" ]]; then
     echo "Error: cli.js not found at $CLI_JS"
@@ -167,12 +191,17 @@ sed -i 's/Z\.toolPermissionContext\.mode==="bypassPermissions"||Z\.toolPermissio
 echo "Patch 5a: Patched main permission allow check"
 
 # 5b: Passthrough check - Q.mode
-sed -i 's/Q\.mode==="bypassPermissions"/Q.mode==="bypassPermissions"||Q.mode==="auto"/g' "$TEMP_FILE"
+# NOTE: We prefix with "if(" to avoid matching "PQ.mode" (which appears in v2.1.12+).
+# The Q.mode pattern appears as "if(Q.mode===..." in the minified code, so this is safe.
+# If future versions change this structure, this pattern may need adjustment.
+sed -i 's/if(Q\.mode==="bypassPermissions"/if(Q.mode==="bypassPermissions"||Q.mode==="auto"/g' "$TEMP_FILE"
 echo "Patch 5b: Patched Q.mode passthrough check"
 
-# 5c: Mode-specific permission checks with ||V pattern
-sed -i "s/${PERMISSION_CTX_VAR}\.mode===\"bypassPermissions\"||V)/${PERMISSION_CTX_VAR}.mode===\"bypassPermissions\"||${PERMISSION_CTX_VAR}.mode===\"auto\"||V)/g" "$TEMP_FILE"
-echo "Patch 5c: Patched ${PERMISSION_CTX_VAR}.mode||V permission checks"
+# 5c: Mode-specific permission checks with ||BOOL pattern
+# PERMISSION_BOOL_VAR defaults to "V" for backward compatibility with older configs
+PERMISSION_BOOL_VAR="${PERMISSION_BOOL_VAR:-V}"
+sed -i "s/${PERMISSION_CTX_VAR}\.mode===\"bypassPermissions\"||${PERMISSION_BOOL_VAR})/${PERMISSION_CTX_VAR}.mode===\"bypassPermissions\"||${PERMISSION_CTX_VAR}.mode===\"auto\"||${PERMISSION_BOOL_VAR})/g" "$TEMP_FILE"
+echo "Patch 5c: Patched ${PERMISSION_CTX_VAR}.mode||${PERMISSION_BOOL_VAR} permission checks"
 
 # ============================================================================
 # PATCH 6: Add color for auto mode (yellow/warning)

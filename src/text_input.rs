@@ -34,6 +34,7 @@ impl TextInput {
         self
     }
 
+    #[allow(dead_code)]
     pub fn hidden(mut self) -> Self {
         self.hidden = true;
         self
@@ -84,6 +85,72 @@ impl TextInput {
         self.cursor = self.value.len();
     }
 
+    /// Move cursor to previous word boundary
+    pub fn move_word_left(&mut self) {
+        if self.cursor == 0 {
+            return;
+        }
+        let chars: Vec<char> = self.value.chars().collect();
+        let mut pos = self.cursor - 1;
+
+        // Skip any whitespace/punctuation before cursor
+        while pos > 0 && !chars[pos].is_alphanumeric() {
+            pos -= 1;
+        }
+        // Move to start of word
+        while pos > 0 && chars[pos - 1].is_alphanumeric() {
+            pos -= 1;
+        }
+        self.cursor = pos;
+    }
+
+    /// Move cursor to next word boundary
+    pub fn move_word_right(&mut self) {
+        let chars: Vec<char> = self.value.chars().collect();
+        let len = chars.len();
+        if self.cursor >= len {
+            return;
+        }
+        let mut pos = self.cursor;
+
+        // Skip current word
+        while pos < len && chars[pos].is_alphanumeric() {
+            pos += 1;
+        }
+        // Skip whitespace/punctuation
+        while pos < len && !chars[pos].is_alphanumeric() {
+            pos += 1;
+        }
+        self.cursor = pos;
+    }
+
+    /// Delete word before cursor (Ctrl+W)
+    pub fn delete_word_back(&mut self) {
+        if self.cursor == 0 {
+            return;
+        }
+        let old_cursor = self.cursor;
+        self.move_word_left();
+        // Remove characters between new cursor and old cursor
+        let chars: Vec<char> = self.value.chars().collect();
+        self.value = chars[..self.cursor]
+            .iter()
+            .chain(chars[old_cursor..].iter())
+            .collect();
+    }
+
+    /// Delete from cursor to end of line (Ctrl+K)
+    pub fn delete_to_end(&mut self) {
+        self.value.truncate(self.cursor);
+    }
+
+    /// Delete from cursor to start of line (Ctrl+U)
+    pub fn delete_to_start(&mut self) {
+        let chars: Vec<char> = self.value.chars().collect();
+        self.value = chars[self.cursor..].iter().collect();
+        self.cursor = 0;
+    }
+
     /// Clear the input
     pub fn clear(&mut self) {
         self.value.clear();
@@ -91,6 +158,7 @@ impl TextInput {
     }
 
     /// Get display value (censored if hidden)
+    #[allow(dead_code)]
     pub fn display_value(&self) -> String {
         if self.value.is_empty() {
             return self.placeholder.clone();
@@ -197,5 +265,51 @@ mod tests {
         assert!(is_sensitive_key("GITHUB_PAT"));
         assert!(!is_sensitive_key("ANTHROPIC_BASE_URL"));
         assert!(!is_sensitive_key("HOME"));
+    }
+
+    #[test]
+    fn test_word_navigation() {
+        let mut input = TextInput::new().with_value("hello world test");
+        assert_eq!(input.cursor, 16);
+
+        input.move_word_left();
+        assert_eq!(input.cursor, 12); // before "test"
+
+        input.move_word_left();
+        assert_eq!(input.cursor, 6); // before "world"
+
+        input.move_word_left();
+        assert_eq!(input.cursor, 0); // before "hello"
+
+        input.move_word_right();
+        assert_eq!(input.cursor, 6); // after "hello "
+
+        input.move_word_right();
+        assert_eq!(input.cursor, 12); // after "world "
+    }
+
+    #[test]
+    fn test_delete_word_back() {
+        let mut input = TextInput::new().with_value("hello world");
+        input.delete_word_back();
+        assert_eq!(input.value, "hello ");
+        assert_eq!(input.cursor, 6);
+    }
+
+    #[test]
+    fn test_delete_to_end() {
+        let mut input = TextInput::new().with_value("hello world");
+        input.cursor = 6;
+        input.delete_to_end();
+        assert_eq!(input.value, "hello ");
+    }
+
+    #[test]
+    fn test_delete_to_start() {
+        let mut input = TextInput::new().with_value("hello world");
+        input.cursor = 6;
+        input.delete_to_start();
+        assert_eq!(input.value, "world");
+        assert_eq!(input.cursor, 0);
     }
 }

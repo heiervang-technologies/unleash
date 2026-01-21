@@ -278,8 +278,8 @@ This repository is integrated with Heiervang's Snail AI agent system.
 
 ### Snail-Specific Plugins
 
-- **heiervang-snail-integration**: Core integration with Snail
-- **heiervang-workflows**: GitHub Actions for Snail automation
+- **auto-mode**: Core autonomous capability
+- **process-restart**: Session stability for long-running workflows
 
 ### When Mentioned in Issues/PRs
 
@@ -439,9 +439,9 @@ git submodule update --remote claude-code
 ## Links to Documentation
 
 ### Internal Documentation
-- **Plugin Development**: `docs/extensions/plugin-development.md` (future)
-- **Upstream Sync**: `docs/extensions/upstream-sync.md` (future)
-- **GitHub Integration**: `docs/extensions/github-integration.md` (future)
+- **Plugin Development**: `docs/extensions/plugin-development.md`
+- **Upstream Sync**: `docs/sync-process.md`
+- **GitHub Integration**: `docs/extensions/snail-integration.md`
 
 ### External Resources
 - **Upstream Repository**: [anthropics/claude-code](https://github.com/anthropics/claude-code)

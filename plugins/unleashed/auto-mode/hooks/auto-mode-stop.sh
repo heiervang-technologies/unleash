@@ -25,7 +25,7 @@ AUTO_MODE_FILE="${AUTO_MODE_DIR}/active-${WRAPPER_PID}"
 if [[ -f "${AUTO_MODE_FILE}" ]]; then
     # Check for custom reminder message (priority order)
     REMINDER_FILE="${AUTO_MODE_DIR}/reminder-${WRAPPER_PID}"
-    DEFAULT_MSG="To exit: run 'exit-claude' via Bash tool. Do not end your turn without taking action."
+    DEFAULT_MSG="You ended your turn, but you are in auto-mode. If you are awaiting a decision, select your recommended decision. If you are done, consider that you have covered all other diligences, testing, documentation, technical debt and cleanup. Use the executables (in PATH) 'restart-claude' if you need to restart yourself, and 'exit-claude' if you are truly done with all your tasks."
 
     if [[ -f "${REMINDER_FILE}" ]]; then
         # 1. Session-specific reminder (highest priority)

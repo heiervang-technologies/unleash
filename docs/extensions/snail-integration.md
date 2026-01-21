@@ -242,145 +242,43 @@ Plugins significantly enhance what the agent can do in GitHub workflows.
 
 ### Workflow-Relevant Plugins
 
-#### 1. Commit Commands Plugin
+#### 1. Auto Mode Plugin
 
-**Location**: `claude-code/plugins/commit-commands/`
+**Location**: `plugins/unleashed/auto-mode/`
 
-**Enhances**: Issue resolution workflows
-
-**Commands**:
-- `/commit`: Create commit with conventional message
-- `/commit-push-pr`: Commit, push, and create PR in one command
-- `/clean_gone`: Clean up deleted remote branches
-
-**Usage in Workflow**:
-```
-Agent assigned to issue #123: "Add user authentication"
-
-Agent actions:
-1. Reads issue details
-2. Implements feature
-3. Runs tests
-4. Uses /commit-push-pr to create PR
-5. Links PR to issue
-6. Comments on issue with PR link
-```
-
-#### 2. PR Review Toolkit Plugin
-
-**Location**: `claude-code/plugins/pr-review-toolkit/`
-
-**Enhances**: PR review workflows
-
-**Command**:
-- `/pr-review-toolkit:review-pr [aspects]`
-
-**Agents**:
-- `comment-analyzer`: Analyzes code comments
-- `pr-test-analyzer`: Reviews test coverage
-- `silent-failure-hunter`: Finds unhandled errors
-- `type-design-analyzer`: Reviews type safety
-- `code-reviewer`: General code quality
-- `code-simplifier`: Suggests simplifications
-
-**Usage in Workflow**:
-```
-PR assigned to agent
-
-Agent actions:
-1. Uses /pr-review-toolkit:review-pr all
-2. Multiple agents analyze in parallel
-3. Posts comprehensive review comment
-4. Suggests specific improvements
-5. Requests changes if needed
-```
-
-#### 3. Feature Dev Plugin
-
-**Location**: `claude-code/plugins/feature-dev/`
-
-**Enhances**: Feature development workflows
-
-**Command**:
-- `/feature-dev`: 7-phase structured development
-
-**Agents**:
-- `code-explorer`: Analyzes codebase
-- `code-architect`: Designs implementation
-- `code-reviewer`: Reviews quality
-
-**Usage in Workflow**:
-```
-Issue: "Add export to CSV feature"
-
-Agent actions:
-1. Uses /feature-dev
-2. Phase 1: Understands requirement
-3. Phase 2: Explores codebase with code-explorer
-4. Phase 3: Designs with code-architect
-5. Phase 4-6: Implements, tests, reviews
-6. Phase 7: Creates PR
-7. Comments on issue with approach and PR link
-```
-
-#### 4. Hookify Plugin
-
-**Location**: `claude-code/plugins/hookify/`
-
-**Enhances**: Agent safety and validation
+**Enhances**: Autonomous operation
 
 **Commands**:
-- `/hookify`: Create safety rules
-- `/hookify:list`: View active rules
-- `/hookify:configure`: Manage rules
+- `/auto`: Toggle autonomous mode
+- `/auto:status`: Check auto-mode status
 
 **Usage in Workflow**:
+Enables Claude to work through multiple steps without requiring user confirmation for every tool use.
 
-Prevents agent from:
-- Deleting important files
-- Committing secrets
-- Making destructive changes
-- Skipping tests
+#### 2. Process Restart Plugin
 
-Example rule (`.claude/hookify.require-tests.local.md`):
-```markdown
----
-name: require-tests
-enabled: true
-event: stop
-action: block
-conditions:
-  - field: transcript
-    operator: not_contains
-    pattern: npm test|pytest|cargo test
----
+**Location**: `plugins/unleashed/process-restart/`
 
-**Tests not detected!**
+**Enhances**: Session stability
 
-Before completing work, please run tests to verify changes.
-```
-
-#### 5. Code Review Plugin
-
-**Location**: `claude-code/plugins/code-review/`
-
-**Enhances**: PR creation workflows
-
-**Command**:
-- `/code-review`: Multi-agent PR review
-
-**Agents**: 5 specialized review agents
+**Commands**:
+- `/restart`: Restart Claude while preserving session state
 
 **Usage in Workflow**:
-```
-Agent creates PR after fixing issue
+Allows Claude to self-restart to apply configuration changes (like new MCP servers) without losing the current task context.
 
-Before submitting PR:
-1. Uses /code-review on changes
-2. Gets feedback from 5 agents
-3. Addresses issues found
-4. Ensures high quality PR
-```
+#### 3. MCP Refresh Plugin
+
+**Location**: `plugins/unleashed/mcp-refresh/`
+
+**Enhances**: MCP configuration management
+
+**Commands**:
+- `/reload-mcps`: Detect and report MCP configuration changes
+- `/mcp-status`: Show current MCP server status
+
+**Usage in Workflow**:
+Ensures the agent is aware of available tools and can detect when new capabilities are added.
 
 ### Custom Plugins for Workflows
 
@@ -1323,10 +1221,3 @@ agent_type: 'worker'        # Can iterate on feedback
 - [Sync Process](../sync-process.md)
 - GitHub Actions Documentation
 - Claude Code Documentation
-
-## Examples Repository
-
-See working examples:
-- `claude-code/plugins/`: Plugin examples
-- `.github/workflows/`: Workflow templates
-- Issue/PR templates in template repository

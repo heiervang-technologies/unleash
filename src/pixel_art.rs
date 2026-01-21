@@ -3,8 +3,16 @@
 //! Renders arbitrary "images" as colored ASCII grids in the terminal.
 //! Supports 24-bit RGB colors via ANSI escape sequences.
 
+#![allow(dead_code)]
+
 use std::collections::HashMap;
 use std::io::{self, Write};
+
+#[cfg(feature = "tui")]
+use ratatui::{
+    style::{Color as RatatuiColor, Style as RatatuiStyle},
+    text::{Line as RatatuiLine, Span as RatatuiSpan},
+};
 
 /// RGB color
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -297,9 +305,194 @@ impl Default for PixelArt {
     }
 }
 
+/// Parse ANSI escape sequences and convert to ratatui styled lines
+#[cfg(feature = "tui")]
+pub fn parse_ansi_to_ratatui(ansi_text: &str) -> Vec<RatatuiLine<'static>> {
+    let mut lines: Vec<RatatuiLine<'static>> = Vec::new();
+
+    for line in ansi_text.lines() {
+        let spans = parse_ansi_line_to_spans(line);
+        lines.push(RatatuiLine::from(spans));
+    }
+
+    lines
+}
+
+/// Parse a single line of ANSI text to ratatui Spans
+#[cfg(feature = "tui")]
+fn parse_ansi_line_to_spans(line: &str) -> Vec<RatatuiSpan<'static>> {
+    let mut spans: Vec<RatatuiSpan<'static>> = Vec::new();
+    let mut current_style = RatatuiStyle::default();
+    let mut current_text = String::new();
+    let mut chars = line.chars().peekable();
+
+    while let Some(ch) = chars.next() {
+        if ch == '\x1b' {
+            // Start of escape sequence
+            if let Some(&'[') = chars.peek() {
+                chars.next(); // consume '['
+
+                // Flush current text with current style
+                if !current_text.is_empty() {
+                    spans.push(RatatuiSpan::styled(
+                        std::mem::take(&mut current_text),
+                        current_style,
+                    ));
+                }
+
+                // Parse the escape sequence
+                let mut seq = String::new();
+                while let Some(&c) = chars.peek() {
+                    if c == 'm' {
+                        chars.next();
+                        break;
+                    }
+                    seq.push(chars.next().unwrap());
+                }
+
+                // Parse and apply the style
+                current_style = parse_ansi_sequence(&seq, current_style);
+            } else {
+                current_text.push(ch);
+            }
+        } else {
+            current_text.push(ch);
+        }
+    }
+
+    // Flush remaining text
+    if !current_text.is_empty() {
+        spans.push(RatatuiSpan::styled(current_text, current_style));
+    }
+
+    // If no spans, add empty span to preserve the line
+    if spans.is_empty() {
+        spans.push(RatatuiSpan::raw(""));
+    }
+
+    spans
+}
+
+/// Parse ANSI sequence codes and update style
+#[cfg(feature = "tui")]
+fn parse_ansi_sequence(seq: &str, mut style: RatatuiStyle) -> RatatuiStyle {
+    let parts: Vec<&str> = seq.split(';').collect();
+    let mut i = 0;
+
+    while i < parts.len() {
+        match parts[i] {
+            "0" => {
+                // Reset
+                style = RatatuiStyle::default();
+            }
+            "38" => {
+                // Foreground color
+                if i + 1 < parts.len() && parts[i + 1] == "2" {
+                    // 24-bit RGB: 38;2;r;g;b
+                    if i + 4 < parts.len() {
+                        if let (Ok(r), Ok(g), Ok(b)) = (
+                            parts[i + 2].parse::<u8>(),
+                            parts[i + 3].parse::<u8>(),
+                            parts[i + 4].parse::<u8>(),
+                        ) {
+                            style = style.fg(RatatuiColor::Rgb(r, g, b));
+                        }
+                        i += 4;
+                    }
+                }
+            }
+            "48" => {
+                // Background color
+                if i + 1 < parts.len() && parts[i + 1] == "2" {
+                    // 24-bit RGB: 48;2;r;g;b
+                    if i + 4 < parts.len() {
+                        if let (Ok(r), Ok(g), Ok(b)) = (
+                            parts[i + 2].parse::<u8>(),
+                            parts[i + 3].parse::<u8>(),
+                            parts[i + 4].parse::<u8>(),
+                        ) {
+                            style = style.bg(RatatuiColor::Rgb(r, g, b));
+                        }
+                        i += 4;
+                    }
+                }
+            }
+            _ => {}
+        }
+        i += 1;
+    }
+
+    style
+}
+
 /// Pre-built mascots and logos
 pub mod mascots {
     use super::*;
+
+    /// Muscular Claude breaking chains - the "Unleashed" mascot
+    /// Returns raw ANSI escape sequences for direct terminal output
+    pub fn unleashed_claude() -> String {
+        include_str!("assets/ct4-right.ans").to_string()
+    }
+
+    /// Get lines from the unleashed Claude art (for TUI integration)
+    /// Takes only the first N lines to fit in constrained spaces
+    pub fn unleashed_claude_lines(max_lines: usize) -> Vec<String> {
+        unleashed_claude()
+            .lines()
+            .take(max_lines)
+            .map(|s| s.to_string())
+            .collect()
+    }
+
+    /// Get unleashed Claude art as ratatui Lines (parsed ANSI) - right facing
+    #[cfg(feature = "tui")]
+    pub fn unleashed_claude_ratatui(max_lines: usize) -> Vec<RatatuiLine<'static>> {
+        let art = unleashed_claude();
+        let all_lines = super::parse_ansi_to_ratatui(&art);
+        // Skip leading blank lines to align art to top
+        all_lines
+            .into_iter()
+            .skip_while(|line| line.spans.iter().all(|s| s.content.trim().is_empty()))
+            .take(max_lines)
+            .collect()
+    }
+
+    /// Muscular Claude breaking chains - left facing version
+    pub fn unleashed_claude_left() -> String {
+        include_str!("assets/ct4-left.ans").to_string()
+    }
+
+    /// Get unleashed Claude art as ratatui Lines (parsed ANSI) - left facing
+    #[cfg(feature = "tui")]
+    pub fn unleashed_claude_left_ratatui(max_lines: usize) -> Vec<RatatuiLine<'static>> {
+        let art = unleashed_claude_left();
+        let all_lines = super::parse_ansi_to_ratatui(&art);
+        // Skip leading blank lines to align art to top
+        all_lines
+            .into_iter()
+            .skip_while(|line| line.spans.iter().all(|s| s.content.trim().is_empty()))
+            .take(max_lines)
+            .collect()
+    }
+
+    /// Full-figure Claude (both halves merged) - 106 chars wide
+    pub fn unleashed_claude_full() -> String {
+        include_str!("assets/ct4-full.ans").to_string()
+    }
+
+    /// Get full-figure Claude art as ratatui Lines (parsed ANSI)
+    #[cfg(feature = "tui")]
+    pub fn unleashed_claude_full_ratatui(max_lines: usize) -> Vec<RatatuiLine<'static>> {
+        let art = unleashed_claude_full();
+        let all_lines = super::parse_ansi_to_ratatui(&art);
+        // Skip leading blank lines to align art to top
+        all_lines
+            .into_iter()
+            .skip_while(|line| line.spans.iter().all(|s| s.content.trim().is_empty()))
+            .take(max_lines)
+            .collect()
+    }
 
     /// Orange snail mascot for Claude Unleashed
     pub fn orange_snail() -> PixelArt {
@@ -393,5 +586,84 @@ mod tests {
             .row("###")
             .build();
         assert_eq!(art.dimensions(), (3, 3));
+    }
+
+    #[cfg(feature = "tui")]
+    mod tui_tests {
+        use super::super::*;
+
+        #[test]
+        fn test_parse_ansi_sequence_reset() {
+            let style = RatatuiStyle::default().fg(RatatuiColor::Red);
+            let result = parse_ansi_sequence("0", style);
+            assert_eq!(result, RatatuiStyle::default());
+        }
+
+        #[test]
+        fn test_parse_ansi_sequence_fg_color() {
+            let style = RatatuiStyle::default();
+            let result = parse_ansi_sequence("38;2;255;128;64", style);
+            assert_eq!(result.fg, Some(RatatuiColor::Rgb(255, 128, 64)));
+        }
+
+        #[test]
+        fn test_parse_ansi_sequence_bg_color() {
+            let style = RatatuiStyle::default();
+            let result = parse_ansi_sequence("48;2;100;150;200", style);
+            assert_eq!(result.bg, Some(RatatuiColor::Rgb(100, 150, 200)));
+        }
+
+        #[test]
+        fn test_parse_ansi_line_to_spans_plain_text() {
+            let spans = parse_ansi_line_to_spans("hello");
+            assert_eq!(spans.len(), 1);
+            assert_eq!(spans[0].content, "hello");
+        }
+
+        #[test]
+        fn test_parse_ansi_line_to_spans_with_color() {
+            // Test: reset + space pattern common in the art
+            let line = "\x1b[0m \x1b[38;2;255;0;0mX";
+            let spans = parse_ansi_line_to_spans(line);
+            assert!(spans.len() >= 2);
+            // First span should be space with default style
+            assert_eq!(spans[0].content, " ");
+            // Second span should be "X" with red foreground
+            assert_eq!(spans[1].content, "X");
+            assert_eq!(spans[1].style.fg, Some(RatatuiColor::Rgb(255, 0, 0)));
+        }
+
+        #[test]
+        fn test_parse_ansi_to_ratatui_multiple_lines() {
+            let text = "line1\nline2\nline3";
+            let lines = parse_ansi_to_ratatui(text);
+            assert_eq!(lines.len(), 3);
+        }
+
+        #[test]
+        fn test_unleashed_claude_ratatui_respects_max_lines() {
+            let lines = mascots::unleashed_claude_ratatui(10);
+            assert!(lines.len() <= 10);
+        }
+
+        #[test]
+        fn test_unleashed_claude_left_ratatui_respects_max_lines() {
+            let lines = mascots::unleashed_claude_left_ratatui(10);
+            assert!(lines.len() <= 10);
+        }
+
+        #[test]
+        fn test_unleashed_claude_not_empty() {
+            let art = mascots::unleashed_claude();
+            assert!(!art.is_empty());
+            assert!(art.contains('\x1b')); // Contains ANSI escape codes
+        }
+
+        #[test]
+        fn test_unleashed_claude_left_not_empty() {
+            let art = mascots::unleashed_claude_left();
+            assert!(!art.is_empty());
+            assert!(art.contains('\x1b')); // Contains ANSI escape codes
+        }
     }
 }

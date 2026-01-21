@@ -5,7 +5,8 @@
 # 1. Installs Claude Code via npm (if not present)
 # 2. Builds the TUI binary (if cargo available)
 # 3. Creates symlinks in ~/.local/bin/
-# 4. Runs initial Claude Code patch
+# 4. Installs plugins to ~/.local/share/claude-unleashed/plugins
+# 5. Runs initial Claude Code patch
 #
 # Usage: ./scripts/install.sh [--no-build] [--no-patch] [--no-claude-code]
 #
@@ -39,6 +40,7 @@ RUN_PATCH=true
 INSTALL_CLAUDE_CODE=true
 CLAUDE_CODE_VERSION="latest"
 BIN_DIR="${HOME}/.local/bin"
+INTERACTIVE=false
 
 while [[ $# -gt 0 ]]; do
     case $1 in
@@ -62,6 +64,10 @@ while [[ $# -gt 0 ]]; do
             BIN_DIR="$2"
             shift 2
             ;;
+        -i|--interactive)
+            INTERACTIVE=true
+            shift
+            ;;
         -h|--help)
             echo "Usage: $0 [options]"
             echo ""
@@ -71,6 +77,7 @@ while [[ $# -gt 0 ]]; do
             echo "  --no-claude-code    Skip installing Claude Code"
             echo "  --claude-version V  Install specific Claude Code version"
             echo "  --bin-dir DIR       Install to DIR instead of ~/.local/bin"
+            echo "  -i, --interactive   Show splash screen before installation"
             echo "  -h, --help          Show this help"
             exit 0
             ;;
@@ -80,6 +87,32 @@ while [[ $# -gt 0 ]]; do
             ;;
     esac
 done
+
+# Interactive splash screen
+if $INTERACTIVE; then
+    clear
+    # Display the muscular Claude ANSI art
+    if [[ -f "$REPO_ROOT/ct4-right.ans" ]]; then
+        cat "$REPO_ROOT/ct4-right.ans"
+    elif [[ -f "$REPO_ROOT/src/assets/ct4-right.ans" ]]; then
+        cat "$REPO_ROOT/src/assets/ct4-right.ans"
+    else
+        # Fallback ASCII art if ANSI art file not found
+        echo ""
+        echo "   ╭─────────────────────────────────────╮"
+        echo "   │                                     │"
+        echo "   │      ⚡ CLAUDE UNLEASHED ⚡         │"
+        echo "   │                                     │"
+        echo "   │      Breaking free from limits      │"
+        echo "   │                                     │"
+        echo "   ╰─────────────────────────────────────╯"
+        echo ""
+    fi
+    echo ""
+    echo -e "${GREEN}Press Enter to unleash Claude...${NC}"
+    read -r
+    clear
+fi
 
 echo ""
 echo "╭─────────────────────────────────────╮"
@@ -136,62 +169,98 @@ if $INSTALL_CLAUDE_CODE; then
             NEW_VERSION=$(claude --version 2>/dev/null | head -1 | sed 's/ (Claude Code)//' || echo "unknown")
             success "Claude Code installed: v${NEW_VERSION}"
         fi
+
+        # Create symlink for claude binary in BIN_DIR
+        CLAUDE_BIN=$(command -v claude 2>/dev/null || true)
+        if [[ -n "$CLAUDE_BIN" ]]; then
+            # Resolve to actual binary path to avoid circular symlinks
+            # (e.g., when ~/.local/bin/claude is already a symlink and in PATH)
+            CLAUDE_REAL=$(readlink -f "$CLAUDE_BIN" 2>/dev/null || realpath "$CLAUDE_BIN" 2>/dev/null || echo "$CLAUDE_BIN")
+            TARGET_PATH="$BIN_DIR/claude"
+
+            # Get real path of target to compare (if it exists)
+            TARGET_REAL=""
+            if [[ -e "$TARGET_PATH" ]] || [[ -L "$TARGET_PATH" ]]; then
+                TARGET_REAL=$(readlink -f "$TARGET_PATH" 2>/dev/null || realpath "$TARGET_PATH" 2>/dev/null || echo "$TARGET_PATH")
+            fi
+
+            if [[ "$CLAUDE_REAL" == "$TARGET_REAL" ]]; then
+                success "Symlink already correct: $TARGET_PATH"
+            elif [[ ! -e "$TARGET_PATH" ]] || [[ -L "$TARGET_PATH" ]]; then
+                ln -sf "$CLAUDE_REAL" "$TARGET_PATH"
+                success "Symlink: $TARGET_PATH -> $CLAUDE_REAL"
+            else
+                warn "$TARGET_PATH exists and is not a symlink, skipping"
+            fi
+        fi
     else
         warn "npm not found, skipping Claude Code installation"
         warn "Install Node.js from https://nodejs.org/ to install Claude Code"
     fi
 fi
 
-# Step 1: Build TUI (optional)
+# Step 1: Build CLI binaries
 if $BUILD_TUI; then
     if command -v cargo &> /dev/null; then
-        info "Building TUI binary..."
+        info "Building CLI binaries..."
         cd "$REPO_ROOT"
         if cargo build --release; then
-            success "TUI built successfully"
+            success "CLI built successfully"
 
-            # Install the binary as cui
-            if [[ -f "$REPO_ROOT/target/release/cui" ]]; then
-                cp "$REPO_ROOT/target/release/cui" "$BIN_DIR/cui"
-                chmod +x "$BIN_DIR/cui"
-                success "Installed: cui (TUI interface)"
-            fi
+            # Install all binaries (cu, cui, cug, cutx, cutxg)
+            for bin in cu cui cug cutx cutxg; do
+                if [[ -f "$REPO_ROOT/target/release/$bin" ]]; then
+                    cp "$REPO_ROOT/target/release/$bin" "$BIN_DIR/$bin"
+                    chmod +x "$BIN_DIR/$bin"
+                    success "Installed: $bin"
+                fi
+            done
+
+            # Install patches to BIN_DIR
+            info "Installing patches..."
+            mkdir -p "$BIN_DIR/patches/versions"
+            cp -r "$REPO_ROOT/scripts/patches/versions/"*.conf "$BIN_DIR/patches/versions/"
+            success "Patches installed to $BIN_DIR/patches"
         else
-            warn "TUI build failed, continuing without TUI"
+            warn "Build failed, continuing without CLI binaries"
             BUILD_TUI=false
         fi
     else
-        warn "Cargo not found, skipping TUI build"
-        warn "Install Rust to build the TUI: https://rustup.rs"
+        warn "Cargo not found, skipping CLI build"
+        warn "Install Rust to build the CLI: https://rustup.rs"
         BUILD_TUI=false
     fi
 fi
 
-# Step 2: Create symlinks for CLI tools
+# Step 2: Create symlinks for additional commands
 info "Creating symlinks..."
 
-# Main entry point: cu (Claude Unleashed)
-ln -sf "$SCRIPT_DIR/cu" "$BIN_DIR/cu"
-success "Symlink: cu (main CLI)"
-
-# Backwards compatibility: cuw -> cu
-ln -sf "$BIN_DIR/cu" "$BIN_DIR/cuw"
-success "Symlink: cuw -> cu (backwards compat)"
-
-# Legacy alias: claude-unleashed -> cu
+# claude-unleashed is an alias for cu
 ln -sf "$BIN_DIR/cu" "$BIN_DIR/claude-unleashed"
 success "Symlink: claude-unleashed -> cu"
 
-# Headless tmux mode
-ln -sf "$SCRIPT_DIR/cutx" "$BIN_DIR/cutx"
-success "Symlink: cutx (headless tmux mode)"
-
-# Helper commands
+# Helper commands (bash scripts)
 ln -sf "$SCRIPT_DIR/restart-claude" "$BIN_DIR/restart-claude"
 ln -sf "$SCRIPT_DIR/exit-claude" "$BIN_DIR/exit-claude"
 success "Symlink: restart-claude, exit-claude"
 
-# Step 3: Patch Claude Code (optional)
+# Step 3: Install plugins globally
+info "Installing plugins..."
+PLUGINS_DIR="${HOME}/.local/share/claude-unleashed/plugins"
+mkdir -p "$PLUGINS_DIR"
+
+if [[ -d "$REPO_ROOT/plugins/unleashed" ]]; then
+    cp -r "$REPO_ROOT/plugins/unleashed/"* "$PLUGINS_DIR/"
+    success "Plugins installed to $PLUGINS_DIR"
+    echo "  • auto-mode"
+    echo "  • mcp-refresh"
+    echo "  • process-restart"
+    echo "  • voice-output"
+else
+    warn "Plugin directory not found: $REPO_ROOT/plugins/unleashed"
+fi
+
+# Step 4: Patch Claude Code (optional)
 if $RUN_PATCH; then
     if command -v claude &> /dev/null; then
         info "Patching Claude Code..."
@@ -206,31 +275,34 @@ if $RUN_PATCH; then
     fi
 fi
 
-# Step 4: Print summary
+# Step 5: Print summary
 echo ""
 echo "╭─────────────────────────────────────╮"
 echo "│        Installation Complete        │"
 echo "╰─────────────────────────────────────╯"
 echo ""
 echo "CLI Commands:"
-echo "  cu       - Main entry point (Claude Unleashed)"
-echo "  cuw      - Alias for cu (backwards compat)"
-echo "  cutx     - Headless tmux mode"
-if $BUILD_TUI; then
-echo "  cui      - TUI interface"
-fi
+echo "  cu             - Show help"
+echo "  cu go / cug    - Start Claude with unleashed features"
+echo "  cu ui / cui    - TUI for profile/version management"
+echo "  cu tmux / cutx - Headless tmux mode"
+echo "  cutx go / cutxg - Start tmux session and attach"
+echo "  cu auth        - Check authentication status"
+echo "  cu patch       - Patch Claude Code for auto mode"
+echo "  cu version     - Manage Claude Code versions"
 echo ""
 echo "Helper Commands:"
 echo "  restart-claude  - Restart Claude (preserves session)"
 echo "  exit-claude     - Exit Claude and wrapper"
 echo ""
 echo "Quick start:"
-echo "  cu               - Start Claude with unleashed features"
-echo "  cu -p \"prompt\"   - Headless mode with prompt"
+echo "  cug              - Start Claude with unleashed features"
+echo "  cug --auto       - Start in auto mode"
+echo "  cutxg            - Start Claude in tmux and attach"
 echo ""
 
 if ! $BUILD_TUI; then
-    echo "Note: TUI not built. Install Rust and run:"
+    echo "Note: CLI not built. Install Rust and run:"
     echo "  cd $REPO_ROOT && cargo build --release"
     echo ""
 fi
