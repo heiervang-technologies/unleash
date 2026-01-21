@@ -125,6 +125,7 @@ pub enum Commands {
     },
 
     /// Check Claude Code authentication status
+    #[command(alias = "auth-check")]
     Auth {
         /// Show verbose output with debugging information
         #[arg(short, long)]

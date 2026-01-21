@@ -1020,13 +1020,12 @@ impl App {
     fn handle_updating_input(&mut self, action: NavAction) -> io::Result<Option<AppAction>> {
         match action {
             NavAction::Select => {
-                // Find the repo directory (parent of tui/)
+                // Find the repo directory
                 let exe_path = std::env::current_exe().ok();
                 let repo_dir = exe_path
                     .as_ref()
                     .and_then(|p| p.parent()) // target/release
                     .and_then(|p| p.parent()) // target
-                    .and_then(|p| p.parent()) // tui
                     .and_then(|p| p.parent()) // repo root
                     .map(|p| p.to_path_buf())
                     .unwrap_or_else(|| PathBuf::from("."));
@@ -1902,7 +1901,7 @@ impl UpdateRequest {
     pub fn execute(&self) -> io::Result<()> {
         use std::os::unix::process::CommandExt;
 
-        let tui_dir = self.repo_dir.join("tui");
+        let tui_dir = self.repo_dir.clone();
 
         println!("\n=== Updating Claude Unleashed TUI ===\n");
 

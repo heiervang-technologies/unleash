@@ -99,11 +99,7 @@ All customizations are implemented as plugins. This keeps the core clean and mak
 
 ### Available Plugins
 
-- **heiervang-snail-integration**: Integration with Heiervang's Snail AI agent system
-- **heiervang-workflows**: Custom GitHub Actions workflows for team automation
-- **commit-commands**: Enhanced commit command shortcuts and templates
-- **feature-dev**: Feature branch workflow automation
-- **code-review**: Automated code review helpers and PR templates
+- **auto-mode**: Autonomous operation mode for Claude
 - **mcp-refresh**: Automatically detect MCP configuration changes and notify for reload
 - **process-restart**: Restart Claude Code while preserving session state and conversation history
 - **voice-output**: Multi-provider text-to-speech for Claude's responses (VibeVoice, OpenAI, ElevenLabs)
@@ -491,8 +487,8 @@ See `docs/extensions/` for detailed plugin development guides.
 
 - **Plugin Development**: `docs/extensions/plugin-development.md`
 - **MCP Refresh & Process Restart**: `docs/extensions/restart-refresh.md`
-- **Upstream Sync**: `docs/extensions/upstream-sync.md`
-- **GitHub Integration**: `docs/extensions/github-integration.md`
+- **Upstream Sync**: `docs/sync-process.md`
+- **GitHub Integration**: `docs/extensions/snail-integration.md`
 - **Agent Instructions**: `CLAUDE.md`
 - **Upstream Docs**: `claude-code/README.md`
 

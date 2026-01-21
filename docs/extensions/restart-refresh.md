@@ -259,7 +259,7 @@ Time ─────────────────────────
 1. **Edit Configuration**:
 
 ```bash
-vim /home/me/claude-unleashed/.claude/settings.json
+vim <REPO_ROOT>/.claude/settings.json
 ```
 
 2. **Add Plugins to Enabled List**:
@@ -405,7 +405,7 @@ You: /restart
 
    Preserve:
    - Session ID: a8ea16a
-   - Working directory: /home/me/my-project
+   - Working directory: <PROJECT_ROOT>
    - Model: claude-sonnet-4-5
    - Git branch: feature/add-database
 
@@ -420,7 +420,7 @@ Proceed with restart? (y/n): y
 
 Restored state:
 - Session ID: a8ea16a
-- Working directory: /home/me/my-project
+- Working directory: <PROJECT_ROOT>
 - Model: claude-sonnet-4-5
 - Git branch: feature/add-database
 
@@ -568,7 +568,7 @@ cat > .mcp.json <<'EOF'
   "mcpServers": {
     "filesystem": {
       "command": "npx",
-      "args": ["-y", "@modelcontextprotocol/server-filesystem", "/home/me/my-project"]
+      "args": ["-y", "@modelcontextprotocol/server-filesystem", "<PROJECT_ROOT>"]
     },
     "github": {
       "command": "npx",
@@ -632,7 +632,7 @@ Current MCP Servers:
 
 The `mcp-refresh` plugin provides automatic detection and reporting of MCP configuration changes.
 
-**Plugin Location**: `/home/me/claude-unleashed/plugins/unleashed/mcp-refresh/`
+**Plugin Location**: `<REPO_ROOT>/plugins/unleashed/mcp-refresh/`
 
 **Components**:
 - PreToolUse hook for automatic detection
@@ -823,7 +823,7 @@ rm -rf ~/.cache/claude-unleashed/mcp-refresh/
 - List of removed servers
 - Instructions for applying changes
 
-**Markdown**: See [commands/reload-mcps.md](/home/me/claude-unleashed/plugins/unleashed/mcp-refresh/commands/reload-mcps.md)
+**Markdown**: See [commands/reload-mcps.md](<REPO_ROOT>/plugins/unleashed/mcp-refresh/commands/reload-mcps.md)
 
 #### `/mcp-status [verbose]`
 
@@ -844,7 +844,7 @@ rm -rf ~/.cache/claude-unleashed/mcp-refresh/
 - Configuration file sources
 - Error messages (if any)
 
-**Markdown**: See [commands/mcp-status.md](/home/me/claude-unleashed/plugins/unleashed/mcp-refresh/commands/mcp-status.md)
+**Markdown**: See [commands/mcp-status.md](<REPO_ROOT>/plugins/unleashed/mcp-refresh/commands/mcp-status.md)
 
 ### Implementation Details
 
@@ -907,7 +907,7 @@ function read_mcp_config():
 ### Detailed README
 
 For complete plugin documentation, see:
-[/home/me/claude-unleashed/plugins/unleashed/mcp-refresh/README.md](/home/me/claude-unleashed/plugins/unleashed/mcp-refresh/README.md)
+[<REPO_ROOT>/plugins/unleashed/mcp-refresh/README.md](<REPO_ROOT>/plugins/unleashed/mcp-refresh/README.md)
 
 ## Process Restart Plugin
 
@@ -915,7 +915,7 @@ For complete plugin documentation, see:
 
 The `process-restart` plugin enables restarting Claude Code while preserving your session state and conversation history.
 
-**Plugin Location**: `/home/me/claude-unleashed/plugins/unleashed/process-restart/`
+**Plugin Location**: `<REPO_ROOT>/plugins/unleashed/process-restart/`
 
 **Components**:
 - `/restart` command to trigger restart
@@ -943,13 +943,13 @@ Maintains continuity across process restarts:
 ```bash
 # Before restart:
 Session ID: a8ea16a
-Working Dir: /home/me/my-project
+Working Dir: <PROJECT_ROOT>
 Model: claude-sonnet-4-5
 Branch: feature/add-auth
 
 # After restart:
 Session ID: a8ea16a        # SAME - can access history
-Working Dir: /home/me/my-project  # SAME - back in project
+Working Dir: <PROJECT_ROOT>  # SAME - back in project
 Model: claude-sonnet-4-5          # SAME - same model
 Branch: feature/add-auth          # SAME - same branch
 ```
@@ -983,7 +983,7 @@ You: /restart
 
    Preserve:
    - Session ID: a8ea16a
-   - Working directory: /home/me/my-project
+   - Working directory: <PROJECT_ROOT>
    - Model: claude-sonnet-4-5
 
 Proceed with restart? (y/n):
@@ -1074,7 +1074,7 @@ Configure in `.claude/settings.json`:
   "version": "1.0.0",
   "timestamp": 1735689600,
   "sessionId": "a8ea16a",
-  "workingDir": "/home/me/my-project",
+  "workingDir": "<PROJECT_ROOT>",
   "model": "claude-sonnet-4-5",
   "gitBranch": "feature/my-feature",
   "enabledPlugins": ["mcp-refresh", "process-restart"]
@@ -1178,7 +1178,7 @@ function on_session_start():
 /restart --force --clean
 ```
 
-**Markdown**: See [commands/restart.md](/home/me/claude-unleashed/plugins/unleashed/process-restart/commands/restart.md)
+**Markdown**: See [commands/restart.md](<REPO_ROOT>/plugins/unleashed/process-restart/commands/restart.md)
 
 ### Implementation Details
 
@@ -1270,7 +1270,7 @@ function restore_state():
 ### Detailed README
 
 For complete plugin documentation, see:
-[/home/me/claude-unleashed/plugins/unleashed/process-restart/README.md](/home/me/claude-unleashed/plugins/unleashed/process-restart/README.md)
+[<REPO_ROOT>/plugins/unleashed/process-restart/README.md](<REPO_ROOT>/plugins/unleashed/process-restart/README.md)
 
 ## Integration
 
@@ -1838,9 +1838,9 @@ claude --resume "$SESSION_ID"
 
 # If this works, hook script has issue
 # Check hook script permissions:
-ls -la /home/me/claude-unleashed/plugins/unleashed/process-restart/hooks-handlers/
+ls -la <REPO_ROOT>/plugins/unleashed/process-restart/hooks-handlers/
 # All .sh files should be executable (755)
-chmod +x /home/me/claude-unleashed/plugins/unleashed/process-restart/hooks-handlers/*.sh
+chmod +x <REPO_ROOT>/plugins/unleashed/process-restart/hooks-handlers/*.sh
 ```
 
 #### Issue 5: Working Directory Not Restored
@@ -1867,19 +1867,19 @@ cat .claude/settings.json | grep -A 5 process-restart
 
 # 2. Verify directory exists
 cat ~/.cache/claude-unleashed/process-restart/restart-state.json | jq -r '.workingDir'
-# Output: /home/me/my-project
+# Output: <PROJECT_ROOT>
 
-ls -ld /home/me/my-project
+ls -ld <PROJECT_ROOT>
 # Should show directory exists
 
 # 3. Check directory permissions
-cd /home/me/my-project
+cd <PROJECT_ROOT>
 # Should succeed
 
 # If permission denied:
-chmod 755 /home/me/my-project
+chmod 755 <PROJECT_ROOT>
 # Or adjust ownership:
-sudo chown $USER:$USER /home/me/my-project
+sudo chown $USER:$USER <PROJECT_ROOT>
 
 # 4. Verify state file is valid JSON
 jq . ~/.cache/claude-unleashed/process-restart/restart-state.json
@@ -1987,7 +1987,7 @@ Enable detailed logging for troubleshooting:
 
 ```bash
 # 1. Enable bash debug mode in hooks
-vim /home/me/claude-unleashed/plugins/unleashed/mcp-refresh/hooks-handlers/check-mcp-changes.sh
+vim <REPO_ROOT>/plugins/unleashed/mcp-refresh/hooks-handlers/check-mcp-changes.sh
 
 # Add after shebang:
 set -x  # Enable debug output
@@ -2011,8 +2011,8 @@ less claude-debug.log
 If issues persist:
 
 1. **Check Plugin README Files**:
-   - [MCP Refresh README](/home/me/claude-unleashed/plugins/unleashed/mcp-refresh/README.md)
-   - [Process Restart README](/home/me/claude-unleashed/plugins/unleashed/process-restart/README.md)
+   - [MCP Refresh README](<REPO_ROOT>/plugins/unleashed/mcp-refresh/README.md)
+   - [Process Restart README](<REPO_ROOT>/plugins/unleashed/process-restart/README.md)
 
 2. **Review Logs**:
    ```bash
@@ -2314,7 +2314,7 @@ When core APIs become available:
 #### MCP Refresh Plugin
 
 ```
-/home/me/claude-unleashed/plugins/unleashed/mcp-refresh/
+<REPO_ROOT>/plugins/unleashed/mcp-refresh/
 ├── .claude-plugin/
 │   └── plugin.json                  # Plugin manifest
 ├── commands/
@@ -2330,7 +2330,7 @@ When core APIs become available:
 #### Process Restart Plugin
 
 ```
-/home/me/claude-unleashed/plugins/unleashed/process-restart/
+<REPO_ROOT>/plugins/unleashed/process-restart/
 ├── .claude-plugin/
 │   └── plugin.json                  # Plugin manifest
 ├── commands/
@@ -2688,17 +2688,17 @@ interface RestartState {
 
 ## Related Documentation
 
-- [MCP Refresh Plugin README](/home/me/claude-unleashed/plugins/unleashed/mcp-refresh/README.md)
-- [Process Restart Plugin README](/home/me/claude-unleashed/plugins/unleashed/process-restart/README.md)
-- [Plugin Development Guide](/home/me/claude-unleashed/docs/extensions/plugin-development.md)
-- [Snail Integration Guide](/home/me/claude-unleashed/docs/extensions/snail-integration.md)
-- [Testing Guide](/home/me/claude-unleashed/docs/extensions/testing-guide.md)
+- [MCP Refresh Plugin README](<REPO_ROOT>/plugins/unleashed/mcp-refresh/README.md)
+- [Process Restart Plugin README](<REPO_ROOT>/plugins/unleashed/process-restart/README.md)
+- [Plugin Development Guide](<REPO_ROOT>/docs/extensions/plugin-development.md)
+- [Snail Integration Guide](<REPO_ROOT>/docs/extensions/snail-integration.md)
+- [Testing Guide](<REPO_ROOT>/docs/extensions/testing-guide.md)
 
 ## Contributing
 
 Contributions to improve these plugins are welcome! Please:
 
-1. Read the [Plugin Development Guide](/home/me/claude-unleashed/docs/extensions/plugin-development.md)
+1. Read the [Plugin Development Guide](<REPO_ROOT>/docs/extensions/plugin-development.md)
 2. Test changes locally with `--plugin-dir`
 3. Update documentation
 4. Submit PR with clear description

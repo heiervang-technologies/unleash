@@ -160,10 +160,10 @@ Installs a specific version of Claude Code.
 
 ### Code Structure
 
-- `/home/me/claude-unleashed/src/json_output.rs` - JSON output structures and utilities
-- `/home/me/claude-unleashed/src/cli.rs` - CLI argument parsing with `--json` flag
-- `/home/me/claude-unleashed/src/version.rs` - Version management with JSON support
-- `/home/me/claude-unleashed/src/auth.rs` - Authentication checking with JSON support
+- `<REPO_ROOT>/src/json_output.rs` - JSON output structures and utilities
+- `<REPO_ROOT>/src/cli.rs` - CLI argument parsing with `--json` flag
+- `<REPO_ROOT>/src/version.rs` - Version management with JSON support
+- `<REPO_ROOT>/src/auth.rs` - Authentication checking with JSON support
 
 ### Dependencies
 

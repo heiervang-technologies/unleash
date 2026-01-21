@@ -215,6 +215,12 @@ if $BUILD_TUI; then
                     success "Installed: $bin"
                 fi
             done
+
+            # Install patches to BIN_DIR
+            info "Installing patches..."
+            mkdir -p "$BIN_DIR/patches/versions"
+            cp -r "$REPO_ROOT/scripts/patches/versions/"*.conf "$BIN_DIR/patches/versions/"
+            success "Patches installed to $BIN_DIR/patches"
         else
             warn "Build failed, continuing without CLI binaries"
             BUILD_TUI=false
