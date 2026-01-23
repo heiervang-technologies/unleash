@@ -113,11 +113,94 @@ pub fn run() -> io::Result<()> {
     Ok(())
 }
 
+/// Run an external editor with the given content and return the edited content
+fn run_external_editor(content: &str) -> io::Result<String> {
+    use std::env;
+    use std::fs;
+    use std::process::Command;
+
+    // Get editor from environment
+    let editor = env::var("VISUAL")
+        .or_else(|_| env::var("EDITOR"))
+        .unwrap_or_else(|_| "vi".to_string());
+
+    // Create temp file with content
+    let temp_dir = env::temp_dir();
+    let temp_path = temp_dir.join(format!("claude-unleashed-edit-{}.txt", std::process::id()));
+
+    fs::write(&temp_path, content)?;
+
+    // Run editor
+    let status = Command::new(&editor)
+        .arg(&temp_path)
+        .status()?;
+
+    if !status.success() {
+        let _ = fs::remove_file(&temp_path);
+        return Err(io::Error::new(
+            io::ErrorKind::Other,
+            format!("Editor '{}' exited with error", editor),
+        ));
+    }
+
+    // Read back content
+    let edited = fs::read_to_string(&temp_path)?;
+
+    // Clean up
+    let _ = fs::remove_file(&temp_path);
+
+    Ok(edited.trim_end().to_string())
+}
+
 fn run_app(
     terminal: &mut Terminal<CrosstermBackend<io::Stdout>>,
     app: &mut App,
 ) -> io::Result<Option<AppAction>> {
     loop {
+        // Check for pending external edit
+        if let Some(content) = app.pending_external_edit.take() {
+            // Leave alternate screen and disable raw mode for editor
+            disable_raw_mode()?;
+            execute!(
+                terminal.backend_mut(),
+                LeaveAlternateScreen,
+                DisableMouseCapture
+            )?;
+
+            // Run external editor
+            let result = run_external_editor(&content);
+
+            // Re-enable terminal
+            enable_raw_mode()?;
+            execute!(
+                terminal.backend_mut(),
+                EnterAlternateScreen,
+                EnableMouseCapture
+            )?;
+
+            // Handle result
+            match result {
+                Ok(edited) => {
+                    // Save the edited content to stop_prompt
+                    let value = edited.trim().to_string();
+                    app.app_config.stop_prompt = if value.is_empty() {
+                        None
+                    } else {
+                        Some(value.clone())
+                    };
+                    let _ = app.profile_manager.save_app_config(&app.app_config);
+                    app.status_message = Some("Stop prompt saved".to_string());
+                }
+                Err(e) => {
+                    app.status_message = Some(format!("Editor error: {}", e));
+                }
+            }
+
+            // Force redraw
+            terminal.draw(|f| app.render(f))?;
+            continue;
+        }
+
         // Tick to advance animations and poll async operations
         app.tick();
 

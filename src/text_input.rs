@@ -11,6 +11,10 @@ pub struct TextInput {
     pub hidden: bool,
     /// Placeholder text
     pub placeholder: String,
+    /// Scroll offset (first visible character index) for viewport scrolling
+    pub scroll_offset: usize,
+    /// Viewport width (max visible characters)
+    pub viewport_width: usize,
 }
 
 impl TextInput {
@@ -20,12 +24,15 @@ impl TextInput {
             cursor: 0,
             hidden: false,
             placeholder: String::new(),
+            scroll_offset: 0,
+            viewport_width: 60, // Default viewport width
         }
     }
 
     pub fn with_value(mut self, value: &str) -> Self {
         self.value = value.to_string();
         self.cursor = value.len();
+        self.ensure_cursor_visible();
         self
     }
 
@@ -44,6 +51,7 @@ impl TextInput {
     pub fn insert(&mut self, c: char) {
         self.value.insert(self.cursor, c);
         self.cursor += 1;
+        self.ensure_cursor_visible();
     }
 
     /// Delete character before cursor (backspace)
@@ -51,6 +59,7 @@ impl TextInput {
         if self.cursor > 0 {
             self.cursor -= 1;
             self.value.remove(self.cursor);
+            self.ensure_cursor_visible();
         }
     }
 
@@ -65,6 +74,7 @@ impl TextInput {
     pub fn move_left(&mut self) {
         if self.cursor > 0 {
             self.cursor -= 1;
+            self.ensure_cursor_visible();
         }
     }
 
@@ -72,17 +82,20 @@ impl TextInput {
     pub fn move_right(&mut self) {
         if self.cursor < self.value.len() {
             self.cursor += 1;
+            self.ensure_cursor_visible();
         }
     }
 
     /// Move cursor to start
     pub fn move_home(&mut self) {
         self.cursor = 0;
+        self.ensure_cursor_visible();
     }
 
     /// Move cursor to end
     pub fn move_end(&mut self) {
         self.cursor = self.value.len();
+        self.ensure_cursor_visible();
     }
 
     /// Move cursor to previous word boundary
@@ -102,6 +115,7 @@ impl TextInput {
             pos -= 1;
         }
         self.cursor = pos;
+        self.ensure_cursor_visible();
     }
 
     /// Move cursor to next word boundary
@@ -122,6 +136,7 @@ impl TextInput {
             pos += 1;
         }
         self.cursor = pos;
+        self.ensure_cursor_visible();
     }
 
     /// Delete word before cursor (Ctrl+W)
@@ -137,11 +152,13 @@ impl TextInput {
             .iter()
             .chain(chars[old_cursor..].iter())
             .collect();
+        self.ensure_cursor_visible();
     }
 
     /// Delete from cursor to end of line (Ctrl+K)
     pub fn delete_to_end(&mut self) {
         self.value.truncate(self.cursor);
+        self.ensure_cursor_visible();
     }
 
     /// Delete from cursor to start of line (Ctrl+U)
@@ -149,12 +166,68 @@ impl TextInput {
         let chars: Vec<char> = self.value.chars().collect();
         self.value = chars[self.cursor..].iter().collect();
         self.cursor = 0;
+        self.scroll_offset = 0;
+    }
+
+    /// Set the viewport width for scrolling
+    pub fn set_viewport_width(&mut self, width: usize) {
+        self.viewport_width = width.max(10); // Minimum width of 10
+        self.ensure_cursor_visible();
+    }
+
+    /// Ensure cursor is visible within the viewport
+    pub fn ensure_cursor_visible(&mut self) {
+        if self.viewport_width == 0 {
+            return;
+        }
+
+        // If cursor is before viewport, scroll left
+        if self.cursor < self.scroll_offset {
+            self.scroll_offset = self.cursor;
+        }
+
+        // If cursor is beyond viewport, scroll right
+        // Leave 1 char margin for the cursor indicator
+        let effective_width = self.viewport_width.saturating_sub(1);
+        if self.cursor >= self.scroll_offset + effective_width {
+            self.scroll_offset = self.cursor.saturating_sub(effective_width) + 1;
+        }
+    }
+
+    /// Get the visible portion of the value within the viewport
+    pub fn visible_value(&self) -> String {
+        if self.value.is_empty() {
+            return String::new();
+        }
+
+        let chars: Vec<char> = self.value.chars().collect();
+        let start = self.scroll_offset.min(chars.len());
+        let end = (self.scroll_offset + self.viewport_width).min(chars.len());
+
+        chars[start..end].iter().collect()
+    }
+
+    /// Get cursor position within the visible viewport
+    #[allow(dead_code)]
+    pub fn visible_cursor_position(&self) -> usize {
+        self.cursor.saturating_sub(self.scroll_offset)
+    }
+
+    /// Check if there's content scrolled off to the left
+    pub fn has_left_overflow(&self) -> bool {
+        self.scroll_offset > 0
+    }
+
+    /// Check if there's content scrolled off to the right
+    pub fn has_right_overflow(&self) -> bool {
+        self.value.len() > self.scroll_offset + self.viewport_width
     }
 
     /// Clear the input
     pub fn clear(&mut self) {
         self.value.clear();
         self.cursor = 0;
+        self.scroll_offset = 0;
     }
 
     /// Get display value (censored if hidden)

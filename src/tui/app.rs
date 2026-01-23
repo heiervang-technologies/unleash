@@ -222,6 +222,8 @@ pub struct App {
     pub animations_enabled: bool,
     /// Pending screen transition (waits for animation to complete)
     pub pending_screen: Option<Screen>,
+    /// Pending external edit - content to edit in external editor
+    pub pending_external_edit: Option<String>,
 }
 
 impl App {
@@ -276,6 +278,7 @@ impl App {
             art_animation: None,
             animations_enabled: true,
             pending_screen: None,
+            pending_external_edit: None,
         })
     }
 
@@ -555,7 +558,17 @@ impl App {
                 if key.modifiers.contains(KeyModifiers::CONTROL) {
                     match c {
                         'a' => input.move_home(),      // Ctrl+A: go to start
-                        'e' => input.move_end(),       // Ctrl+E: go to end
+                        'e' => {
+                            // Ctrl+E: External editor for StopPrompt, otherwise go to end
+                            if self.edit_field == EditField::StopPrompt {
+                                // Set pending external edit with current value
+                                self.pending_external_edit = Some(self.key_input.value.clone());
+                                self.edit_field = EditField::None;
+                                return None;
+                            } else {
+                                input.move_end();
+                            }
+                        }
                         'w' => input.delete_word_back(), // Ctrl+W: delete word
                         'u' => input.delete_to_start(), // Ctrl+U: delete to start
                         'k' => input.delete_to_end(),  // Ctrl+K: delete to end
@@ -1507,7 +1520,7 @@ impl App {
         frame.render_widget(dialog, dialog_area);
     }
 
-    fn render_settings(&self, frame: &mut Frame, area: Rect) {
+    fn render_settings(&mut self, frame: &mut Frame, area: Rect) {
         let args_str = self.app_config.claude_args.join(" ");
         let stop_prompt_display = self.app_config.stop_prompt
             .clone()
@@ -1520,6 +1533,10 @@ impl App {
         ];
 
         let cursor_indicator = "█";
+
+        // Calculate viewport width based on area (leave room for label and padding)
+        let viewport_width = area.width.saturating_sub(20) as usize; // Account for prefix, label, padding
+        self.key_input.set_viewport_width(viewport_width.max(30));
 
         let items: Vec<ListItem> = settings
             .iter()
@@ -1543,10 +1560,20 @@ impl App {
 
                 let prefix = if is_selected { "> " } else { "  " };
 
+                // Use viewport-aware display when editing
                 let display_value = if is_editing {
-                    format!("{}{}", self.key_input.value, cursor_indicator)
+                    let visible = self.key_input.visible_value();
+                    let left = if self.key_input.has_left_overflow() { "..." } else { "" };
+                    let right = if self.key_input.has_right_overflow() { "..." } else { "" };
+                    format!("{}{}{}{}", left, visible, cursor_indicator, right)
                 } else {
-                    value.to_string()
+                    // Truncate non-editing values if too long
+                    let max_display = viewport_width.saturating_sub(3);
+                    if value.len() > max_display {
+                        format!("{}...", &value[..max_display])
+                    } else {
+                        value.to_string()
+                    }
                 };
 
                 let value_style = if is_editing {
@@ -1556,7 +1583,9 @@ impl App {
                 };
 
                 // Show value on separate line if it's long (> 30 chars) for better visibility
-                let value_on_new_line = display_value.len() > 30;
+                // But use the full display_value length for decision (includes indicators)
+                let effective_len = display_value.len();
+                let value_on_new_line = effective_len > 30;
 
                 if value_on_new_line {
                     ListItem::new(vec![
@@ -1624,6 +1653,9 @@ impl App {
             Line::from("  Tab      Switch field"),
             Line::from("  Enter    Save"),
             Line::from("  Esc      Cancel"),
+            Line::from(""),
+            Line::from(Span::styled("In Settings (Stop Prompt):", Style::default().add_modifier(Modifier::BOLD))),
+            Line::from("  Ctrl+E   Open in external editor ($EDITOR)"),
         ];
 
         let content = Paragraph::new(lines)
@@ -1987,6 +2019,7 @@ mod tests {
             art_animation: None,
             animations_enabled: true,
             pending_screen: None,
+            pending_external_edit: None,
         };
 
         (app, temp)

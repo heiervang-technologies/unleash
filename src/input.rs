@@ -16,6 +16,8 @@ pub enum NavAction {
     Edit,
     New,
     Help,
+    #[allow(dead_code)]
+    ExternalEdit,
     None,
 }
 
