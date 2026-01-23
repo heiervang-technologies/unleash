@@ -47,6 +47,14 @@
         "type": "plugin",
         "description": "Multi-provider text-to-speech with VibeVoice streaming support",
         "added": "2026-01-01"
+      },
+      {
+        "name": "omnihook",
+        "version": "1.0.0",
+        "path": "plugins/unleashed/omnihook",
+        "type": "plugin",
+        "description": "Universal hook system for low-latency voice integration with FIFO-based message queue",
+        "added": "2026-01-23"
       }
     ],
     "core_patches": []
