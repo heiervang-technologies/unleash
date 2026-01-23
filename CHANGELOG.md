@@ -1,5 +1,13 @@
 # Changelog
 
+## [4.7.0](https://github.com/heiervang-technologies/claude-unleashed/compare/v4.6.1...v4.7.0) (2026-01-23)
+
+
+### Features
+
+* **plugins:** add omnihook plugin for low-latency voice integration ([8eb5dc0](https://github.com/heiervang-technologies/claude-unleashed/commit/8eb5dc0137081c32be59147325bc68e9f9cfbc63))
+* **tui:** add viewport scrolling and external editor for stop-prompt ([7393f70](https://github.com/heiervang-technologies/claude-unleashed/commit/7393f70785ab9386945edd964591e0099907d127))
+
 ## [4.6.1](https://github.com/heiervang-technologies/claude-unleashed/compare/v4.6.0...v4.6.1) (2026-01-21)
 
 
