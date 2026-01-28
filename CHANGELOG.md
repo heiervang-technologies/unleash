@@ -1,5 +1,18 @@
 # Changelog
 
+## [4.10.0](https://github.com/heiervang-technologies/claude-unleashed/compare/v4.9.0...v4.10.0) (2026-01-28)
+
+
+### Features
+
+* **hooks:** add centralized hook management system ([caf2e83](https://github.com/heiervang-technologies/claude-unleashed/commit/caf2e83c663580e371b3dec15d8fb89e44c4121c))
+
+
+### Bug Fixes
+
+* **hooks:** don't sync plugin hooks to settings.json ([fa80ba6](https://github.com/heiervang-technologies/claude-unleashed/commit/fa80ba6eab2a04e3736a8e3e0c852949bc6aaa5e))
+* **plugins:** deduplicate plugin directories ([86cd7b8](https://github.com/heiervang-technologies/claude-unleashed/commit/86cd7b82f6df85f5edaf4399ec1f4f17c80c6ada))
+
 ## [4.9.0](https://github.com/heiervang-technologies/claude-unleashed/compare/v4.8.0...v4.9.0) (2026-01-28)
 
 
