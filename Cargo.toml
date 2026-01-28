@@ -70,7 +70,7 @@ default_mode = "whitelist"
 # Only these versions will be installed when using "latest"
 # Users can override by creating ~/.config/claude-unleashed/whitelist.txt
 [package.metadata.claude-code-whitelist]
-versions = ["2.1.12", "2.1.4", "2.1.3", "2.1.2", "2.0.77"]
+versions = ["2.1.22", "2.1.12", "2.1.4", "2.1.3", "2.1.2", "2.0.77"]
 
 # Blacklist - versions with known critical issues (used when mode = "blacklist")
 # These versions are skipped when installing "latest"

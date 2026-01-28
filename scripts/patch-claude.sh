@@ -186,16 +186,18 @@ echo "Patch 4: Modified cycling logic"
 # PATCH 5: Make auto mode behave like bypassPermissions for permission checks
 # ============================================================================
 
-# 5a: Main permission allow check - Z.toolPermissionContext.mode
-sed -i 's/Z\.toolPermissionContext\.mode==="bypassPermissions"||Z\.toolPermissionContext\.mode==="plan"/Z.toolPermissionContext.mode==="bypassPermissions"||Z.toolPermissionContext.mode==="auto"||Z.toolPermissionContext.mode==="plan"/g' "$TEMP_FILE"
-echo "Patch 5a: Patched main permission allow check"
+# 5a: Main permission allow check - toolPermissionContext.mode
+# TOOL_PERMISSION_CTX defaults to "Z" for backward compatibility (v2.1.12 uses uppercase Z, v2.1.22+ uses lowercase z)
+TOOL_PERMISSION_CTX="${TOOL_PERMISSION_CTX:-Z}"
+sed -i "s/${TOOL_PERMISSION_CTX}\.toolPermissionContext\.mode===\"bypassPermissions\"||${TOOL_PERMISSION_CTX}\.toolPermissionContext\.mode===\"plan\"/${TOOL_PERMISSION_CTX}.toolPermissionContext.mode===\"bypassPermissions\"||${TOOL_PERMISSION_CTX}.toolPermissionContext.mode===\"auto\"||${TOOL_PERMISSION_CTX}.toolPermissionContext.mode===\"plan\"/g" "$TEMP_FILE"
+echo "Patch 5a: Patched ${TOOL_PERMISSION_CTX}.toolPermissionContext.mode permission check"
 
-# 5b: Passthrough check - Q.mode
-# NOTE: We prefix with "if(" to avoid matching "PQ.mode" (which appears in v2.1.12+).
-# The Q.mode pattern appears as "if(Q.mode===..." in the minified code, so this is safe.
-# If future versions change this structure, this pattern may need adjustment.
-sed -i 's/if(Q\.mode==="bypassPermissions"/if(Q.mode==="bypassPermissions"||Q.mode==="auto"/g' "$TEMP_FILE"
-echo "Patch 5b: Patched Q.mode passthrough check"
+# 5b: Passthrough check - mode variable
+# PASSTHROUGH_MODE_VAR defaults to "Q" for backward compatibility (v2.1.12 uses Q, v2.1.22+ uses K)
+# NOTE: We prefix with "if(" to avoid matching similar patterns like "PQ.mode".
+PASSTHROUGH_MODE_VAR="${PASSTHROUGH_MODE_VAR:-Q}"
+sed -i "s/if(${PASSTHROUGH_MODE_VAR}\.mode===\"bypassPermissions\"/if(${PASSTHROUGH_MODE_VAR}.mode===\"bypassPermissions\"||${PASSTHROUGH_MODE_VAR}.mode===\"auto\"/g" "$TEMP_FILE"
+echo "Patch 5b: Patched ${PASSTHROUGH_MODE_VAR}.mode passthrough check"
 
 # 5c: Mode-specific permission checks with ||BOOL pattern
 # PERMISSION_BOOL_VAR defaults to "V" for backward compatibility with older configs
@@ -229,14 +231,16 @@ fi
 # Need to handle the $ in function names carefully
 DELEGATE_FN1_ESCAPED="${DELEGATE_FN1//\$/\\\$}"
 DELEGATE_FN1_GREP="${DELEGATE_FN1//\$/[\$]}"
+# DELEGATE_MODE_CTX defaults to "B" for backward compatibility (v2.1.12 uses B, v2.1.22+ uses q)
+DELEGATE_MODE_CTX="${DELEGATE_MODE_CTX:-B}"
 
-PATTERN_7B_GREP="B\\.mode===\"delegate\"&&${MODE_VAR}!==\"delegate\")${DELEGATE_FN1_GREP}"
-PATTERN_7B="B\\.mode===\"delegate\"\\&\\&${MODE_VAR}!==\"delegate\")${DELEGATE_FN1_ESCAPED}(\\!0),${DELEGATE_FN2}(\\!0)"
-REPLACE_7B="B.mode===\"delegate\"\\&\\&${MODE_VAR}!==\"delegate\")${DELEGATE_FN1}(!0),${DELEGATE_FN2}(!0);if(B.mode===\"auto\"\\&\\&${MODE_VAR}!==\"auto\")import(\"fs\").then(_fs=>{try{_fs.unlinkSync(process.env.HOME+\"/.cache/claude-unleashed/auto-mode/active-\"+process.ppid)}catch(_e){}})"
+PATTERN_7B_GREP="${DELEGATE_MODE_CTX}\\.mode===\"delegate\"&&${MODE_VAR}!==\"delegate\")${DELEGATE_FN1_GREP}"
+PATTERN_7B="${DELEGATE_MODE_CTX}\\.mode===\"delegate\"\\&\\&${MODE_VAR}!==\"delegate\")${DELEGATE_FN1_ESCAPED}(\\!0),${DELEGATE_FN2}(\\!0)"
+REPLACE_7B="${DELEGATE_MODE_CTX}.mode===\"delegate\"\\&\\&${MODE_VAR}!==\"delegate\")${DELEGATE_FN1}(!0),${DELEGATE_FN2}(!0);if(${DELEGATE_MODE_CTX}.mode===\"auto\"\\&\\&${MODE_VAR}!==\"auto\")import(\"fs\").then(_fs=>{try{_fs.unlinkSync(process.env.HOME+\"/.cache/claude-unleashed/auto-mode/active-\"+process.ppid)}catch(_e){}})"
 
 if grep -qE "$PATTERN_7B_GREP" "$TEMP_FILE"; then
     sed -i "s|${PATTERN_7B}|${REPLACE_7B}|g" "$TEMP_FILE"
-    echo "Patch 7b: Inject flag removal (${MODE_VAR}/${DELEGATE_FN1}/${DELEGATE_FN2})"
+    echo "Patch 7b: Inject flag removal (${DELEGATE_MODE_CTX}.mode/${MODE_VAR}/${DELEGATE_FN1}/${DELEGATE_FN2})"
 else
     echo "Warning: Patch 7b - pattern not found"
 fi

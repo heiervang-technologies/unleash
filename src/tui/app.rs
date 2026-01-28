@@ -1164,10 +1164,16 @@ impl App {
                 (visible_start, left_clip, width)
             };
 
+            // Clamp figure_rect to not exceed the available frame area
+            let frame_right_edge = main_chunks[0].x + main_chunks[0].width;
+            let figure_start_x = main_chunks[0].x + render_x;
+            let figure_end_x = (figure_start_x + render_width).min(frame_right_edge);
+            let clamped_width = figure_end_x.saturating_sub(figure_start_x);
+
             let figure_rect = Rect {
-                x: main_chunks[0].x + render_x,
+                x: figure_start_x,
                 y: main_chunks[0].y,
-                width: render_width,
+                width: clamped_width,
                 height: main_chunks[0].height,
             };
 
