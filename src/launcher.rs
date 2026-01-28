@@ -34,7 +34,7 @@ pub fn run(auto_mode: bool, prompt: Option<String>, extra_args: Vec<String>) -> 
         eprintln!("Warning: Failed to check/apply patches: {}", e);
     }
 
-    // Sync hooks from plugins
+    // Install default hooks (NOT plugin hooks - those are loaded by Claude Code via --plugin-dir)
     match HookManager::new() {
         Ok(manager) => {
             // Install default hooks if not already installed
@@ -45,12 +45,7 @@ pub fn run(auto_mode: bool, prompt: Option<String>, extra_args: Vec<String>) -> 
                     }
                 }
             }
-
-            // Sync plugin hooks
-            let plugin_dirs = find_plugin_dirs();
-            if let Err(e) = manager.sync_plugin_hooks(&plugin_dirs) {
-                eprintln!("Warning: Failed to sync plugin hooks: {}", e);
-            }
+            // Note: Plugin hooks are loaded by Claude Code from --plugin-dir, not from settings.json
         }
         Err(e) => {
             eprintln!("Warning: Failed to initialize hook manager: {}", e);

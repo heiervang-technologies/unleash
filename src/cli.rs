@@ -151,7 +151,7 @@ pub enum HooksAction {
     /// Install default unleashed hooks
     Install,
 
-    /// Sync hooks from all unleashed plugins
+    /// Sync hooks from unleashed plugins (use sparingly - plugins loaded via --plugin-dir have their hooks loaded automatically)
     Sync,
 
     /// List all registered hooks
