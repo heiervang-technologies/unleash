@@ -8,6 +8,7 @@
 mod auth;
 mod cli;
 mod config;
+mod hooks;
 #[cfg(feature = "tui")]
 mod input;
 mod json_output;
@@ -131,6 +132,94 @@ fn main() -> io::Result<()> {
             } else {
                 1
             });
+        }
+        Some(Commands::Hooks { action }) => {
+            use cli::HooksAction;
+            use hooks::{HookEvent, HookManager};
+
+            let manager = match HookManager::new() {
+                Ok(m) => m,
+                Err(e) => {
+                    eprintln!("Error: {}", e);
+                    std::process::exit(1);
+                }
+            };
+
+            match action {
+                Some(HooksAction::Status) | None => {
+                    println!("{}", manager.summary());
+                    println!();
+                    println!("Registered hooks:");
+                    match manager.list_hooks() {
+                        Ok(hooks) => {
+                            if hooks.is_empty() {
+                                println!("  (none)");
+                            } else {
+                                for (event, commands) in &hooks {
+                                    println!("  {}:", event);
+                                    for cmd in commands {
+                                        println!("    - {}", cmd);
+                                    }
+                                }
+                            }
+                        }
+                        Err(e) => eprintln!("  Error listing hooks: {}", e),
+                    }
+                    Ok(())
+                }
+                Some(HooksAction::Install) => {
+                    manager.install_default_hooks()
+                }
+                Some(HooksAction::Sync) => {
+                    let plugin_dirs = launcher::find_plugin_dirs();
+                    manager.sync_plugin_hooks(&plugin_dirs)?;
+                    println!("Synced hooks from {} plugin(s)", plugin_dirs.len());
+                    Ok(())
+                }
+                Some(HooksAction::List) => {
+                    match manager.list_hooks() {
+                        Ok(hooks) => {
+                            if hooks.is_empty() {
+                                println!("No hooks registered");
+                            } else {
+                                for (event, commands) in &hooks {
+                                    println!("{}:", event);
+                                    for cmd in commands {
+                                        println!("  {}", cmd);
+                                    }
+                                }
+                            }
+                        }
+                        Err(e) => eprintln!("Error listing hooks: {}", e),
+                    }
+                    Ok(())
+                }
+                Some(HooksAction::Add { event, command, matcher }) => {
+                    let hook_event = HookEvent::from_str(&event).ok_or_else(|| {
+                        io::Error::new(
+                            io::ErrorKind::InvalidInput,
+                            format!("Unknown hook event: {}. Valid events: Stop, PreToolUse, PostToolUse, PreCompact, Notification, SessionStart, SubagentStart, SubagentStop, Setup", event),
+                        )
+                    })?;
+                    manager.register_hook(hook_event, &command, matcher.as_deref())?;
+                    println!("Added hook for {}: {}", event, command);
+                    Ok(())
+                }
+                Some(HooksAction::Remove { event, command }) => {
+                    let hook_event = HookEvent::from_str(&event).ok_or_else(|| {
+                        io::Error::new(
+                            io::ErrorKind::InvalidInput,
+                            format!("Unknown hook event: {}", event),
+                        )
+                    })?;
+                    if manager.unregister_hook(hook_event, &command)? {
+                        println!("Removed hook for {}: {}", event, command);
+                    } else {
+                        println!("Hook not found");
+                    }
+                    Ok(())
+                }
+            }
         }
         None => {
             // No subcommand: show help

@@ -7,6 +7,7 @@
 //! - Process management
 
 use crate::config::ProfileManager;
+use crate::hooks::HookManager;
 use crate::patcher;
 use std::collections::HashMap;
 use std::env;
@@ -31,6 +32,29 @@ pub fn run(auto_mode: bool, prompt: Option<String>, extra_args: Vec<String>) -> 
     // Check and apply patches if needed
     if let Err(e) = patcher::check_and_patch() {
         eprintln!("Warning: Failed to check/apply patches: {}", e);
+    }
+
+    // Sync hooks from plugins
+    match HookManager::new() {
+        Ok(manager) => {
+            // Install default hooks if not already installed
+            if let Ok(hooks) = manager.list_hooks() {
+                if !hooks.contains_key("PreCompact") {
+                    if let Err(e) = manager.install_default_hooks() {
+                        eprintln!("Warning: Failed to install default hooks: {}", e);
+                    }
+                }
+            }
+
+            // Sync plugin hooks
+            let plugin_dirs = find_plugin_dirs();
+            if let Err(e) = manager.sync_plugin_hooks(&plugin_dirs) {
+                eprintln!("Warning: Failed to sync plugin hooks: {}", e);
+            }
+        }
+        Err(e) => {
+            eprintln!("Warning: Failed to initialize hook manager: {}", e);
+        }
     }
 
     // Find claude command
@@ -154,9 +178,9 @@ fn load_profile_env() -> io::Result<HashMap<String, String>> {
     Ok(profile.map(|p| p.env.clone()).unwrap_or_default())
 }
 
-/// Find plugin directories
-fn find_plugins() -> Vec<String> {
-    let mut args = Vec::new();
+/// Find plugin directories (returns paths)
+pub fn find_plugin_dirs() -> Vec<PathBuf> {
+    let mut dirs = Vec::new();
 
     // Check repo location (for development)
     let repo_plugins = PathBuf::from("plugins/unleashed");
@@ -164,8 +188,7 @@ fn find_plugins() -> Vec<String> {
         if let Ok(entries) = fs::read_dir(&repo_plugins) {
             for entry in entries.flatten() {
                 if entry.path().is_dir() {
-                    args.push("--plugin-dir".to_string());
-                    args.push(entry.path().to_string_lossy().to_string());
+                    dirs.push(entry.path());
                 }
             }
         }
@@ -178,14 +201,23 @@ fn find_plugins() -> Vec<String> {
             if let Ok(entries) = fs::read_dir(&plugins_dir) {
                 for entry in entries.flatten() {
                     if entry.path().is_dir() {
-                        args.push("--plugin-dir".to_string());
-                        args.push(entry.path().to_string_lossy().to_string());
+                        dirs.push(entry.path());
                     }
                 }
             }
         }
     }
 
+    dirs
+}
+
+/// Convert plugin directories to CLI args
+fn find_plugins() -> Vec<String> {
+    let mut args = Vec::new();
+    for dir in find_plugin_dirs() {
+        args.push("--plugin-dir".to_string());
+        args.push(dir.to_string_lossy().to_string());
+    }
     args
 }
 

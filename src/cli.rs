@@ -135,4 +135,47 @@ pub enum Commands {
         #[arg(short, long)]
         quiet: bool,
     },
+
+    /// Manage Claude Code hooks
+    Hooks {
+        #[command(subcommand)]
+        action: Option<HooksAction>,
+    },
+}
+
+#[derive(Subcommand, Debug)]
+pub enum HooksAction {
+    /// Show Claude Code installation info and registered hooks
+    Status,
+
+    /// Install default unleashed hooks
+    Install,
+
+    /// Sync hooks from all unleashed plugins
+    Sync,
+
+    /// List all registered hooks
+    List,
+
+    /// Add a custom hook
+    Add {
+        /// Hook event (Stop, PreToolUse, PostToolUse, PreCompact, etc.)
+        event: String,
+
+        /// Command to execute
+        command: String,
+
+        /// Optional matcher pattern
+        #[arg(short, long)]
+        matcher: Option<String>,
+    },
+
+    /// Remove a hook by command
+    Remove {
+        /// Hook event
+        event: String,
+
+        /// Command to remove
+        command: String,
+    },
 }
