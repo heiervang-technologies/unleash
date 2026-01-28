@@ -206,6 +206,13 @@ sed -i "s/${PERMISSION_CTX_VAR}\.mode===\"bypassPermissions\"||${PERMISSION_BOOL
 echo "Patch 5c: Patched ${PERMISSION_CTX_VAR}.mode||${PERMISSION_BOOL_VAR} permission checks"
 
 # ============================================================================
+# PATCH 5d: Add auto to mode validation/identity function
+# This function returns the mode string for valid modes - auto was missing
+# ============================================================================
+sed -i 's/case"acceptEdits":case"bypassPermissions":case"default":case"delegate":case"dontAsk":case"plan":return A/case"acceptEdits":case"auto":case"bypassPermissions":case"default":case"delegate":case"dontAsk":case"plan":return A/g' "$TEMP_FILE"
+echo "Patch 5d: Added auto to mode validation function"
+
+# ============================================================================
 # PATCH 6: Add color for auto mode (yellow/warning)
 # ============================================================================
 sed -i 's/case"acceptEdits":return"autoAccept";case"bypassPermissions":return"error"/case"acceptEdits":return"autoAccept";case"auto":return"warning";case"bypassPermissions":return"error"/g' "$TEMP_FILE"
