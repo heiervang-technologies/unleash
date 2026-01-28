@@ -174,28 +174,41 @@ fn load_profile_env() -> io::Result<HashMap<String, String>> {
 }
 
 /// Find plugin directories (returns paths)
+/// Only returns from ONE source to avoid duplicate hooks:
+/// - Prefer repo dev path (plugins/unleashed/) when running from repo
+/// - Fall back to installed path (~/.local/share/claude-unleashed/plugins/)
 pub fn find_plugin_dirs() -> Vec<PathBuf> {
     let mut dirs = Vec::new();
+    let mut seen_names = std::collections::HashSet::new();
 
-    // Check repo location (for development)
+    // Check repo location (for development) - PREFERRED when available
     let repo_plugins = PathBuf::from("plugins/unleashed");
     if repo_plugins.exists() {
         if let Ok(entries) = fs::read_dir(&repo_plugins) {
             for entry in entries.flatten() {
                 if entry.path().is_dir() {
+                    if let Some(name) = entry.path().file_name() {
+                        seen_names.insert(name.to_string_lossy().to_string());
+                    }
                     dirs.push(entry.path());
                 }
             }
         }
     }
 
-    // Check ~/.local/share/claude-unleashed/plugins
+    // Check ~/.local/share/claude-unleashed/plugins - only add if not already seen
     if let Some(data_dir) = dirs::data_local_dir() {
         let plugins_dir = data_dir.join("claude-unleashed/plugins");
         if plugins_dir.exists() {
             if let Ok(entries) = fs::read_dir(&plugins_dir) {
                 for entry in entries.flatten() {
                     if entry.path().is_dir() {
+                        // Skip if we already have this plugin from repo path
+                        if let Some(name) = entry.path().file_name() {
+                            if seen_names.contains(&name.to_string_lossy().to_string()) {
+                                continue;
+                            }
+                        }
                         dirs.push(entry.path());
                     }
                 }
