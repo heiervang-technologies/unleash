@@ -1,5 +1,12 @@
 # Changelog
 
+## [4.9.0](https://github.com/heiervang-technologies/claude-unleashed/compare/v4.8.0...v4.9.0) (2026-01-28)
+
+
+### Features
+
+* **auto-mode:** improve startup behavior and add env var patches ([ab32ef1](https://github.com/heiervang-technologies/claude-unleashed/commit/ab32ef17c88bf873d16dd8509d76453d8ddfddcf))
+
 ## [4.8.0](https://github.com/heiervang-technologies/claude-unleashed/compare/v4.7.0...v4.8.0) (2026-01-28)
 
 
