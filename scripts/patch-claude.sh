@@ -253,6 +253,50 @@ else
 fi
 
 # ============================================================================
+# PATCH 8: Auto mode startup from environment variable
+# When CLAUDE_AUTO_MODE=1 is set, start in auto mode instead of default
+# ============================================================================
+
+# 8a: Patch the initial mode assignment to check for env var
+# Original: permissionMode:Y??"default"
+# Patched:  permissionMode:Y??(process.env.CLAUDE_AUTO_MODE==="1"?"auto":"default")
+PATTERN_8A='permissionMode:Y??"default"'
+REPLACE_8A='permissionMode:Y??(process.env.CLAUDE_AUTO_MODE==="1"?"auto":"default")'
+
+if grep -qF "$PATTERN_8A" "$TEMP_FILE"; then
+    sed -i "s|${PATTERN_8A}|${REPLACE_8A}|g" "$TEMP_FILE"
+    echo "Patch 8a: Patched initial mode to check CLAUDE_AUTO_MODE env var"
+else
+    echo "Warning: Patch 8a - pattern not found"
+fi
+
+# 8b: Patch literal permissionMode:"default" assignments
+# Original: permissionMode:"default"
+# Patched:  permissionMode:(process.env.CLAUDE_AUTO_MODE==="1"?"auto":"default")
+PATTERN_8B='permissionMode:"default"'
+REPLACE_8B='permissionMode:(process.env.CLAUDE_AUTO_MODE==="1"?"auto":"default")'
+
+if grep -qF "$PATTERN_8B" "$TEMP_FILE"; then
+    sed -i "s|${PATTERN_8B}|${REPLACE_8B}|g" "$TEMP_FILE"
+    echo "Patch 8b: Patched literal default mode assignment"
+else
+    echo "Warning: Patch 8b - pattern not found"
+fi
+
+# 8c: Patch conditional permissionMode:H?"plan":"default" assignments
+# Original: permissionMode:H?"plan":"default"
+# Patched:  permissionMode:H?"plan":(process.env.CLAUDE_AUTO_MODE==="1"?"auto":"default")
+PATTERN_8C='permissionMode:H?"plan":"default"'
+REPLACE_8C='permissionMode:H?"plan":(process.env.CLAUDE_AUTO_MODE==="1"?"auto":"default")'
+
+if grep -qF "$PATTERN_8C" "$TEMP_FILE"; then
+    sed -i "s|${PATTERN_8C}|${REPLACE_8C}|g" "$TEMP_FILE"
+    echo "Patch 8c: Patched conditional plan/default mode assignment"
+else
+    echo "Warning: Patch 8c - pattern not found"
+fi
+
+# ============================================================================
 # VERIFY AND APPLY
 # ============================================================================
 

@@ -222,6 +222,11 @@ fn run_claude(
             auto_dir.join(format!("active-{}", wrapper_pid)),
             "auto-start",
         );
+
+        // Tell Claude Code to start in auto mode
+        cmd.arg("--permission-mode");
+        cmd.arg("auto");
+
         println!("Auto mode activated on startup");
     }
 
@@ -239,8 +244,9 @@ fn run_claude(
     // Add plugin arguments
     cmd.args(plugin_args);
 
-    // Add --dangerously-skip-permissions (required for hooks to work)
-    cmd.arg("--dangerously-skip-permissions");
+    // Use --allow-dangerously-skip-permissions to enable bypass mode as an option
+    // without forcing it on startup (allows --permission-mode to take effect)
+    cmd.arg("--allow-dangerously-skip-permissions");
 
     // Add user arguments
     cmd.args(args);
