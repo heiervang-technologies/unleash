@@ -1,5 +1,17 @@
 # Changelog
 
+## [4.8.0](https://github.com/heiervang-technologies/claude-unleashed/compare/v4.7.0...v4.8.0) (2026-01-28)
+
+
+### Features
+
+* **patches:** add support for Claude Code v2.1.22 ([a88d38d](https://github.com/heiervang-technologies/claude-unleashed/commit/a88d38d5c41eef2bb3d83e8ba4503716449b8250))
+
+
+### Bug Fixes
+
+* **patches:** add auto mode to validation function ([dc43e0d](https://github.com/heiervang-technologies/claude-unleashed/commit/dc43e0dee998726b5f5c9a4a1d85ef3a499d7b32))
+
 ## [4.7.0](https://github.com/heiervang-technologies/claude-unleashed/compare/v4.6.1...v4.7.0) (2026-01-23)
 
 
