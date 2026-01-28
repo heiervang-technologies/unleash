@@ -82,25 +82,6 @@ impl ClaudeInstallation {
     }
 }
 
-/// Hook definition matching Claude Code's format
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct HookCommand {
-    #[serde(rename = "type")]
-    pub hook_type: String,
-    pub command: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub timeout: Option<u64>,
-}
-
-/// A single hook configuration
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct HookConfig {
-    #[serde(default)]
-    pub hooks: Vec<HookCommand>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub matcher: Option<String>,
-}
-
 /// Hook event types supported by Claude Code
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum HookEvent {
@@ -152,8 +133,6 @@ pub struct HookManager {
     pub installation: ClaudeInstallation,
     /// Path to unleashed hooks directory
     hooks_dir: PathBuf,
-    /// Cache directory for hook state
-    cache_dir: PathBuf,
 }
 
 impl HookManager {
@@ -165,17 +144,11 @@ impl HookManager {
             .unwrap_or_else(|| PathBuf::from("/tmp"))
             .join("claude-unleashed/hooks");
 
-        let cache_dir = dirs::cache_dir()
-            .unwrap_or_else(|| PathBuf::from("/tmp"))
-            .join("claude-unleashed/hooks");
-
         fs::create_dir_all(&hooks_dir)?;
-        fs::create_dir_all(&cache_dir)?;
 
         Ok(Self {
             installation,
             hooks_dir,
-            cache_dir,
         })
     }
 
@@ -479,36 +452,6 @@ EOF
             self.installation.version,
             self.installation.settings_path.display()
         )
-    }
-}
-
-/// Cache file for tracking installed hooks
-fn hooks_cache_file() -> PathBuf {
-    dirs::cache_dir()
-        .unwrap_or_else(|| PathBuf::from("/tmp"))
-        .join("claude-unleashed/installed-hooks.json")
-}
-
-/// Save installed hooks to cache
-pub fn save_hooks_cache(hooks: &HashMap<String, Vec<String>>) -> io::Result<()> {
-    let cache_file = hooks_cache_file();
-    if let Some(parent) = cache_file.parent() {
-        fs::create_dir_all(parent)?;
-    }
-    let content = serde_json::to_string_pretty(hooks)
-        .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e.to_string()))?;
-    fs::write(cache_file, content)
-}
-
-/// Load installed hooks from cache
-pub fn load_hooks_cache() -> io::Result<HashMap<String, Vec<String>>> {
-    let cache_file = hooks_cache_file();
-    if cache_file.exists() {
-        let content = fs::read_to_string(&cache_file)?;
-        serde_json::from_str(&content)
-            .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e.to_string()))
-    } else {
-        Ok(HashMap::new())
     }
 }
 
