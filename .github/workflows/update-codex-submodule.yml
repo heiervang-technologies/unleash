@@ -1,0 +1,48 @@
+name: Update Codex Submodule
+
+on:
+  schedule:
+    - cron: '0 0 * * *'  # Daily at midnight
+  workflow_dispatch:
+
+jobs:
+  update-submodule:
+    runs-on: self-hosted
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          submodules: true
+          fetch-depth: 0
+
+      - name: Update Codex submodule
+        run: |
+          git submodule update --remote codex-unleashed/codex
+
+      - name: Check for changes
+        id: check_changes
+        run: |
+          if git diff --quiet; then
+            echo "No changes detected."
+            echo "has_changes=false" >> $GITHUB_OUTPUT
+          else
+            echo "Changes detected in submodule."
+            echo "has_changes=true" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Configure Git
+        if: steps.check_changes.outputs.has_changes == 'true'
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+      - name: Commit and push changes
+        if: steps.check_changes.outputs.has_changes == 'true'
+        run: |
+          git add codex-unleashed/codex
+          git commit -m "chore: update codex submodule to latest main"
+          git push origin main

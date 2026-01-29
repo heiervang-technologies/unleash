@@ -2,7 +2,7 @@
 
 **Date**: 2026-01-06
 **Status**: WORKING - Two successful self-restart methods discovered
-**Issue**: https://github.com/heiervang-technologies/claude-unleashed/issues/7
+**Issue**: https://github.com/heiervang-technologies/agent-unleashed/issues/7
 
 ## BREAKTHROUGH: Working Self-Restart Methods
 
@@ -18,7 +18,7 @@ Both are the **first known methods** that actually work for Claude Code self-res
 ```bash
 #!/bin/bash
 # claude-wrapper.sh - run this instead of 'claude' directly
-TRIGGER="$HOME/.cache/claude-unleashed/process-restart/restart-trigger"
+TRIGGER="$HOME/.cache/agent-unleashed/process-restart/restart-trigger"
 mkdir -p "$(dirname "$TRIGGER")"
 
 while true; do
@@ -36,7 +36,7 @@ done
 
 **To restart** (from within Claude):
 ```bash
-touch ~/.cache/claude-unleashed/process-restart/restart-trigger
+touch ~/.cache/agent-unleashed/process-restart/restart-trigger
 kill -INT $(pgrep -f "^claude" | head -1)
 ```
 

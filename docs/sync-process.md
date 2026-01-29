@@ -2,7 +2,7 @@
 
 ## Overview
 
-The claude-unleashed repository maintains a fork of Claude Code with enhancements for GitHub Actions automation. This document describes the process for synchronizing with upstream Claude Code updates while preserving our custom functionality.
+The agent-unleashed repository maintains a fork of Claude Code with enhancements for GitHub Actions automation. This document describes the process for synchronizing with upstream Claude Code updates while preserving our custom functionality.
 
 ## Table of Contents
 
@@ -19,7 +19,7 @@ The claude-unleashed repository maintains a fork of Claude Code with enhancement
 ### Repository Structure
 
 ```
-claude-unleashed/
+agent-unleashed/
 ├── .github/
 │   └── workflows/
 │       ├── mention-trigger.yml      # Snail: Mention-based triggers
@@ -42,7 +42,7 @@ claude-unleashed/
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
-│                   claude-unleashed (Main Repo)              │
+│                   agent-unleashed (Main Repo)              │
 │                                                             │
 │  Contains:                                                  │
 │  - GitHub Actions workflows (snail integration)             │
@@ -576,8 +576,8 @@ When AI agent cannot resolve conflicts, follow this process:
 
 ```bash
 # Clone repository
-git clone https://github.com/your-org/claude-unleashed.git
-cd claude-unleashed
+git clone https://github.com/your-org/agent-unleashed.git
+cd agent-unleashed
 
 # Initialize submodule
 git submodule update --init --recursive
@@ -822,7 +822,7 @@ After PR is merged:
 
 ```bash
 # In parent repository
-cd /path/to/claude-unleashed
+cd /path/to/agent-unleashed
 
 # Update submodule pointer
 git add claude-code

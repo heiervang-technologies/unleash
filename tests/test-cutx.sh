@@ -88,8 +88,8 @@ cleanup() {
     # Kill test tmux session if it exists
     tmux kill-session -t "$TEST_SESSION" 2>/dev/null || true
     # Clean up cache files
-    rm -f "${HOME}/.cache/claude-unleashed/cutx/${TEST_SESSION}.output" 2>/dev/null || true
-    rm -f "${HOME}/.cache/claude-unleashed/cutx/${TEST_SESSION}.marker" 2>/dev/null || true
+    rm -f "${HOME}/.cache/agent-unleashed/autx/${TEST_SESSION}.output" 2>/dev/null || true
+    rm -f "${HOME}/.cache/agent-unleashed/autx/${TEST_SESSION}.marker" 2>/dev/null || true
 }
 trap cleanup EXIT
 
@@ -131,7 +131,7 @@ test_help_command() {
     assert_contains "$output" "send" "help mentions send command"
     assert_contains "$output" "attach" "help mentions attach command"
     assert_contains "$output" "stop" "help mentions stop command"
-    assert_contains "$output" "CUTX_SESSION_NAME" "help mentions environment variable"
+    assert_contains "$output" "AUTX_SESSION_NAME" "help mentions environment variable"
     echo ""
 }
 
@@ -311,7 +311,7 @@ test_empty_command() {
 test_cache_directory() {
     echo "=== Test: cache directory handling ==="
 
-    local cache_dir="${HOME}/.cache/claude-unleashed/cutx"
+    local cache_dir="${HOME}/.cache/agent-unleashed/autx"
 
     # The script should create cache dir on any operation
     "$CUTX" help >/dev/null 2>&1

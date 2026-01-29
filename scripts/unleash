@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# unleash - Apply Claude Unleashed patches to Claude Code
+# unleash - Apply Agent Unleashed patches to Claude Code
 #
 # Usage:
 #   unleash          - Apply all patches
@@ -19,7 +19,7 @@ done
 SCRIPT_DIR="$(cd -P "$(dirname "$SOURCE")" && pwd)"
 
 show_help() {
-    echo "unleash - Apply Claude Unleashed patches to Claude Code"
+    echo "unleash - Apply Agent Unleashed patches to Claude Code"
     echo ""
     echo "Usage:"
     echo "  unleash          Apply all patches"
@@ -55,17 +55,17 @@ check_status() {
 
 case "${1:-patch}" in
     patch|"")
-        echo "=== Claude Unleashed Patcher ==="
+        echo "=== Agent Unleashed Patcher ==="
         echo ""
         "$SCRIPT_DIR/patch-claude.sh"
         ;;
     unpatch|restore)
-        echo "=== Claude Unleashed Unpatcher ==="
+        echo "=== Agent Unleashed Unpatcher ==="
         echo ""
         "$SCRIPT_DIR/unpatch-claude.sh"
         ;;
     status)
-        echo "=== Claude Unleashed Status ==="
+        echo "=== Agent Unleashed Status ==="
         echo ""
         check_status
         ;;

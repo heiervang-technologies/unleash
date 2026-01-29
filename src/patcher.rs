@@ -14,7 +14,7 @@ use which::which;
 fn version_cache_file() -> PathBuf {
     dirs::cache_dir()
         .unwrap_or_else(|| PathBuf::from("/tmp"))
-        .join("claude-unleashed/last-patched-version")
+        .join("agent-unleashed/last-patched-version")
 }
 
 /// Get Claude Code installation directory

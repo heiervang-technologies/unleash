@@ -142,7 +142,7 @@ impl HookManager {
 
         let hooks_dir = dirs::data_local_dir()
             .unwrap_or_else(|| PathBuf::from("/tmp"))
-            .join("claude-unleashed/hooks");
+            .join("agent-unleashed/hooks");
 
         fs::create_dir_all(&hooks_dir)?;
 

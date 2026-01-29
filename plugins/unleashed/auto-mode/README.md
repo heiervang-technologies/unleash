@@ -17,7 +17,7 @@ When prompted, Claude will activate the auto mode flag, which enables the Stop h
 The plugin uses Claude Code's `Stop` hook to prevent Claude from ending its turn:
 
 1. `/auto` command instructs Claude to run the activation script
-2. Activation script creates a flag file at `~/.cache/claude-unleashed/auto-mode/active`
+2. Activation script creates a flag file at `~/.cache/agent-unleashed/auto-mode/active`
 3. The Stop hook (`auto-mode-stop.sh`) checks for this flag
 4. If active, the hook returns `{"decision": "block"}`, forcing Claude to continue
 5. Claude receives the block message and must keep working
@@ -93,7 +93,7 @@ If found, Claude uses these to request clarification when blocked or report prog
 | `hooks/auto-mode-stop.sh` | Stop hook that enforces auto mode |
 | `scripts/activate-auto-mode.sh` | Creates the auto mode flag |
 | `scripts/deactivate-auto-mode.sh` | Removes the auto mode flag |
-| `~/.cache/claude-unleashed/auto-mode/active` | Flag file when active |
+| `~/.cache/agent-unleashed/auto-mode/active` | Flag file when active |
 
 ## Configuration
 
@@ -107,7 +107,7 @@ The Stop hook must be configured in `~/.claude/settings.json`:
         "hooks": [
           {
             "type": "command",
-            "command": "$HOME/claude-unleashed/plugins/unleashed/auto-mode/hooks/auto-mode-stop.sh"
+            "command": "$HOME/agent-unleashed/plugins/unleashed/auto-mode/hooks/auto-mode-stop.sh"
           }
         ]
       }
@@ -146,15 +146,15 @@ cui  # Launch the TUI
 # Press Enter to edit, type your custom message, press Enter to save
 ```
 
-The custom prompt is stored in `~/.config/claude-unleashed/config.toml` and applies to all future auto-mode sessions.
+The custom prompt is stored in `~/.config/agent-unleashed/config.toml` and applies to all future auto-mode sessions.
 
 #### Prompt Priority
 
 The stop hook uses the following priority when determining which message to show:
 
-1. **Session-specific** (highest): `~/.cache/claude-unleashed/auto-mode/reminder-${PID}`
+1. **Session-specific** (highest): `~/.cache/agent-unleashed/auto-mode/reminder-${PID}`
    - Set programmatically for specific sessions
-2. **Global config**: `~/.config/claude-unleashed/config.toml` (stop_prompt field)
+2. **Global config**: `~/.config/agent-unleashed/config.toml` (stop_prompt field)
    - Set via CLI flags or TUI
 3. **Default** (lowest): Hardcoded message in the hook script
 
@@ -167,7 +167,7 @@ The stop hook uses the following priority when determining which message to show
 
 ## Requirements
 
-- Must run under `claude-unleashed` wrapper for `exit-claude` to work
+- Must run under `agent-unleashed` wrapper for `exit-claude` to work
 - Stop hook must be configured in settings
 - Optional: MCP server with notification capabilities
 

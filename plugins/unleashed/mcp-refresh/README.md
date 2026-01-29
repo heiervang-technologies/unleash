@@ -58,7 +58,7 @@ Display current MCP server status and configuration.
 
 ## Installation
 
-1. The plugin is already included in Claude Unleashed
+1. The plugin is already included in Agent Unleashed
 2. Enable it in `.claude/settings.json`:
 
 ```json
@@ -142,7 +142,7 @@ The plugin uses SHA256 hashing to efficiently detect configuration changes:
 
 Configuration hashes are stored in:
 ```
-~/.cache/claude-unleashed/mcp-refresh/config-hashes.txt
+~/.cache/agent-unleashed/mcp-refresh/config-hashes.txt
 ```
 
 ## Limitations
@@ -189,7 +189,7 @@ See the [process-restart plugin](../process-restart/README.md) for details.
 **Solutions**:
 1. Check that `autoDetect` is enabled in settings
 2. Verify the file path is in `configPaths` setting
-3. Clear cache: `rm -rf ~/.cache/claude-unleashed/mcp-refresh/`
+3. Clear cache: `rm -rf ~/.cache/agent-unleashed/mcp-refresh/`
 4. Manually run `/reload-mcps` to check
 
 ### False positives
@@ -199,7 +199,7 @@ See the [process-restart plugin](../process-restart/README.md) for details.
 **Solutions**:
 1. Check for automatic file formatting (e.g., JSON prettier)
 2. Verify no other process is modifying config files
-3. Clear cache and let it rebuild: `rm -rf ~/.cache/claude-unleashed/mcp-refresh/`
+3. Clear cache and let it rebuild: `rm -rf ~/.cache/agent-unleashed/mcp-refresh/`
 
 ### Automatic detection too frequent
 
@@ -257,7 +257,7 @@ If Claude Code's source becomes available or if core APIs are exposed:
 
 ## License
 
-Same as Claude Unleashed parent repository.
+Same as Agent Unleashed parent repository.
 
 ## Author
 

@@ -3,12 +3,12 @@
 
 set -uo pipefail
 
-AUTO_MODE_DIR="${HOME}/.cache/claude-unleashed/auto-mode"
+AUTO_MODE_DIR="${HOME}/.cache/agent-unleashed/auto-mode"
 
 # Use wrapper-specific flag file for session isolation
 WRAPPER_PID="${CLAUDE_WRAPPER_PID:-}"
 if [[ -z "${WRAPPER_PID}" ]]; then
-    echo "Error: CLAUDE_WRAPPER_PID not set. Run under claude-unleashed wrapper."
+    echo "Error: CLAUDE_WRAPPER_PID not set. Run under agent-unleashed wrapper."
     exit 1
 fi
 

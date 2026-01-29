@@ -1,12 +1,13 @@
 #!/usr/bin/env bash
-# install.sh - Install claude-unleashed
+# install.sh - Install agent-unleashed
 #
 # This script:
 # 1. Installs Claude Code via npm (if not present)
-# 2. Builds the TUI binary (if cargo available)
+# 2. Builds the CLI binaries (if cargo available)
 # 3. Creates symlinks in ~/.local/bin/
-# 4. Installs plugins to ~/.local/share/claude-unleashed/plugins
+# 4. Installs plugins to ~/.local/share/agent-unleashed/plugins
 # 5. Runs initial Claude Code patch
+# 6. Creates legacy symlinks (cu* -> au*) for backwards compatibility
 #
 # Usage: ./scripts/install.sh [--no-build] [--no-patch] [--no-claude-code]
 #
@@ -101,7 +102,7 @@ if $INTERACTIVE; then
         echo ""
         echo "   ╭─────────────────────────────────────╮"
         echo "   │                                     │"
-        echo "   │      ⚡ CLAUDE UNLEASHED ⚡         │"
+        echo "   │      ⚡ AGENT UNLEASHED ⚡          │"
         echo "   │                                     │"
         echo "   │      Breaking free from limits      │"
         echo "   │                                     │"
@@ -109,14 +110,14 @@ if $INTERACTIVE; then
         echo ""
     fi
     echo ""
-    echo -e "${GREEN}Press Enter to unleash Claude...${NC}"
+    echo -e "${GREEN}Press Enter to unleash the agent...${NC}"
     read -r
     clear
 fi
 
 echo ""
 echo "╭─────────────────────────────────────╮"
-echo "│     Claude Unleashed Installer      │"
+echo "│     Agent Unleashed Installer       │"
 echo "╰─────────────────────────────────────╯"
 echo ""
 
@@ -207,14 +208,22 @@ if $BUILD_TUI; then
         if cargo build --release; then
             success "CLI built successfully"
 
-            # Install all binaries (cu, cui, cug, cutx, cutxg)
-            for bin in cu cui cug cutx cutxg; do
+            # Install new binaries (au, aui, aug, autx, autxg)
+            for bin in au aui aug autx autxg; do
                 if [[ -f "$REPO_ROOT/target/release/$bin" ]]; then
                     cp "$REPO_ROOT/target/release/$bin" "$BIN_DIR/$bin"
                     chmod +x "$BIN_DIR/$bin"
                     success "Installed: $bin"
                 fi
             done
+
+            # Create legacy symlinks (cu* -> au*) for backwards compatibility
+            ln -sf "$BIN_DIR/au" "$BIN_DIR/cu"
+            ln -sf "$BIN_DIR/aui" "$BIN_DIR/cui"
+            ln -sf "$BIN_DIR/aug" "$BIN_DIR/cug"
+            ln -sf "$BIN_DIR/autx" "$BIN_DIR/cutx"
+            ln -sf "$BIN_DIR/autxg" "$BIN_DIR/cutxg"
+            success "Created legacy symlinks: cu* -> au*"
 
             # Install patches to BIN_DIR
             info "Installing patches..."
@@ -235,9 +244,13 @@ fi
 # Step 2: Create symlinks for additional commands
 info "Creating symlinks..."
 
-# claude-unleashed is an alias for cu
-ln -sf "$BIN_DIR/cu" "$BIN_DIR/claude-unleashed"
-success "Symlink: claude-unleashed -> cu"
+# agent-unleashed is an alias for au
+ln -sf "$BIN_DIR/au" "$BIN_DIR/agent-unleashed"
+success "Symlink: agent-unleashed -> au"
+
+# Legacy alias
+ln -sf "$BIN_DIR/au" "$BIN_DIR/claude-unleashed"
+success "Symlink: claude-unleashed -> au (legacy alias)"
 
 # Helper commands (bash scripts)
 ln -sf "$SCRIPT_DIR/restart-claude" "$BIN_DIR/restart-claude"
@@ -246,7 +259,7 @@ success "Symlink: restart-claude, exit-claude"
 
 # Step 3: Install plugins globally
 info "Installing plugins..."
-PLUGINS_DIR="${HOME}/.local/share/claude-unleashed/plugins"
+PLUGINS_DIR="${HOME}/.local/share/agent-unleashed/plugins"
 mkdir -p "$PLUGINS_DIR"
 
 if [[ -d "$REPO_ROOT/plugins/unleashed" ]]; then
@@ -282,23 +295,26 @@ echo "│        Installation Complete        │"
 echo "╰─────────────────────────────────────╯"
 echo ""
 echo "CLI Commands:"
-echo "  cu             - Show help"
-echo "  cu go / cug    - Start Claude with unleashed features"
-echo "  cu ui / cui    - TUI for profile/version management"
-echo "  cu tmux / cutx - Headless tmux mode"
-echo "  cutx go / cutxg - Start tmux session and attach"
-echo "  cu auth        - Check authentication status"
-echo "  cu patch       - Patch Claude Code for auto mode"
-echo "  cu version     - Manage Claude Code versions"
+echo "  au             - Show help"
+echo "  au go / aug    - Start agent with unleashed features"
+echo "  au ui / aui    - TUI for profile/version management"
+echo "  au tmux / autx - Headless tmux mode"
+echo "  autx go / autxg - Start tmux session and attach"
+echo "  au auth        - Check authentication status"
+echo "  au patch       - Patch Claude Code for auto mode"
+echo "  au version     - Manage Claude Code versions"
+echo ""
+echo "Legacy Commands (backwards compatible):"
+echo "  cu, cui, cug, cutx, cutxg - same as au* variants"
 echo ""
 echo "Helper Commands:"
-echo "  restart-claude  - Restart Claude (preserves session)"
-echo "  exit-claude     - Exit Claude and wrapper"
+echo "  restart-claude  - Restart agent (preserves session)"
+echo "  exit-claude     - Exit agent and wrapper"
 echo ""
 echo "Quick start:"
-echo "  cug              - Start Claude with unleashed features"
-echo "  cug --auto       - Start in auto mode"
-echo "  cutxg            - Start Claude in tmux and attach"
+echo "  aug              - Start agent with unleashed features"
+echo "  aug --auto       - Start in auto mode"
+echo "  autxg            - Start agent in tmux and attach"
 echo ""
 
 if ! $BUILD_TUI; then

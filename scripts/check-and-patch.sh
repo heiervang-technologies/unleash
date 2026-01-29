@@ -9,7 +9,7 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-VERSION_CACHE_DIR="$HOME/.cache/claude-unleashed"
+VERSION_CACHE_DIR="$HOME/.cache/agent-unleashed"
 VERSION_FILE="$VERSION_CACHE_DIR/patched-claude-version"
 
 # Get current Claude version

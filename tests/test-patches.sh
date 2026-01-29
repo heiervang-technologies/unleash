@@ -76,6 +76,9 @@ declare -A VERSION_DELEGATE_FN1
 declare -A VERSION_DELEGATE_FN2
 declare -A VERSION_PERMISSION_CTX_VAR
 declare -A VERSION_PERMISSION_BOOL_VAR
+declare -A VERSION_TOOL_PERMISSION_CTX
+declare -A VERSION_PASSTHROUGH_MODE_VAR
+declare -A VERSION_DELEGATE_MODE_CTX
 
 # Load version configs
 load_version_configs() {
@@ -83,7 +86,7 @@ load_version_configs() {
         local conf_file="$PATCHES_VERSIONS_DIR/${version}.conf"
         if [[ -f "$conf_file" ]]; then
             # Source the config in a subshell to extract variables
-            eval "$(grep -E '^(MODES_ARRAY_VAR|MODE_VAR|TELEMETRY_FN|DELEGATE_FN1|DELEGATE_FN2|PERMISSION_CTX_VAR|PERMISSION_BOOL_VAR)=' "$conf_file")"
+            eval "$(grep -E '^(MODES_ARRAY_VAR|MODE_VAR|TELEMETRY_FN|DELEGATE_FN1|DELEGATE_FN2|PERMISSION_CTX_VAR|PERMISSION_BOOL_VAR|TOOL_PERMISSION_CTX|PASSTHROUGH_MODE_VAR|DELEGATE_MODE_CTX)=' "$conf_file")"
             VERSION_MODES_ARRAY_VAR[$version]="$MODES_ARRAY_VAR"
             VERSION_MODE_VAR[$version]="$MODE_VAR"
             VERSION_TELEMETRY_FN[$version]="$TELEMETRY_FN"
@@ -91,6 +94,9 @@ load_version_configs() {
             VERSION_DELEGATE_FN2[$version]="$DELEGATE_FN2"
             VERSION_PERMISSION_CTX_VAR[$version]="$PERMISSION_CTX_VAR"
             VERSION_PERMISSION_BOOL_VAR[$version]="${PERMISSION_BOOL_VAR:-V}"
+            VERSION_TOOL_PERMISSION_CTX[$version]="${TOOL_PERMISSION_CTX:-Z}"
+            VERSION_PASSTHROUGH_MODE_VAR[$version]="${PASSTHROUGH_MODE_VAR:-Q}"
+            VERSION_DELEGATE_MODE_CTX[$version]="${DELEGATE_MODE_CTX:-B}"
         fi
     done
 }
@@ -107,6 +113,9 @@ create_mock_cli_js() {
     local delegate_fn2="${VERSION_DELEGATE_FN2[$version]}"
     local perm_ctx_var="${VERSION_PERMISSION_CTX_VAR[$version]}"
     local perm_bool_var="${VERSION_PERMISSION_BOOL_VAR[$version]:-V}"
+    local tool_perm_ctx="${VERSION_TOOL_PERMISSION_CTX[$version]:-Z}"
+    local passthrough_var="${VERSION_PASSTHROUGH_MODE_VAR[$version]:-Q}"
+    local delegate_ctx="${VERSION_DELEGATE_MODE_CTX[$version]:-B}"
 
     # Create a mock cli.js with patterns that match the patch targets
     cat > "$mock_file" << EOF
@@ -144,10 +153,10 @@ function getNextMode(mode) {
 }
 
 // Permission checks
-if(Z.toolPermissionContext.mode==="bypassPermissions"||Z.toolPermissionContext.mode==="plan") {
+if(${tool_perm_ctx}.toolPermissionContext.mode==="bypassPermissions"||${tool_perm_ctx}.toolPermissionContext.mode==="plan") {
     allowTool();
 }
-if(Q.mode==="bypassPermissions") {
+if(${passthrough_var}.mode==="bypassPermissions") {
     passthrough();
 }
 if(${perm_ctx_var}.mode==="bypassPermissions"||${perm_bool_var}) {
@@ -165,7 +174,7 @@ function getModeColor(mode) {
 
 // Mode transition patterns (Patch 7)
 if(${mode_var}==="acceptEdits")${telemetry_fn}("auto-accept-mode");
-if(B.mode==="delegate"&&${mode_var}!=="delegate")${delegate_fn1}(!0),${delegate_fn2}(!0);
+if(${delegate_ctx}.mode==="delegate"&&${mode_var}!=="delegate")${delegate_fn1}(!0),${delegate_fn2}(!0);
 EOF
 }
 
@@ -247,6 +256,9 @@ test_patch_version() {
     local mode_var="${VERSION_MODE_VAR[$version]}"
     local telemetry_fn="${VERSION_TELEMETRY_FN[$version]}"
     local perm_ctx_var="${VERSION_PERMISSION_CTX_VAR[$version]}"
+    local tool_perm_ctx="${VERSION_TOOL_PERMISSION_CTX[$version]:-Z}"
+    local passthrough_var="${VERSION_PASSTHROUGH_MODE_VAR[$version]:-Q}"
+    local delegate_ctx="${VERSION_DELEGATE_MODE_CTX[$version]:-B}"
 
     # Run patch script
     if CLAUDE_BIN="$test_dir/claude" bash "$PATCH_DIR/patch-claude.sh" > /dev/null 2>&1; then
@@ -293,18 +305,18 @@ test_patch_version() {
     fi
 
     # Patch 5a: Main permission check
-    if grep -q 'mode==="auto"||Z\.toolPermissionContext\.mode==="plan"' "$mock_cli"; then
+    if grep -q "mode===\"auto\"||${tool_perm_ctx}\.toolPermissionContext\.mode===\"plan\"" "$mock_cli"; then
         pass "Patch 5a: main permission check updated"
     else
         fail "Patch 5a: main permission check NOT updated"
         ((failures++))
     fi
 
-    # Patch 5b: Q.mode passthrough
-    if grep -q 'Q\.mode==="bypassPermissions"||Q\.mode==="auto"' "$mock_cli"; then
-        pass "Patch 5b: Q.mode passthrough updated"
+    # Patch 5b: passthrough mode check
+    if grep -q "${passthrough_var}\.mode===\"bypassPermissions\"||${passthrough_var}\.mode===\"auto\"" "$mock_cli"; then
+        pass "Patch 5b: ${passthrough_var}.mode passthrough updated"
     else
-        fail "Patch 5b: Q.mode passthrough NOT updated"
+        fail "Patch 5b: ${passthrough_var}.mode passthrough NOT updated"
         ((failures++))
     fi
 
@@ -335,7 +347,7 @@ test_patch_version() {
     fi
 
     # Patch 7b: flag file removal
-    if grep -q 'B\.mode==="auto"' "$mock_cli" && \
+    if grep -q "${delegate_ctx}\.mode===\"auto\"" "$mock_cli" && \
        grep -q "unlinkSync" "$mock_cli"; then
         pass "Patch 7b: flag file removal injected"
     else
@@ -402,7 +414,7 @@ test_auto_mode_flag_integration() {
     test_dir=$(mktemp -d)
     local mock_cli="$test_dir/cli.js"
     local mock_claude="$test_dir/claude"
-    local flag_dir="$HOME/.cache/claude-unleashed/auto-mode"
+    local flag_dir="$HOME/.cache/agent-unleashed/auto-mode"
     local test_pid="$$"
 
     # Ensure cleanup on exit or error
@@ -490,7 +502,7 @@ EOF
     mkdir -p "$flag_dir"
     local js_create='
         const fs = require("fs");
-        const d = process.env.HOME + "/.cache/claude-unleashed/auto-mode";
+        const d = process.env.HOME + "/.cache/agent-unleashed/auto-mode";
         fs.mkdirSync(d, {recursive: true});
         fs.writeFileSync(d + "/active-" + process.env.TEST_PID, "");
         console.log("created");
@@ -523,7 +535,7 @@ EOF
     local js_remove='
         const fs = require("fs");
         try {
-            fs.unlinkSync(process.env.HOME + "/.cache/claude-unleashed/auto-mode/active-" + process.env.TEST_PID);
+            fs.unlinkSync(process.env.HOME + "/.cache/agent-unleashed/auto-mode/active-" + process.env.TEST_PID);
             console.log("removed");
         } catch(e) {
             console.log("error: " + e.message);
@@ -791,7 +803,7 @@ test_patch7_flag_paths() {
     CLAUDE_BIN="$test_dir/claude" bash "$PATCH_DIR/patch-claude.sh" > /dev/null 2>&1
 
     # Check flag directory path
-    if grep -q '\.cache/claude-unleashed/auto-mode' "$mock_cli"; then
+    if grep -q '\.cache/agent-unleashed/auto-mode' "$mock_cli"; then
         pass "Patch 7: correct flag directory path"
     else
         fail "Patch 7: incorrect flag directory path"

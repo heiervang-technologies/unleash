@@ -7,7 +7,7 @@ use serde::{Serialize, Deserialize};
 /// Version information output
 #[derive(Debug, Serialize, Deserialize)]
 pub struct VersionOutput {
-    pub claude_unleashed_version: String,
+    pub agent_unleashed_version: String,
     pub claude_code_version: String,
     pub claude_code_installed: bool,
 }

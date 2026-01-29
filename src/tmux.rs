@@ -12,7 +12,7 @@ use std::time::Duration;
 use which::which;
 
 /// Default configuration values
-const DEFAULT_SESSION_NAME: &str = "claude-unleashed";
+const DEFAULT_SESSION_NAME: &str = "agent-unleashed";
 const DEFAULT_WAIT_TIMEOUT: u64 = 300;
 const DEFAULT_TERM_WIDTH: u32 = 200;
 const DEFAULT_TERM_HEIGHT: u32 = 50;
@@ -35,7 +35,7 @@ impl Config {
         let session_name = env::var("CUTX_SESSION_NAME").unwrap_or_else(|_| DEFAULT_SESSION_NAME.to_string());
         let cache_dir = dirs::cache_dir()
             .unwrap_or_else(|| PathBuf::from("/tmp"))
-            .join("claude-unleashed/cutx");
+            .join("agent-unleashed/autx");
 
         Self {
             session_name: session_name.clone(),
@@ -514,7 +514,7 @@ COMMANDS:
                     Start a new Claude session in tmux
                     --auto: enable auto mode (Claude won't stop)
                     -d/--daemon: kill session when Claude exits
-                    Additional args are passed to claude-unleashed
+                    Additional args are passed to agent-unleashed
 
     send "msg"      Send a message to the running Claude session
 
@@ -534,7 +534,7 @@ COMMANDS:
     help            Show this help message
 
 ENVIRONMENT:
-    CUTX_SESSION_NAME      tmux session name (default: claude-unleashed)
+    CUTX_SESSION_NAME      tmux session name (default: agent-unleashed)
     CUTX_WAIT_TIMEOUT      Default wait timeout in seconds (default: 300)
     CUTX_TERM_WIDTH        Terminal width for tmux session (default: 200)
     CUTX_TERM_HEIGHT       Terminal height for tmux session (default: 50)

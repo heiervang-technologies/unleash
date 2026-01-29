@@ -186,7 +186,7 @@ if(j1==="acceptEdits")v9("auto-accept-mode")
 ```
 **Replacement:**
 ```
-if(j1==="acceptEdits")v9("auto-accept-mode");if(j1==="auto"){let _d=process.env.HOME+"/.cache/claude-unleashed/auto-mode";l9.mkdirSync(_d,{recursive:!0});l9.writeFileSync(_d+"/active-"+process.ppid,"")}
+if(j1==="acceptEdits")v9("auto-accept-mode");if(j1==="auto"){let _d=process.env.HOME+"/.cache/agent-unleashed/auto-mode";l9.mkdirSync(_d,{recursive:!0});l9.writeFileSync(_d+"/active-"+process.ppid,"")}
 ```
 
 #### Patch 7b: Remove Flag on Leave
@@ -196,10 +196,10 @@ if(B.mode==="delegate"&&j1!=="delegate")YP0(!0),chA(!0)
 ```
 **Replacement:**
 ```
-if(B.mode==="delegate"&&j1!=="delegate")YP0(!0),chA(!0);if(B.mode==="auto"&&j1!=="auto"){try{l9.unlinkSync(process.env.HOME+"/.cache/claude-unleashed/auto-mode/active-"+process.ppid)}catch(_e){}}
+if(B.mode==="delegate"&&j1!=="delegate")YP0(!0),chA(!0);if(B.mode==="auto"&&j1!=="auto"){try{l9.unlinkSync(process.env.HOME+"/.cache/agent-unleashed/auto-mode/active-"+process.ppid)}catch(_e){}}
 ```
 
-**Effect:** When entering auto mode via shift+tab, a flag file is created at `~/.cache/claude-unleashed/auto-mode/active-<PID>`. When leaving auto mode, the flag file is removed. This integrates the CLI mode with the Stop hook enforcement system.
+**Effect:** When entering auto mode via shift+tab, a flag file is created at `~/.cache/agent-unleashed/auto-mode/active-<PID>`. When leaving auto mode, the flag file is removed. This integrates the CLI mode with the Stop hook enforcement system.
 
 **Note:** Uses `l9` which is the bundle's reference to the `fs` module (ESM compatible).
 
@@ -211,7 +211,7 @@ When auto mode is active:
 
 1. **Permission bypass:** All tool permissions are automatically approved (same as bypassPermissions)
 2. **Stop hook enforcement:** The Stop hook at `~/.claude/settings.json` detects auto mode via the flag file and blocks Claude from ending turns voluntarily
-3. **Flag file:** `~/.cache/claude-unleashed/auto-mode/active-<WRAPPER_PID>` indicates auto mode is active for a specific session
+3. **Flag file:** `~/.cache/agent-unleashed/auto-mode/active-<WRAPPER_PID>` indicates auto mode is active for a specific session
 
 ## Managing Patches
 

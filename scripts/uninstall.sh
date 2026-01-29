@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
-# uninstall.sh - Uninstall claude-unleashed
+# uninstall.sh - Uninstall agent-unleashed
 #
 # This script removes:
 # 1. CLI binary and symlinks from ~/.local/bin/
-# 2. Plugins from ~/.local/share/claude-unleashed/
-# 3. Optionally: config from ~/.config/claude-unleashed/
+# 2. Plugins from ~/.local/share/agent-unleashed/
+# 3. Optionally: config from ~/.config/agent-unleashed/
 #
 # Usage: ./scripts/uninstall.sh [--yes] [--keep-config]
 #
@@ -65,12 +65,12 @@ done
 
 echo ""
 echo "╭─────────────────────────────────────╮"
-echo "│    Claude Unleashed Uninstaller    │"
+echo "│    Agent Unleashed Uninstaller     │"
 echo "╰─────────────────────────────────────╯"
 echo ""
 
 # Check what's installed
-BINARIES=("cu" "cui" "cug" "cutx" "cuw" "claude-unleashed" "restart-claude" "exit-claude")
+BINARIES=("au" "aui" "aug" "autx" "autxg" "agent-unleashed" "cu" "cui" "cug" "cutx" "cutxg" "cuw" "claude-unleashed" "restart-claude" "exit-claude")
 INSTALLED_BINS=()
 
 for bin in "${BINARIES[@]}"; do
@@ -79,8 +79,8 @@ for bin in "${BINARIES[@]}"; do
     fi
 done
 
-DATA_DIR="${HOME}/.local/share/claude-unleashed"
-CONFIG_DIR="${HOME}/.config/claude-unleashed"
+DATA_DIR="${HOME}/.local/share/agent-unleashed"
+CONFIG_DIR="${HOME}/.config/agent-unleashed"
 
 HAS_DATA=false
 HAS_CONFIG=false
@@ -168,7 +168,7 @@ if $HAS_CONFIG; then
 fi
 
 # Also check for cargo-installed binary
-CARGO_BIN="${HOME}/.cargo/bin/cu"
+CARGO_BIN="${HOME}/.cargo/bin/au"
 if [[ -e "$CARGO_BIN" ]]; then
     echo ""
     warn "Found cargo-installed binary at $CARGO_BIN"
@@ -187,7 +187,7 @@ echo "╭───────────────────────�
 echo "│       Uninstall Complete            │"
 echo "╰─────────────────────────────────────╯"
 echo ""
-info "Claude Unleashed has been uninstalled"
+info "Agent Unleashed has been uninstalled"
 echo ""
 echo "Note: Claude Code (npm package) was not removed."
 echo "To remove it: npm uninstall -g @anthropic-ai/claude-code"

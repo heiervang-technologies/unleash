@@ -1187,7 +1187,7 @@ python -c "from providers.vibevoice import VibeVoiceProvider; print('Import OK')
 
 ## License
 
-Same as Claude Unleashed parent repository.
+Same as Agent Unleashed parent repository.
 
 ## Author
 

@@ -1,14 +1,14 @@
-# Claude-Unleashed Documentation
+# Agent Unleashed Documentation
 
-Welcome to the comprehensive documentation for the claude-unleashed repository.
+Welcome to the comprehensive documentation for the agent-unleashed repository.
 
 ## Overview
 
-Claude-unleashed is a fork of [Claude Code](https://github.com/anthropic/claude-code) enhanced with GitHub Actions automation via [snail-core](https://github.com/heiervang-technologies/core) integration. This repository enables AI agents to work autonomously on GitHub issues and pull requests through workflow triggers.
+Agent Unleashed is a fork of [Claude Code](https://github.com/anthropic/claude-code) enhanced with GitHub Actions automation via [snail-core](https://github.com/heiervang-technologies/core) integration. This repository enables AI agents to work autonomously on GitHub issues and pull requests through workflow triggers.
 
-## What is Claude-Unleashed?
+## What is Agent Unleashed?
 
-**Claude-Unleashed = Claude Code + GitHub Actions + Snail Integration**
+**Agent Unleashed = Claude Code + GitHub Actions + Snail Integration**
 
 - **Claude Code**: Anthropic's official CLI for Claude AI
 - **GitHub Actions**: Automated workflows triggered by GitHub events
@@ -18,7 +18,7 @@ Claude-unleashed is a fork of [Claude Code](https://github.com/anthropic/claude-
 ## Architecture
 
 ```
-claude-unleashed/
+agent-unleashed/
 ├── .github/workflows/     # GitHub Actions for agent automation
 ├── claude-code/           # Submodule: Original Claude Code (pristine)
 ├── plugins/unleashed/     # Custom plugin extensions
@@ -52,7 +52,7 @@ Located in `docs/extensions/`:
    - Profile management and environment variables
    - Global settings and stop prompt customization
 
-3. **[Headless Mode (cutx)](./extensions/headless-mode.md)**
+3. **[Headless Mode (autx)](./extensions/headless-mode.md)**
    - Running Claude in tmux sessions for automation
    - Programmatic access and scripting
    - Environment variables and session management

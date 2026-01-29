@@ -1,9 +1,11 @@
 //! Main TUI application
 
+use crate::agents::{AgentManager, AgentType};
 use crate::config::{AppConfig, Profile, ProfileManager};
 use crate::input::{key_to_action, MenuState, NavAction};
 use crate::pixel_art::mascots;
 use crate::text_input::{censor_sensitive, is_sensitive_key, TextInput};
+use crate::theme::{ThemeColor, ThemePreset};
 use crate::version::{get_version_filter_mode, is_version_allowed, InstallResult, VersionFilterMode, VersionInfo, VersionManager};
 
 use crossterm::event::{Event, KeyCode, KeyEvent, KeyModifiers};
@@ -14,6 +16,7 @@ use ratatui::{
     widgets::{Block, Borders, Clear, List, ListItem, Paragraph, Wrap},
     Frame,
 };
+use std::collections::HashMap;
 use std::io;
 use std::path::PathBuf;
 use std::process::Command;
@@ -115,6 +118,7 @@ pub enum Screen {
     ProfileEdit,
     EnvVarEdit,
     Settings,
+    Theme,
     Help,
     ConfirmDelete,
     Updating,
@@ -135,10 +139,12 @@ pub enum EditField {
     ClaudePath,
     ClaudeArgs,
     StopPrompt,
+    ThemeHex,
 }
 
 /// State for async version installation
 pub struct InstallState {
+    pub agent_type: AgentType,
     pub version: String,
     pub is_allowed: bool,
     pub receiver: Receiver<InstallStepResult>,
@@ -206,10 +212,18 @@ pub struct App {
     pub version_menu: MenuState,
     pub versions: Vec<VersionInfo>,
     pub selected_version: Option<String>,
-    /// Cached installed version to avoid calling `claude --version` on every frame
+    /// Which agent CLI is selected in the version management screen
+    pub version_agent: AgentType,
+    /// Cached installed version per agent type
+    pub cached_agent_versions: HashMap<AgentType, Option<String>>,
+    /// Cached version lists per agent type (avoids blocking npm queries)
+    cached_version_lists: HashMap<AgentType, Vec<VersionInfo>>,
+    /// Cached installed Claude version for main menu display
     pub cached_installed_version: Option<String>,
-    /// Receiver for async version fetch (None once received)
-    version_fetch_receiver: Option<Receiver<Option<String>>>,
+    /// Receiver for async installed-version fetch at startup (None once done)
+    version_fetch_receiver: Option<Receiver<(AgentType, Option<String>)>>,
+    /// Receiver for async version-list fetch (None when not fetching)
+    version_list_receiver: Option<Receiver<(AgentType, Vec<VersionInfo>)>>,
     /// Async installation state
     pub install_state: Option<InstallState>,
     /// Animation frame counter (increments each tick)
@@ -224,6 +238,22 @@ pub struct App {
     pub pending_screen: Option<Screen>,
     /// Pending external edit - content to edit in external editor
     pub pending_external_edit: Option<String>,
+    /// Screen to return to when leaving Help (so ? works from any screen)
+    pub help_return_screen: Option<Screen>,
+    /// Scroll offset for help screen content
+    pub help_scroll_offset: u16,
+
+    // Easter egg: Konami code triggers lava lamp mode (idea by cac taurus)
+    /// Whether lava lamp color cycling is active
+    pub lava_mode: bool,
+    /// Progress through Konami code sequence (0-10)
+    pub konami_progress: usize,
+
+    // Theme
+    /// Menu state for theme selection screen (presets + Custom entry)
+    pub theme_menu: MenuState,
+    /// Currently active color theme (preset or custom RGB)
+    pub theme_color: ThemeColor,
 }
 
 impl App {
@@ -240,18 +270,27 @@ impl App {
 
         let version_manager = VersionManager::new();
 
-        // Spawn a background thread to fetch the installed version asynchronously
+        // Spawn a background thread to fetch installed versions for all agents
         // This prevents blocking the TUI startup
         let (version_tx, version_rx) = mpsc::channel();
         thread::spawn(move || {
-            let version = VersionManager::new().get_installed_version();
-            let _ = version_tx.send(version);
+            // Claude version
+            let claude_version = VersionManager::new().get_installed_version();
+            let _ = version_tx.send((AgentType::Claude, claude_version));
+
+            // Codex version
+            let codex_version = AgentManager::new()
+                .ok()
+                .and_then(|mut m| m.get_installed_version(AgentType::Codex).ok().flatten());
+            let _ = version_tx.send((AgentType::Codex, codex_version));
         });
+
+        let theme_color = ThemeColor::from_config(&app_config.theme).unwrap_or(ThemeColor::Preset(ThemePreset::Orange));
 
         Ok(Self {
             running: true,
             screen: Screen::Main,
-            main_menu: MenuState::new(6), // Added "Claude Code Version" option
+            main_menu: MenuState::new(8), // Start, Profiles, Agent Versions, Settings, Theme, Update, Help, Quit
             profile_menu: MenuState::new(profiles.len()),
             settings_menu: MenuState::new(4), // Entry Point, Arguments, Stop Prompt, Reset
             profile_manager,
@@ -270,8 +309,12 @@ impl App {
             version_menu: MenuState::new(0),
             versions: Vec::new(),
             selected_version: None,
+            version_agent: AgentType::Claude,
+            cached_agent_versions: HashMap::new(),
+            cached_version_lists: HashMap::new(),
             cached_installed_version: None, // Will be populated async
             version_fetch_receiver: Some(version_rx),
+            version_list_receiver: None,
             install_state: None,
             animation_frame: 0,
             art_layout: ArtLayout::ArtRight,
@@ -279,23 +322,127 @@ impl App {
             animations_enabled: true,
             pending_screen: None,
             pending_external_edit: None,
+            help_return_screen: None,
+            help_scroll_offset: 0,
+            lava_mode: false,
+            konami_progress: 0,
+            theme_menu: MenuState::new(ThemePreset::all().len() + 1), // presets + Custom
+            theme_color,
         })
     }
 
+    /// Refresh the cached installed version for a specific agent
+    pub fn refresh_cached_version_for(&mut self, agent_type: AgentType) {
+        let version = match agent_type {
+            AgentType::Claude => {
+                let v = self.version_manager.get_installed_version();
+                self.cached_installed_version = v.clone();
+                v
+            }
+            AgentType::Codex => {
+                AgentManager::new()
+                    .ok()
+                    .and_then(|mut m| m.get_installed_version(AgentType::Codex).ok().flatten())
+            }
+        };
+        self.cached_agent_versions.insert(agent_type, version);
+    }
+
     /// Refresh the cached installed version (call after installing a new version)
+    #[allow(dead_code)]
     pub fn refresh_cached_version(&mut self) {
-        self.cached_installed_version = self.version_manager.get_installed_version();
+        self.refresh_cached_version_for(AgentType::Claude);
+    }
+
+    /// Check for Konami code sequence: Up, Up, Down, Down, Left, Right, Left, Right, B, A
+    /// Activates lava lamp easter egg when completed (idea by cac taurus)
+    fn check_konami_code(&mut self, code: KeyCode) {
+        const KONAMI: [KeyCode; 10] = [
+            KeyCode::Up,
+            KeyCode::Up,
+            KeyCode::Down,
+            KeyCode::Down,
+            KeyCode::Left,
+            KeyCode::Right,
+            KeyCode::Left,
+            KeyCode::Right,
+            KeyCode::Char('b'),
+            KeyCode::Char('a'),
+        ];
+
+        // Check if current key matches the next expected key in sequence
+        let expected = KONAMI.get(self.konami_progress);
+        let matches = match (expected, code) {
+            (Some(KeyCode::Char(expected_c)), KeyCode::Char(actual_c)) => {
+                expected_c.eq_ignore_ascii_case(&actual_c)
+            }
+            (Some(expected_code), actual_code) => *expected_code == actual_code,
+            _ => false,
+        };
+
+        if matches {
+            self.konami_progress += 1;
+            if self.konami_progress >= KONAMI.len() {
+                // Konami code complete! Toggle lava mode
+                self.lava_mode = !self.lava_mode;
+                self.konami_progress = 0;
+                self.status_message = Some(if self.lava_mode {
+                    "🌋 Lava lamp mode activated!".to_string()
+                } else {
+                    "Lava lamp mode deactivated".to_string()
+                });
+            }
+        } else {
+            // Reset progress if wrong key (but check if it starts a new sequence)
+            self.konami_progress = if code == KeyCode::Up { 1 } else { 0 };
+        }
     }
 
     /// Called on each tick to advance animation and poll async operations
     pub fn tick(&mut self) {
         self.animation_frame = self.animation_frame.wrapping_add(1);
 
-        // Poll async version fetch
+        // Poll async version fetch (drains all available agent version messages)
         if let Some(ref receiver) = self.version_fetch_receiver {
-            if let Ok(version) = receiver.try_recv() {
-                self.cached_installed_version = version;
-                self.version_fetch_receiver = None;
+            loop {
+                match receiver.try_recv() {
+                    Ok((agent_type, version)) => {
+                        if agent_type == AgentType::Claude {
+                            self.cached_installed_version = version.clone();
+                        }
+                        self.cached_agent_versions.insert(agent_type, version);
+                    }
+                    Err(mpsc::TryRecvError::Empty) => break,
+                    Err(mpsc::TryRecvError::Disconnected) => {
+                        self.version_fetch_receiver = None;
+                        break;
+                    }
+                }
+            }
+        }
+
+        // Poll async version list fetch
+        if let Some(ref receiver) = self.version_list_receiver {
+            match receiver.try_recv() {
+                Ok((agent_type, versions)) => {
+                    self.cached_version_lists.insert(agent_type, versions.clone());
+                    // Update displayed list if we're still viewing this agent
+                    if self.screen == Screen::VersionManagement && self.version_agent == agent_type {
+                        let prev_selected = self.version_menu.selected;
+                        self.versions = versions;
+                        self.version_menu.set_items_count(self.versions.len());
+                        // Preserve selection if possible
+                        if prev_selected < self.versions.len() {
+                            self.version_menu.selected = prev_selected;
+                        }
+                        self.status_message = Some(format!("{} versions loaded", agent_type.display_name()));
+                    }
+                    self.version_list_receiver = None;
+                }
+                Err(mpsc::TryRecvError::Empty) => {}
+                Err(mpsc::TryRecvError::Disconnected) => {
+                    self.version_list_receiver = None;
+                }
             }
         }
 
@@ -323,7 +470,12 @@ impl App {
                     InstallStepResult::InstallComplete(install_result) => {
                         state.install_result = Some(install_result.clone());
                         if install_result.success {
-                            state.current_step = InstallStep::Patching;
+                            // Only Claude Code has a patching step
+                            if state.agent_type == AgentType::Claude {
+                                state.current_step = InstallStep::Patching;
+                            } else {
+                                state.current_step = InstallStep::Done;
+                            }
                         } else {
                             state.current_step = InstallStep::Done;
                         }
@@ -338,6 +490,8 @@ impl App {
             // If done, update status and return to version list
             if state.current_step == InstallStep::Done {
                 let version = state.version.clone();
+                let agent_type = state.agent_type;
+                let agent_name = agent_type.display_name();
                 let is_allowed = state.is_allowed;
                 let install_ok = state.install_result.as_ref().is_some_and(|r| r.success);
                 let patch_ok = state.patch_result.as_ref().is_some_and(|r| r.success);
@@ -348,24 +502,29 @@ impl App {
                         .as_ref()
                         .and_then(|r| r.error.clone())
                         .unwrap_or_else(|| "unknown error".to_string());
-                    format!("Install failed: {}", err)
-                } else if patch_ok {
-                    if !is_allowed {
-                        format!("Installed and patched v{} (not recommended)", version)
+                    format!("{} install failed: {}", agent_name, err)
+                } else if agent_type == AgentType::Claude {
+                    // Claude-specific messages include patch status
+                    if patch_ok {
+                        if !is_allowed {
+                            format!("Installed and patched v{} (not recommended)", version)
+                        } else {
+                            format!("Installed and patched v{}", version)
+                        }
                     } else {
-                        format!("Installed and patched v{}", version)
+                        if !is_allowed {
+                            format!("Installed v{} (not recommended, patch unavailable)", version)
+                        } else {
+                            format!("Installed v{} (patch unavailable)", version)
+                        }
                     }
                 } else {
-                    if !is_allowed {
-                        format!("Installed v{} (not recommended, patch unavailable)", version)
-                    } else {
-                        format!("Installed v{} (patch unavailable)", version)
-                    }
+                    format!("{} v{} installed", agent_name, version)
                 });
 
                 self.install_state = None;
                 self.refresh_versions();
-                self.refresh_cached_version();
+                self.refresh_cached_version_for(agent_type);
                 self.screen = Screen::VersionManagement;
             }
         }
@@ -421,7 +580,11 @@ impl App {
             Screen::Profiles => self.refresh_profiles(),
             Screen::VersionManagement => {
                 self.refresh_versions();
-                self.status_message = Some("Loading versions...".to_string());
+                if self.versions.is_empty() {
+                    self.status_message = Some("Loading versions...".to_string());
+                } else {
+                    self.status_message = Some("Refreshing versions...".to_string());
+                }
             }
             Screen::Updating => {
                 self.status_message = Some("Updating...".to_string());
@@ -430,6 +593,7 @@ impl App {
             | Screen::ProfileEdit
             | Screen::EnvVarEdit
             | Screen::Settings
+            | Screen::Theme
             | Screen::Help
             | Screen::ConfirmDelete
             | Screen::VersionInstalling => {}
@@ -464,10 +628,79 @@ impl App {
         "(unable to read default from hook script)".to_string()
     }
 
-    /// Refresh the version list
+    /// Show cached version list immediately, then fetch fresh data async.
+    /// For Codex the list is local-only (no network), so it's always synchronous.
     pub fn refresh_versions(&mut self) {
-        self.versions = self.version_manager.get_version_list();
-        self.version_menu.set_items_count(self.versions.len());
+        let agent = self.version_agent;
+
+        match agent {
+            AgentType::Claude => {
+                // Show cached list instantly (may be empty on first load)
+                if let Some(cached) = self.cached_version_lists.get(&agent) {
+                    self.versions = cached.clone();
+                }
+                self.version_menu.set_items_count(self.versions.len());
+
+                // Kick off async refresh from npm registry
+                self.start_async_version_fetch(agent);
+            }
+            AgentType::Codex => {
+                // Codex list is local-only, no async needed
+                self.versions = self.get_codex_version_list();
+                self.cached_version_lists
+                    .insert(AgentType::Codex, self.versions.clone());
+                self.version_menu.set_items_count(self.versions.len());
+            }
+        }
+    }
+
+    /// Spawn a background thread to fetch the version list for an agent
+    fn start_async_version_fetch(&mut self, agent: AgentType) {
+        match agent {
+            AgentType::Claude => {
+                let (tx, rx) = mpsc::channel();
+                thread::spawn(move || {
+                    let vm = VersionManager::new();
+                    let versions = vm.get_version_list();
+                    let _ = tx.send((AgentType::Claude, versions));
+                });
+                self.version_list_receiver = Some(rx);
+            }
+            AgentType::Codex => {} // No async fetch needed
+        }
+    }
+
+    /// Build version list for Codex (build-from-source model)
+    fn get_codex_version_list(&self) -> Vec<VersionInfo> {
+        let installed = self
+            .cached_agent_versions
+            .get(&AgentType::Codex)
+            .and_then(|v| v.clone());
+
+        let has_installed = installed.is_some();
+        let mut versions = Vec::new();
+
+        // "latest" is always available -- builds from source
+        versions.push(VersionInfo {
+            version: "latest (build from source)".to_string(),
+            is_installed: has_installed,
+            has_patch: false,
+            is_whitelisted: false,
+            is_blacklisted: false,
+        });
+
+        // Show installed version if present
+        if let Some(v) = installed {
+            versions.push(VersionInfo {
+                version: v,
+                is_installed: true,
+                has_patch: false,
+                is_whitelisted: false,
+                is_blacklisted: false,
+            });
+        }
+
+        versions
     }
 
     pub fn refresh_profiles(&mut self) {
@@ -520,6 +753,10 @@ impl App {
                 }
             }
 
+            // Easter egg: Konami code detection (idea by cac taurus)
+            // Up, Up, Down, Down, Left, Right, Left, Right, B, A
+            self.check_konami_code(key.code);
+
             // If we're editing text, handle text input
             if self.edit_field != EditField::None {
                 return Ok(self.handle_text_input(key));
@@ -527,12 +764,29 @@ impl App {
 
             let action = key_to_action(key);
 
+            // Global help: '?' opens help from any navigable screen
+            if action == NavAction::Help && self.screen != Screen::Help && self.screen != Screen::VersionInstalling {
+                // Only animate when transitioning from Main (mascot changes sides)
+                if self.screen == Screen::Main {
+                    self.trigger_screen_animation(true, Screen::Help);
+                }
+                self.help_return_screen = Some(self.screen);
+                self.pending_screen = Some(Screen::Help);
+                // If no animation was triggered, apply immediately
+                if self.art_animation.is_none() {
+                    self.screen = Screen::Help;
+                    self.refresh_screen_data();
+                }
+                return Ok(None);
+            }
+
             match self.screen {
                 Screen::Main => return self.handle_main_input(action),
                 Screen::Profiles => self.handle_profiles_input(action),
                 Screen::ProfileEdit => self.handle_profile_edit_input(action, key),
                 Screen::EnvVarEdit => self.handle_env_var_edit_input(action, key),
                 Screen::Settings => self.handle_settings_input(action),
+                Screen::Theme => self.handle_theme_input(action),
                 Screen::Help => self.handle_help_input(action),
                 Screen::ConfirmDelete => self.handle_confirm_delete_input(action),
                 Screen::Updating => return self.handle_updating_input(action),
@@ -548,7 +802,7 @@ impl App {
             EditField::EnvKey => &mut self.key_input,
             EditField::EnvValue => &mut self.value_input,
             EditField::ProfileName | EditField::ProfileDescription => &mut self.key_input,
-            EditField::ClaudePath | EditField::ClaudeArgs | EditField::StopPrompt => &mut self.key_input,
+            EditField::ClaudePath | EditField::ClaudeArgs | EditField::StopPrompt | EditField::ThemeHex => &mut self.key_input,
             EditField::None => return None,
         };
 
@@ -649,6 +903,20 @@ impl App {
                         self.status_message = Some("Stop prompt saved".to_string());
                         self.edit_field = EditField::None;
                     }
+                    EditField::ThemeHex => {
+                        let hex = self.key_input.value.trim().to_string();
+                        if let Some((r, g, b)) = crate::theme::parse_hex_color(&hex) {
+                            self.theme_color = ThemeColor::Custom(r, g, b);
+                            self.app_config.theme = self.theme_color.to_config();
+                            let _ = self.profile_manager.save_app_config(&self.app_config);
+                            self.status_message = Some(format!("Theme: #{:02X}{:02X}{:02X}", r, g, b));
+                            self.edit_field = EditField::None;
+                            self.trigger_screen_animation(false, Screen::Main);
+                            self.pending_screen = Some(Screen::Main);
+                        } else {
+                            self.status_message = Some("Invalid hex color — use 3 or 6 hex digits (e.g. FFF or FF5500)".to_string());
+                        }
+                    }
                     _ => {
                         self.edit_field = EditField::None;
                     }
@@ -737,7 +1005,7 @@ impl App {
                         self.pending_screen = Some(Screen::Profiles);
                     }
                     2 => {
-                        // Claude Code Version
+                        // Agent Versions
                         self.trigger_screen_animation(true, Screen::VersionManagement);
                         self.pending_screen = Some(Screen::VersionManagement);
                     }
@@ -747,11 +1015,32 @@ impl App {
                         self.pending_screen = Some(Screen::Settings);
                     }
                     4 => {
+                        // Theme
+                        // Pre-select the current theme in the menu
+                        let idx = if self.theme_color.is_custom() {
+                            ThemePreset::all().len() // "Custom" is the last entry
+                        } else {
+                            ThemePreset::all()
+                                .iter()
+                                .position(|t| self.theme_color.is_preset(*t))
+                                .unwrap_or(0)
+                        };
+                        self.theme_menu.selected = idx;
+                        self.trigger_screen_animation(true, Screen::Theme);
+                        self.pending_screen = Some(Screen::Theme);
+                    }
+                    5 => {
                         // Update TUI
                         self.trigger_screen_animation(true, Screen::Updating);
                         self.pending_screen = Some(Screen::Updating);
                     }
-                    5 => {
+                    6 => {
+                        // Help
+                        self.help_return_screen = Some(Screen::Main);
+                        self.trigger_screen_animation(true, Screen::Help);
+                        self.pending_screen = Some(Screen::Help);
+                    }
+                    7 => {
                         // Quit
                         self.running = false;
                     }
@@ -761,10 +1050,6 @@ impl App {
             NavAction::Quit | NavAction::Back => {
                 // Back on main menu = quit
                 self.running = false;
-            }
-            NavAction::Help => {
-                self.trigger_screen_animation(true, Screen::Help);
-                self.pending_screen = Some(Screen::Help);
             }
             _ => {}
         }
@@ -776,69 +1061,31 @@ impl App {
             NavAction::Up | NavAction::Down => {
                 self.version_menu.handle_action(action);
             }
+            NavAction::Left | NavAction::Right => {
+                // Cycle between agent CLIs
+                let agents = AgentType::all();
+                let current_idx = agents
+                    .iter()
+                    .position(|a| *a == self.version_agent)
+                    .unwrap_or(0);
+                let new_idx = match action {
+                    NavAction::Right => (current_idx + 1) % agents.len(),
+                    NavAction::Left => {
+                        current_idx.checked_sub(1).unwrap_or(agents.len() - 1)
+                    }
+                    _ => unreachable!(),
+                };
+                self.version_agent = agents[new_idx];
+                self.version_menu.selected = 0;
+                self.version_menu.scroll_offset = 0;
+                self.refresh_versions();
+                self.status_message =
+                    Some(format!("Switched to {}", self.version_agent.display_name()));
+            }
             NavAction::Select => {
-                if let Some(version_info) = self.versions.get(self.version_menu.selected) {
-                    // Allow installation/reinstallation of any version
-                    let version = version_info.version.clone();
-                    let is_allowed = is_version_allowed(&version);
-                    let is_reinstall = version_info.is_installed;
-
-                    self.selected_version = Some(version.clone());
-                    self.screen = Screen::VersionInstalling;
-
-                    let action = if is_reinstall { "Reinstalling" } else { "Installing" };
-                    let warning = if !is_allowed {
-                        " (WARNING: not recommended)"
-                    } else {
-                        ""
-                    };
-                    self.status_message = Some(format!("{} v{}{}...", action, version, warning));
-
-                    // Create channel for receiving results
-                    let (tx, rx) = mpsc::channel();
-
-                    // Spawn background thread for installation
-                    let version_clone = version.clone();
-                    let handle = thread::spawn(move || {
-                        // Create a new VersionManager in the thread
-                        let vm = VersionManager::new();
-
-                        // Step 1: Install
-                        let install_result = vm.install_version(&version_clone).unwrap_or_else(|e| {
-                            InstallResult {
-                                success: false,
-                                stdout: String::new(),
-                                stderr: String::new(),
-                                error: Some(e.to_string()),
-                            }
-                        });
-                        let install_ok = install_result.success;
-                        let _ = tx.send(InstallStepResult::InstallComplete(install_result));
-
-                        // Step 2: Patch (only if install succeeded)
-                        if install_ok {
-                            let patch_result = vm.run_patch().unwrap_or_else(|e| {
-                                InstallResult {
-                                    success: false,
-                                    stdout: String::new(),
-                                    stderr: String::new(),
-                                    error: Some(e.to_string()),
-                                }
-                            });
-                            let _ = tx.send(InstallStepResult::PatchComplete(patch_result));
-                        }
-                    });
-
-                    self.install_state = Some(InstallState {
-                        version,
-                        is_allowed,
-                        receiver: rx,
-                        _handle: handle,
-                        start_time: Instant::now(),
-                        current_step: InstallStep::Installing,
-                        install_result: None,
-                        patch_result: None,
-                    });
+                match self.version_agent {
+                    AgentType::Claude => self.install_claude_version(),
+                    AgentType::Codex => self.install_codex_version(),
                 }
             }
             NavAction::Back | NavAction::Quit => {
@@ -847,6 +1094,125 @@ impl App {
             }
             _ => {}
         }
+    }
+
+    /// Install a selected Claude Code version (npm + patch)
+    fn install_claude_version(&mut self) {
+        if let Some(version_info) = self.versions.get(self.version_menu.selected) {
+            let version = version_info.version.clone();
+            let is_allowed = is_version_allowed(&version);
+            let is_reinstall = version_info.is_installed;
+
+            self.selected_version = Some(version.clone());
+            self.screen = Screen::VersionInstalling;
+
+            let action = if is_reinstall {
+                "Reinstalling"
+            } else {
+                "Installing"
+            };
+            let warning = if !is_allowed {
+                " (WARNING: not recommended)"
+            } else {
+                ""
+            };
+            self.status_message = Some(format!("{} v{}{}...", action, version, warning));
+
+            let (tx, rx) = mpsc::channel();
+
+            let version_clone = version.clone();
+            let handle = thread::spawn(move || {
+                let vm = VersionManager::new();
+
+                // Step 1: Install
+                let install_result =
+                    vm.install_version(&version_clone).unwrap_or_else(|e| InstallResult {
+                        success: false,
+                        stdout: String::new(),
+                        stderr: String::new(),
+                        error: Some(e.to_string()),
+                    });
+                let install_ok = install_result.success;
+                let _ = tx.send(InstallStepResult::InstallComplete(install_result));
+
+                // Step 2: Patch (only if install succeeded)
+                if install_ok {
+                    let patch_result = vm.run_patch().unwrap_or_else(|e| InstallResult {
+                        success: false,
+                        stdout: String::new(),
+                        stderr: String::new(),
+                        error: Some(e.to_string()),
+                    });
+                    let _ = tx.send(InstallStepResult::PatchComplete(patch_result));
+                }
+            });
+
+            self.install_state = Some(InstallState {
+                agent_type: AgentType::Claude,
+                version,
+                is_allowed,
+                receiver: rx,
+                _handle: handle,
+                start_time: Instant::now(),
+                current_step: InstallStep::Installing,
+                install_result: None,
+                patch_result: None,
+            });
+        }
+    }
+
+    /// Install/update Codex (build from source)
+    fn install_codex_version(&mut self) {
+        let is_rebuild = self
+            .versions
+            .get(self.version_menu.selected)
+            .map(|v| v.is_installed)
+            .unwrap_or(false);
+
+        let action = if is_rebuild { "Rebuilding" } else { "Building" };
+        self.selected_version = Some("latest".to_string());
+        self.screen = Screen::VersionInstalling;
+        self.status_message = Some(format!("{} Codex from source...", action));
+
+        let (tx, rx) = mpsc::channel();
+
+        let handle = thread::spawn(move || {
+            let result = match AgentManager::new() {
+                Ok(mut manager) => match manager.update_agent(AgentType::Codex) {
+                    Ok(msg) => InstallResult {
+                        success: true,
+                        stdout: msg,
+                        stderr: String::new(),
+                        error: None,
+                    },
+                    Err(e) => InstallResult {
+                        success: false,
+                        stdout: String::new(),
+                        stderr: e.to_string(),
+                        error: Some(e.to_string()),
+                    },
+                },
+                Err(e) => InstallResult {
+                    success: false,
+                    stdout: String::new(),
+                    stderr: e.to_string(),
+                    error: Some(e.to_string()),
+                },
+            };
+            let _ = tx.send(InstallStepResult::InstallComplete(result));
+        });
+
+        self.install_state = Some(InstallState {
+            agent_type: AgentType::Codex,
+            version: "latest".to_string(),
+            is_allowed: true,
+            receiver: rx,
+            _handle: handle,
+            start_time: Instant::now(),
+            current_step: InstallStep::Installing,
+            install_result: None,
+            patch_result: None,
+        });
     }
 
     fn handle_profiles_input(&mut self, action: NavAction) {
@@ -1000,11 +1366,71 @@ impl App {
         }
     }
 
-    fn handle_help_input(&mut self, action: NavAction) {
+    fn handle_theme_input(&mut self, action: NavAction) {
         match action {
-            NavAction::Back | NavAction::Quit | NavAction::Select => {
+            NavAction::Up | NavAction::Down => {
+                self.theme_menu.handle_action(action);
+            }
+            NavAction::Select => {
+                let presets = ThemePreset::all();
+                if let Some(preset) = presets.get(self.theme_menu.selected) {
+                    // Selected a preset
+                    self.theme_color = ThemeColor::Preset(*preset);
+                    self.app_config.theme = self.theme_color.to_config();
+                    let _ = self.profile_manager.save_app_config(&self.app_config);
+                    self.status_message = Some(format!("Theme: {}", preset.display_name()));
+                    self.trigger_screen_animation(false, Screen::Main);
+                    self.pending_screen = Some(Screen::Main);
+                } else {
+                    // "Custom" entry (last item, past all presets)
+                    // Pre-fill with current custom hex or empty
+                    let initial = if let ThemeColor::Custom(r, g, b) = self.theme_color {
+                        format!("{:02X}{:02X}{:02X}", r, g, b)
+                    } else {
+                        String::new()
+                    };
+                    self.key_input.clear();
+                    self.key_input.value = initial;
+                    self.key_input.cursor = self.key_input.value.len();
+                    self.key_input.placeholder = "RRGGBB".to_string();
+                    self.edit_field = EditField::ThemeHex;
+                }
+            }
+            NavAction::Back | NavAction::Quit => {
                 self.trigger_screen_animation(false, Screen::Main);
                 self.pending_screen = Some(Screen::Main);
+            }
+            _ => {}
+        }
+    }
+
+    /// Get the current accent color based on theme
+    fn accent_color(&self) -> Color {
+        let (r, g, b) = self.theme_color.accent_rgb();
+        Color::Rgb(r, g, b)
+    }
+
+    fn handle_help_input(&mut self, action: NavAction) {
+        match action {
+            NavAction::Up => {
+                self.help_scroll_offset = self.help_scroll_offset.saturating_sub(1);
+            }
+            NavAction::Down => {
+                self.help_scroll_offset += 1;
+            }
+            NavAction::Back | NavAction::Quit | NavAction::Select => {
+                self.help_scroll_offset = 0;
+                let return_to = self.help_return_screen.take().unwrap_or(Screen::Main);
+                // Only animate when returning to Main (mascot changes sides)
+                if return_to == Screen::Main {
+                    self.trigger_screen_animation(false, return_to);
+                }
+                self.pending_screen = Some(return_to);
+                // If no animation was triggered, apply immediately
+                if self.art_animation.is_none() {
+                    self.screen = return_to;
+                    self.refresh_screen_data();
+                }
             }
             _ => {}
         }
@@ -1064,14 +1490,15 @@ impl App {
         match screen {
             Screen::Main => {
                 // Calculate based on actual menu content
-                let current_version = self.cached_installed_version.as_deref().unwrap_or("?");
                 let menu_items = [
-                    ("Start Session", format!("Launch Claude with selected profile")),
-                    ("Profiles", format!("Manage environment profiles")),
-                    ("Claude Code Version", format!("Currently: v{}", current_version)),
-                    ("Settings", format!("Configure launcher settings")),
-                    ("Update TUI", format!("Pull latest and recompile")),
-                    ("Quit", format!("Exit the launcher")),
+                    ("Start Session", "Launch Claude with selected profile".to_string()),
+                    ("Profiles", "Manage environment profiles".to_string()),
+                    ("Agent Versions", "Manage installed agent CLIs".to_string()),
+                    ("Settings", "Configure launcher settings".to_string()),
+                    ("Theme", "Customize mascot and UI colors".to_string()),
+                    ("Update TUI", "Pull latest and recompile".to_string()),
+                    ("Help", "Keyboard shortcuts and tips".to_string()),
+                    ("Quit", "Exit the launcher".to_string()),
                 ];
                 let max_name = menu_items.iter().map(|(n, _)| n.len()).max().unwrap_or(0);
                 let max_desc = menu_items.iter().map(|(_, d)| d.len()).max().unwrap_or(0);
@@ -1092,6 +1519,10 @@ impl App {
                 let items = ["Claude Entry Point", "Arguments", "Auto-stop Prompt", "Reset to Defaults"];
                 let max_len = items.iter().map(|s| s.len()).max().unwrap_or(20);
                 (2 + max_len + 2) as u16
+            }
+            Screen::Theme => {
+                // Theme list with color swatches
+                35
             }
             Screen::Help => {
                 // Help screen has fixed text
@@ -1178,7 +1609,12 @@ impl App {
             };
 
             let max_lines = figure_rect.height as usize;
-            let art_lines: Vec<Line> = mascots::unleashed_claude_full_ratatui(max_lines);
+            let shift = self.theme_color.theme_shift();
+            let art_lines: Vec<Line> = if !shift.is_identity() {
+                mascots::unleashed_claude_full_ratatui_themed(max_lines, shift)
+            } else {
+                mascots::unleashed_claude_full_ratatui(max_lines)
+            };
             let art_widget = Paragraph::new(art_lines).scroll((0, scroll_x));
             frame.render_widget(art_widget, figure_rect);
         } else {
@@ -1224,6 +1660,7 @@ impl App {
                 self.render_env_var_dialog(frame, frame.area());
             }
             Screen::Settings => self.render_settings(frame, area),
+            Screen::Theme => self.render_theme(frame, area),
             Screen::Help => self.render_help(frame, area),
             Screen::ConfirmDelete => {
                 self.render_profiles(frame, area);
@@ -1236,17 +1673,33 @@ impl App {
     }
 
     fn render_art_sidebar(&self, frame: &mut Frame, area: Rect) {
-        // Render muscular Claude ANSI art (right-facing), fitting to available height
+        // Render muscular Claude ANSI art (right-facing)
+        // Lava lamp mode is an easter egg triggered by Konami code (idea by cac taurus)
         let max_lines = area.height as usize;
-        let art_lines: Vec<Line> = mascots::unleashed_claude_ratatui(max_lines);
+        let shift = self.theme_color.theme_shift();
+        let art_lines: Vec<Line> = if self.lava_mode {
+            mascots::unleashed_claude_ratatui_lava(max_lines, self.animation_frame)
+        } else if !shift.is_identity() {
+            mascots::unleashed_claude_ratatui_themed(max_lines, shift)
+        } else {
+            mascots::unleashed_claude_ratatui(max_lines)
+        };
         let art_widget = Paragraph::new(art_lines);
         frame.render_widget(art_widget, area);
     }
 
     fn render_art_sidebar_left(&self, frame: &mut Frame, area: Rect) {
-        // Render muscular Claude ANSI art (left-facing), fitting to available height
+        // Render muscular Claude ANSI art (left-facing)
+        // Lava lamp mode is an easter egg triggered by Konami code (idea by cac taurus)
         let max_lines = area.height as usize;
-        let art_lines: Vec<Line> = mascots::unleashed_claude_left_ratatui(max_lines);
+        let shift = self.theme_color.theme_shift();
+        let art_lines: Vec<Line> = if self.lava_mode {
+            mascots::unleashed_claude_left_ratatui_lava(max_lines, self.animation_frame)
+        } else if !shift.is_identity() {
+            mascots::unleashed_claude_left_ratatui_themed(max_lines, shift)
+        } else {
+            mascots::unleashed_claude_left_ratatui(max_lines)
+        };
         let art_widget = Paragraph::new(art_lines);
         frame.render_widget(art_widget, area);
     }
@@ -1264,9 +1717,9 @@ impl App {
         // Render title
         let title_text = vec![
             Line::from(Span::styled(
-                "Claude Unleashed",
+                "Agent Unleashed",
                 Style::default()
-                    .fg(Color::Rgb(217, 119, 87))
+                    .fg(self.accent_color())
                     .add_modifier(Modifier::BOLD),
             )),
             Line::from(""),
@@ -1278,13 +1731,14 @@ impl App {
         let title = Paragraph::new(title_text);
         frame.render_widget(title, chunks[0]);
 
-        let current_version = self.cached_installed_version.clone().unwrap_or_else(|| "?".to_string());
         let menu_items = [
             ("Start Session", "Launch Claude with selected profile".to_string()),
             ("Profiles", "Manage environment profiles".to_string()),
-            ("Claude Code Version", format!("Currently: v{}", current_version)),
+            ("Agent Versions", "Manage installed agent CLIs".to_string()),
             ("Settings", "Configure launcher settings".to_string()),
+            ("Theme", "Customize mascot and UI colors".to_string()),
             ("Update TUI", "Pull latest and recompile".to_string()),
+            ("Help", "Keyboard shortcuts and tips".to_string()),
             ("Quit", "Exit the launcher".to_string()),
         ];
 
@@ -1305,7 +1759,7 @@ impl App {
             .map(|(i, (name, desc))| {
                 let style = if i == self.main_menu.selected {
                     Style::default()
-                        .fg(Color::Rgb(217, 119, 87))
+                        .fg(self.accent_color())
                         .add_modifier(Modifier::BOLD)
                 } else {
                     Style::default()
@@ -1338,7 +1792,7 @@ impl App {
                 let is_current = self.selected_profile.as_ref().is_some_and(|p| p.name == profile.name);
                 let style = if i == self.profile_menu.selected {
                     Style::default()
-                        .fg(Color::Rgb(217, 119, 87))
+                        .fg(self.accent_color())
                         .add_modifier(Modifier::BOLD)
                 } else if is_current {
                     Style::default().fg(Color::Green)
@@ -1371,7 +1825,7 @@ impl App {
             .enumerate()
             .map(|(i, (key, value))| {
                 let style = if i == self.env_menu.selected {
-                    Style::default().fg(Color::Rgb(217, 119, 87)).add_modifier(Modifier::BOLD)
+                    Style::default().fg(self.accent_color()).add_modifier(Modifier::BOLD)
                 } else {
                     Style::default()
                 };
@@ -1558,7 +2012,7 @@ impl App {
 
                 let style = if is_selected {
                     Style::default()
-                        .fg(Color::Rgb(217, 119, 87))
+                        .fg(self.accent_color())
                         .add_modifier(Modifier::BOLD)
                 } else {
                     Style::default()
@@ -1642,7 +2096,103 @@ impl App {
         frame.render_widget(menu, area);
     }
 
-    fn render_help(&self, frame: &mut Frame, area: Rect) {
+    fn render_theme(&self, frame: &mut Frame, area: Rect) {
+        let presets = ThemePreset::all();
+        let custom_index = presets.len();
+
+        let mut items: Vec<ListItem> = presets
+            .iter()
+            .enumerate()
+            .map(|(i, preset)| {
+                let is_selected = i == self.theme_menu.selected;
+                let is_active = self.theme_color.is_preset(*preset);
+                let (r, g, b) = preset.accent_rgb();
+                let preview_color = Color::Rgb(r, g, b);
+
+                let style = if is_selected {
+                    Style::default()
+                        .fg(preview_color)
+                        .add_modifier(Modifier::BOLD)
+                } else if is_active {
+                    Style::default().fg(preview_color)
+                } else {
+                    Style::default()
+                };
+
+                let prefix = if is_selected { "> " } else { "  " };
+                let active_marker = if is_active { " *" } else { "" };
+
+                ListItem::new(vec![
+                    Line::from(vec![
+                        Span::styled(prefix, style),
+                        Span::styled("\u{2588}\u{2588}", Style::default().fg(preview_color)),
+                        Span::styled(format!(" {}{}", preset.display_name(), active_marker), style),
+                    ]),
+                ])
+            })
+            .collect();
+
+        // "Custom" entry
+        let custom_selected = self.theme_menu.selected == custom_index;
+        let custom_active = self.theme_color.is_custom();
+        let custom_accent = if custom_active {
+            let (r, g, b) = self.theme_color.accent_rgb();
+            Color::Rgb(r, g, b)
+        } else {
+            Color::White
+        };
+
+        let custom_style = if custom_selected {
+            Style::default().fg(custom_accent).add_modifier(Modifier::BOLD)
+        } else if custom_active {
+            Style::default().fg(custom_accent)
+        } else {
+            Style::default()
+        };
+
+        let custom_prefix = if custom_selected { "> " } else { "  " };
+
+        if self.edit_field == EditField::ThemeHex {
+            // Show hex input inline
+            let cursor = "\u{2588}";
+            items.push(ListItem::new(vec![
+                Line::from(vec![
+                    Span::styled(custom_prefix, custom_style),
+                    Span::styled("# ", custom_style),
+                    Span::styled(&self.key_input.value, Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)),
+                    Span::styled(cursor, Style::default().fg(Color::Yellow)),
+                ]),
+                Line::from(Span::styled(
+                    "    Enter hex color (RRGGBB), Esc to cancel",
+                    Style::default().fg(Color::DarkGray),
+                )),
+            ]));
+        } else {
+            let active_marker = if custom_active {
+                format!(" {} *", self.theme_color.display_name())
+            } else {
+                String::new()
+            };
+            let swatch = if custom_active {
+                vec![
+                    Span::styled(custom_prefix, custom_style),
+                    Span::styled("\u{2588}\u{2588}", Style::default().fg(custom_accent)),
+                    Span::styled(format!(" Custom...{}", active_marker), custom_style),
+                ]
+            } else {
+                vec![
+                    Span::styled(custom_prefix, custom_style),
+                    Span::styled("   Custom...", custom_style),
+                ]
+            };
+            items.push(ListItem::new(vec![Line::from(swatch)]));
+        }
+
+        let menu = List::new(items);
+        frame.render_widget(menu, area);
+    }
+
+    fn render_help(&mut self, frame: &mut Frame, area: Rect) {
         let lines = vec![
             Line::from(Span::styled("Keyboard Shortcuts", Style::default().add_modifier(Modifier::BOLD))),
             Line::from(""),
@@ -1664,9 +2214,33 @@ impl App {
             Line::from("  Ctrl+E   Open in external editor ($EDITOR)"),
         ];
 
+        let total_lines = lines.len() as u16;
+        let visible_height = area.height;
+        let max_scroll = total_lines.saturating_sub(visible_height);
+
+        // Clamp scroll offset
+        if self.help_scroll_offset > max_scroll {
+            self.help_scroll_offset = max_scroll;
+        }
+
         let content = Paragraph::new(lines)
+            .scroll((self.help_scroll_offset, 0))
             .wrap(Wrap { trim: false });
         frame.render_widget(content, area);
+
+        // Show scroll indicator when content overflows
+        if max_scroll > 0 {
+            let indicator = format!("[{}/{}]", self.help_scroll_offset + 1, max_scroll + 1);
+            let indicator_width = indicator.len() as u16;
+            let indicator_x = area.x + area.width.saturating_sub(indicator_width);
+            let indicator_y = area.y + area.height.saturating_sub(1);
+            let indicator_area = Rect::new(indicator_x, indicator_y, indicator_width, 1);
+            let indicator_widget = Paragraph::new(Line::from(Span::styled(
+                indicator,
+                Style::default().fg(Color::DarkGray),
+            )));
+            frame.render_widget(indicator_widget, indicator_area);
+        }
     }
 
     fn render_updating(&self, frame: &mut Frame, area: Rect) {
@@ -1694,17 +2268,72 @@ impl App {
     }
 
     fn render_version_management(&mut self, frame: &mut Frame, area: Rect) {
-        // Calculate visible height (area minus borders minus legend)
-        let visible_height = area.height.saturating_sub(2 + 3) as usize; // 2 for borders, 3 for legend
+        // Split: agent tab bar + version list
+        let chunks = Layout::default()
+            .direction(Direction::Vertical)
+            .constraints([
+                Constraint::Length(2), // Agent tab bar
+                Constraint::Min(5),   // Version list
+            ])
+            .split(area);
+
+        self.render_agent_tabs(frame, chunks[0]);
+        self.render_version_list(frame, chunks[1]);
+    }
+
+    /// Render the agent CLI tab bar (Claude Code | Codex)
+    fn render_agent_tabs(&self, frame: &mut Frame, area: Rect) {
+        let agents = AgentType::all();
+        let mut spans = Vec::new();
+
+        spans.push(Span::raw("  "));
+
+        for (i, agent) in agents.iter().enumerate() {
+            if i > 0 {
+                spans.push(Span::styled(" | ", Style::default().fg(Color::DarkGray)));
+            }
+
+            let style = if *agent == self.version_agent {
+                Style::default()
+                    .fg(self.accent_color())
+                    .add_modifier(Modifier::BOLD)
+            } else {
+                Style::default().fg(Color::DarkGray)
+            };
+
+            let installed = self
+                .cached_agent_versions
+                .get(agent)
+                .and_then(|v| v.clone())
+                .map(|v| format!(" (v{})", v))
+                .unwrap_or_default();
+
+            spans.push(Span::styled(
+                format!("{}{}", agent.display_name(), installed),
+                style,
+            ));
+        }
+
+        spans.push(Span::styled(
+            "  [←/→: switch agent]",
+            Style::default().fg(Color::DarkGray),
+        ));
+
+        let tabs = Paragraph::new(Line::from(spans));
+        frame.render_widget(tabs, area);
+    }
+
+    /// Render the version list for the currently selected agent
+    fn render_version_list(&mut self, frame: &mut Frame, area: Rect) {
+        let is_claude = self.version_agent == AgentType::Claude;
+
+        // Calculate visible height (area minus legend lines)
+        let legend_lines: u16 = if is_claude { 3 } else { 1 };
+        let visible_height = area.height.saturating_sub(legend_lines) as usize;
 
         // Ensure selected item is visible
         self.version_menu.ensure_visible(visible_height);
-
-        // Get the scroll offset
         let scroll_offset = self.version_menu.scroll_offset;
-
-        // Get the current filter mode
-        let filter_mode = get_version_filter_mode();
 
         // Build items with scroll awareness
         let items: Vec<ListItem> = self
@@ -1715,80 +2344,95 @@ impl App {
             .take(visible_height)
             .map(|(i, version_info)| {
                 let is_selected = i == self.version_menu.selected;
-                let is_allowed = is_version_allowed(&version_info.version);
 
-                let style = if is_selected {
-                    if !is_allowed {
+                if is_claude {
+                    // Claude: show whitelist/blacklist/patch markers
+                    let is_allowed = is_version_allowed(&version_info.version);
+
+                    let style = if is_selected {
+                        if !is_allowed {
+                            Style::default()
+                                .fg(Color::Yellow)
+                                .add_modifier(Modifier::BOLD | Modifier::CROSSED_OUT)
+                        } else {
+                            Style::default()
+                                .fg(self.accent_color())
+                                .add_modifier(Modifier::BOLD)
+                        }
+                    } else if !is_allowed {
                         Style::default()
-                            .fg(Color::Yellow)
-                            .add_modifier(Modifier::BOLD | Modifier::CROSSED_OUT)
+                            .fg(Color::DarkGray)
+                            .add_modifier(Modifier::CROSSED_OUT)
+                    } else if version_info.is_installed {
+                        Style::default().fg(Color::Green)
                     } else {
                         Style::default()
-                            .fg(Color::Rgb(217, 119, 87))
-                            .add_modifier(Modifier::BOLD)
-                    }
-                } else if !is_allowed {
-                    Style::default()
-                        .fg(Color::DarkGray)
-                        .add_modifier(Modifier::CROSSED_OUT)
-                } else if version_info.is_installed {
-                    Style::default().fg(Color::Green)
-                } else {
-                    Style::default()
-                };
+                    };
 
-                let prefix = if is_selected { "> " } else { "  " };
-                let installed_marker = if version_info.is_installed { " [installed]" } else { "" };
-                let patch_marker = if version_info.has_patch { " *" } else { "" };
-                let whitelist_marker = if version_info.is_whitelisted { " ✓" } else { "" };
-                let blacklist_marker = if version_info.is_blacklisted { " ⛔" } else { "" };
+                    let prefix = if is_selected { "> " } else { "  " };
+                    let installed_marker =
+                        if version_info.is_installed { " [installed]" } else { "" };
+                    let patch_marker = if version_info.has_patch { " *" } else { "" };
+                    let whitelist_marker = if version_info.is_whitelisted { " ✓" } else { "" };
+                    let blacklist_marker = if version_info.is_blacklisted { " ⛔" } else { "" };
 
-                ListItem::new(vec![
-                    Line::from(vec![
+                    ListItem::new(vec![Line::from(vec![
                         Span::styled(prefix, style),
                         Span::styled(format!("v{}", version_info.version), style),
                         Span::styled(installed_marker, Style::default().fg(Color::Green)),
                         Span::styled(patch_marker, Style::default().fg(Color::Yellow)),
                         Span::styled(whitelist_marker, Style::default().fg(Color::Green)),
                         Span::styled(blacklist_marker, Style::default().fg(Color::Red)),
-                    ]),
-                ])
+                    ])])
+                } else {
+                    // Codex/other: simple display
+                    let style = if is_selected {
+                        Style::default()
+                            .fg(self.accent_color())
+                            .add_modifier(Modifier::BOLD)
+                    } else if version_info.is_installed {
+                        Style::default().fg(Color::Green)
+                    } else {
+                        Style::default()
+                    };
+
+                    let prefix = if is_selected { "> " } else { "  " };
+                    let installed_marker =
+                        if version_info.is_installed { " [installed]" } else { "" };
+
+                    ListItem::new(vec![Line::from(vec![
+                        Span::styled(prefix, style),
+                        Span::styled(&version_info.version, style),
+                        Span::styled(installed_marker, Style::default().fg(Color::Green)),
+                    ])])
+                }
             })
             .collect();
 
-        let current = self.cached_installed_version.clone().unwrap_or_else(|| "?".to_string());
-
-        // Show scroll indicator if needed
-        let scroll_indicator = if self.versions.len() > visible_height {
-            let pos = scroll_offset + 1;
-            let total = self.versions.len().saturating_sub(visible_height) + 1;
-            format!(" [{}/{}]", pos, total)
-        } else {
-            String::new()
-        };
-        let mode_str = match filter_mode {
-            VersionFilterMode::Whitelist => "whitelist",
-            VersionFilterMode::Blacklist => "blacklist",
-        };
-        let _title = format!(" Claude Code Versions (v{}, mode: {}){} [Enter=install Esc=back] ", current, mode_str, scroll_indicator);
-
         let mut list_items = items;
 
-        // Add legend at the bottom
+        // Add legend at the bottom (agent-specific)
         if !self.versions.is_empty() {
             list_items.push(ListItem::new(Line::from("")));
-            list_items.push(ListItem::new(Line::from(Span::styled(
-                "  * = has auto-mode patch  ✓ = whitelisted  ⛔ = blacklisted",
-                Style::default().fg(Color::DarkGray),
-            ))));
-            let mode_hint = match filter_mode {
-                VersionFilterMode::Whitelist => "  Mode: whitelist (only ✓ versions allowed)",
-                VersionFilterMode::Blacklist => "  Mode: blacklist (all except ⛔ allowed)",
-            };
-            list_items.push(ListItem::new(Line::from(Span::styled(
-                mode_hint,
-                Style::default().fg(Color::DarkGray),
-            ))));
+            if is_claude {
+                let filter_mode = get_version_filter_mode();
+                list_items.push(ListItem::new(Line::from(Span::styled(
+                    "  * = has auto-mode patch  ✓ = whitelisted  ⛔ = blacklisted",
+                    Style::default().fg(Color::DarkGray),
+                ))));
+                let mode_hint = match filter_mode {
+                    VersionFilterMode::Whitelist => {
+                        "  Mode: whitelist (only ✓ versions allowed)"
+                    }
+                    VersionFilterMode::Blacklist => {
+                        "  Mode: blacklist (all except ⛔ allowed)"
+                    }
+                };
+                list_items.push(ListItem::new(Line::from(Span::styled(
+                    mode_hint,
+                    Style::default().fg(Color::DarkGray),
+                ))));
+            }
         }
 
         let menu = List::new(list_items);
@@ -1798,27 +2442,36 @@ impl App {
     fn render_version_installing(&self, frame: &mut Frame, area: Rect) {
         let version = self.selected_version.as_deref().unwrap_or("?");
         let spinner = self.spinner_frame();
+        let agent_name = self
+            .install_state
+            .as_ref()
+            .map(|s| s.agent_type.display_name())
+            .unwrap_or(self.version_agent.display_name());
 
-        // Determine current step info
+        // Determine current step info based on agent type
         let (step_text, command_text) = if let Some(ref state) = self.install_state {
+            let install_cmd = match state.agent_type {
+                AgentType::Claude => "npm install -g @anthropic-ai/claude-code@...".to_string(),
+                AgentType::Codex => "cargo build --release -p codex-cli".to_string(),
+            };
             match state.current_step {
                 InstallStep::Installing => (
-                    format!("{} Installing Claude Code v{}...", spinner, version),
-                    "npm install -g @anthropic-ai/claude-code@...".to_string(),
+                    format!("{} Installing {} {}...", spinner, agent_name, version),
+                    install_cmd,
                 ),
                 InstallStep::Patching => (
-                    format!("{} Applying patches for v{}...", spinner, version),
+                    format!("{} Applying patches for {}...", spinner, version),
                     "patch-claude.sh".to_string(),
                 ),
                 InstallStep::Done => (
-                    format!("✓ Installation complete for v{}", version),
+                    format!("✓ {} {} installation complete", agent_name, version),
                     "Done!".to_string(),
                 ),
             }
         } else {
             (
-                format!("{} Installing Claude Code v{}...", spinner, version),
-                "npm install -g @anthropic-ai/claude-code@...".to_string(),
+                format!("{} Installing {} {}...", spinner, agent_name, version),
+                "...".to_string(),
             )
         };
 
@@ -1941,7 +2594,7 @@ impl UpdateRequest {
 
         let tui_dir = self.repo_dir.clone();
 
-        println!("\n=== Updating Claude Unleashed TUI ===\n");
+        println!("\n=== Updating Agent Unleashed TUI ===\n");
 
         // Step 1: Git pull
         println!("Pulling latest changes...");
@@ -1998,7 +2651,7 @@ mod tests {
         let app = App {
             running: true,
             screen: Screen::Main,
-            main_menu: MenuState::new(6),
+            main_menu: MenuState::new(8),
             profile_menu: MenuState::new(profiles.len()),
             settings_menu: MenuState::new(2),
             profile_manager,
@@ -2017,8 +2670,12 @@ mod tests {
             version_menu: MenuState::new(0),
             versions: Vec::new(),
             selected_version: None,
+            version_agent: AgentType::Claude,
+            cached_agent_versions: HashMap::new(),
+            cached_version_lists: HashMap::new(),
             cached_installed_version: None,
             version_fetch_receiver: None,
+            version_list_receiver: None,
             install_state: None,
             animation_frame: 0,
             art_layout: ArtLayout::default(),
@@ -2026,6 +2683,12 @@ mod tests {
             animations_enabled: true,
             pending_screen: None,
             pending_external_edit: None,
+            help_return_screen: None,
+            help_scroll_offset: 0,
+            lava_mode: false,
+            konami_progress: 0,
+            theme_menu: MenuState::new(ThemePreset::all().len() + 1),
+            theme_color: ThemeColor::Preset(ThemePreset::Orange),
         };
 
         (app, temp)
@@ -2096,6 +2759,68 @@ mod tests {
     }
 
     #[test]
+    fn test_help_from_main() {
+        let (mut app, _temp) = test_app();
+        app.animations_enabled = false;
+
+        assert_eq!(app.screen, Screen::Main);
+        let _ = app.handle_event(Event::Key(KeyEvent::new(KeyCode::Char('?'), KeyModifiers::NONE)));
+        app.tick();
+        assert_eq!(app.screen, Screen::Help);
+        assert_eq!(app.help_return_screen, Some(Screen::Main));
+
+        // Leaving help returns to Main
+        app.handle_help_input(NavAction::Back);
+        app.tick();
+        assert_eq!(app.screen, Screen::Main);
+    }
+
+    #[test]
+    fn test_help_from_subscreen_returns_to_subscreen() {
+        let (mut app, _temp) = test_app();
+        app.animations_enabled = false;
+
+        // Navigate to Settings
+        app.main_menu.selected = 3;
+        let _ = app.handle_main_input(NavAction::Select);
+        app.tick();
+        assert_eq!(app.screen, Screen::Settings);
+
+        // Press ? to open help
+        let _ = app.handle_event(Event::Key(KeyEvent::new(KeyCode::Char('?'), KeyModifiers::NONE)));
+        app.tick();
+        assert_eq!(app.screen, Screen::Help);
+        assert_eq!(app.help_return_screen, Some(Screen::Settings));
+
+        // Leaving help returns to Settings, not Main
+        app.handle_help_input(NavAction::Back);
+        app.tick();
+        assert_eq!(app.screen, Screen::Settings);
+    }
+
+    #[test]
+    fn test_help_from_profiles() {
+        let (mut app, _temp) = test_app();
+        app.animations_enabled = false;
+
+        // Navigate to Profiles
+        app.main_menu.selected = 1;
+        let _ = app.handle_main_input(NavAction::Select);
+        app.tick();
+        assert_eq!(app.screen, Screen::Profiles);
+
+        // Press ? to open help
+        let _ = app.handle_event(Event::Key(KeyEvent::new(KeyCode::Char('?'), KeyModifiers::NONE)));
+        app.tick();
+        assert_eq!(app.screen, Screen::Help);
+
+        // Leaving help returns to Profiles
+        app.handle_help_input(NavAction::Back);
+        app.tick();
+        assert_eq!(app.screen, Screen::Profiles);
+    }
+
+    #[test]
     fn test_env_var_editing() {
         let (mut app, _temp) = test_app();
 
@@ -2121,5 +2846,338 @@ mod tests {
 
         app.key_input = TextInput::new().with_value("HOME");
         assert!(!is_sensitive_key(&app.key_input.value));
+    }
+
+    #[test]
+    fn test_konami_code_starts_inactive() {
+        let (app, _temp) = test_app();
+        assert!(!app.lava_mode);
+        assert_eq!(app.konami_progress, 0);
+    }
+
+    #[test]
+    fn test_konami_code_partial_sequence_no_activation() {
+        let (mut app, _temp) = test_app();
+
+        // Enter partial sequence: ↑↑↓↓←→←→B (missing A)
+        app.check_konami_code(KeyCode::Up);
+        app.check_konami_code(KeyCode::Up);
+        app.check_konami_code(KeyCode::Down);
+        app.check_konami_code(KeyCode::Down);
+        app.check_konami_code(KeyCode::Left);
+        app.check_konami_code(KeyCode::Right);
+        app.check_konami_code(KeyCode::Left);
+        app.check_konami_code(KeyCode::Right);
+        app.check_konami_code(KeyCode::Char('b'));
+
+        // Should not activate with incomplete sequence
+        assert!(!app.lava_mode);
+        assert_eq!(app.konami_progress, 9); // Progress at 9, waiting for 'a'
+    }
+
+    #[test]
+    fn test_konami_code_full_sequence_activates() {
+        let (mut app, _temp) = test_app();
+
+        // Full Konami code: ↑↑↓↓←→←→BA
+        app.check_konami_code(KeyCode::Up);
+        app.check_konami_code(KeyCode::Up);
+        app.check_konami_code(KeyCode::Down);
+        app.check_konami_code(KeyCode::Down);
+        app.check_konami_code(KeyCode::Left);
+        app.check_konami_code(KeyCode::Right);
+        app.check_konami_code(KeyCode::Left);
+        app.check_konami_code(KeyCode::Right);
+        app.check_konami_code(KeyCode::Char('b'));
+        app.check_konami_code(KeyCode::Char('a'));
+
+        // Should activate lava mode
+        assert!(app.lava_mode);
+        assert_eq!(app.konami_progress, 0); // Reset after completion
+    }
+
+    #[test]
+    fn test_konami_code_toggles_on_repeat() {
+        let (mut app, _temp) = test_app();
+
+        // Helper to enter full sequence
+        let enter_konami = |app: &mut App| {
+            app.check_konami_code(KeyCode::Up);
+            app.check_konami_code(KeyCode::Up);
+            app.check_konami_code(KeyCode::Down);
+            app.check_konami_code(KeyCode::Down);
+            app.check_konami_code(KeyCode::Left);
+            app.check_konami_code(KeyCode::Right);
+            app.check_konami_code(KeyCode::Left);
+            app.check_konami_code(KeyCode::Right);
+            app.check_konami_code(KeyCode::Char('b'));
+            app.check_konami_code(KeyCode::Char('a'));
+        };
+
+        // First time: activates
+        enter_konami(&mut app);
+        assert!(app.lava_mode);
+
+        // Second time: deactivates
+        enter_konami(&mut app);
+        assert!(!app.lava_mode);
+
+        // Third time: activates again
+        enter_konami(&mut app);
+        assert!(app.lava_mode);
+    }
+
+    #[test]
+    fn test_konami_code_wrong_key_resets_progress() {
+        let (mut app, _temp) = test_app();
+
+        // Start sequence correctly: ↑↑↓
+        app.check_konami_code(KeyCode::Up);
+        app.check_konami_code(KeyCode::Up);
+        app.check_konami_code(KeyCode::Down);
+        assert_eq!(app.konami_progress, 3);
+
+        // Wrong key (expected: Down)
+        app.check_konami_code(KeyCode::Left);
+
+        // Progress should reset (to 0 since Left != Up)
+        assert_eq!(app.konami_progress, 0);
+        assert!(!app.lava_mode);
+    }
+
+    #[test]
+    fn test_konami_code_wrong_key_restart_with_up() {
+        let (mut app, _temp) = test_app();
+
+        // Start sequence correctly: ↑↑↓
+        app.check_konami_code(KeyCode::Up);
+        app.check_konami_code(KeyCode::Up);
+        app.check_konami_code(KeyCode::Down);
+        assert_eq!(app.konami_progress, 3);
+
+        // Wrong key that happens to be Up (start of sequence)
+        app.check_konami_code(KeyCode::Up);
+
+        // Progress should be 1 (restarted with Up)
+        assert_eq!(app.konami_progress, 1);
+        assert!(!app.lava_mode);
+    }
+
+    #[test]
+    fn test_help_from_main_menu_item() {
+        let (mut app, _temp) = test_app();
+        app.animations_enabled = false;
+
+        // Select Help menu item (index 6)
+        app.main_menu.selected = 6;
+        let _ = app.handle_main_input(NavAction::Select);
+        app.tick();
+        assert_eq!(app.screen, Screen::Help);
+        assert_eq!(app.help_return_screen, Some(Screen::Main));
+    }
+
+    #[test]
+    fn test_help_scroll() {
+        let (mut app, _temp) = test_app();
+        app.animations_enabled = false;
+        app.screen = Screen::Help;
+
+        assert_eq!(app.help_scroll_offset, 0);
+
+        // Scroll down
+        app.handle_help_input(NavAction::Down);
+        assert_eq!(app.help_scroll_offset, 1);
+
+        app.handle_help_input(NavAction::Down);
+        assert_eq!(app.help_scroll_offset, 2);
+
+        // Scroll back up
+        app.handle_help_input(NavAction::Up);
+        assert_eq!(app.help_scroll_offset, 1);
+
+        // Scroll up at 0 stays at 0
+        app.handle_help_input(NavAction::Up);
+        assert_eq!(app.help_scroll_offset, 0);
+        app.handle_help_input(NavAction::Up);
+        assert_eq!(app.help_scroll_offset, 0);
+    }
+
+    #[test]
+    fn test_help_scroll_resets_on_leave() {
+        let (mut app, _temp) = test_app();
+        app.animations_enabled = false;
+        app.screen = Screen::Help;
+        app.help_return_screen = Some(Screen::Main);
+
+        // Scroll down
+        app.handle_help_input(NavAction::Down);
+        app.handle_help_input(NavAction::Down);
+        assert_eq!(app.help_scroll_offset, 2);
+
+        // Leave help
+        app.handle_help_input(NavAction::Back);
+        app.tick();
+        assert_eq!(app.help_scroll_offset, 0);
+        assert_eq!(app.screen, Screen::Main);
+    }
+
+    #[test]
+    fn test_quit_is_now_index_7() {
+        let (mut app, _temp) = test_app();
+        app.animations_enabled = false;
+
+        // Selecting index 7 should quit
+        app.main_menu.selected = 7;
+        let _ = app.handle_main_input(NavAction::Select);
+        assert!(!app.running);
+    }
+
+    #[test]
+    fn test_agent_cycle_right() {
+        let (mut app, _temp) = test_app();
+        app.animations_enabled = false;
+
+        // Navigate to version management screen
+        app.screen = Screen::VersionManagement;
+        assert_eq!(app.version_agent, AgentType::Claude);
+
+        // Cycle right: Claude -> Codex
+        app.handle_version_input(NavAction::Right);
+        assert_eq!(app.version_agent, AgentType::Codex);
+
+        // Cycle right wraps: Codex -> Claude
+        app.handle_version_input(NavAction::Right);
+        assert_eq!(app.version_agent, AgentType::Claude);
+    }
+
+    #[test]
+    fn test_agent_cycle_left() {
+        let (mut app, _temp) = test_app();
+        app.animations_enabled = false;
+
+        app.screen = Screen::VersionManagement;
+        assert_eq!(app.version_agent, AgentType::Claude);
+
+        // Cycle left wraps: Claude -> Codex
+        app.handle_version_input(NavAction::Left);
+        assert_eq!(app.version_agent, AgentType::Codex);
+
+        // Cycle left: Codex -> Claude
+        app.handle_version_input(NavAction::Left);
+        assert_eq!(app.version_agent, AgentType::Claude);
+    }
+
+    #[test]
+    fn test_agent_cycle_resets_selection() {
+        let (mut app, _temp) = test_app();
+        app.animations_enabled = false;
+
+        app.screen = Screen::VersionManagement;
+        app.version_menu.selected = 3;
+        app.version_menu.scroll_offset = 2;
+
+        // Switching agent resets selection and scroll
+        app.handle_version_input(NavAction::Right);
+        assert_eq!(app.version_menu.selected, 0);
+        assert_eq!(app.version_menu.scroll_offset, 0);
+    }
+
+    #[test]
+    fn test_codex_version_list_no_installed() {
+        let (app, _temp) = test_app();
+
+        // No cached Codex version -> only "latest" entry
+        let versions = app.get_codex_version_list();
+        assert_eq!(versions.len(), 1);
+        assert_eq!(versions[0].version, "latest (build from source)");
+        assert!(!versions[0].is_installed);
+    }
+
+    #[test]
+    fn test_codex_version_list_with_installed() {
+        let (mut app, _temp) = test_app();
+
+        // Cache a Codex installed version
+        app.cached_agent_versions
+            .insert(AgentType::Codex, Some("0.1.0".to_string()));
+
+        let versions = app.get_codex_version_list();
+        assert_eq!(versions.len(), 2);
+        // "latest" should show as installed when Codex is present
+        assert_eq!(versions[0].version, "latest (build from source)");
+        assert!(versions[0].is_installed);
+        // Second entry is the specific installed version
+        assert_eq!(versions[1].version, "0.1.0");
+        assert!(versions[1].is_installed);
+    }
+
+    #[test]
+    fn test_codex_install_sets_install_state() {
+        let (mut app, _temp) = test_app();
+        app.animations_enabled = false;
+        app.screen = Screen::VersionManagement;
+        app.version_agent = AgentType::Codex;
+
+        // Populate Codex version list
+        app.versions = app.get_codex_version_list();
+        app.version_menu.set_items_count(app.versions.len());
+
+        // Select and install
+        app.install_codex_version();
+
+        assert_eq!(app.screen, Screen::VersionInstalling);
+        assert_eq!(app.selected_version, Some("latest".to_string()));
+        let state = app.install_state.as_ref().unwrap();
+        assert_eq!(state.agent_type, AgentType::Codex);
+        assert_eq!(state.version, "latest");
+        assert!(state.is_allowed);
+        assert_eq!(state.current_step, InstallStep::Installing);
+    }
+
+    #[test]
+    fn test_codex_install_skips_patching() {
+        let (mut app, _temp) = test_app();
+
+        // Simulate a successful Codex install completing
+        let (tx, rx) = mpsc::channel();
+        app.install_state = Some(InstallState {
+            agent_type: AgentType::Codex,
+            version: "latest".to_string(),
+            is_allowed: true,
+            receiver: rx,
+            _handle: thread::spawn(|| {}),
+            start_time: Instant::now(),
+            current_step: InstallStep::Installing,
+            install_result: None,
+            patch_result: None,
+        });
+
+        // Send successful install result
+        tx.send(InstallStepResult::InstallComplete(InstallResult {
+            success: true,
+            stdout: "done".to_string(),
+            stderr: String::new(),
+            error: None,
+        }))
+        .unwrap();
+
+        app.tick();
+
+        // Codex should skip Patching and go straight to Done
+        // (tick processes Done and clears install_state)
+        assert!(app.install_state.is_none());
+        assert_eq!(app.screen, Screen::VersionManagement);
+    }
+
+    #[test]
+    fn test_agent_version_menu_navigates_to_version_screen() {
+        let (mut app, _temp) = test_app();
+        app.animations_enabled = false;
+
+        // Select "Agent Versions" (index 2) from main menu
+        app.main_menu.selected = 2;
+        let _ = app.handle_main_input(NavAction::Select);
+        app.tick();
+        assert_eq!(app.screen, Screen::VersionManagement);
     }
 }

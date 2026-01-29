@@ -39,15 +39,15 @@ pub fn get_full_version() -> String {
     }
 }
 
-/// Claude Unleashed - Extended CLI for Claude Code
+/// Agent Unleashed - Extended CLI for AI Code Agents
 #[derive(Parser, Debug)]
-#[command(name = "cu")]
+#[command(name = "au")]
 #[command(author = "Heiervang Technologies")]
 #[command(version)]
-#[command(about = "Claude Unleashed - Extended CLI for Claude Code")]
-#[command(long_about = r#"Claude Unleashed - Extended CLI for Claude Code
+#[command(about = "Agent Unleashed - Extended CLI for AI Code Agents")]
+#[command(long_about = r#"Agent Unleashed - Extended CLI for AI Code Agents
 
-A fork of Anthropic's Claude Code CLI with extended features:
+A wrapper for AI code agents (Claude, Codex, etc.) with extended features:
   - Self-restart capability for MCP server reloading
   - Plugin system integration (loads from plugins/unleashed/)
   - Auto-patching for unleashed features
@@ -56,17 +56,20 @@ A fork of Anthropic's Claude Code CLI with extended features:
   - Headless tmux mode for automation
 
 BINARY STRUCTURE:
-  cu     - Wrapper script that runs Claude with plugins and features
-  cui    - TUI for profile and version management
-  cutx   - Headless tmux automation mode
+  au     - Wrapper script that runs agent with plugins and features
+  aui    - TUI for profile and version management
+  autx   - Headless tmux automation mode
+
+LEGACY ALIASES (backwards compatible):
+  cu, cui, cug, cutx, cutxg - same as au* variants
 
 USAGE NOTES:
-  When you run 'cu', you're using a wrapper script that adds functionality
-  to Claude Code. The wrapper intercepts some flags like --auto and --help.
+  When you run 'au', you're using a wrapper script that adds functionality
+  to the underlying agent. The wrapper intercepts some flags like --auto and --help.
 
   For Claude Code's native help: claude --help
-  For wrapper-specific help: cu --help
-  For TUI help: cui --help (or this command)"#)]
+  For wrapper-specific help: au --help
+  For TUI help: aui --help (or this command)"#)]
 pub struct Cli {
     /// Output results as JSON (supported by: auth, version)
     #[arg(long, global = true)]
@@ -141,6 +144,12 @@ pub enum Commands {
         #[command(subcommand)]
         action: Option<HooksAction>,
     },
+
+    /// Manage code agents (Claude, Codex, Aider)
+    Agents {
+        #[command(subcommand)]
+        action: Option<AgentsAction>,
+    },
 }
 
 #[derive(Subcommand, Debug)]
@@ -177,5 +186,32 @@ pub enum HooksAction {
 
         /// Command to remove
         command: String,
+    },
+}
+
+#[derive(Subcommand, Debug)]
+pub enum AgentsAction {
+    /// Show status of all agents (installed versions, updates available)
+    Status,
+
+    /// List available agents
+    List,
+
+    /// Check for updates
+    Check {
+        /// Agent to check (claude, codex, aider). If omitted, checks all.
+        agent: Option<String>,
+    },
+
+    /// Update an agent to latest version
+    Update {
+        /// Agent to update (claude, codex, aider)
+        agent: String,
+    },
+
+    /// Show detailed info about an agent
+    Info {
+        /// Agent name (claude, codex, aider)
+        agent: String,
     },
 }

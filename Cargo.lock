@@ -3,6 +3,23 @@
 version = 4
 
 [[package]]
+name = "agent-unleashed"
+version = "5.0.0"
+dependencies = [
+ "clap",
+ "crossterm",
+ "ctrlc",
+ "dirs",
+ "nix 0.29.0",
+ "ratatui",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "toml",
+ "which",
+]
+
+[[package]]
 name = "allocator-api2"
 version = "0.2.21"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -139,23 +156,6 @@ name = "clap_lex"
 version = "0.7.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "a1d728cc89cf3aee9ff92b05e62b19ee65a02b5702cff7d5a377e32c6ae29d8d"
-
-[[package]]
-name = "claude-unleashed"
-version = "4.10.0"
-dependencies = [
- "clap",
- "crossterm",
- "ctrlc",
- "dirs",
- "nix 0.29.0",
- "ratatui",
- "serde",
- "serde_json",
- "tempfile",
- "toml",
- "which",
-]
 
 [[package]]
 name = "colorchoice"

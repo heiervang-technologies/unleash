@@ -45,13 +45,13 @@ impl std::fmt::Display for VersionFilterMode {
 
 /// Get the version filter mode from config or default
 ///
-/// User can override in ~/.config/claude-unleashed/config.toml with:
+/// User can override in ~/.config/agent-unleashed/config.toml with:
 /// ```toml
 /// version_filter_mode = "blacklist"  # or "whitelist"
 /// ```
 pub fn get_version_filter_mode() -> VersionFilterMode {
     if let Some(home) = dirs::home_dir() {
-        let config_path = home.join(".config/claude-unleashed/config.toml");
+        let config_path = home.join(".config/agent-unleashed/config.toml");
         if config_path.exists() {
             if let Ok(content) = fs::read_to_string(&config_path) {
                 for line in content.lines() {
@@ -75,12 +75,12 @@ pub fn get_version_filter_mode() -> VersionFilterMode {
 
 /// Get the effective whitelist (user override or default from Cargo.toml)
 ///
-/// User can override by creating ~/.config/claude-unleashed/whitelist.txt
+/// User can override by creating ~/.config/agent-unleashed/whitelist.txt
 /// with one version per line. Empty file means no whitelist (all versions blocked).
 pub fn get_whitelist() -> Vec<String> {
     // Check for user override
     if let Some(home) = dirs::home_dir() {
-        let user_whitelist = home.join(".config/claude-unleashed/whitelist.txt");
+        let user_whitelist = home.join(".config/agent-unleashed/whitelist.txt");
         if user_whitelist.exists() {
             if let Ok(content) = fs::read_to_string(&user_whitelist) {
                 return content
@@ -99,12 +99,12 @@ pub fn get_whitelist() -> Vec<String> {
 
 /// Get the effective blacklist (user override or default from Cargo.toml)
 ///
-/// User can override by creating ~/.config/claude-unleashed/blacklist.txt
+/// User can override by creating ~/.config/agent-unleashed/blacklist.txt
 /// with one version per line. Empty file means no blacklist (all versions allowed).
 pub fn get_blacklist() -> Vec<String> {
     // Check for user override
     if let Some(home) = dirs::home_dir() {
-        let user_blacklist = home.join(".config/claude-unleashed/blacklist.txt");
+        let user_blacklist = home.join(".config/agent-unleashed/blacklist.txt");
         if user_blacklist.exists() {
             if let Ok(content) = fs::read_to_string(&user_blacklist) {
                 return content
@@ -554,7 +554,7 @@ pub fn show_current_json() {
     let is_installed = vm.get_installed_version().is_some();
 
     let output = VersionOutput {
-        claude_unleashed_version: cu_version.to_string(),
+        agent_unleashed_version: cu_version.to_string(),
         claude_code_version,
         claude_code_installed: is_installed,
     };

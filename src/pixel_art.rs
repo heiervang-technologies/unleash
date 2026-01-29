@@ -2,6 +2,8 @@
 //!
 //! Renders arbitrary "images" as colored ASCII grids in the terminal.
 //! Supports 24-bit RGB colors via ANSI escape sequences.
+//!
+//! Dynamic color cycling feature inspired by cac taurus.
 
 #![allow(dead_code)]
 
@@ -72,6 +74,60 @@ impl Color {
     pub const CLAUDE_ORANGE: Self = Self::rgb(217, 119, 87);
     pub const CLAUDE_BEIGE: Self = Self::rgb(250, 240, 230);
     pub const CLAUDE_DARK: Self = Self::rgb(45, 35, 30);
+
+    // Vibrant lava lamp palette (4 colors) - idea by cac taurus
+    pub const LAVA_ORANGE: Self = Self::rgb(255, 140, 90);    // Vibrant orange
+    pub const LAVA_PINK: Self = Self::rgb(255, 100, 150);     // Hot pink
+    pub const LAVA_PURPLE: Self = Self::rgb(200, 100, 255);   // Electric purple
+    pub const LAVA_CYAN: Self = Self::rgb(100, 220, 255);     // Bright cyan
+}
+
+/// Dynamic color palette for lava lamp effect
+/// Cycles through 4 vibrant colors based on animation frame
+#[cfg(feature = "tui")]
+pub fn get_lava_palette(frame: usize) -> [Color; 4] {
+    // Rotate the palette based on frame to create flowing effect
+    let palettes: [[Color; 4]; 4] = [
+        [Color::LAVA_ORANGE, Color::LAVA_PINK, Color::LAVA_PURPLE, Color::LAVA_CYAN],
+        [Color::LAVA_PINK, Color::LAVA_PURPLE, Color::LAVA_CYAN, Color::LAVA_ORANGE],
+        [Color::LAVA_PURPLE, Color::LAVA_CYAN, Color::LAVA_ORANGE, Color::LAVA_PINK],
+        [Color::LAVA_CYAN, Color::LAVA_ORANGE, Color::LAVA_PINK, Color::LAVA_PURPLE],
+    ];
+    palettes[(frame / 8) % 4]
+}
+
+/// Transform a color from the original orange palette to the current lava palette
+/// This creates a smooth color shift effect
+#[cfg(feature = "tui")]
+pub fn transform_to_lava_color(r: u8, g: u8, b: u8, frame: usize) -> (u8, u8, u8) {
+    // Check if this is an orange-ish color (the figure) vs gray (background/details)
+    let is_orange = r > 180 && g < 180 && b < 180;
+    let is_skin = r > 200 && g > 100 && g < 200 && b > 80 && b < 160;
+
+    if is_orange || is_skin {
+        // Get current palette position based on pixel brightness and frame
+        let brightness = ((r as u32 + g as u32 + b as u32) / 3) as f32 / 255.0;
+        let palette = get_lava_palette(frame);
+
+        // Use brightness to interpolate between palette colors
+        let palette_idx = (brightness * 3.0) as usize;
+        let palette_idx = palette_idx.min(3);
+
+        // Add some variation based on the original color's position
+        let variation = ((r as usize + frame) % 4) as f32 / 4.0;
+        let color = palette[(palette_idx + (variation * 2.0) as usize) % 4];
+
+        // Blend with original brightness for depth
+        let blend = 0.7 + brightness * 0.3;
+        (
+            ((color.r as f32 * blend).min(255.0)) as u8,
+            ((color.g as f32 * blend).min(255.0)) as u8,
+            ((color.b as f32 * blend).min(255.0)) as u8,
+        )
+    } else {
+        // Keep non-orange colors (grays, etc) unchanged
+        (r, g, b)
+    }
 }
 
 /// A pixel art image defined by a grid and color palette
@@ -308,19 +364,27 @@ impl Default for PixelArt {
 /// Parse ANSI escape sequences and convert to ratatui styled lines
 #[cfg(feature = "tui")]
 pub fn parse_ansi_to_ratatui(ansi_text: &str) -> Vec<RatatuiLine<'static>> {
+    // Delegate to themed parser with identity shift (no change)
+    parse_ansi_to_ratatui_themed(ansi_text, crate::theme::ThemeShift::identity())
+}
+
+/// Parse ANSI with dynamic lava lamp color transformation
+/// The animation_frame parameter controls the color cycling
+#[cfg(feature = "tui")]
+pub fn parse_ansi_to_ratatui_lava(ansi_text: &str, animation_frame: usize) -> Vec<RatatuiLine<'static>> {
     let mut lines: Vec<RatatuiLine<'static>> = Vec::new();
 
     for line in ansi_text.lines() {
-        let spans = parse_ansi_line_to_spans(line);
+        let spans = parse_ansi_line_to_spans_lava(line, animation_frame);
         lines.push(RatatuiLine::from(spans));
     }
 
     lines
 }
 
-/// Parse a single line of ANSI text to ratatui Spans
+/// Parse a single line of ANSI text with lava lamp color transformation
 #[cfg(feature = "tui")]
-fn parse_ansi_line_to_spans(line: &str) -> Vec<RatatuiSpan<'static>> {
+fn parse_ansi_line_to_spans_lava(line: &str, animation_frame: usize) -> Vec<RatatuiSpan<'static>> {
     let mut spans: Vec<RatatuiSpan<'static>> = Vec::new();
     let mut current_style = RatatuiStyle::default();
     let mut current_text = String::new();
@@ -328,11 +392,9 @@ fn parse_ansi_line_to_spans(line: &str) -> Vec<RatatuiSpan<'static>> {
 
     while let Some(ch) = chars.next() {
         if ch == '\x1b' {
-            // Start of escape sequence
             if let Some(&'[') = chars.peek() {
-                chars.next(); // consume '['
+                chars.next();
 
-                // Flush current text with current style
                 if !current_text.is_empty() {
                     spans.push(RatatuiSpan::styled(
                         std::mem::take(&mut current_text),
@@ -340,7 +402,6 @@ fn parse_ansi_line_to_spans(line: &str) -> Vec<RatatuiSpan<'static>> {
                     ));
                 }
 
-                // Parse the escape sequence
                 let mut seq = String::new();
                 while let Some(&c) = chars.peek() {
                     if c == 'm' {
@@ -350,8 +411,7 @@ fn parse_ansi_line_to_spans(line: &str) -> Vec<RatatuiSpan<'static>> {
                     seq.push(chars.next().unwrap());
                 }
 
-                // Parse and apply the style
-                current_style = parse_ansi_sequence(&seq, current_style);
+                current_style = parse_ansi_sequence_lava(&seq, current_style, animation_frame);
             } else {
                 current_text.push(ch);
             }
@@ -360,12 +420,10 @@ fn parse_ansi_line_to_spans(line: &str) -> Vec<RatatuiSpan<'static>> {
         }
     }
 
-    // Flush remaining text
     if !current_text.is_empty() {
         spans.push(RatatuiSpan::styled(current_text, current_style));
     }
 
-    // If no spans, add empty span to preserve the line
     if spans.is_empty() {
         spans.push(RatatuiSpan::raw(""));
     }
@@ -373,45 +431,42 @@ fn parse_ansi_line_to_spans(line: &str) -> Vec<RatatuiSpan<'static>> {
     spans
 }
 
-/// Parse ANSI sequence codes and update style
+/// Parse ANSI sequence with lava color transformation
 #[cfg(feature = "tui")]
-fn parse_ansi_sequence(seq: &str, mut style: RatatuiStyle) -> RatatuiStyle {
+fn parse_ansi_sequence_lava(seq: &str, mut style: RatatuiStyle, animation_frame: usize) -> RatatuiStyle {
     let parts: Vec<&str> = seq.split(';').collect();
     let mut i = 0;
 
     while i < parts.len() {
         match parts[i] {
             "0" => {
-                // Reset
                 style = RatatuiStyle::default();
             }
             "38" => {
-                // Foreground color
                 if i + 1 < parts.len() && parts[i + 1] == "2" {
-                    // 24-bit RGB: 38;2;r;g;b
                     if i + 4 < parts.len() {
                         if let (Ok(r), Ok(g), Ok(b)) = (
                             parts[i + 2].parse::<u8>(),
                             parts[i + 3].parse::<u8>(),
                             parts[i + 4].parse::<u8>(),
                         ) {
-                            style = style.fg(RatatuiColor::Rgb(r, g, b));
+                            let (nr, ng, nb) = transform_to_lava_color(r, g, b, animation_frame);
+                            style = style.fg(RatatuiColor::Rgb(nr, ng, nb));
                         }
                         i += 4;
                     }
                 }
             }
             "48" => {
-                // Background color
                 if i + 1 < parts.len() && parts[i + 1] == "2" {
-                    // 24-bit RGB: 48;2;r;g;b
                     if i + 4 < parts.len() {
                         if let (Ok(r), Ok(g), Ok(b)) = (
                             parts[i + 2].parse::<u8>(),
                             parts[i + 3].parse::<u8>(),
                             parts[i + 4].parse::<u8>(),
                         ) {
-                            style = style.bg(RatatuiColor::Rgb(r, g, b));
+                            let (nr, ng, nb) = transform_to_lava_color(r, g, b, animation_frame);
+                            style = style.bg(RatatuiColor::Rgb(nr, ng, nb));
                         }
                         i += 4;
                     }
@@ -423,6 +478,132 @@ fn parse_ansi_sequence(seq: &str, mut style: RatatuiStyle) -> RatatuiStyle {
     }
 
     style
+}
+
+/// Parse ANSI with theme hue rotation
+/// Shifts orange-family colors by the given hue offset in degrees
+#[cfg(feature = "tui")]
+pub fn parse_ansi_to_ratatui_themed(ansi_text: &str, shift: crate::theme::ThemeShift) -> Vec<RatatuiLine<'static>> {
+    let mut lines: Vec<RatatuiLine<'static>> = Vec::new();
+
+    for line in ansi_text.lines() {
+        let spans = parse_ansi_line_to_spans_themed(line, shift);
+        lines.push(RatatuiLine::from(spans));
+    }
+
+    lines
+}
+
+/// Parse a single line of ANSI text with theme hue rotation
+#[cfg(feature = "tui")]
+fn parse_ansi_line_to_spans_themed(line: &str, shift: crate::theme::ThemeShift) -> Vec<RatatuiSpan<'static>> {
+    let mut spans: Vec<RatatuiSpan<'static>> = Vec::new();
+    let mut current_style = RatatuiStyle::default();
+    let mut current_text = String::new();
+    let mut chars = line.chars().peekable();
+
+    while let Some(ch) = chars.next() {
+        if ch == '\x1b' {
+            if let Some(&'[') = chars.peek() {
+                chars.next();
+
+                if !current_text.is_empty() {
+                    spans.push(RatatuiSpan::styled(
+                        std::mem::take(&mut current_text),
+                        current_style,
+                    ));
+                }
+
+                let mut seq = String::new();
+                while let Some(&c) = chars.peek() {
+                    if c == 'm' {
+                        chars.next();
+                        break;
+                    }
+                    seq.push(chars.next().unwrap());
+                }
+
+                current_style = parse_ansi_sequence_themed(&seq, current_style, shift);
+            } else {
+                current_text.push(ch);
+            }
+        } else {
+            current_text.push(ch);
+        }
+    }
+
+    if !current_text.is_empty() {
+        spans.push(RatatuiSpan::styled(current_text, current_style));
+    }
+
+    if spans.is_empty() {
+        spans.push(RatatuiSpan::raw(""));
+    }
+
+    spans
+}
+
+/// Parse ANSI sequence with theme hue rotation
+#[cfg(feature = "tui")]
+fn parse_ansi_sequence_themed(seq: &str, mut style: RatatuiStyle, shift: crate::theme::ThemeShift) -> RatatuiStyle {
+    use crate::theme::transform_theme_color;
+
+    let parts: Vec<&str> = seq.split(';').collect();
+    let mut i = 0;
+
+    while i < parts.len() {
+        match parts[i] {
+            "0" => {
+                style = RatatuiStyle::default();
+            }
+            "38" => {
+                if i + 1 < parts.len() && parts[i + 1] == "2" {
+                    if i + 4 < parts.len() {
+                        if let (Ok(r), Ok(g), Ok(b)) = (
+                            parts[i + 2].parse::<u8>(),
+                            parts[i + 3].parse::<u8>(),
+                            parts[i + 4].parse::<u8>(),
+                        ) {
+                            let (nr, ng, nb) = transform_theme_color(r, g, b, shift);
+                            style = style.fg(RatatuiColor::Rgb(nr, ng, nb));
+                        }
+                        i += 4;
+                    }
+                }
+            }
+            "48" => {
+                if i + 1 < parts.len() && parts[i + 1] == "2" {
+                    if i + 4 < parts.len() {
+                        if let (Ok(r), Ok(g), Ok(b)) = (
+                            parts[i + 2].parse::<u8>(),
+                            parts[i + 3].parse::<u8>(),
+                            parts[i + 4].parse::<u8>(),
+                        ) {
+                            let (nr, ng, nb) = transform_theme_color(r, g, b, shift);
+                            style = style.bg(RatatuiColor::Rgb(nr, ng, nb));
+                        }
+                        i += 4;
+                    }
+                }
+            }
+            _ => {}
+        }
+        i += 1;
+    }
+
+    style
+}
+
+/// Parse a single line of ANSI text to ratatui Spans
+#[cfg(feature = "tui")]
+fn parse_ansi_line_to_spans(line: &str) -> Vec<RatatuiSpan<'static>> {
+    parse_ansi_line_to_spans_themed(line, crate::theme::ThemeShift::identity())
+}
+
+/// Parse ANSI sequence codes and update style
+#[cfg(feature = "tui")]
+fn parse_ansi_sequence(seq: &str, style: RatatuiStyle) -> RatatuiStyle {
+    parse_ansi_sequence_themed(seq, style, crate::theme::ThemeShift::identity())
 }
 
 /// Pre-built mascots and logos
@@ -458,6 +639,19 @@ pub mod mascots {
             .collect()
     }
 
+    /// Get unleashed Claude art with dynamic lava lamp colors - right facing
+    /// The animation_frame parameter controls the color cycling (idea by cac taurus)
+    #[cfg(feature = "tui")]
+    pub fn unleashed_claude_ratatui_lava(max_lines: usize, animation_frame: usize) -> Vec<RatatuiLine<'static>> {
+        let art = unleashed_claude();
+        let all_lines = super::parse_ansi_to_ratatui_lava(&art, animation_frame);
+        all_lines
+            .into_iter()
+            .skip_while(|line| line.spans.iter().all(|s| s.content.trim().is_empty()))
+            .take(max_lines)
+            .collect()
+    }
+
     /// Muscular Claude breaking chains - left facing version
     pub fn unleashed_claude_left() -> String {
         include_str!("assets/ct4-left.ans").to_string()
@@ -469,6 +663,55 @@ pub mod mascots {
         let art = unleashed_claude_left();
         let all_lines = super::parse_ansi_to_ratatui(&art);
         // Skip leading blank lines to align art to top
+        all_lines
+            .into_iter()
+            .skip_while(|line| line.spans.iter().all(|s| s.content.trim().is_empty()))
+            .take(max_lines)
+            .collect()
+    }
+
+    /// Get unleashed Claude art with dynamic lava lamp colors - left facing
+    /// The animation_frame parameter controls the color cycling (idea by cac taurus)
+    #[cfg(feature = "tui")]
+    pub fn unleashed_claude_left_ratatui_lava(max_lines: usize, animation_frame: usize) -> Vec<RatatuiLine<'static>> {
+        let art = unleashed_claude_left();
+        let all_lines = super::parse_ansi_to_ratatui_lava(&art, animation_frame);
+        all_lines
+            .into_iter()
+            .skip_while(|line| line.spans.iter().all(|s| s.content.trim().is_empty()))
+            .take(max_lines)
+            .collect()
+    }
+
+    /// Get unleashed Claude art with theme hue rotation - right facing
+    #[cfg(feature = "tui")]
+    pub fn unleashed_claude_ratatui_themed(max_lines: usize, shift: crate::theme::ThemeShift) -> Vec<RatatuiLine<'static>> {
+        let art = unleashed_claude();
+        let all_lines = super::parse_ansi_to_ratatui_themed(&art, shift);
+        all_lines
+            .into_iter()
+            .skip_while(|line| line.spans.iter().all(|s| s.content.trim().is_empty()))
+            .take(max_lines)
+            .collect()
+    }
+
+    /// Get unleashed Claude art with theme hue rotation - left facing
+    #[cfg(feature = "tui")]
+    pub fn unleashed_claude_left_ratatui_themed(max_lines: usize, shift: crate::theme::ThemeShift) -> Vec<RatatuiLine<'static>> {
+        let art = unleashed_claude_left();
+        let all_lines = super::parse_ansi_to_ratatui_themed(&art, shift);
+        all_lines
+            .into_iter()
+            .skip_while(|line| line.spans.iter().all(|s| s.content.trim().is_empty()))
+            .take(max_lines)
+            .collect()
+    }
+
+    /// Get full-figure Claude art with theme hue rotation
+    #[cfg(feature = "tui")]
+    pub fn unleashed_claude_full_ratatui_themed(max_lines: usize, shift: crate::theme::ThemeShift) -> Vec<RatatuiLine<'static>> {
+        let art = unleashed_claude_full();
+        let all_lines = super::parse_ansi_to_ratatui_themed(&art, shift);
         all_lines
             .into_iter()
             .skip_while(|line| line.spans.iter().all(|s| s.content.trim().is_empty()))

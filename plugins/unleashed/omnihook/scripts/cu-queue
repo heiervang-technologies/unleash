@@ -17,7 +17,7 @@
 set -euo pipefail
 
 # Configuration
-QUEUE_DIR="${HOME}/.cache/claude-unleashed/omnihook"
+QUEUE_DIR="${HOME}/.cache/agent-unleashed/omnihook"
 
 # Defaults
 TARGET_PID="${CLAUDE_WRAPPER_PID:-}"
@@ -232,7 +232,7 @@ if [[ "${TARGET_PID}" == "ALL" ]]; then
 
   if [[ "${found}" == "false" ]]; then
     echo "Warning: No active sessions found" >&2
-    echo "Start Claude with claude-unleashed first" >&2
+    echo "Start Claude with agent-unleashed first" >&2
     exit 1
   fi
 elif [[ -n "${TARGET_PID}" ]]; then

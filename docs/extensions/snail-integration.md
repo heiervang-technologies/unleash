@@ -2,7 +2,7 @@
 
 ## Overview
 
-The claude-unleashed repository integrates with snail-core-template to enable GitHub Actions-based AI agent automation. This guide explains how the snail system works, how to configure workflows, and how plugins enhance the agent's capabilities.
+The agent-unleashed repository integrates with snail-core-template to enable GitHub Actions-based AI agent automation. This guide explains how the snail system works, how to configure workflows, and how plugins enhance the agent's capabilities.
 
 ## Table of Contents
 
@@ -73,7 +73,7 @@ Snail is an AI agent automation system that runs Claude Code in GitHub Actions w
 
 ### Available Workflows
 
-The claude-unleashed repository includes these workflows:
+The agent-unleashed repository includes these workflows:
 
 #### 1. Mention Trigger (`mention-trigger.yml`)
 

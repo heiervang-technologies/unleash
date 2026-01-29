@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# onboarding.sh - Shared onboarding bypass functions for Claude Unleashed
+# onboarding.sh - Shared onboarding bypass functions for Agent Unleashed
 #
 # This library ensures Claude Code's .claude.json is configured to skip
 # interactive onboarding prompts and acknowledge bypass permissions mode.
@@ -61,7 +61,7 @@ ensure_onboarding_complete() {
   "lastOnboardingVersion": "${claude_version}",
   "bypassPermissionsModeAccepted": true,
   "numStartups": 1,
-  "installMethod": "claude-unleashed"
+  "installMethod": "agent-unleashed"
 }
 EOF
     fi

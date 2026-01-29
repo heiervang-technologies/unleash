@@ -1,10 +1,14 @@
-//! Claude Unleashed - Unified CLI
+//! Agent Unleashed - Unified CLI for AI Code Agents
 //!
 //! Single binary that handles:
-//! - `cu` / `claude-unleashed` - Launch Claude with wrapper features
-//! - `cu tui` / `cui` - TUI for profile/version management
-//! - `cu tmux` / `cutx` - Headless tmux mode
+//! - `au` / `agent-unleashed` - Launch agent with wrapper features
+//! - `au tui` / `aui` - TUI for profile/version management
+//! - `au tmux` / `autx` - Headless tmux mode
+//!
+//! Legacy aliases (backwards compatible):
+//! - `cu` / `cui` / `cug` / `cutx` / `cutxg` - same as au* variants
 
+mod agents;
 mod auth;
 mod cli;
 mod config;
@@ -17,6 +21,8 @@ mod patcher;
 mod pixel_art;
 #[cfg(feature = "tui")]
 mod text_input;
+#[cfg(feature = "tui")]
+mod theme;
 mod tmux;
 #[cfg(feature = "tui")]
 mod tui;
@@ -53,18 +59,18 @@ fn main() -> io::Result<()> {
         })
         .unwrap_or_default();
 
-    // Handle symlink invocations
+    // Handle symlink invocations (au* = new, cu* = legacy)
     match invoked_as.as_str() {
         #[cfg(feature = "tui")]
-        "cui" => return tui::run(),
+        "aui" | "cui" => return tui::run(),
         #[cfg(not(feature = "tui"))]
-        "cui" => {
+        "aui" | "cui" => {
             eprintln!("Error: TUI support is not compiled in this build");
             eprintln!("Rebuild with: cargo build --features tui");
             std::process::exit(1);
         }
-        "cug" => {
-            // Shorthand for `cu go` - launch Claude wrapper
+        "aug" | "cug" => {
+            // Shorthand for `au go` - launch agent wrapper
             let args: Vec<String> = env::args().skip(1).collect();
             // Parse args for --auto and -p flags
             let auto = args.iter().any(|a| a == "--auto" || a == "-a");
@@ -79,13 +85,13 @@ fn main() -> io::Result<()> {
                 .collect();
             return launcher::run(auto, prompt, pass_args);
         }
-        "cutx" => {
+        "autx" | "cutx" => {
             // Pass remaining args to tmux module
             let args: Vec<String> = env::args().skip(1).collect();
             return tmux::run(&args);
         }
-        "cutxg" => {
-            // Shorthand for 'cutx go' - start and attach to tmux session
+        "autxg" | "cutxg" => {
+            // Shorthand for 'autx go' - start and attach to tmux session
             let mut args: Vec<String> = vec!["go".to_string()];
             args.extend(env::args().skip(1));
             return tmux::run(&args);
@@ -216,6 +222,111 @@ fn main() -> io::Result<()> {
                         println!("Removed hook for {}: {}", event, command);
                     } else {
                         println!("Hook not found");
+                    }
+                    Ok(())
+                }
+            }
+        }
+        Some(Commands::Agents { action }) => {
+            use agents::{AgentManager, AgentType};
+            use cli::AgentsAction;
+
+            let mut manager = match AgentManager::new() {
+                Ok(m) => m,
+                Err(e) => {
+                    eprintln!("Error: {}", e);
+                    std::process::exit(1);
+                }
+            };
+
+            match action {
+                Some(AgentsAction::Status) | None => {
+                    println!("Code Agents Status:\n");
+                    let status = manager.status_summary();
+                    for (agent_type, installed, latest, update_available) in status {
+                        let name = agent_type.display_name();
+                        let installed_str = installed.as_deref().unwrap_or("not installed");
+                        let update_str = if update_available {
+                            format!(" (update available: {})", latest.as_deref().unwrap_or("?"))
+                        } else {
+                            String::new()
+                        };
+                        println!("  {}: v{}{}", name, installed_str, update_str);
+                    }
+                    manager.save_version_cache()?;
+                    Ok(())
+                }
+                Some(AgentsAction::List) => {
+                    println!("Available Agents:\n");
+                    for agent in manager.list_agents() {
+                        let status = if agent.enabled { "enabled" } else { "disabled" };
+                        println!("  {} ({}) - {} [{}]", agent.name, agent.binary, agent.description, status);
+                    }
+                    Ok(())
+                }
+                Some(AgentsAction::Check { agent }) => {
+                    let agents_to_check: Vec<AgentType> = if let Some(name) = agent {
+                        vec![AgentType::from_str(&name).ok_or_else(|| {
+                            io::Error::new(io::ErrorKind::InvalidInput, format!("Unknown agent: {}", name))
+                        })?]
+                    } else {
+                        vec![AgentType::Claude, AgentType::Codex]
+                    };
+
+                    for agent_type in agents_to_check {
+                        print!("Checking {}... ", agent_type.display_name());
+                        match manager.check_update(agent_type) {
+                            Ok(true) => {
+                                let latest = manager.get_latest_version(agent_type).ok().flatten();
+                                println!("update available: {}", latest.as_deref().unwrap_or("unknown"));
+                            }
+                            Ok(false) => println!("up to date"),
+                            Err(e) => println!("error: {}", e),
+                        }
+                    }
+                    manager.save_version_cache()?;
+                    Ok(())
+                }
+                Some(AgentsAction::Update { agent }) => {
+                    let agent_type = AgentType::from_str(&agent).ok_or_else(|| {
+                        io::Error::new(io::ErrorKind::InvalidInput, format!("Unknown agent: {}", agent))
+                    })?;
+
+                    println!("Updating {}...", agent_type.display_name());
+                    match manager.update_agent(agent_type) {
+                        Ok(msg) => {
+                            println!("{}", msg);
+                            // Refresh version cache
+                            manager.get_installed_version(agent_type)?;
+                            manager.save_version_cache()?;
+                        }
+                        Err(e) => eprintln!("Error: {}", e),
+                    }
+                    Ok(())
+                }
+                Some(AgentsAction::Info { agent }) => {
+                    let agent_type = AgentType::from_str(&agent).ok_or_else(|| {
+                        io::Error::new(io::ErrorKind::InvalidInput, format!("Unknown agent: {}", agent))
+                    })?;
+
+                    if let Some(def) = manager.get_agent(agent_type) {
+                        println!("Agent: {}", def.name);
+                        println!("Binary: {}", def.binary);
+                        println!("Description: {}", def.description);
+                        if let Some(repo) = &def.github_repo {
+                            println!("GitHub: https://github.com/{}", repo);
+                        }
+                        if let Some(npm) = &def.npm_package {
+                            println!("NPM: {}", npm);
+                        }
+                        println!("Enabled: {}", def.enabled);
+
+                        // Get installed version
+                        if let Ok(Some(v)) = manager.get_installed_version(agent_type) {
+                            println!("Installed: v{}", v);
+                        } else {
+                            println!("Installed: not found");
+                        }
                     }
                     Ok(())
                 }

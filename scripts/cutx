@@ -1,39 +1,43 @@
 #!/usr/bin/env bash
-# cutx - Claude Unleashed Wrapper (Headless tmux mode)
+# cutx - Agent Unleashed Wrapper (Headless tmux mode)
+# NOTE: This script is kept as 'cutx' for backwards compatibility.
+#       The new name is 'autx'. Both work identically.
 #
 # A headless mode for Claude using tmux instead of native headless.
 # This allows interaction via key inputs and better session management.
 #
 # Usage:
-#   cutx start [args]     Start a new Claude session in tmux
-#   cutx send "message"   Send a message to Claude
-#   cutx read             Read current output from Claude
-#   cutx attach           Attach to the Claude tmux session
-#   cutx detach           Detach from session (when attached)
-#   cutx stop             Stop the Claude session
-#   cutx status           Check if session is running
-#   cutx "message"        Shorthand: send message and wait for response
+#   autx start [args]     Start a new Claude session in tmux
+#   autx send "message"   Send a message to Claude
+#   autx read             Read current output from Claude
+#   autx attach           Attach to the Claude tmux session
+#   autx detach           Detach from session (when attached)
+#   autx stop             Stop the Claude session
+#   autx status           Check if session is running
+#   autx "message"        Shorthand: send message and wait for response
 #
 # Environment:
-#   CUTX_SESSION_NAME      tmux session name (default: claude-unleashed)
-#   CUTX_WAIT_TIMEOUT      Seconds to wait for response (default: 300)
-#   CUTX_TERM_WIDTH        Terminal width for tmux session (default: 200)
-#   CUTX_TERM_HEIGHT       Terminal height for tmux session (default: 50)
-#   CUTX_STABLE_THRESHOLD  Seconds of stable output to consider complete (default: 3)
-#   CUTX_INIT_WAIT         Seconds to wait for Claude to initialize (default: 5)
+#   AUTX_SESSION_NAME      tmux session name (default: agent-unleashed)
+#   AUTX_WAIT_TIMEOUT      Seconds to wait for response (default: 300)
+#   AUTX_TERM_WIDTH        Terminal width for tmux session (default: 200)
+#   AUTX_TERM_HEIGHT       Terminal height for tmux session (default: 50)
+#   AUTX_STABLE_THRESHOLD  Seconds of stable output to consider complete (default: 3)
+#   AUTX_INIT_WAIT         Seconds to wait for Claude to initialize (default: 5)
 #
-# Version: 1.2.0
+# Legacy environment variables (CUTX_*) are still supported for backwards compatibility.
+#
+# Version: 1.3.0
 
 set -uo pipefail
 
-# Configuration
-SESSION_NAME="${CUTX_SESSION_NAME:-claude-unleashed}"
-WAIT_TIMEOUT="${CUTX_WAIT_TIMEOUT:-300}"
-TERM_WIDTH="${CUTX_TERM_WIDTH:-200}"
-TERM_HEIGHT="${CUTX_TERM_HEIGHT:-50}"
-STABLE_THRESHOLD="${CUTX_STABLE_THRESHOLD:-3}"
-INIT_WAIT="${CUTX_INIT_WAIT:-5}"
-CACHE_DIR="${HOME}/.cache/claude-unleashed/cutx"
+# Configuration (support both AUTX_* and legacy CUTX_* env vars)
+SESSION_NAME="${AUTX_SESSION_NAME:-${CUTX_SESSION_NAME:-agent-unleashed}}"
+WAIT_TIMEOUT="${AUTX_WAIT_TIMEOUT:-${CUTX_WAIT_TIMEOUT:-300}}"
+TERM_WIDTH="${AUTX_TERM_WIDTH:-${CUTX_TERM_WIDTH:-200}}"
+TERM_HEIGHT="${AUTX_TERM_HEIGHT:-${CUTX_TERM_HEIGHT:-50}}"
+STABLE_THRESHOLD="${AUTX_STABLE_THRESHOLD:-${CUTX_STABLE_THRESHOLD:-3}}"
+INIT_WAIT="${AUTX_INIT_WAIT:-${CUTX_INIT_WAIT:-5}}"
+CACHE_DIR="${HOME}/.cache/agent-unleashed/autx"
 OUTPUT_FILE="${CACHE_DIR}/${SESSION_NAME}.output"
 MARKER_FILE="${CACHE_DIR}/${SESSION_NAME}.marker"
 LOCK_FILE="${CACHE_DIR}/${SESSION_NAME}.lock"
@@ -90,15 +94,15 @@ if ! [[ -w "$CACHE_DIR" ]]; then
 fi
 
 log_info() {
-    echo -e "${GREEN}[cutx]${NC} $1"
+    echo -e "${GREEN}[autx]${NC} $1"
 }
 
 log_warn() {
-    echo -e "${YELLOW}[cutx]${NC} $1"
+    echo -e "${YELLOW}[autx]${NC} $1"
 }
 
 log_error() {
-    echo -e "${RED}[cutx]${NC} $1" >&2
+    echo -e "${RED}[autx]${NC} $1" >&2
 }
 
 # Check if tmux is available
@@ -111,17 +115,21 @@ check_tmux() {
 
 # Check if Claude is available
 check_claude() {
-    local launcher="${SCRIPT_DIR}/cu"
+    local launcher="${SCRIPT_DIR}/au"
     if [[ -x "$launcher" ]]; then
         return 0
     fi
+    if command -v au &>/dev/null; then
+        return 0
+    fi
+    # Legacy: check for cu
     if command -v cu &>/dev/null; then
         return 0
     fi
     if command -v claude &>/dev/null; then
         return 0
     fi
-    log_error "Neither cu nor claude command found"
+    log_error "Neither au nor claude command found"
     return 1
 }
 
@@ -141,14 +149,14 @@ cmd_start() {
 
     if session_exists; then
         log_warn "Session '$SESSION_NAME' already exists"
-        log_info "Use 'cutx attach' to connect or 'cutx stop' to restart"
+        log_info "Use 'autx attach' to connect or 'autx stop' to restart"
         return 1
     fi
 
     # Acquire lock to prevent concurrent starts
     exec 200>"$LOCK_FILE"
     if ! flock -n 200; then
-        log_error "Another cutx start is in progress for session '$SESSION_NAME'"
+        log_error "Another autx start is in progress for session '$SESSION_NAME'"
         log_info "If this is an error, remove: $LOCK_FILE"
         return 1
     fi
@@ -191,11 +199,15 @@ cmd_start() {
     fi
 
     # Determine which launcher to use
-    local launcher="${SCRIPT_DIR}/cu"
+    local launcher="${SCRIPT_DIR}/au"
     if [[ ! -x "$launcher" ]]; then
-        launcher="cu"
+        launcher="au"
         if ! command -v "$launcher" &>/dev/null; then
-            launcher="claude"
+            # Legacy: try cu
+            launcher="cu"
+            if ! command -v "$launcher" &>/dev/null; then
+                launcher="claude"
+            fi
         fi
     fi
 
@@ -237,8 +249,8 @@ cmd_start() {
     # Send command with properly quoted arguments to prevent injection
     tmux send-keys -t "$SESSION_NAME" "$cmd" Enter
 
-    log_info "Session started. Use 'cutx attach' to connect interactively"
-    log_info "Or use 'cutx send \"message\"' to send commands"
+    log_info "Session started. Use 'autx attach' to connect interactively"
+    log_info "Or use 'autx send \"message\"' to send commands"
 }
 
 # Send a message to Claude
@@ -248,14 +260,14 @@ cmd_send() {
     fi
 
     if ! session_exists; then
-        log_error "No active session. Run 'cutx start' first"
+        log_error "No active session. Run 'autx start' first"
         return 1
     fi
 
     local message="$*"
     if [[ -z "$message" ]]; then
         log_error "No message provided"
-        echo "Usage: cutx send \"your message\""
+        echo "Usage: autx send \"your message\""
         return 1
     fi
 
@@ -346,7 +358,7 @@ cmd_attach() {
     fi
 
     if ! session_exists; then
-        log_error "No active session. Run 'cutx start' first"
+        log_error "No active session. Run 'autx start' first"
         return 1
     fi
 
@@ -441,18 +453,19 @@ cmd_query() {
 # Show help
 cmd_help() {
     cat << 'EOF'
-cutx - Claude Unleashed Wrapper (Headless tmux mode)
+autx - Agent Unleashed Wrapper (Headless tmux mode)
+(Legacy name: cutx - still supported for backwards compatibility)
 
 USAGE:
-    cutx <command> [args]
-    cutx "message"           Send message and wait for response
+    autx <command> [args]
+    autx "message"           Send message and wait for response
 
 COMMANDS:
     start [--auto] [-d] [args]
                     Start a new Claude session in tmux
                     --auto: enable auto mode (Claude won't stop)
                     -d/--daemon: kill session when Claude exits
-                    Additional args are passed to claude-unleashed
+                    Additional args are passed to agent-unleashed
 
     send "msg"      Send a message to the running Claude session
 
@@ -472,32 +485,34 @@ COMMANDS:
     help            Show this help message
 
 ENVIRONMENT:
-    CUTX_SESSION_NAME      tmux session name (default: claude-unleashed)
+    AUTX_SESSION_NAME      tmux session name (default: agent-unleashed)
                            Must contain only alphanumeric, underscore, or dash
-    CUTX_WAIT_TIMEOUT      Default wait timeout in seconds (default: 300)
-    CUTX_TERM_WIDTH        Terminal width for tmux session (default: 200)
-    CUTX_TERM_HEIGHT       Terminal height for tmux session (default: 50)
-    CUTX_STABLE_THRESHOLD  Seconds of stable output to consider response complete (default: 3)
-    CUTX_INIT_WAIT         Seconds to wait for Claude to initialize (default: 5)
+    AUTX_WAIT_TIMEOUT      Default wait timeout in seconds (default: 300)
+    AUTX_TERM_WIDTH        Terminal width for tmux session (default: 200)
+    AUTX_TERM_HEIGHT       Terminal height for tmux session (default: 50)
+    AUTX_STABLE_THRESHOLD  Seconds of stable output to consider response complete (default: 3)
+    AUTX_INIT_WAIT         Seconds to wait for Claude to initialize (default: 5)
+
+    Legacy environment variables (CUTX_*) are still supported for backwards compatibility.
 
 EXAMPLES:
     # Start a session and send a message
-    cutx start
-    cutx send "Hello Claude, how are you?"
-    cutx wait
-    cutx read
+    autx start
+    autx send "Hello Claude, how are you?"
+    autx wait
+    autx read
 
     # Or use the shorthand
-    cutx "Hello Claude, how are you?"
+    autx "Hello Claude, how are you?"
 
     # Attach for interactive use
-    cutx attach
+    autx attach
 
     # Start with specific arguments
-    cutx start --continue
+    autx start --continue
 
     # Check status
-    cutx status
+    autx status
 
 EOF
 }

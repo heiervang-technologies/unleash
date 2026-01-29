@@ -1,7 +1,7 @@
-# Claude Unleashed
+# Agent Unleashed
 
 <p align="center">
-  <img src="demo-animation.gif" alt="Claude Unleashed - Smooth menu animations" width="900">
+  <img src="demo-animation.gif" alt="Agent Unleashed - Smooth menu animations" width="900">
 </p>
 
 A powerful extension framework for Claude Code with auto-mode, version management, and plugin support.
@@ -10,36 +10,38 @@ A powerful extension framework for Claude Code with auto-mode, version managemen
 
 ```bash
 # Using gh CLI (recommended - handles auth automatically)
-gh repo clone heiervang-technologies/claude-unleashed /tmp/cu && bash /tmp/cu/scripts/install.sh && rm -rf /tmp/cu
+gh repo clone heiervang-technologies/agent-unleashed /tmp/au && bash /tmp/au/scripts/install.sh && rm -rf /tmp/au
 ```
 Or with GitHub token if repo is still private:
 ```bash
 # export GH_TOKEN=ghp_xxx
 curl -fsSL -H "Authorization: token $GH_TOKEN" \
-  https://raw.githubusercontent.com/heiervang-technologies/claude-unleashed/main/scripts/install-remote.sh | bash
+  https://raw.githubusercontent.com/heiervang-technologies/agent-unleashed/main/scripts/install-remote.sh | bash
 ```
 
-This installs/updates both **Claude Code** and **Claude Unleashed**, then applies the auto-mode patch.
+This installs/updates both **Claude Code** and **Agent Unleashed**, then applies the auto-mode patch.
 
 **After install:**
 ```bash
-cu          # Show help and available commands
-cug         # Start Claude with unleashed features (shorthand for 'cu go')
-cui         # TUI for profiles & version management
-cutx        # Headless mode for automation
+au          # Show help and available commands
+aug         # Start Claude with unleashed features (shorthand for 'au go')
+aui         # TUI for profiles & version management
+autx        # Headless mode for automation
 ```
+
+> **Note:** Legacy commands (`cu`, `cug`, `cui`, `cutx`, `cutxg`) still work for backwards compatibility.
 
 > **Already have it installed?** Run the same command to update to latest versions.
 
 ---
 <p align="center">
-  <img src="demo-tui.gif" alt="Claude Unleashed TUI Demo" width="800">
+  <img src="demo-tui.gif" alt="Agent Unleashed TUI Demo" width="800">
 </p>
 ---
 
 ## Overview
 
-**Claude Unleashed** is a fork of Anthropic's official [Claude Code](https://github.com/anthropics/claude-code) CLI that enables extensibility without modifying the core codebase. Instead of patching the upstream code directly, we maintain the original repository as a Git submodule and extend it through a comprehensive plugin system.
+**Agent Unleashed** is a fork of Anthropic's official [Claude Code](https://github.com/anthropics/claude-code) CLI that enables extensibility without modifying the core codebase. Instead of patching the upstream code directly, we maintain the original repository as a Git submodule and extend it through a comprehensive plugin system.
 
 This approach provides:
 - **Zero upstream conflicts**: Pull updates from Anthropic's repository without merge conflicts
@@ -51,7 +53,7 @@ This approach provides:
 ## Architecture
 
 ```
-claude-unleashed/
+agent-unleashed/
 ├── src/                          # Rust TUI (main entry point)
 │   └── main.rs
 ├── Cargo.toml                    # TUI build configuration
@@ -106,7 +108,7 @@ All customizations are implemented as plugins. This keeps the core clean and mak
 
 ## Daily Sync Workflow
 
-Claude Unleashed automatically stays in sync with upstream changes:
+Agent Unleashed automatically stays in sync with upstream changes:
 
 ```
 Every day at 2 AM UTC:
@@ -151,13 +153,13 @@ This creates a minimal binary without crossterm/ratatui dependencies that works 
 Install everything with a single command:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/heiervang-technologies/claude-unleashed/main/scripts/install-remote.sh | bash
+curl -fsSL https://raw.githubusercontent.com/heiervang-technologies/agent-unleashed/main/scripts/install-remote.sh | bash
 ```
 
 This will:
 - Install Claude Code via npm (if not already installed)
 - Download the pre-built TUI binary
-- Set up `cu`, `cug`, `cutx`, and `cui` commands
+- Set up `au`, `aug`, `autx`, and `aui` commands (plus legacy `cu*` aliases)
 - Apply the auto-mode patch
 
 ### Installation Options
@@ -165,14 +167,14 @@ This will:
 #### Option 1: gh CLI (recommended for private repo)
 ```bash
 # Clone, install, cleanup
-gh repo clone heiervang-technologies/claude-unleashed /tmp/cu && \
-  bash /tmp/cu/scripts/install.sh && \
-  rm -rf /tmp/cu
+gh repo clone heiervang-technologies/agent-unleashed /tmp/au && \
+  bash /tmp/au/scripts/install.sh && \
+  rm -rf /tmp/au
 
 # With specific Claude Code version
-gh repo clone heiervang-technologies/claude-unleashed /tmp/cu && \
-  bash /tmp/cu/scripts/install.sh --claude-version 2.1.5 && \
-  rm -rf /tmp/cu
+gh repo clone heiervang-technologies/agent-unleashed /tmp/au && \
+  bash /tmp/au/scripts/install.sh --claude-version 2.1.5 && \
+  rm -rf /tmp/au
 ```
 
 #### Option 2: curl with GitHub token
@@ -182,18 +184,18 @@ export GH_TOKEN=ghp_xxxxxxxxxxxx
 
 # Install latest
 curl -fsSL -H "Authorization: token $GH_TOKEN" \
-  https://raw.githubusercontent.com/heiervang-technologies/claude-unleashed/main/scripts/install-remote.sh | bash
+  https://raw.githubusercontent.com/heiervang-technologies/agent-unleashed/main/scripts/install-remote.sh | bash
 
 # Install specific Claude Code version
 CLAUDE_CODE_VERSION=2.1.5 curl -fsSL -H "Authorization: token $GH_TOKEN" \
-  https://raw.githubusercontent.com/heiervang-technologies/claude-unleashed/main/scripts/install-remote.sh | bash
+  https://raw.githubusercontent.com/heiervang-technologies/agent-unleashed/main/scripts/install-remote.sh | bash
 ```
 
 #### Option 3: Clone and build from source
 ```bash
 # Clone (SSH for private repo)
-git clone git@github.com:heiervang-technologies/claude-unleashed.git
-cd claude-unleashed
+git clone git@github.com:heiervang-technologies/agent-unleashed.git
+cd agent-unleashed
 
 # Build TUI and install
 cargo build --release
@@ -205,7 +207,7 @@ cargo build --release
 
 ### Authentication Setup
 
-Claude Unleashed requires authentication with Claude Code. You have two options:
+Agent Unleashed requires authentication with Claude Code. You have two options:
 
 #### Option 1: OAuth Token (Recommended for Automation)
 
@@ -244,15 +246,15 @@ claude
 
 #### Verifying Authentication
 
-Claude Unleashed automatically checks for authentication on startup. You can also verify authentication status manually:
+Agent Unleashed automatically checks for authentication on startup. You can also verify authentication status manually:
 
 ```bash
 # Quick check
-cu auth
+au auth
 # ✓ Authentication configured
 
 # Detailed check
-cu auth --verbose
+au auth --verbose
 # ✓ Authentication configured
 #
 # Authentication method:
@@ -262,11 +264,11 @@ cu auth --verbose
 # Status: Ready to use Claude Code
 
 # JSON output (for scripting)
-cu auth --json
+au auth --json
 # {"authenticated":true,"method":"oauth_token","details":null}
 
 # Quiet mode (only exit code, no output)
-cu auth -q
+au auth -q
 # (no output, only exit code: 0=success, 1=failure)
 ```
 
@@ -292,23 +294,25 @@ export PATH="$HOME/.local/bin:$PATH"
 ### Command Overview
 
 ```bash
-cu                    # Show help and available commands
-cu go                 # Start Claude with unleashed features
-cu go --auto          # Start in autonomous mode
-cug                   # Shorthand for 'cu go'
-cug --auto            # Shorthand for 'cu go --auto'
-cu ui / cui           # Launch TUI interface
-cu tmux / cutx        # Headless mode (see below)
-cu auth               # Check authentication status
-cu auth -v            # Check with detailed information
-cu auth -q            # Check quietly (only exit code)
-cu auth --json        # Output as JSON for scripting
-cu patch              # Apply Claude Code patches
-cu version            # Show installed version
-cu version --list     # List available versions
+au                    # Show help and available commands
+au go                 # Start Claude with unleashed features
+au go --auto          # Start in autonomous mode
+aug                   # Shorthand for 'au go'
+aug --auto            # Shorthand for 'au go --auto'
+au ui / aui           # Launch TUI interface
+au tmux / autx        # Headless mode (see below)
+au auth               # Check authentication status
+au auth -v            # Check with detailed information
+au auth -q            # Check quietly (only exit code)
+au auth --json        # Output as JSON for scripting
+au patch              # Apply Claude Code patches
+au version            # Show installed version
+au version --list     # List available versions
 restart-claude        # Restart Claude (preserves session)
 exit-claude           # Exit Claude cleanly
 ```
+
+> **Note:** Legacy `cu*` commands (`cu`, `cug`, `cui`, `cutx`) still work for backwards compatibility.
 
 ### Configuration Options
 
@@ -318,21 +322,21 @@ Customize the message Claude receives when auto-mode blocks it from exiting:
 
 ```bash
 # Set a custom prompt
-cug --stop-prompt="Keep working until tests pass!"
+aug --stop-prompt="Keep working until tests pass!"
 
 # Edit with your $EDITOR
-cug --stop-prompt-edit
+aug --stop-prompt-edit
 
 # Reset to default
-cug --stop-prompt-clear
+aug --stop-prompt-clear
 ```
 
 You can also configure this via the TUI:
 ```bash
-cui  # Navigate to Settings > Stop Prompt
+aui  # Navigate to Settings > Stop Prompt
 ```
 
-The prompt is stored globally in `~/.config/claude-unleashed/config.toml` and applies to all future auto-mode sessions.
+The prompt is stored globally in `~/.config/agent-unleashed/config.toml` and applies to all future auto-mode sessions.
 
 **Priority order:**
 1. Session-specific override (programmatic)
@@ -343,7 +347,7 @@ For detailed configuration options, see [docs/extensions/configuration.md](docs/
 
 ## TUI Features
 
-The TUI (`cui`) provides a graphical interface for managing Claude Unleashed:
+The TUI (`aui`) provides a graphical interface for managing Agent Unleashed:
 
 ### Profile Management
 - Create and manage environment profiles
@@ -363,11 +367,11 @@ Navigate with:
 - `Esc` - Go back
 - `?` - Help
 
-## Headless Mode (cutx)
+## Headless Mode (autx)
 
 ### Overview
 
-`cutx` is a headless mode for Claude Unleashed that runs Claude in a tmux session, enabling programmatic access for automation, scripting, and CI/CD pipelines. It provides a command-line interface to start, stop, send messages, and read responses from Claude without requiring an interactive terminal.
+`autx` is a headless mode for Agent Unleashed that runs Claude in a tmux session, enabling programmatic access for automation, scripting, and CI/CD pipelines. It provides a command-line interface to start, stop, send messages, and read responses from Claude without requiring an interactive terminal.
 
 ### When to Use It
 
@@ -381,40 +385,42 @@ Navigate with:
 
 ```bash
 # Start a headless session
-cutx start
+autx start
 
 # Send a message to Claude
-cutx send "Analyze this code for bugs"
+autx send "Analyze this code for bugs"
 
 # Wait for Claude to finish responding
-cutx wait
+autx wait
 
 # Read the response
-cutx read
+autx read
 
 # Or use the shorthand for quick queries (start, send, wait, read in one command)
-cutx "What is 2+2?"
+autx "What is 2+2?"
 
 # Attach to the session for interactive use
-cutx attach
+autx attach
 
 # Check session status
-cutx status
+autx status
 
 # Stop the session
-cutx stop
+autx stop
 ```
 
 ### Environment Variables
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `CUTX_SESSION_NAME` | `claude-unleashed` | tmux session name |
-| `CUTX_WAIT_TIMEOUT` | `300` | Default wait timeout in seconds |
-| `CUTX_TERM_WIDTH` | `200` | Terminal width |
-| `CUTX_TERM_HEIGHT` | `50` | Terminal height |
-| `CUTX_STABLE_THRESHOLD` | `3` | Seconds of stable output to consider response complete |
-| `CUTX_INIT_WAIT` | `5` | Seconds to wait for Claude initialization |
+| `AUTX_SESSION_NAME` | `agent-unleashed` | tmux session name |
+| `AUTX_WAIT_TIMEOUT` | `300` | Default wait timeout in seconds |
+| `AUTX_TERM_WIDTH` | `200` | Terminal width |
+| `AUTX_TERM_HEIGHT` | `50` | Terminal height |
+| `AUTX_STABLE_THRESHOLD` | `3` | Seconds of stable output to consider response complete |
+| `AUTX_INIT_WAIT` | `5` | Seconds to wait for Claude initialization |
+
+> **Note:** Legacy `CUTX_*` environment variables are still supported for backwards compatibility.
 
 ### Full Documentation
 
@@ -614,8 +620,8 @@ The upstream Claude Code is licensed by Anthropic. See `claude-code/LICENSE.md` 
 
 - [Upstream Repository (anthropics/claude-code)](https://github.com/anthropics/claude-code)
 - [Plugin Development Guide](docs/extensions/plugin-development.md)
-- [Issue Tracker](https://github.com/heiervang-technologies/claude-unleashed/issues)
-- [Discussions](https://github.com/heiervang-technologies/claude-unleashed/discussions)
+- [Issue Tracker](https://github.com/heiervang-technologies/agent-unleashed/issues)
+- [Discussions](https://github.com/heiervang-technologies/agent-unleashed/discussions)
 
 ---
 

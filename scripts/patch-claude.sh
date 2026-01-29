@@ -13,7 +13,7 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PATCHES_DIR="$SCRIPT_DIR/patches/versions"
 
-VERSION_CACHE_DIR="$HOME/.cache/claude-unleashed"
+VERSION_CACHE_DIR="$HOME/.cache/agent-unleashed"
 VERSION_FILE="$VERSION_CACHE_DIR/patched-claude-version"
 
 # Find Claude Code installation
@@ -225,7 +225,7 @@ echo "Patch 6: Added yellow/warning color for auto mode"
 
 # 7a: Create flag file when entering auto mode
 PATTERN_7A="if(${MODE_VAR}===\"acceptEdits\")${TELEMETRY_FN}(\"auto-accept-mode\")"
-REPLACE_7A="if(${MODE_VAR}===\"acceptEdits\")${TELEMETRY_FN}(\"auto-accept-mode\");if(${MODE_VAR}===\"auto\")import(\"fs\").then(_fs=>{let _d=process.env.HOME+\"/.cache/claude-unleashed/auto-mode\";_fs.mkdirSync(_d,{recursive:!0});_fs.writeFileSync(_d+\"/active-\"+process.ppid,\"\")})"
+REPLACE_7A="if(${MODE_VAR}===\"acceptEdits\")${TELEMETRY_FN}(\"auto-accept-mode\");if(${MODE_VAR}===\"auto\")import(\"fs\").then(_fs=>{let _d=process.env.HOME+\"/.cache/agent-unleashed/auto-mode\";_fs.mkdirSync(_d,{recursive:!0});_fs.writeFileSync(_d+\"/active-\"+process.ppid,\"\")})"
 
 if grep -qF "$PATTERN_7A" "$TEMP_FILE"; then
     sed -i "s|${PATTERN_7A}|${REPLACE_7A}|g" "$TEMP_FILE"
@@ -243,7 +243,7 @@ DELEGATE_MODE_CTX="${DELEGATE_MODE_CTX:-B}"
 
 PATTERN_7B_GREP="${DELEGATE_MODE_CTX}\\.mode===\"delegate\"&&${MODE_VAR}!==\"delegate\")${DELEGATE_FN1_GREP}"
 PATTERN_7B="${DELEGATE_MODE_CTX}\\.mode===\"delegate\"\\&\\&${MODE_VAR}!==\"delegate\")${DELEGATE_FN1_ESCAPED}(\\!0),${DELEGATE_FN2}(\\!0)"
-REPLACE_7B="${DELEGATE_MODE_CTX}.mode===\"delegate\"\\&\\&${MODE_VAR}!==\"delegate\")${DELEGATE_FN1}(!0),${DELEGATE_FN2}(!0);if(${DELEGATE_MODE_CTX}.mode===\"auto\"\\&\\&${MODE_VAR}!==\"auto\")import(\"fs\").then(_fs=>{try{_fs.unlinkSync(process.env.HOME+\"/.cache/claude-unleashed/auto-mode/active-\"+process.ppid)}catch(_e){}})"
+REPLACE_7B="${DELEGATE_MODE_CTX}.mode===\"delegate\"\\&\\&${MODE_VAR}!==\"delegate\")${DELEGATE_FN1}(!0),${DELEGATE_FN2}(!0);if(${DELEGATE_MODE_CTX}.mode===\"auto\"\\&\\&${MODE_VAR}!==\"auto\")import(\"fs\").then(_fs=>{try{_fs.unlinkSync(process.env.HOME+\"/.cache/agent-unleashed/auto-mode/active-\"+process.ppid)}catch(_e){}})"
 
 if grep -qE "$PATTERN_7B_GREP" "$TEMP_FILE"; then
     sed -i "s|${PATTERN_7B}|${REPLACE_7B}|g" "$TEMP_FILE"

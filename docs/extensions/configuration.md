@@ -1,6 +1,6 @@
 # Configuration Guide
 
-This guide covers configuration options for Claude Unleashed and its extensions.
+This guide covers configuration options for Agent Unleashed and its extensions.
 
 ## Table of Contents
 
@@ -12,19 +12,19 @@ This guide covers configuration options for Claude Unleashed and its extensions.
 
 ## Overview
 
-Claude Unleashed uses multiple configuration files to manage settings:
+Agent Unleashed uses multiple configuration files to manage settings:
 
 | File | Purpose | Format |
 |------|---------|--------|
-| `~/.config/claude-unleashed/config.toml` | TUI and global settings | TOML |
+| `~/.config/agent-unleashed/config.toml` | TUI and global settings | TOML |
 | `~/.claude/settings.json` | Claude Code settings and hooks | JSON |
-| `~/.cache/claude-unleashed/` | Runtime state and temporary files | Various |
+| `~/.cache/agent-unleashed/` | Runtime state and temporary files | Various |
 
 ## Configuration Files
 
 ### TUI Configuration (`config.toml`)
 
-Located at `~/.config/claude-unleashed/config.toml`, this file stores:
+Located at `~/.config/agent-unleashed/config.toml`, this file stores:
 
 - Current profile selection
 - Claude executable path
@@ -64,7 +64,7 @@ Example:
         "hooks": [
           {
             "type": "command",
-            "command": "$HOME/claude-unleashed/plugins/unleashed/auto-mode/hooks/auto-mode-stop.sh"
+            "command": "$HOME/agent-unleashed/plugins/unleashed/auto-mode/hooks/auto-mode-stop.sh"
           }
         ]
       }
@@ -85,17 +85,17 @@ To exit: run 'exit-claude' via Bash tool. Do not end your turn without taking ac
 
 ### Customizing via CLI
 
-The `cu` command provides flags to manage the stop prompt:
+The `au` command (legacy: `cu` still works) provides flags to manage the stop prompt:
 
 #### Set Inline
 
 ```bash
-cu --stop-prompt="Your custom message here"
+au --stop-prompt="Your custom message here"
 ```
 
 Example:
 ```bash
-cu --stop-prompt="Stay focused! Use exit-claude when done."
+au --stop-prompt="Stay focused! Use exit-claude when done."
 ```
 
 #### Edit with $EDITOR
@@ -103,7 +103,7 @@ cu --stop-prompt="Stay focused! Use exit-claude when done."
 Opens your default editor ($EDITOR, $VISUAL, or vi) to edit the prompt:
 
 ```bash
-cu --stop-prompt-edit
+au --stop-prompt-edit
 ```
 
 This creates a temporary file with the current prompt, opens it in your editor, and saves the result when you exit.
@@ -111,7 +111,7 @@ This creates a temporary file with the current prompt, opens it in your editor, 
 #### Clear (Reset to Default)
 
 ```bash
-cu --stop-prompt-clear
+au --stop-prompt-clear
 ```
 
 Removes the custom prompt from config.toml, causing the hook to use its default hardcoded message.
@@ -121,7 +121,7 @@ Removes the custom prompt from config.toml, causing the hook to use its default 
 Launch the TUI and navigate to the Settings screen:
 
 ```bash
-cui
+aui
 ```
 
 Steps:
@@ -133,19 +133,19 @@ Steps:
 6. Press `Enter` to save
 7. Press `Esc` to return to main menu
 
-The setting is saved immediately to `~/.config/claude-unleashed/config.toml`.
+The setting is saved immediately to `~/.config/agent-unleashed/config.toml`.
 
 ### Priority Order
 
 When determining which stop prompt message to show, the hook checks in this order:
 
 1. **Session-specific** (highest priority)
-   - File: `~/.cache/claude-unleashed/auto-mode/reminder-${WRAPPER_PID}`
+   - File: `~/.cache/agent-unleashed/auto-mode/reminder-${WRAPPER_PID}`
    - Set programmatically for specific sessions
    - Allows per-session overrides
 
 2. **Global configuration**
-   - File: `~/.config/claude-unleashed/config.toml`
+   - File: `~/.config/agent-unleashed/config.toml`
    - Field: `stop_prompt`
    - Set via CLI flags or TUI
    - Applies to all sessions
@@ -162,13 +162,13 @@ Set task-specific prompts:
 
 ```bash
 # For debugging sessions
-cu --stop-prompt="Debug the issue completely before stopping."
+au --stop-prompt="Debug the issue completely before stopping."
 
 # For feature development
-cu --stop-prompt="Complete the feature and all tests before exiting."
+au --stop-prompt="Complete the feature and all tests before exiting."
 
 # For refactoring
-cu --stop-prompt="Finish the refactoring and verify all tests pass."
+au --stop-prompt="Finish the refactoring and verify all tests pass."
 ```
 
 #### Team Standards
@@ -177,7 +177,7 @@ Organizations can standardize stop prompts:
 
 ```bash
 # Company-wide prompt
-cu --stop-prompt="Follow team exit checklist: tests pass, docs updated, PR ready."
+au --stop-prompt="Follow team exit checklist: tests pass, docs updated, PR ready."
 ```
 
 #### Motivational Messages
@@ -185,7 +185,7 @@ cu --stop-prompt="Follow team exit checklist: tests pass, docs updated, PR ready
 Use prompts to encourage autonomous behavior:
 
 ```bash
-cu --stop-prompt="You're doing great! Keep going until the task is complete. Use exit-claude when truly done."
+au --stop-prompt="You're doing great! Keep going until the task is complete. Use exit-claude when truly done."
 ```
 
 ### Verification
@@ -194,13 +194,13 @@ Check the current stop prompt configuration:
 
 ```bash
 # View config file
-cat ~/.config/claude-unleashed/config.toml | grep stop_prompt
+cat ~/.config/agent-unleashed/config.toml | grep stop_prompt
 
 # Test the hook directly (requires auto mode active)
 export CLAUDE_WRAPPER_PID=$$
-mkdir -p ~/.cache/claude-unleashed/auto-mode
-touch ~/.cache/claude-unleashed/auto-mode/active-$$
-~/claude-unleashed/plugins/unleashed/auto-mode/hooks/auto-mode-stop.sh
+mkdir -p ~/.cache/agent-unleashed/auto-mode
+touch ~/.cache/agent-unleashed/auto-mode/active-$$
+~/agent-unleashed/plugins/unleashed/auto-mode/hooks/auto-mode-stop.sh
 ```
 
 ### Troubleshooting
@@ -209,12 +209,12 @@ touch ~/.cache/claude-unleashed/auto-mode/active-$$
 
 1. Verify auto mode is active:
    ```bash
-   ls ~/.cache/claude-unleashed/auto-mode/active-*
+   ls ~/.cache/agent-unleashed/auto-mode/active-*
    ```
 
 2. Check config file exists and is valid:
    ```bash
-   cat ~/.config/claude-unleashed/config.toml
+   cat ~/.config/agent-unleashed/config.toml
    ```
 
 3. Ensure CLAUDE_WRAPPER_PID is set:
@@ -226,17 +226,17 @@ touch ~/.cache/claude-unleashed/auto-mode/active-$$
 
 The prompt is only shown when:
 - Auto mode is active (flag file exists)
-- Running under the `cu` wrapper (CLAUDE_WRAPPER_PID set)
+- Running under the `au` wrapper (CLAUDE_WRAPPER_PID set)
 - The stop hook is triggered (Claude tries to end turn)
 
 If you're not seeing the prompt:
-- Verify you started Claude with `cu` (not `claude` directly)
+- Verify you started Claude with `au` or `cu` (not `claude` directly)
 - Check that auto mode is active (`/auto` was run)
 - Ensure Claude is actually trying to exit
 
 ## TUI Settings
 
-The TUI (`cui`) provides a visual interface for managing configuration.
+The TUI (`aui`) provides a visual interface for managing configuration.
 
 ### Available Settings
 
@@ -263,60 +263,60 @@ The TUI (`cui`) provides a visual interface for managing configuration.
 4. Press `Enter` to save
 5. Press `Esc` to cancel
 
-Settings are saved immediately to `~/.config/claude-unleashed/config.toml`.
+Settings are saved immediately to `~/.config/agent-unleashed/config.toml`.
 
 ## CLI Configuration
 
 ### Command-Line Flags
 
-The `cu` wrapper accepts several configuration flags:
+The `au` wrapper accepts several configuration flags:
 
 #### Auto Mode
 
 ```bash
-cu --auto          # Enable auto mode on startup
-cu -a              # Short form
+au --auto          # Enable auto mode on startup
+au -a              # Short form
 ```
 
 #### Stop Prompt
 
 ```bash
-cu --stop-prompt="message"    # Set prompt inline
-cu --stop-prompt "message"    # Alternative syntax
-cu --stop-prompt-edit         # Edit with $EDITOR
-cu --stop-prompt-clear        # Reset to default
+au --stop-prompt="message"    # Set prompt inline
+au --stop-prompt "message"    # Alternative syntax
+au --stop-prompt-edit         # Edit with $EDITOR
+au --stop-prompt-clear        # Reset to default
 ```
 
 #### Examples
 
 ```bash
 # Start with auto mode and custom prompt
-cu --auto --stop-prompt="Complete all tests before stopping."
+au --auto --stop-prompt="Complete all tests before stopping."
 
 # Edit prompt, then start normally
-cu --stop-prompt-edit
-cu
+au --stop-prompt-edit
+au
 
 # Clear prompt and start
-cu --stop-prompt-clear && cu
+au --stop-prompt-clear && au
 ```
 
 ### Environment Variables
 
-The `cu` wrapper exports these variables:
+The `au` wrapper exports these variables:
 
 | Variable | Purpose |
 |----------|---------|
 | `CLAUDE_UNLEASHED` | Set to `1` when running under wrapper |
 | `CLAUDE_WRAPPER_PID` | Process ID of the wrapper |
 | `CLAUDE_AUTO_MODE` | Set to `1` when auto mode is active |
-| `CLAUDE_UNLEASHED_ROOT` | Path to claude-unleashed repository |
+| `CLAUDE_UNLEASHED_ROOT` | Path to agent-unleashed repository |
 
 Check if running under wrapper:
 
 ```bash
 if [[ "$CLAUDE_UNLEASHED" == "1" ]]; then
-    echo "Running under claude-unleashed wrapper"
+    echo "Running under agent-unleashed wrapper"
 fi
 ```
 
@@ -354,7 +354,7 @@ fi
 
 2. **Clean up cache files**
    - Remove old session-specific reminder files
-   - Clear `~/.cache/claude-unleashed/` periodically
+   - Clear `~/.cache/agent-unleashed/` periodically
 
 ## Related Documentation
 

@@ -2,7 +2,7 @@
 
 ## Overview
 
-The `cu auth` command provides a standalone way to verify Claude Code authentication status without launching the full Claude CLI. This is particularly useful for:
+The `au auth` command (legacy: `cu auth`) provides a standalone way to verify Claude Code authentication status without launching the full Claude CLI. This is particularly useful for:
 
 - CI/CD pipelines and automation scripts
 - Pre-flight checks before running Claude
@@ -14,7 +14,7 @@ The `cu auth` command provides a standalone way to verify Claude Code authentica
 ### Basic Check
 
 ```bash
-cu auth
+au auth
 ```
 
 Output:
@@ -27,7 +27,7 @@ Exit code: `0` if authenticated, `1` if not
 ### Verbose Check
 
 ```bash
-cu auth --verbose
+au auth --verbose
 ```
 
 Output:
@@ -46,7 +46,7 @@ Status: Ready to use Claude Code
 For scripting and automation:
 
 ```bash
-cu auth --json
+au auth --json
 ```
 
 Output:
@@ -61,7 +61,7 @@ Output:
 With verbose details:
 
 ```bash
-cu auth --json --verbose
+au auth --json --verbose
 ```
 
 Output:
@@ -78,13 +78,13 @@ Output:
 For scripts where you only need the exit code:
 
 ```bash
-cu auth -q
+au auth -q
 ```
 
 This produces **no output** - only the exit code (0 for success, 1 for failure). Useful in conditional checks:
 
 ```bash
-if cu auth -q; then
+if au auth -q; then
     echo "Authenticated"
 fi
 ```
@@ -116,20 +116,20 @@ The command checks for authentication in the following order:
 ```bash
 #!/bin/bash
 # Using quiet mode for clean conditionals
-if ! cu auth -q; then
+if ! au auth -q; then
     echo "Error: Claude Code authentication not configured"
     echo "Run: claude setup-token"
     exit 1
 fi
 
 # Continue with Claude operations
-cu --auto "Run the tests"
+au --auto "Run the tests"
 ```
 
 Without quiet mode (shows status message):
 ```bash
 #!/bin/bash
-if ! cu auth > /dev/null 2>&1; then
+if ! au auth > /dev/null 2>&1; then
     echo "Error: Claude Code authentication not configured"
     exit 1
 fi
@@ -140,20 +140,20 @@ fi
 ```yaml
 - name: Check Claude Authentication
   run: |
-    if ! cu auth; then
+    if ! au auth; then
       echo "::error::Claude authentication not configured"
       exit 1
     fi
 
 - name: Run Claude Tasks
-  run: cu --auto "Analyze the codebase"
+  run: au --auto "Analyze the codebase"
 ```
 
 ### With JSON Output
 
 ```bash
 #!/bin/bash
-AUTH_STATUS=$(cu auth --json)
+AUTH_STATUS=$(au auth --json)
 AUTHENTICATED=$(echo "$AUTH_STATUS" | jq -r '.authenticated')
 METHOD=$(echo "$AUTH_STATUS" | jq -r '.method')
 
@@ -172,7 +172,7 @@ fi
 echo "Checking prerequisites..."
 
 # Check Claude authentication
-if cu auth --verbose; then
+if au auth --verbose; then
     echo "✓ Claude authentication OK"
 else
     echo "✗ Claude authentication missing"
@@ -187,7 +187,7 @@ fi
 # ...
 
 echo "All checks passed. Starting task..."
-cu --auto "$@"
+au --auto "$@"
 ```
 
 ## Implementation Details
@@ -203,7 +203,7 @@ cu --auto "$@"
 ### Authentication Logic
 
 The implementation reuses the authentication checking logic from:
-- `scripts/cu` (bash wrapper) - `check_authentication()` function
+- `scripts/au` (bash wrapper, legacy: `cu`) - `check_authentication()` function
 - `src/launcher.rs` - `check_authentication()` function
 
 The standalone command provides the same checks without launching Claude, making it faster and suitable for automation.
@@ -225,7 +225,7 @@ The test verifies:
 
 ## Related Commands
 
-- `cu`: Launch Claude with wrapper features (includes auth check on startup)
+- `au`: Launch Claude with wrapper features (includes auth check on startup). Legacy: `cu` still works.
 - `claude setup-token`: Generate OAuth token
 - `claude`: Interactive authentication
 

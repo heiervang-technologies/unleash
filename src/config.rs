@@ -1,7 +1,8 @@
 //! Profile configuration management
 //!
-//! Profiles are stored in ~/.config/claude-unleashed/profiles/
-//! Each profile is a TOML file with environment variables for Claude sessions.
+//! Profiles are stored in ~/.config/agent-unleashed/profiles/
+//! Each profile is a TOML file with environment variables for agent sessions.
+//! Legacy path ~/.config/claude-unleashed/ is also checked for backwards compatibility.
 
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -87,10 +88,17 @@ pub struct AppConfig {
     /// Custom stop-hook prompt for auto-mode (None = use default)
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub stop_prompt: Option<String>,
+    /// Color theme name (e.g., "orange", "blue", "green")
+    #[serde(default = "default_theme")]
+    pub theme: String,
 }
 
 fn default_profile_name() -> String {
     "default".to_string()
+}
+
+fn default_theme() -> String {
+    "orange".to_string()
 }
 
 fn default_claude_path() -> String {
@@ -109,6 +117,7 @@ impl Default for AppConfig {
             claude_path: default_claude_path(),
             claude_args: Vec::new(),
             stop_prompt: None,
+            theme: default_theme(),
         }
     }
 }
@@ -146,11 +155,23 @@ impl ProfileManager {
         Ok(manager)
     }
 
-    /// Get the default config directory (~/.config/claude-unleashed)
+    /// Get the default config directory (~/.config/agent-unleashed)
+    /// Falls back to legacy path (~/.config/claude-unleashed) if it exists
     pub fn default_config_dir() -> io::Result<PathBuf> {
-        dirs::config_dir()
-            .map(|p| p.join("claude-unleashed"))
-            .ok_or_else(|| io::Error::new(io::ErrorKind::NotFound, "Could not find config directory"))
+        let config_base = dirs::config_dir()
+            .ok_or_else(|| io::Error::new(io::ErrorKind::NotFound, "Could not find config directory"))?;
+
+        let new_path = config_base.join("agent-unleashed");
+        let legacy_path = config_base.join("claude-unleashed");
+
+        // Prefer new path if it exists, otherwise use legacy if it exists, otherwise use new
+        if new_path.exists() {
+            Ok(new_path)
+        } else if legacy_path.exists() {
+            Ok(legacy_path)
+        } else {
+            Ok(new_path) // Default to new path for fresh installs
+        }
     }
 
     /// Get path to a profile file

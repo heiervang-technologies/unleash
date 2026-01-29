@@ -1,6 +1,6 @@
 # MCP Refresh & Process Restart Guide
 
-Comprehensive guide to the MCP hot-reload and process restart functionality in Claude Unleashed.
+Comprehensive guide to the MCP hot-reload and process restart functionality in Agent Unleashed.
 
 ## Table of Contents
 
@@ -250,7 +250,7 @@ Time ─────────────────────────
 ### Prerequisites
 
 - Claude Code CLI installed and working
-- Claude Unleashed repository cloned
+- Agent Unleashed repository cloned
 - Bash shell (for hook scripts)
 - Basic tools: `sha256sum`, `jq`, `nohup`
 
@@ -304,7 +304,7 @@ vim <REPO_ROOT>/.claude/settings.json
 1. **Start Claude Code**:
 
 ```bash
-cd /home/me/claude-unleashed
+cd /home/me/agent-unleashed
 claude
 ```
 
@@ -654,7 +654,7 @@ PreToolUse → Compute config hash → Compare with cache → Notify if changed
 
 **Detection Method**:
 - Computes SHA256 hash of all MCP configuration files
-- Caches hash at `~/.cache/claude-unleashed/mcp-refresh/config-hashes.txt`
+- Caches hash at `~/.cache/agent-unleashed/mcp-refresh/config-hashes.txt`
 - Compares current hash with cached hash before each tool use
 - Notifies user if hash differs
 
@@ -785,7 +785,7 @@ function check_for_changes():
 #### Cache Location
 
 ```
-~/.cache/claude-unleashed/mcp-refresh/
+~/.cache/agent-unleashed/mcp-refresh/
 ├── config-hashes.txt    # SHA256 hash of current config
 └── last-check.txt       # Timestamp of last check (optional)
 ```
@@ -799,7 +799,7 @@ function check_for_changes():
 **Manual Cache Reset**:
 ```bash
 # Force fresh detection
-rm -rf ~/.cache/claude-unleashed/mcp-refresh/
+rm -rf ~/.cache/agent-unleashed/mcp-refresh/
 ```
 
 ### Commands Reference
@@ -1066,7 +1066,7 @@ Configure in `.claude/settings.json`:
 
 #### State File Format
 
-**Location**: `~/.cache/claude-unleashed/process-restart/restart-state.json`
+**Location**: `~/.cache/agent-unleashed/process-restart/restart-state.json`
 
 **Format**:
 ```json
@@ -1184,14 +1184,14 @@ function on_session_start():
 
 #### Trigger File
 
-**Location**: `~/.cache/claude-unleashed/process-restart/restart-trigger`
+**Location**: `~/.cache/agent-unleashed/process-restart/restart-trigger`
 
 **Purpose**: Signal to Stop hook that this is a restart, not a normal exit.
 
 **Creation**:
 ```bash
 # trigger-restart.sh
-touch ~/.cache/claude-unleashed/process-restart/restart-trigger
+touch ~/.cache/agent-unleashed/process-restart/restart-trigger
 ```
 
 **Detection**:
@@ -1206,7 +1206,7 @@ fi
 **Cleanup**:
 ```bash
 # After processing
-rm ~/.cache/claude-unleashed/process-restart/restart-trigger
+rm ~/.cache/agent-unleashed/process-restart/restart-trigger
 ```
 
 #### Process Spawning
@@ -1440,7 +1440,7 @@ While the plugins are independent, they communicate through:
 
 1. **Shared Cache Directory**:
 ```
-~/.cache/claude-unleashed/
+~/.cache/agent-unleashed/
 ├── mcp-refresh/
 │   └── config-hashes.txt
 └── process-restart/
@@ -1705,7 +1705,7 @@ cat .claude/settings.json | grep -A 5 configPaths
 # "configPaths": [".mcp.json", "your-file.json"]
 
 # 3. Clear cache to force redetection
-rm -rf ~/.cache/claude-unleashed/mcp-refresh/
+rm -rf ~/.cache/agent-unleashed/mcp-refresh/
 
 # 4. Verify plugin is loaded
 # In Claude:
@@ -1730,19 +1730,19 @@ rm -rf ~/.cache/claude-unleashed/mcp-refresh/
 
 ```bash
 # 1. Check if state file was created
-ls -la ~/.cache/claude-unleashed/process-restart/
+ls -la ~/.cache/agent-unleashed/process-restart/
 # Should see restart-state.json
 
 # 2. Check state file age
-cat ~/.cache/claude-unleashed/process-restart/restart-state.json
+cat ~/.cache/agent-unleashed/process-restart/restart-state.json
 # Check timestamp vs current time
 
 # 3. Verify file permissions
-ls -l ~/.cache/claude-unleashed/process-restart/restart-state.json
+ls -l ~/.cache/agent-unleashed/process-restart/restart-state.json
 # Should be: -rw------- (600)
 
 # Fix permissions:
-chmod 600 ~/.cache/claude-unleashed/process-restart/restart-state.json
+chmod 600 ~/.cache/agent-unleashed/process-restart/restart-state.json
 
 # 4. Check preserveSession setting
 cat .claude/settings.json | grep -A 5 process-restart
@@ -1780,7 +1780,7 @@ vim .claude/settings.json
 }
 
 # 2. Clean up old state files
-rm -rf ~/.cache/claude-unleashed/process-restart/*
+rm -rf ~/.cache/agent-unleashed/process-restart/*
 
 # 3. Check system time
 date
@@ -1831,7 +1831,7 @@ tail -f ~/.claude/logs/debug.log
 
 # 4. Test manual restart
 # Get session ID first
-SESSION_ID=$(cat ~/.cache/claude-unleashed/process-restart/restart-state.json | jq -r '.sessionId')
+SESSION_ID=$(cat ~/.cache/agent-unleashed/process-restart/restart-state.json | jq -r '.sessionId')
 
 # Then manually start
 claude --resume "$SESSION_ID"
@@ -1866,7 +1866,7 @@ cat .claude/settings.json | grep -A 5 process-restart
 # "preserveWorkingDir": true
 
 # 2. Verify directory exists
-cat ~/.cache/claude-unleashed/process-restart/restart-state.json | jq -r '.workingDir'
+cat ~/.cache/agent-unleashed/process-restart/restart-state.json | jq -r '.workingDir'
 # Output: <PROJECT_ROOT>
 
 ls -ld <PROJECT_ROOT>
@@ -1882,11 +1882,11 @@ chmod 755 <PROJECT_ROOT>
 sudo chown $USER:$USER <PROJECT_ROOT>
 
 # 4. Verify state file is valid JSON
-jq . ~/.cache/claude-unleashed/process-restart/restart-state.json
+jq . ~/.cache/agent-unleashed/process-restart/restart-state.json
 # Should output formatted JSON
 
 # If error, remove corrupted file:
-rm ~/.cache/claude-unleashed/process-restart/restart-state.json
+rm ~/.cache/agent-unleashed/process-restart/restart-state.json
 ```
 
 #### Issue 6: Frequent False Positive Notifications
@@ -1934,7 +1934,7 @@ chmod 444 .mcp.json  # Read-only
 # Edit: chmod 644, make changes, chmod 444 again
 
 # 5. Clear cache and let it rebuild
-rm -rf ~/.cache/claude-unleashed/mcp-refresh/
+rm -rf ~/.cache/agent-unleashed/mcp-refresh/
 ```
 
 #### Issue 7: Multiple Restart Attempts Fail
@@ -1954,7 +1954,7 @@ rm -rf ~/.cache/claude-unleashed/mcp-refresh/
 
 ```bash
 # 1. Clean up all restart state
-rm -rf ~/.cache/claude-unleashed/process-restart/*
+rm -rf ~/.cache/agent-unleashed/process-restart/*
 
 # 2. Kill any orphaned processes
 ps aux | grep claude
@@ -1974,11 +1974,11 @@ tail -50 ~/.claude/logs/debug.log
 # Look for error messages
 
 # 6. Verify cache directory permissions
-ls -ld ~/.cache/claude-unleashed/
+ls -ld ~/.cache/agent-unleashed/
 # Should be: drwxr-xr-x (755)
 
-chmod 755 ~/.cache/claude-unleashed/
-chmod 755 ~/.cache/claude-unleashed/process-restart/
+chmod 755 ~/.cache/agent-unleashed/
+chmod 755 ~/.cache/agent-unleashed/process-restart/
 ```
 
 ### Debug Mode
@@ -2038,7 +2038,7 @@ If issues persist:
    ```
 
 5. **Create Issue**:
-   - Repository: claude-unleashed
+   - Repository: agent-unleashed
    - Include: error messages, logs, configuration
    - Steps to reproduce
 
@@ -2348,7 +2348,7 @@ When core APIs become available:
 #### Cache Files
 
 ```
-~/.cache/claude-unleashed/
+~/.cache/agent-unleashed/
 ├── mcp-refresh/
 │   └── config-hashes.txt           # SHA256 hash cache
 └── process-restart/
@@ -2512,7 +2512,7 @@ interface ProcessRestartSettings {
 
 ### State File Format
 
-**File**: `~/.cache/claude-unleashed/process-restart/restart-state.json`
+**File**: `~/.cache/agent-unleashed/process-restart/restart-state.json`
 
 **Schema**:
 ```typescript
@@ -2546,7 +2546,7 @@ interface RestartState {
   "version": "1.0.0",
   "timestamp": 1735689600,
   "sessionId": "a8ea16a",
-  "workingDir": "/home/me/claude-unleashed",
+  "workingDir": "/home/me/agent-unleashed",
   "model": "claude-sonnet-4-5",
   "gitBranch": "feature/mcp-refresh",
   "enabledPlugins": ["mcp-refresh", "process-restart"]
@@ -2705,7 +2705,7 @@ Contributions to improve these plugins are welcome! Please:
 
 ## License
 
-Same as Claude Unleashed parent repository.
+Same as Agent Unleashed parent repository.
 
 ## Authors
 

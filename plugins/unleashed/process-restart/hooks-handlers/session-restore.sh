@@ -7,7 +7,7 @@
 set -euo pipefail
 
 # Configuration
-CACHE_DIR="${HOME}/.cache/claude-unleashed/process-restart"
+CACHE_DIR="${HOME}/.cache/agent-unleashed/process-restart"
 STATE_FILE="${CACHE_DIR}/restart-state.json"
 PLUGIN_SETTING_STATE_EXPIRY="${PLUGIN_SETTING_STATE_EXPIRY:-300}"  # 5 minutes default
 

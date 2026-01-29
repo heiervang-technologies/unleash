@@ -2,7 +2,7 @@
 
 ## Overview
 
-This guide covers comprehensive testing strategies for claude-unleashed plugins, workflows, and integrations. Proper testing ensures reliability, prevents regressions, and maintains quality standards.
+This guide covers comprehensive testing strategies for agent-unleashed plugins, workflows, and integrations. Proper testing ensures reliability, prevents regressions, and maintains quality standards.
 
 ## Table of Contents
 
@@ -529,7 +529,7 @@ curl https://raw.githubusercontent.com/nektos/act/master/install.sh | sudo bash
 #### 2. Simulate Workflow Trigger
 
 ```bash
-cd /home/me/claude-unleashed
+cd /home/me/agent-unleashed
 
 # Simulate issue creation event
 act issues -e test-event.json

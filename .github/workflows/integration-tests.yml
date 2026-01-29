@@ -72,8 +72,8 @@ jobs:
         with:
           name: cutx-test-results-${{ matrix.os }}
           path: |
-            ~/.cache/claude-unleashed/cutx/*.output
-            ~/.cache/claude-unleashed/cutx/*.marker
+            ~/.cache/agent-unleashed/autx/*.output
+            ~/.cache/agent-unleashed/autx/*.marker
           retention-days: 7
           if-no-files-found: ignore
 
@@ -155,12 +155,12 @@ jobs:
           function getModeName(mode){switch(mode){case"plan":return"Plan Mode";case"bypassPermissions":return"Bypass Permissions";case"acceptEdits":return"Accept Edits";default:return"Default"}}
           function getModeIcon(mode){switch(mode){case"acceptEdits":return"⏵⏵";case"bypassPermissions":return"⏵⏵";default:return"▶"}}
           function getNextMode(mode){switch(mode){case"default":return"plan";case"plan":return"bypassPermissions";case"bypassPermissions":return"default"}}
-          if(Z.toolPermissionContext.mode==="bypassPermissions"||Z.toolPermissionContext.mode==="plan"){allowTool()}
-          if(Q.mode==="bypassPermissions"){passthrough()}
+          if(${TOOL_PERMISSION_CTX:-Z}.toolPermissionContext.mode==="bypassPermissions"||${TOOL_PERMISSION_CTX:-Z}.toolPermissionContext.mode==="plan"){allowTool()}
+          if(${PASSTHROUGH_MODE_VAR:-Q}.mode==="bypassPermissions"){passthrough()}
           if(${PERMISSION_CTX_VAR}.mode==="bypassPermissions"||V){allow()}
           function getModeColor(mode){switch(mode){case"plan":return"planMode";case"acceptEdits":return"autoAccept";case"bypassPermissions":return"error";default:return"default"}}
           if(${MODE_VAR}==="acceptEdits")${TELEMETRY_FN}("auto-accept-mode");
-          if(B.mode==="delegate"&&${MODE_VAR}!=="delegate")${DELEGATE_FN1}(!0),${DELEGATE_FN2}(!0);
+          if(${DELEGATE_MODE_CTX:-B}.mode==="delegate"&&${MODE_VAR}!=="delegate")${DELEGATE_FN1}(!0),${DELEGATE_FN2}(!0);
           MOCKEOF
 
           # Create mock claude binary
@@ -202,13 +202,15 @@ jobs:
           grep -q 'case"auto":return"default"' "$CLI" || (echo "FAIL: Patch 4b - auto->default cycling missing" && exit 1)
           echo "✓ Patch 4: cycling logic updated (bypass->auto->default)"
 
-          # Patch 5a: Main permission check (Z.toolPermissionContext)
-          grep -q 'mode==="auto"||Z\.toolPermissionContext\.mode==="plan"' "$CLI" || (echo "FAIL: Patch 5a - main permission check missing" && exit 1)
+          # Patch 5a: Main permission check (toolPermissionContext)
+          TOOL_PERM="${TOOL_PERMISSION_CTX:-Z}"
+          grep -q "mode===\"auto\"||${TOOL_PERM}\.toolPermissionContext\.mode===\"plan\"" "$CLI" || (echo "FAIL: Patch 5a - main permission check missing" && exit 1)
           echo "✓ Patch 5a: main permission check updated"
 
-          # Patch 5b: Q.mode passthrough
-          grep -q 'Q\.mode==="bypassPermissions"||Q\.mode==="auto"' "$CLI" || (echo "FAIL: Patch 5b - Q.mode passthrough missing" && exit 1)
-          echo "✓ Patch 5b: Q.mode passthrough updated"
+          # Patch 5b: passthrough mode check
+          PASS_VAR="${PASSTHROUGH_MODE_VAR:-Q}"
+          grep -q "${PASS_VAR}\.mode===\"bypassPermissions\"||${PASS_VAR}\.mode===\"auto\"" "$CLI" || (echo "FAIL: Patch 5b - passthrough missing" && exit 1)
+          echo "✓ Patch 5b: passthrough mode check updated"
 
           # Patch 5c: Permission context variable check
           grep -q "${PERMISSION_CTX_VAR}\.mode===\"auto\"" "$CLI" || (echo "FAIL: Patch 5c - ${PERMISSION_CTX_VAR}.mode check missing" && exit 1)
@@ -224,7 +226,8 @@ jobs:
           echo "✓ Patch 7a: flag file creation injected (${MODE_VAR})"
 
           # Patch 7b: flag file removal
-          grep -q 'B\.mode==="auto"' "$CLI" || (echo "FAIL: Patch 7b - auto mode exit check missing" && exit 1)
+          DEL_CTX="${DELEGATE_MODE_CTX:-B}"
+          grep -q "${DEL_CTX}\.mode===\"auto\"" "$CLI" || (echo "FAIL: Patch 7b - auto mode exit check missing" && exit 1)
           grep -q 'unlinkSync' "$CLI" || (echo "FAIL: Patch 7b - flag removal missing" && exit 1)
           echo "✓ Patch 7b: flag file removal injected"
 
@@ -326,7 +329,7 @@ jobs:
           # Simulate the full auto-mode flow
 
           # 1. Create auto-mode flag (simulating shift+tab to auto mode)
-          FLAG_DIR="$HOME/.cache/claude-unleashed/auto-mode"
+          FLAG_DIR="$HOME/.cache/agent-unleashed/auto-mode"
           mkdir -p "$FLAG_DIR"
           TEST_PID="$$"
           touch "$FLAG_DIR/active-$TEST_PID"

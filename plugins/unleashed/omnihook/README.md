@@ -31,7 +31,7 @@ When using Jessica (voice assistant) with Claude Code:
 
 ## Installation
 
-The plugin is automatically available when using claude-unleashed. The hooks register for all event types.
+The plugin is automatically available when using agent-unleashed. The hooks register for all event types.
 
 ## CLI Tools
 
@@ -95,9 +95,9 @@ External Tool (jessica-listen)
          v
     cu-queue --notify "message"
          |
-         +---> Queue File (~/.cache/claude-unleashed/omnihook/queue-PID)
+         +---> Queue File (~/.cache/agent-unleashed/omnihook/queue-PID)
          |
-         +---> FIFO (~/.cache/claude-unleashed/omnihook/fifo-PID)
+         +---> FIFO (~/.cache/agent-unleashed/omnihook/fifo-PID)
                     |
                     v
               cu-wait unblocks
@@ -129,9 +129,9 @@ External Tool (jessica-listen)
 
 | Path | Purpose |
 |------|---------|
-| `~/.cache/claude-unleashed/omnihook/queue-PID` | Message queue (JSON lines) |
-| `~/.cache/claude-unleashed/omnihook/fifo-PID` | Named pipe for instant wakeup |
-| `~/.cache/claude-unleashed/omnihook/lock-PID` | Lock file for atomic queue operations |
+| `~/.cache/agent-unleashed/omnihook/queue-PID` | Message queue (JSON lines) |
+| `~/.cache/agent-unleashed/omnihook/fifo-PID` | Named pipe for instant wakeup |
+| `~/.cache/agent-unleashed/omnihook/lock-PID` | Lock file for atomic queue operations |
 
 ## Integration Example
 
@@ -179,10 +179,10 @@ The omnihook handler extracts the `text` field for injection.
 
 ```bash
 # Check what's in the queue
-cat ~/.cache/claude-unleashed/omnihook/queue-*
+cat ~/.cache/agent-unleashed/omnihook/queue-*
 
 # Check if FIFO exists
-ls -la ~/.cache/claude-unleashed/omnihook/fifo-*
+ls -la ~/.cache/agent-unleashed/omnihook/fifo-*
 
 # Test queue manually
 CLAUDE_WRAPPER_PID=$$ cu-queue "Test message"
@@ -193,12 +193,12 @@ CLAUDE_WRAPPER_PID=$$ cu-wait --check
 
 | Variable | Purpose |
 |----------|---------|
-| `CLAUDE_WRAPPER_PID` | Session identifier (set by claude-unleashed wrapper) |
+| `CLAUDE_WRAPPER_PID` | Session identifier (set by agent-unleashed wrapper) |
 | `HOOK_EVENT` | Hook event type (set by hooks.json) |
 
 ## Limitations
 
-- Requires running under claude-unleashed wrapper (CLAUDE_WRAPPER_PID must be set)
+- Requires running under agent-unleashed wrapper (CLAUDE_WRAPPER_PID must be set)
 - FIFO-based wakeup requires the FIFO to be set up first
 - Messages are processed one at a time on each hook event
 

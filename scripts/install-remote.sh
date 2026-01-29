@@ -1,16 +1,16 @@
 #!/usr/bin/env bash
-# install-remote.sh - Remote installer for Claude Unleashed
+# install-remote.sh - Remote installer for Agent Unleashed
 #
 # Usage (public repo):
-#   curl -fsSL https://raw.githubusercontent.com/heiervang-technologies/claude-unleashed/main/scripts/install-remote.sh | bash
+#   curl -fsSL https://raw.githubusercontent.com/heiervang-technologies/agent-unleashed/main/scripts/install-remote.sh | bash
 #
 # Usage (private repo):
 #   GH_TOKEN=ghp_xxx curl -fsSL -H "Authorization: token $GH_TOKEN" \
-#     https://raw.githubusercontent.com/heiervang-technologies/claude-unleashed/main/scripts/install-remote.sh | bash
+#     https://raw.githubusercontent.com/heiervang-technologies/agent-unleashed/main/scripts/install-remote.sh | bash
 #
 # Options (via environment variables):
 #   GH_TOKEN / GH_PAT / GITHUB_TOKEN - GitHub token for private repo access (any of these work)
-#   CLAUDE_UNLEASHED_VERSION - Specific version to install (default: latest)
+#   AGENT_UNLEASHED_VERSION - Specific version to install (default: latest)
 #   CLAUDE_CODE_VERSION      - Specific Claude Code version (default: latest)
 #   INSTALL_DIR              - Installation directory (default: ~/.local/bin)
 #   BUILD_FROM_SOURCE        - Set to "1" to build from source instead of downloading binary
@@ -19,7 +19,7 @@
 # 1. Checks prerequisites (npm, optionally cargo)
 # 2. Installs Claude Code via npm if not present
 # 3. Downloads pre-built binary or builds from source
-# 4. Sets up cu/cui/cug/cutx commands
+# 4. Sets up au/aui/aug/autx commands (cu* available as legacy aliases)
 # 5. Runs initial patch
 
 set -euo pipefail
@@ -29,12 +29,12 @@ GITHUB_TOKEN="${GH_TOKEN:-${GH_PAT:-${GITHUB_TOKEN:-}}}"
 
 # Configuration
 REPO_OWNER="heiervang-technologies"
-REPO_NAME="claude-unleashed"
+REPO_NAME="agent-unleashed"
 REPO_URL="https://github.com/${REPO_OWNER}/${REPO_NAME}"
 RAW_URL="https://raw.githubusercontent.com/${REPO_OWNER}/${REPO_NAME}/main"
 INSTALL_DIR="${INSTALL_DIR:-$HOME/.local/bin}"
 BUILD_FROM_SOURCE="${BUILD_FROM_SOURCE:-0}"
-CLAUDE_UNLEASHED_VERSION="${CLAUDE_UNLEASHED_VERSION:-latest}"
+AGENT_UNLEASHED_VERSION="${AGENT_UNLEASHED_VERSION:-${CLAUDE_UNLEASHED_VERSION:-latest}}"
 CLAUDE_CODE_VERSION="${CLAUDE_CODE_VERSION:-latest}"
 
 # Colors
@@ -85,18 +85,18 @@ detect_platform() {
     case "$PLATFORM" in
         linux)
             if [[ "$ARCH" == "x86_64" ]]; then
-                ARTIFACT_NAME="cu-linux-x86_64"
+                ARTIFACT_NAME="au-linux-x86_64"
             else
-                ARTIFACT_NAME="cu-linux-${ARCH}"
+                ARTIFACT_NAME="au-linux-${ARCH}"
             fi
             ;;
         macos)
             if [[ "$ARCH" == "x86_64" ]]; then
-                ARTIFACT_NAME="cu-macos-x86_64"
+                ARTIFACT_NAME="au-macos-x86_64"
             elif [[ "$ARCH" == "aarch64" ]]; then
-                ARTIFACT_NAME="cu-macos-arm64"
+                ARTIFACT_NAME="au-macos-arm64"
             else
-                ARTIFACT_NAME="cu-macos-${ARCH}"
+                ARTIFACT_NAME="au-macos-${ARCH}"
             fi
             ;;
     esac
@@ -431,7 +431,7 @@ download_binary() {
         asset_id=$(gh api "repos/${REPO_OWNER}/${REPO_NAME}/releases/tags/${version}" --jq ".assets[] | select(.name==\"${ARTIFACT_NAME}\") | .id" 2>/dev/null)
 
         if [[ -n "$asset_id" ]]; then
-            if gh api "repos/${REPO_OWNER}/${REPO_NAME}/releases/assets/${asset_id}" -H "Accept: application/octet-stream" > "${temp_dir}/cu" 2>/dev/null; then
+            if gh api "repos/${REPO_OWNER}/${REPO_NAME}/releases/assets/${asset_id}" -H "Accept: application/octet-stream" > "${temp_dir}/au" 2>/dev/null; then
                 downloaded=true
             fi
         fi
@@ -458,11 +458,11 @@ download_binary() {
                 local asset_api_url="https://api.github.com/repos/${REPO_OWNER}/${REPO_NAME}/releases/assets/${asset_id}"
 
                 if command -v curl &> /dev/null; then
-                    if curl -fsSL -H "Authorization: token $GITHUB_TOKEN" -H "Accept: application/octet-stream" "$asset_api_url" -o "${temp_dir}/cu" 2>/dev/null; then
+                    if curl -fsSL -H "Authorization: token $GITHUB_TOKEN" -H "Accept: application/octet-stream" "$asset_api_url" -o "${temp_dir}/au" 2>/dev/null; then
                         downloaded=true
                     fi
                 elif command -v wget &> /dev/null; then
-                    if wget -q --header="Authorization: token $GITHUB_TOKEN" --header="Accept: application/octet-stream" "$asset_api_url" -O "${temp_dir}/cu" 2>/dev/null; then
+                    if wget -q --header="Authorization: token $GITHUB_TOKEN" --header="Accept: application/octet-stream" "$asset_api_url" -O "${temp_dir}/au" 2>/dev/null; then
                         downloaded=true
                     fi
                 fi
@@ -473,7 +473,7 @@ download_binary() {
     # Method 3: Direct download URL (works for public repos only)
     if [[ "$downloaded" != "true" ]]; then
         local download_url="${REPO_URL}/releases/download/${version}/${ARTIFACT_NAME}"
-        if download "$download_url" "${temp_dir}/cu" 2>/dev/null; then
+        if download "$download_url" "${temp_dir}/au" 2>/dev/null; then
             downloaded=true
         fi
     fi
@@ -484,20 +484,27 @@ download_binary() {
     fi
 
     # Verify we got a real binary, not an error page
-    if [[ ! -s "${temp_dir}/cu" ]] || file "${temp_dir}/cu" 2>/dev/null | grep -q "text\|HTML"; then
+    if [[ ! -s "${temp_dir}/au" ]] || file "${temp_dir}/au" 2>/dev/null | grep -q "text\|HTML"; then
         rm -rf "$temp_dir"
         return 1
     fi
 
-    chmod +x "${temp_dir}/cu"
-    mv "${temp_dir}/cu" "${INSTALL_DIR}/cu"
+    chmod +x "${temp_dir}/au"
+    mv "${temp_dir}/au" "${INSTALL_DIR}/au"
     rm -rf "$temp_dir"
 
-    # Create symlinks for cui, cug, and cutx
-    ln -sf "${INSTALL_DIR}/cu" "${INSTALL_DIR}/cui"
-    ln -sf "${INSTALL_DIR}/cu" "${INSTALL_DIR}/cug"
-    ln -sf "${INSTALL_DIR}/cu" "${INSTALL_DIR}/cutx"
-    ln -sf "${INSTALL_DIR}/cu" "${INSTALL_DIR}/claude-unleashed"
+    # Create symlinks for aui, aug, autx
+    ln -sf "${INSTALL_DIR}/au" "${INSTALL_DIR}/aui"
+    ln -sf "${INSTALL_DIR}/au" "${INSTALL_DIR}/aug"
+    ln -sf "${INSTALL_DIR}/au" "${INSTALL_DIR}/autx"
+    ln -sf "${INSTALL_DIR}/au" "${INSTALL_DIR}/agent-unleashed"
+
+    # Legacy symlinks (cu* -> au*) for backwards compatibility
+    ln -sf "${INSTALL_DIR}/au" "${INSTALL_DIR}/cu"
+    ln -sf "${INSTALL_DIR}/au" "${INSTALL_DIR}/cui"
+    ln -sf "${INSTALL_DIR}/au" "${INSTALL_DIR}/cug"
+    ln -sf "${INSTALL_DIR}/au" "${INSTALL_DIR}/cutx"
+    ln -sf "${INSTALL_DIR}/au" "${INSTALL_DIR}/claude-unleashed"
 
     success "Binary downloaded and installed"
     return 0
@@ -519,16 +526,24 @@ build_from_source() {
     cd "$temp_dir"
     cargo build --release
 
-    # Install all binaries (cu, cui, cug, cutx)
-    for bin in cu cui cug cutx; do
+    # Install all binaries (au, aui, aug, autx, autxg)
+    for bin in au aui aug autx autxg; do
         if [[ -f "target/release/$bin" ]]; then
             cp "target/release/$bin" "${INSTALL_DIR}/$bin"
             chmod +x "${INSTALL_DIR}/$bin"
         fi
     done
 
-    # claude-unleashed is an alias for cu
-    ln -sf "${INSTALL_DIR}/cu" "${INSTALL_DIR}/claude-unleashed"
+    # agent-unleashed is an alias for au
+    ln -sf "${INSTALL_DIR}/au" "${INSTALL_DIR}/agent-unleashed"
+
+    # Legacy symlinks (cu* -> au*) for backwards compatibility
+    ln -sf "${INSTALL_DIR}/au" "${INSTALL_DIR}/cu"
+    ln -sf "${INSTALL_DIR}/au" "${INSTALL_DIR}/cui"
+    ln -sf "${INSTALL_DIR}/au" "${INSTALL_DIR}/cug"
+    ln -sf "${INSTALL_DIR}/au" "${INSTALL_DIR}/cutx"
+    ln -sf "${INSTALL_DIR}/au" "${INSTALL_DIR}/cutxg"
+    ln -sf "${INSTALL_DIR}/au" "${INSTALL_DIR}/claude-unleashed"
 
     # Cleanup
     rm -rf "$temp_dir"
@@ -620,7 +635,7 @@ ensure_onboarding_complete() {
   "lastOnboardingVersion": "${claude_version}",
   "bypassPermissionsModeAccepted": true,
   "numStartups": 1,
-  "installMethod": "claude-unleashed"
+  "installMethod": "agent-unleashed"
 }
 EOF
     fi
@@ -633,8 +648,8 @@ run_patch() {
     if command -v claude &> /dev/null; then
         info "Patching Claude Code for auto mode..."
 
-        # Use the cu binary's built-in patch command
-        if "${INSTALL_DIR}/cu" patch 2>/dev/null; then
+        # Use the au binary's built-in patch command
+        if "${INSTALL_DIR}/au" patch 2>/dev/null; then
             success "Claude Code patched"
         else
             warn "Patch failed (may need to run manually after updating PATH)"
@@ -646,7 +661,7 @@ run_patch() {
 main() {
     echo ""
     echo "╭──────────────────────────────────────────╮"
-    echo "│     Claude Unleashed Remote Installer    │"
+    echo "│     Agent Unleashed Remote Installer     │"
     echo "╰──────────────────────────────────────────╯"
     echo ""
 
@@ -660,20 +675,20 @@ main() {
     install_claude_code
 
     # Determine version to install
-    if [[ "$CLAUDE_UNLEASHED_VERSION" == "latest" ]]; then
-        CLAUDE_UNLEASHED_VERSION=$(get_latest_version)
-        if [[ -z "$CLAUDE_UNLEASHED_VERSION" ]]; then
+    if [[ "$AGENT_UNLEASHED_VERSION" == "latest" ]]; then
+        AGENT_UNLEASHED_VERSION=$(get_latest_version)
+        if [[ -z "$AGENT_UNLEASHED_VERSION" ]]; then
             warn "Could not determine latest version, using 'main' branch"
-            CLAUDE_UNLEASHED_VERSION="main"
+            AGENT_UNLEASHED_VERSION="main"
         fi
     fi
-    info "Installing Claude Unleashed ${CLAUDE_UNLEASHED_VERSION}"
+    info "Installing Agent Unleashed ${AGENT_UNLEASHED_VERSION}"
 
     # Install binary (try download first, fall back to source)
     if [[ "$BUILD_FROM_SOURCE" == "1" ]]; then
         build_from_source
     else
-        if ! download_binary "$CLAUDE_UNLEASHED_VERSION"; then
+        if ! download_binary "$AGENT_UNLEASHED_VERSION"; then
             warn "Binary download failed, building from source..."
             if command -v cargo &> /dev/null; then
                 build_from_source
@@ -700,21 +715,24 @@ main() {
     echo "╰──────────────────────────────────────────╯"
     echo ""
     echo "Installed commands:"
-    echo "  cu       - Main CLI (run Claude with unleashed features)"
-    echo "  cui      - TUI mode (profile & version management)"
-    echo "  cutx     - Headless tmux mode"
+    echo "  au       - Main CLI (run Claude with unleashed features)"
+    echo "  aui      - TUI mode (profile & version management)"
+    echo "  autx     - Headless tmux mode"
+    echo ""
+    echo "Legacy commands (backwards compatible):"
+    echo "  cu, cui, cug, cutx - same as au* variants"
     echo ""
     echo "Quick start:"
-    echo "  cu                 - Launch Claude directly"
-    echo "  cu --tui           - Launch TUI"
-    echo "  cu --auto          - Launch with auto mode"
-    echo "  cu -p \"prompt\"     - Headless mode with prompt"
-    echo "  cu tmux start      - Start tmux session"
+    echo "  au                 - Launch Claude directly"
+    echo "  au --tui           - Launch TUI"
+    echo "  au --auto          - Launch with auto mode"
+    echo "  au -p \"prompt\"     - Headless mode with prompt"
+    echo "  au tmux start      - Start tmux session"
     echo ""
 
     show_path_instructions
 
-    success "Done! Run 'cu' to start Claude Unleashed."
+    success "Done! Run 'au' to start Agent Unleashed."
 }
 
 main "$@"

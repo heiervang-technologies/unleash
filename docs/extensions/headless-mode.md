@@ -1,34 +1,34 @@
-# Headless Mode (cutx)
+# Headless Mode (autx)
 
-`cutx` (Claude Unleashed tmux eXecutor) provides a headless mode for running Claude Code in the background using tmux as the session manager. This approach offers significant advantages over native headless modes for automation, scripting, and CI/CD integration.
+`autx` (Agent Unleashed tmux eXecutor) provides a headless mode for running Claude Code in the background. Note: The legacy command `cutx` still works using tmux as the session manager. This approach offers significant advantages over native headless modes for automation, scripting, and CI/CD integration.
 
 ## Overview
 
-### What is cutx?
+### What is autx?
 
-`cutx` is a wrapper script that runs Claude Code inside a tmux session, enabling:
+`autx` is a wrapper script that runs Claude Code inside a tmux session, enabling:
 
 - **Headless operation**: Run Claude without an interactive terminal
 - **Session persistence**: Sessions survive disconnects and can be reattached
 - **Programmatic interaction**: Send messages and read responses via commands
 - **Background processing**: Let Claude work while you do other things
 
-### Why cutx Over Native Headless?
+### Why autx Over Native Headless?
 
-| Feature | cutx | Native Headless |
+| Feature | autx | Native Headless |
 |---------|------|-----------------|
 | Session persistence | Yes (tmux-based) | No |
 | Attach/detach mid-session | Yes | No |
 | Output logging | Automatic | Manual |
 | Multiple parallel sessions | Yes (via session names) | Limited |
-| Works with claude-unleashed | Yes | Partial |
+| Works with agent-unleashed | Yes | Partial |
 | Response detection | File-size heuristic | Varies |
 | Debugging | Attach and inspect | Difficult |
 
 ### Key Benefits
 
 1. **Attach Anytime**: Start a headless session, then attach to see what Claude is doing
-2. **Persistent Logs**: All output is captured to `~/.cache/claude-unleashed/cutx/`
+2. **Persistent Logs**: All output is captured to `~/.cache/agent-unleashed/autx/`
 3. **Session Recovery**: If your SSH connection drops, the session keeps running
 4. **Simple Scripting**: Send commands and read responses with basic shell commands
 5. **Multiple Sessions**: Run multiple Claude instances with different session names
@@ -68,21 +68,21 @@ sudo dnf install tmux
 
 ### Automatic Installation
 
-`cutx` is installed automatically when you run the main installation script:
+`autx` is installed automatically when you run the main installation script:
 
 ```bash
 ./scripts/install.sh
 ```
 
-This creates a symlink at `~/.local/bin/cutx` pointing to `scripts/cutx`.
+This creates a symlink at `~/.local/bin/autx` pointing to `scripts/autx`.
 
 ### Manual Installation
 
 If you need to install manually:
 
 ```bash
-# From the claude-unleashed directory
-ln -sf "$(pwd)/scripts/cutx" ~/.local/bin/cutx
+# From the agent-unleashed directory
+ln -sf "$(pwd)/scripts/autx" ~/.local/bin/autx
 
 # Ensure ~/.local/bin is in your PATH
 echo 'export PATH="$HOME/.local/bin:$PATH"' >> ~/.bashrc
@@ -92,18 +92,18 @@ source ~/.bashrc
 ### Verify Installation
 
 ```bash
-cutx help
+autx help
 ```
 
 ## Commands Reference
 
-### `cutx start [args]`
+### `autx start [args]`
 
 Start a new Claude session in a detached tmux session.
 
 **Usage:**
 ```bash
-cutx start [--auto|-a] [-d|--daemon] [claude-args...]
+autx start [--auto|-a] [-d|--daemon] [claude-args...]
 ```
 
 **Options:**
@@ -114,72 +114,72 @@ cutx start [--auto|-a] [-d|--daemon] [claude-args...]
 **Examples:**
 ```bash
 # Start a basic session
-cutx start
+autx start
 
 # Start with auto mode enabled
-cutx start --auto
+autx start --auto
 
 # Start in daemon mode (session closes when Claude exits)
-cutx start -d
+autx start -d
 
 # Start with a specific project directory
-cutx start /path/to/project
+autx start /path/to/project
 
 # Continue a previous session
-cutx start --continue
+autx start --continue
 
 # Combine options
-cutx start --auto -d --continue
+autx start --auto -d --continue
 ```
 
 **Notes:**
-- If a session already exists, the command will fail (use `cutx stop` first)
-- The session name defaults to `claude-unleashed` (configurable via environment)
-- Output is automatically logged to `~/.cache/claude-unleashed/cutx/`
+- If a session already exists, the command will fail (use `autx stop` first)
+- The session name defaults to `agent-unleashed` (configurable via environment)
+- Output is automatically logged to `~/.cache/agent-unleashed/autx/`
 
 ---
 
-### `cutx send "message"`
+### `autx send "message"`
 
 Send a message to the running Claude session.
 
 **Usage:**
 ```bash
-cutx send "your message here"
+autx send "your message here"
 ```
 
 **Examples:**
 ```bash
 # Send a simple message
-cutx send "Hello Claude"
+autx send "Hello Claude"
 
 # Send a multi-line message
-cutx send "Review this code:
+autx send "Review this code:
 def hello():
     print('world')
 "
 
 # Send content from a file
-cutx send "Analyze this: $(cat file.py)"
+autx send "Analyze this: $(cat file.py)"
 
 # Send command output
-cutx send "Explain this error: $(npm test 2>&1)"
+autx send "Explain this error: $(npm test 2>&1)"
 ```
 
 **Notes:**
 - The command records a marker to track new output since the message was sent
-- Use `cutx wait` after sending to wait for the response
+- Use `autx wait` after sending to wait for the response
 - Special characters are passed through to tmux
 
 ---
 
-### `cutx read`
+### `autx read`
 
 Read the output from Claude.
 
 **Usage:**
 ```bash
-cutx read
+autx read
 ```
 
 **Behavior:**
@@ -190,27 +190,27 @@ cutx read
 **Examples:**
 ```bash
 # Read current output
-cutx read
+autx read
 
 # Read and save to file
-cutx read > claude-response.txt
+autx read > claude-response.txt
 
 # Read and strip ANSI codes
-cutx read | sed 's/\x1b\[[0-9;]*m//g'
+autx read | sed 's/\x1b\[[0-9;]*m//g'
 
 # Read and extract specific content
-cutx read | grep -A 10 "Summary:"
+autx read | grep -A 10 "Summary:"
 ```
 
 ---
 
-### `cutx wait [timeout]`
+### `autx wait [timeout]`
 
 Wait for Claude to finish responding.
 
 **Usage:**
 ```bash
-cutx wait [timeout_seconds]
+autx wait [timeout_seconds]
 ```
 
 **Arguments:**
@@ -222,13 +222,13 @@ The command considers a response complete when the output file size remains stab
 **Examples:**
 ```bash
 # Wait with default timeout (300s)
-cutx wait
+autx wait
 
 # Wait with custom timeout
-cutx wait 60
+autx wait 60
 
 # Wait for a long operation
-cutx wait 600
+autx wait 600
 ```
 
 **Exit Codes:**
@@ -237,13 +237,13 @@ cutx wait 600
 
 ---
 
-### `cutx attach [--here]`
+### `autx attach [--here]`
 
 Attach to the running Claude tmux session.
 
 **Usage:**
 ```bash
-cutx attach [--here|-h]
+autx attach [--here|-h]
 ```
 
 **Options:**
@@ -257,21 +257,21 @@ cutx attach [--here|-h]
 **Examples:**
 ```bash
 # Attach to session
-cutx attach
+autx attach
 
 # Join Claude pane into current window (when already in tmux)
-cutx attach --here
+autx attach --here
 ```
 
 ---
 
-### `cutx stop`
+### `autx stop`
 
 Stop the Claude session and clean up.
 
 **Usage:**
 ```bash
-cutx stop
+autx stop
 ```
 
 **Actions:**
@@ -282,21 +282,21 @@ cutx stop
 **Examples:**
 ```bash
 # Stop the session
-cutx stop
+autx stop
 
 # Force stop and restart
-cutx stop && cutx start
+autx stop && autx start
 ```
 
 ---
 
-### `cutx status`
+### `autx status`
 
 Check if a session is running and display information.
 
 **Usage:**
 ```bash
-cutx status
+autx status
 ```
 
 **Output includes:**
@@ -306,8 +306,8 @@ cutx status
 
 **Example Output:**
 ```
-[cutx] Session 'claude-unleashed' is running
-claude-unleashed: 1 windows, created Sat Jan 10 14:30:00 2025
+[autx] Session 'agent-unleashed' is running
+agent-unleashed: 1 windows, created Sat Jan 10 14:30:00 2025
 
 Recent output (last 10 lines):
 ─────────────────────────────
@@ -316,13 +316,13 @@ Claude: I've finished analyzing the code. Here are my findings...
 
 ---
 
-### `cutx "message"` (Shorthand)
+### `autx "message"` (Shorthand)
 
 Send a message and wait for the response in one command.
 
 **Usage:**
 ```bash
-cutx "your message here"
+autx "your message here"
 ```
 
 **Behavior:**
@@ -334,58 +334,58 @@ cutx "your message here"
 **Examples:**
 ```bash
 # Quick query
-cutx "What is the capital of France?"
+autx "What is the capital of France?"
 
 # Analyze a file
-cutx "Review this code for bugs: $(cat main.py)"
+autx "Review this code for bugs: $(cat main.py)"
 
 # Get a summary
-cutx "Summarize the key points in README.md"
+autx "Summarize the key points in README.md"
 ```
 
 **Notes:**
-- This is equivalent to: `cutx start; cutx send "msg"; cutx wait; cutx read`
+- This is equivalent to: `autx start; autx send "msg"; autx wait; autx read`
 - Convenient for one-off queries
-- Session remains running after the command (use `cutx stop` to clean up)
+- Session remains running after the command (use `autx stop` to clean up)
 
 ---
 
-### `cutx help`
+### `autx help`
 
 Display the help message with all commands and options.
 
 **Usage:**
 ```bash
-cutx help
+autx help
 # or
-cutx --help
-cutx -h
+autx --help
+autx -h
 ```
 
 ## Environment Variables
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `CUTX_SESSION_NAME` | `claude-unleashed` | tmux session name. Change this to run multiple parallel sessions. |
-| `CUTX_WAIT_TIMEOUT` | `300` | Default timeout in seconds for `cutx wait` command. |
+| `AUTX_SESSION_NAME` | `agent-unleashed` | tmux session name. Change this to run multiple parallel sessions. |
+| `AUTX_WAIT_TIMEOUT` | `300` | Default timeout in seconds for `autx wait` command. |
 
 ### Configuration Examples
 
 ```bash
 # Run multiple parallel sessions
-CUTX_SESSION_NAME=project-a cutx start /path/to/project-a
-CUTX_SESSION_NAME=project-b cutx start /path/to/project-b
+AUTX_SESSION_NAME=project-a autx start /path/to/project-a
+AUTX_SESSION_NAME=project-b autx start /path/to/project-b
 
 # Set longer default timeout for complex operations
-export CUTX_WAIT_TIMEOUT=600
-cutx "Refactor this entire codebase..."
+export AUTX_WAIT_TIMEOUT=600
+autx "Refactor this entire codebase..."
 
 # Use in scripts with custom session
-export CUTX_SESSION_NAME="ci-claude-${BUILD_ID}"
-cutx start -d
-cutx send "Review PR #${PR_NUMBER}"
-cutx wait 120
-cutx read
+export AUTX_SESSION_NAME="ci-claude-${BUILD_ID}"
+autx start -d
+autx send "Review PR #${PR_NUMBER}"
+autx wait 120
+autx read
 # Session auto-closes due to -d flag
 ```
 
@@ -395,7 +395,7 @@ These values are set in the script and control internal behavior:
 
 | Setting | Value | Description |
 |---------|-------|-------------|
-| `CACHE_DIR` | `~/.cache/claude-unleashed/cutx` | Directory for output and marker files |
+| `CACHE_DIR` | `~/.cache/agent-unleashed/autx` | Directory for output and marker files |
 | `stable_threshold` | `3` | Seconds of stable output before considering response complete |
 | `interval` | `1` | Polling interval in seconds for wait command |
 
@@ -420,10 +420,10 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Install Claude Unleashed
+      - name: Install Agent Unleashed
         run: |
-          git clone https://github.com/heiervang-technologies/claude-unleashed.git
-          cd claude-unleashed
+          git clone https://github.com/heiervang-technologies/agent-unleashed.git
+          cd agent-unleashed
           ./scripts/install.sh
 
       - name: Review PR
@@ -431,10 +431,10 @@ jobs:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
         run: |
           # Start Claude in daemon mode
-          cutx start -d
+          autx start -d
 
           # Send review request
-          cutx send "Review this PR for security issues, bugs, and code quality:
+          autx send "Review this PR for security issues, bugs, and code quality:
 
           $(git diff origin/main...HEAD)
 
@@ -445,10 +445,10 @@ jobs:
           4. Code style"
 
           # Wait for response
-          cutx wait 180
+          autx wait 180
 
           # Save review
-          cutx read > review.txt
+          autx read > review.txt
 
       - name: Post Review Comment
         uses: actions/github-script@v7
@@ -470,10 +470,10 @@ jobs:
 claude-review:
   stage: review
   script:
-    - cutx start -d
-    - cutx send "Review the changes in this MR: $(git diff origin/main)"
-    - cutx wait 120
-    - cutx read > review.txt
+    - autx start -d
+    - autx send "Review the changes in this MR: $(git diff origin/main)"
+    - autx wait 120
+    - autx read > review.txt
   artifacts:
     paths:
       - review.txt
@@ -497,8 +497,8 @@ cd "$PROJECT_DIR"
 COMMITS=$(git log --oneline --since="24 hours ago")
 
 if [ -n "$COMMITS" ]; then
-    cutx start -d
-    cutx send "Analyze these recent commits for potential issues:
+    autx start -d
+    autx send "Analyze these recent commits for potential issues:
 
 $COMMITS
 
@@ -509,8 +509,8 @@ Provide a summary of:
 2. Suggested improvements
 3. Documentation that might need updates"
 
-    cutx wait 300
-    cutx read > "$OUTPUT_DIR/review-$DATE.txt"
+    autx wait 300
+    autx read > "$OUTPUT_DIR/review-$DATE.txt"
 fi
 ```
 
@@ -528,8 +528,8 @@ Add to crontab:
 
 cd /path/to/project
 
-cutx start -d
-cutx send "Audit the project dependencies:
+autx start -d
+autx send "Audit the project dependencies:
 
 package.json:
 $(cat package.json)
@@ -542,8 +542,8 @@ Check for:
 2. Outdated packages
 3. Unnecessary dependencies"
 
-cutx wait 180
-AUDIT=$(cutx read)
+autx wait 180
+AUDIT=$(autx read)
 
 echo "$AUDIT" | mail -s "Weekly Dependency Audit" team@example.com
 ```
@@ -565,10 +565,10 @@ if [ ! -f "$INPUT_FILE" ]; then
 fi
 
 # Start session if not running
-cutx status >/dev/null 2>&1 || cutx start
+autx status >/dev/null 2>&1 || autx start
 
 # Generate report
-cutx send "Generate a comprehensive summary of the following data:
+autx send "Generate a comprehensive summary of the following data:
 
 $(cat "$INPUT_FILE")
 
@@ -577,8 +577,8 @@ Format the output as:
 2. Key Findings (bullet points)
 3. Recommendations (numbered list)"
 
-cutx wait 120
-cutx read > "$OUTPUT_FILE"
+autx wait 120
+autx read > "$OUTPUT_FILE"
 
 echo "Report saved to $OUTPUT_FILE"
 ```
@@ -592,22 +592,22 @@ echo "Report saved to $OUTPUT_FILE"
 OUTPUT_DIR="./summaries"
 mkdir -p "$OUTPUT_DIR"
 
-cutx start
+autx start
 
 for file in ./documents/*.txt; do
     filename=$(basename "$file" .txt)
 
-    cutx send "Summarize this document in 3 bullet points:
+    autx send "Summarize this document in 3 bullet points:
 
 $(cat "$file")"
 
-    cutx wait 60
-    cutx read > "$OUTPUT_DIR/${filename}-summary.txt"
+    autx wait 60
+    autx read > "$OUTPUT_DIR/${filename}-summary.txt"
 
     echo "Processed: $file"
 done
 
-cutx stop
+autx stop
 echo "All files processed"
 ```
 
@@ -618,7 +618,7 @@ echo "All files processed"
 # interactive-claude.sh
 
 echo "Starting Claude session..."
-cutx start
+autx start
 
 while true; do
     echo ""
@@ -628,14 +628,14 @@ while true; do
         break
     fi
 
-    cutx send "$message"
-    cutx wait
+    autx send "$message"
+    autx wait
     echo ""
     echo "Claude:"
-    cutx read
+    autx read
 done
 
-cutx stop
+autx stop
 echo "Session ended"
 ```
 
@@ -648,32 +648,32 @@ Run multiple Claude instances for different tasks:
 # parallel-review.sh
 
 # Start sessions for different aspects
-CUTX_SESSION_NAME=security-review cutx start -d
-CUTX_SESSION_NAME=performance-review cutx start -d
-CUTX_SESSION_NAME=style-review cutx start -d
+AUTX_SESSION_NAME=security-review autx start -d
+AUTX_SESSION_NAME=performance-review autx start -d
+AUTX_SESSION_NAME=style-review autx start -d
 
 CODE=$(cat src/main.py)
 
 # Send requests in parallel
-CUTX_SESSION_NAME=security-review cutx send "Review for security: $CODE"
-CUTX_SESSION_NAME=performance-review cutx send "Review for performance: $CODE"
-CUTX_SESSION_NAME=style-review cutx send "Review for code style: $CODE"
+AUTX_SESSION_NAME=security-review autx send "Review for security: $CODE"
+AUTX_SESSION_NAME=performance-review autx send "Review for performance: $CODE"
+AUTX_SESSION_NAME=style-review autx send "Review for code style: $CODE"
 
 # Wait for all
-CUTX_SESSION_NAME=security-review cutx wait &
-CUTX_SESSION_NAME=performance-review cutx wait &
-CUTX_SESSION_NAME=style-review cutx wait &
+AUTX_SESSION_NAME=security-review autx wait &
+AUTX_SESSION_NAME=performance-review autx wait &
+AUTX_SESSION_NAME=style-review autx wait &
 wait
 
 # Collect results
 echo "=== Security Review ===" > full-review.txt
-CUTX_SESSION_NAME=security-review cutx read >> full-review.txt
+AUTX_SESSION_NAME=security-review autx read >> full-review.txt
 
 echo "=== Performance Review ===" >> full-review.txt
-CUTX_SESSION_NAME=performance-review cutx read >> full-review.txt
+AUTX_SESSION_NAME=performance-review autx read >> full-review.txt
 
 echo "=== Style Review ===" >> full-review.txt
-CUTX_SESSION_NAME=style-review cutx read >> full-review.txt
+AUTX_SESSION_NAME=style-review autx read >> full-review.txt
 
 # Sessions auto-close due to -d flag
 ```
@@ -682,16 +682,16 @@ CUTX_SESSION_NAME=style-review cutx read >> full-review.txt
 
 ### Response Detection is Heuristic-Based
 
-The `cutx wait` command detects response completion by monitoring output file size stability. This approach has limitations:
+The `autx wait` command detects response completion by monitoring output file size stability. This approach has limitations:
 
 - **False positives**: If Claude pauses while thinking, it might be detected as "done"
 - **Long operations**: Extended tool use or file operations may need longer timeouts
 - **No semantic understanding**: The detection doesn't know if Claude is mid-sentence
 
 **Mitigations:**
-- Increase `CUTX_WAIT_TIMEOUT` for complex operations
+- Increase `AUTX_WAIT_TIMEOUT` for complex operations
 - Increase the stable threshold by modifying the script
-- Use `cutx attach` to visually verify completion
+- Use `autx attach` to visually verify completion
 
 ### Single Session Per Name
 
@@ -700,8 +700,8 @@ Only one session can run per session name at a time.
 **Workaround:**
 ```bash
 # Use different session names for parallel work
-CUTX_SESSION_NAME=project-a cutx start
-CUTX_SESSION_NAME=project-b cutx start
+AUTX_SESSION_NAME=project-a autx start
+AUTX_SESSION_NAME=project-b autx start
 ```
 
 ### Requires tmux
@@ -719,7 +719,7 @@ Claude's output includes terminal formatting codes.
 
 **Strip them:**
 ```bash
-cutx read | sed 's/\x1b\[[0-9;]*m//g'
+autx read | sed 's/\x1b\[[0-9;]*m//g'
 ```
 
 ### No Built-in JSON Output
@@ -728,7 +728,7 @@ For programmatic use, you may need to parse Claude's text output.
 
 **Suggestion:** Ask Claude to format output as JSON:
 ```bash
-cutx send "List the files. Output as JSON array only, no other text."
+autx send "List the files. Output as JSON array only, no other text."
 ```
 
 ## Troubleshooting
@@ -742,20 +742,20 @@ cutx send "List the files. Output as JSON array only, no other text."
 **Solutions:**
 ```bash
 # Check for existing session
-cutx status
+autx status
 
 # Force stop and restart
-cutx stop
-cutx start
+autx stop
+autx start
 
 # Check tmux directly
 tmux list-sessions
 
 # Kill orphaned session
-tmux kill-session -t claude-unleashed
+tmux kill-session -t agent-unleashed
 ```
 
-### No Output from `cutx read`
+### No Output from `autx read`
 
 **Symptoms:**
 - Command returns empty
@@ -764,16 +764,16 @@ tmux kill-session -t claude-unleashed
 **Solutions:**
 ```bash
 # Check if output file exists
-ls -la ~/.cache/claude-unleashed/cutx/
+ls -la ~/.cache/agent-unleashed/autx/
 
 # View raw output file
-cat ~/.cache/claude-unleashed/cutx/claude-unleashed.output
+cat ~/.cache/agent-unleashed/autx/agent-unleashed.output
 
 # Check if Claude is still running
-cutx status
+autx status
 
 # Attach to see what's happening
-cutx attach
+autx attach
 ```
 
 ### Response Appears Incomplete
@@ -785,14 +785,14 @@ cutx attach
 **Solutions:**
 ```bash
 # Increase wait timeout
-cutx wait 600
+autx wait 600
 
 # Or set environment variable
-export CUTX_WAIT_TIMEOUT=600
-cutx wait
+export AUTX_WAIT_TIMEOUT=600
+autx wait
 
 # Check if Claude is still processing
-cutx attach
+autx attach
 ```
 
 ### tmux Permission Issues
@@ -822,56 +822,56 @@ pgrep -f tmux
 **Solutions:**
 ```bash
 # Attach and check visually
-cutx attach
+autx attach
 
 # Send Ctrl+C to interrupt
-tmux send-keys -t claude-unleashed C-c
+tmux send-keys -t agent-unleashed C-c
 
 # Check Claude process
 ps aux | grep claude
 
 # Restart session
-cutx stop
-cutx start
+autx stop
+autx start
 ```
 
 ### Output File Growing Too Large
 
 **Symptoms:**
 - Disk space warnings
-- Slow `cutx read`
+- Slow `autx read`
 
 **Solutions:**
 ```bash
 # Check file size
-du -h ~/.cache/claude-unleashed/cutx/
+du -h ~/.cache/agent-unleashed/autx/
 
 # Clear and restart
-cutx stop
-rm ~/.cache/claude-unleashed/cutx/*
-cutx start
+autx stop
+rm ~/.cache/agent-unleashed/autx/*
+autx start
 ```
 
 ## Architecture
 
-### How cutx Works
+### How autx Works
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
-│                         cutx Command                             │
+│                         autx Command                             │
 ├─────────────────────────────────────────────────────────────────┤
-│  cutx start     │  Creates tmux session, starts Claude          │
-│  cutx send      │  Sends keystrokes to tmux session             │
-│  cutx read      │  Reads from output file                       │
-│  cutx wait      │  Polls output file size                       │
-│  cutx attach    │  Connects terminal to tmux session            │
-│  cutx stop      │  Kills tmux session                           │
+│  autx start     │  Creates tmux session, starts Claude          │
+│  autx send      │  Sends keystrokes to tmux session             │
+│  autx read      │  Reads from output file                       │
+│  autx wait      │  Polls output file size                       │
+│  autx attach    │  Connects terminal to tmux session            │
+│  autx stop      │  Kills tmux session                           │
 └─────────────────────────────────────────────────────────────────┘
                               │
                               ▼
 ┌─────────────────────────────────────────────────────────────────┐
 │                       tmux Session                               │
-│  Session: claude-unleashed (configurable)                       │
+│  Session: agent-unleashed (configurable)                       │
 │  Size: 200x50 characters                                        │
 │  pipe-pane: Captures all output                                 │
 └─────────────────────────────────────────────────────────────────┘
@@ -903,8 +903,8 @@ cutx start
 #### 3. Marker System
 
 - Records byte position when message is sent
-- `cutx read` uses marker to show only new output
-- Stored in `~/.cache/claude-unleashed/cutx/SESSION.marker`
+- `autx read` uses marker to show only new output
+- Stored in `~/.cache/agent-unleashed/autx/SESSION.marker`
 
 #### 4. Wait Detection
 
@@ -927,23 +927,23 @@ cutx start
 
 | File | Path | Purpose |
 |------|------|---------|
-| Script | `scripts/cutx` | Main cutx executable |
-| Output | `~/.cache/claude-unleashed/cutx/{session}.output` | Captured terminal output |
-| Marker | `~/.cache/claude-unleashed/cutx/{session}.marker` | Byte position marker |
+| Script | `scripts/autx` | Main autx executable |
+| Output | `~/.cache/agent-unleashed/autx/{session}.output` | Captured terminal output |
+| Marker | `~/.cache/agent-unleashed/autx/{session}.marker` | Byte position marker |
 
 ### Security Considerations
 
 - Output files may contain sensitive information from Claude sessions
 - Cache directory is user-readable only (`~/.cache/`)
-- No credentials are stored by cutx itself
+- No credentials are stored by autx itself
 - Consider clearing output files after sensitive operations:
   ```bash
-  cutx stop
-  rm ~/.cache/claude-unleashed/cutx/*
+  autx stop
+  rm ~/.cache/agent-unleashed/autx/*
   ```
 
 ## Related Documentation
 
 - [Restart and Refresh](./restart-refresh.md) - Auto mode and session management
 - [Core Patches](./core-patches.md) - Claude Code modifications
-- [Plugin Development](./plugin-development.md) - Extending Claude Unleashed
+- [Plugin Development](./plugin-development.md) - Extending Agent Unleashed

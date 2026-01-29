@@ -1,4 +1,4 @@
-//! TUI module for Claude Unleashed
+//! TUI module for Agent Unleashed
 //!
 //! Provides profile management, version management, and launcher UI.
 
@@ -126,7 +126,7 @@ fn run_external_editor(content: &str) -> io::Result<String> {
 
     // Create temp file with content
     let temp_dir = env::temp_dir();
-    let temp_path = temp_dir.join(format!("claude-unleashed-edit-{}.txt", std::process::id()));
+    let temp_path = temp_dir.join(format!("agent-unleashed-edit-{}.txt", std::process::id()));
 
     fs::write(&temp_path, content)?;
 

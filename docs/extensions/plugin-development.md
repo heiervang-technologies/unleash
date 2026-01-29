@@ -2,7 +2,7 @@
 
 ## Overview
 
-This guide covers developing custom plugins for the claude-unleashed repository, which is a fork of Claude Code enhanced with AI agent automation capabilities via GitHub Actions and snail-core integration.
+This guide covers developing custom plugins for the agent-unleashed repository, which is a fork of Claude Code enhanced with AI agent automation capabilities via GitHub Actions and snail-core integration.
 
 Plugins extend Claude Code with custom commands, agents, skills, hooks, and MCP (Model Context Protocol) integrations. The plugin-first approach ensures minimal merge conflicts when syncing with upstream Claude Code updates.
 
@@ -30,7 +30,7 @@ Claude Code plugins are self-contained extensions that follow a standardized str
 
 ### Why Plugin-First?
 
-The claude-unleashed repository maintains a plugin-first philosophy:
+The agent-unleashed repository maintains a plugin-first philosophy:
 
 1. **Minimal Conflicts**: Plugins live in isolated directories, avoiding merge conflicts with upstream
 2. **Easy Updates**: Sync with upstream Claude Code without breaking custom functionality
@@ -1052,7 +1052,7 @@ Closes #123
 
 1. **Create Feature Branch**:
 ```bash
-cd /home/me/claude-unleashed
+cd /home/me/agent-unleashed
 git checkout -b feature/my-plugin-name
 ```
 

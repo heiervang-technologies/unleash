@@ -2,7 +2,7 @@
 
 ## Overview
 
-This document outlines the policy and procedures for making patches to the core Claude Code codebase. The claude-unleashed repository follows a **plugin-first** philosophy, where core patches should be avoided whenever possible.
+This document outlines the policy and procedures for making patches to the core Claude Code codebase. The agent-unleashed repository follows a **plugin-first** philosophy, where core patches should be avoided whenever possible.
 
 ## Table of Contents
 
@@ -21,7 +21,7 @@ This document outlines the policy and procedures for making patches to the core 
 
 **Almost all functionality should be implemented as plugins, not core patches.**
 
-The claude-unleashed repository maintains a fork of Claude Code to enable GitHub Actions automation and snail-core integration. To minimize merge conflicts and maintenance burden during upstream syncs, we follow these principles:
+The agent-unleashed repository maintains a fork of Claude Code to enable GitHub Actions automation and snail-core integration. To minimize merge conflicts and maintenance burden during upstream syncs, we follow these principles:
 
 1. **Default to Plugins**: Always attempt plugin-based implementation first
 2. **Minimize Core Changes**: Keep core codebase as close to upstream as possible
@@ -47,7 +47,7 @@ The claude-unleashed repository maintains a fork of Claude Code to enable GitHub
 
 ## Auto Mode Patch System
 
-Claude Unleashed includes a version-aware patching system for adding "Auto Mode" to Claude Code. This is an exception to the plugin-first approach because it requires modifying the minified CLI JavaScript.
+Agent Unleashed includes a version-aware patching system for adding "Auto Mode" to Claude Code. This is an exception to the plugin-first approach because it requires modifying the minified CLI JavaScript.
 
 ### Directory Structure
 
@@ -135,7 +135,7 @@ The auto mode patch adds:
 4. **Cycling**: bypassPermissions → auto → default
 5. **Permission Bypass**: Auto mode behaves like bypassPermissions
 6. **Color**: Yellow/warning indicator
-7. **Flag Files**: Creates/removes `~/.cache/claude-unleashed/auto-mode/active-{pid}`
+7. **Flag Files**: Creates/removes `~/.cache/agent-unleashed/auto-mode/active-{pid}`
 
 ### Testing After Patching
 
@@ -434,7 +434,7 @@ export enum HookEvent {
   PreToolUse = 'PreToolUse',
   PostToolUse = 'PostToolUse',
   // ... existing events ...
-  PreAssignment = 'PreAssignment', // Added by claude-unleashed
+  PreAssignment = 'PreAssignment', // Added by agent-unleashed
 }
 // CLAUDE-UNLEASHED PATCH END
 ```
