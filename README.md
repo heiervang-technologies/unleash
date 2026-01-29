@@ -135,21 +135,33 @@ All while maintaining your custom plugins and configurations.
 
 #### System Dependencies
 
-The Rust TUI binary requires a C toolchain and linker. The project is configured (`.cargo/config.toml`) to use **clang** as the linker and **mold** for fast linking on `x86_64-unknown-linux-gnu`.
+The Rust TUI binary requires a C toolchain and linker. The project is configured (`.cargo/config.toml`) to use **clang** + **mold** for fast linking on `x86_64-unknown-linux-gnu`, but the install script automatically falls back to the default system linker if they're not available.
 
-**Arch Linux / Omarchy:**
+**Arch Linux / Omarchy (full, fast build):**
 ```bash
 sudo pacman -S rustup clang mold pkg-config
 rustup default stable
 ```
 
-**Ubuntu / Debian:**
+**Arch Linux / Omarchy (minimal, slower build):**
+```bash
+sudo pacman -S rustup gcc pkg-config
+rustup default stable
+```
+
+**Ubuntu / Debian (full, fast build):**
 ```bash
 sudo apt-get install -y rustup clang mold pkg-config build-essential
 rustup default stable
 ```
 
-**Fedora / RHEL:**
+**Ubuntu / Debian (minimal, slower build):**
+```bash
+sudo apt-get install -y rustup pkg-config build-essential
+rustup default stable
+```
+
+**Fedora / RHEL (full, fast build):**
 ```bash
 sudo dnf install -y rustup clang mold pkg-config
 rustup default stable
@@ -166,15 +178,17 @@ rustup default stable
 | Dependency | Why | Required? |
 |------------|-----|-----------|
 | **rustup** (+ stable toolchain) | Rust compiler and cargo | Yes (for building from source) |
-| **clang** | C compiler used as the linker (configured in `.cargo/config.toml`) | Yes (on Linux) |
-| **mold** | Modern linker for fast link times via `-fuse-ld=mold` | Yes (on Linux) |
+| **clang** | Fast C compiler used as the linker (configured in `.cargo/config.toml`) | Recommended (install script falls back to `cc` if missing) |
+| **mold** | Modern linker for fast link times via `-fuse-ld=mold` | Recommended (install script falls back to default linker if missing) |
 | **pkg-config** | Locates system libraries for native Rust crate dependencies | Yes |
-| **build-essential** | Standard C build tools (make, gcc, libc headers) | Yes (Debian/Ubuntu only) |
+| **build-essential** / **gcc** | Standard C build tools (make, gcc, libc headers) | Yes (needed as fallback linker if clang not installed) |
 | **Node.js / npm** | Installs upstream Claude Code (`@anthropic-ai/claude-code`) | Yes (for full install) |
 | **Git** | Cloning repo and managing submodules | Yes |
 | **tmux** | Required only for headless mode (`autx`) | Optional |
 
 > **Note:** On macOS, the `.cargo/config.toml` linker settings only apply to the `x86_64-unknown-linux-gnu` target and are ignored — the default Apple toolchain is used instead.
+
+> **Build speed:** With clang + mold, release linking is significantly faster. Without them, the build uses the default system linker (`cc`/`gcc`) which works but links slower. The install script detects this automatically — no manual configuration needed.
 
 #### Auth Requirements
 

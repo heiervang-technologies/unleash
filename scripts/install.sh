@@ -205,7 +205,30 @@ if $BUILD_TUI; then
     if command -v cargo &> /dev/null; then
         info "Building CLI binaries..."
         cd "$REPO_ROOT"
-        if cargo build --release; then
+
+        # .cargo/config.toml requires clang + mold on x86_64-unknown-linux-gnu
+        # Detect them and fall back to the default system linker if missing
+        CARGO_BUILD_ARGS=(cargo build --release)
+
+        if [[ "$(uname -m)" == "x86_64" ]] && [[ "$(uname -s)" == "Linux" ]]; then
+            if command -v clang &> /dev/null && command -v mold &> /dev/null; then
+                success "Found clang + mold — using optimized linker (fast build)"
+            else
+                MISSING=""
+                command -v clang &> /dev/null || MISSING="clang"
+                command -v mold  &> /dev/null || MISSING="${MISSING:+$MISSING, }mold"
+                warn "Missing $MISSING — falling back to default system linker (slower build)"
+                warn "Install clang and mold for faster builds"
+                # Override .cargo/config.toml: reset linker to system default, clear rustflags
+                CARGO_BUILD_ARGS=(
+                    cargo build --release
+                    --config 'target.x86_64-unknown-linux-gnu.linker="cc"'
+                    --config 'target.x86_64-unknown-linux-gnu.rustflags=[]'
+                )
+            fi
+        fi
+
+        if "${CARGO_BUILD_ARGS[@]}"; then
             success "CLI built successfully"
 
             # Install new binaries (au, aui, aug, autx, autxg)
