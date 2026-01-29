@@ -3,7 +3,7 @@
 use crate::agents::{AgentManager, AgentType};
 use crate::config::{AppConfig, Profile, ProfileManager};
 use crate::input::{key_to_action, MenuState, NavAction};
-use crate::mascot::{HeadAsset, MascotPreset, MascotRegistry};
+use crate::mascot::{HeadAsset, MascotRegistry};
 use crate::pixel_art::{self, mascots};
 use crate::text_input::{censor_sensitive, is_sensitive_key, TextInput};
 use crate::theme::{ColorScheme, ThemeColor, ThemePreset};
@@ -259,11 +259,11 @@ pub struct App {
     // Mascot
     /// Mascot preset registry (built-in + user-defined)
     pub mascot_registry: MascotRegistry,
-    /// Menu state for mascot preset selection (within theme screen)
+    /// Menu state for mascot head selection (within theme screen)
     pub mascot_menu: MenuState,
-    /// Currently active mascot preset ID
-    pub mascot_preset_id: String,
-    /// Whether the theme screen focus is on colors (false) or mascots (true)
+    /// Currently active mascot head ID
+    pub mascot_head_id: String,
+    /// Whether the theme screen focus is on colors (false) or mascot heads (true)
     pub theme_focus_mascot: bool,
 }
 
@@ -298,8 +298,20 @@ impl App {
 
         let theme_color = ThemeColor::from_config(&app_config.theme).unwrap_or(ThemeColor::Preset(ThemePreset::Orange));
         let mascot_registry = MascotRegistry::with_user_presets();
-        let mascot_preset_id = app_config.mascot_preset.clone();
-        let mascot_count = mascot_registry.len();
+
+        // Migration: if mascot_head is still "default" but mascot_preset was set
+        // to a non-claude value, infer the head from the old preset ID.
+        let mascot_head_id = if app_config.mascot_head == "default" && app_config.mascot_preset != "claude" {
+            let inferred = app_config.mascot_preset.clone();
+            if mascot_registry.get_head(&inferred).is_some() {
+                inferred
+            } else {
+                app_config.mascot_head.clone()
+            }
+        } else {
+            app_config.mascot_head.clone()
+        };
+        let mascot_count = mascot_registry.head_count();
 
         Ok(Self {
             running: true,
@@ -344,7 +356,7 @@ impl App {
             theme_color,
             mascot_registry,
             mascot_menu: MenuState::new(mascot_count),
-            mascot_preset_id,
+            mascot_head_id,
             theme_focus_mascot: false,
         })
     }
@@ -1399,13 +1411,13 @@ impl App {
             }
             NavAction::Select => {
                 if self.theme_focus_mascot {
-                    // Selecting a mascot preset
-                    let presets = self.mascot_registry.all();
-                    if let Some(preset) = presets.get(self.mascot_menu.selected) {
-                        self.mascot_preset_id = preset.id.clone();
-                        self.app_config.mascot_preset = preset.id.clone();
+                    // Selecting a mascot head
+                    let heads = self.mascot_registry.all_heads();
+                    if let Some(head) = heads.get(self.mascot_menu.selected) {
+                        self.mascot_head_id = head.id.clone();
+                        self.app_config.mascot_head = head.id.clone();
                         let _ = self.profile_manager.save_app_config(&self.app_config);
-                        self.status_message = Some(format!("Mascot: {}", preset.display_name));
+                        self.status_message = Some(format!("Head: {}", head.display_name));
                     }
                 } else {
                     // Selecting a color theme
@@ -1647,21 +1659,11 @@ impl App {
 
             let max_lines = figure_rect.height as usize;
             let art_lines: Vec<Line> = {
-                let preset = self.mascot_registry.get(&self.mascot_preset_id);
-                if let Some(preset) = preset {
-                    let scheme = self.effective_color_scheme(preset);
-                    let body = mascots::unleashed_claude_full();
-                    // For animation, don't compose heads (full figure)
-                    let grid = pixel_art::CellGrid::from_ansi(&body);
-                    grid.to_ratatui_with_scheme(&scheme, max_lines)
-                } else {
-                    let shift = self.theme_color.theme_shift();
-                    if !shift.is_identity() {
-                        mascots::unleashed_claude_full_ratatui_themed(max_lines, shift)
-                    } else {
-                        mascots::unleashed_claude_full_ratatui(max_lines)
-                    }
-                }
+                let scheme = ColorScheme::from_shift(self.theme_color.theme_shift());
+                let body = mascots::unleashed_claude_full();
+                // For animation, don't compose heads (full figure)
+                let grid = pixel_art::CellGrid::from_ansi(&body);
+                grid.to_ratatui_with_scheme(&scheme, max_lines)
             };
             let art_widget = Paragraph::new(art_lines).scroll((0, scroll_x));
             frame.render_widget(art_widget, figure_rect);
@@ -1746,23 +1748,21 @@ impl App {
         frame.render_widget(art_widget, area);
     }
 
-    /// Render right-facing mascot art with current preset's head + color scheme
+    /// Render right-facing mascot art with current head + global theme color
     fn render_mascot_art_right(&self, max_lines: usize) -> Vec<Line<'static>> {
-        let preset = self.mascot_registry.get(&self.mascot_preset_id);
+        let head_entry = self.mascot_registry.get_head(&self.mascot_head_id);
         let body = mascots::unleashed_claude();
+        let scheme = ColorScheme::from_shift(self.theme_color.theme_shift());
 
-        if let Some(preset) = preset {
-            let head_ansi = match &preset.head {
+        if let Some(entry) = head_entry {
+            let head_ansi = match &entry.head_right {
                 HeadAsset::AnsiArt(s) => Some(s.as_str()),
                 HeadAsset::Default => None,
             };
 
-            // Use mascot preset's color scheme if it's non-identity,
-            // otherwise fall back to the theme color
-            let scheme = self.effective_color_scheme(preset);
-            pixel_art::compose_and_render_ratatui(&body, head_ansi, &preset.head_bounds, &scheme, max_lines)
+            pixel_art::compose_and_render_ratatui(&body, head_ansi, &entry.head_bounds, &scheme, max_lines)
         } else {
-            // Fallback: no preset found, use theme color
+            // Fallback: no head found, render with theme color
             let shift = self.theme_color.theme_shift();
             if !shift.is_identity() {
                 mascots::unleashed_claude_ratatui_themed(max_lines, shift)
@@ -1772,26 +1772,24 @@ impl App {
         }
     }
 
-    /// Render left-facing mascot art with current preset's head + color scheme
+    /// Render left-facing mascot art with current head + global theme color
     fn render_mascot_art_left(&self, max_lines: usize) -> Vec<Line<'static>> {
-        let preset = self.mascot_registry.get(&self.mascot_preset_id);
+        let head_entry = self.mascot_registry.get_head(&self.mascot_head_id);
         let body = mascots::unleashed_claude_left();
+        let scheme = ColorScheme::from_shift(self.theme_color.theme_shift());
 
-        if let Some(preset) = preset {
-            // For left-facing: mirror the head x_offset
-            let head_ansi: Option<String> = match &preset.head {
+        if let Some(entry) = head_entry {
+            let head_ansi: Option<String> = match &entry.head_right {
                 HeadAsset::AnsiArt(_) => {
-                    // Use left-facing head variant if available
-                    self.get_left_head_for_preset(&preset.id)
+                    self.get_left_head_for_id(&entry.id)
                 }
                 HeadAsset::Default => None,
             };
 
-            let scheme = self.effective_color_scheme(preset);
             pixel_art::compose_and_render_ratatui(
                 &body,
                 head_ansi.as_deref(),
-                &preset.head_bounds,
+                &entry.head_bounds,
                 &scheme,
                 max_lines,
             )
@@ -1805,26 +1803,9 @@ impl App {
         }
     }
 
-    /// Get the effective color scheme: use preset's scheme if non-identity,
-    /// otherwise use the global theme color.
-    fn effective_color_scheme(&self, preset: &MascotPreset) -> ColorScheme {
-        match &preset.color_scheme {
-            ColorScheme::Gradient(_) => preset.color_scheme.clone(),
-            ColorScheme::Solid { hue_shift, sat_scale } => {
-                let shift = crate::theme::ThemeShift { hue: *hue_shift, sat_scale: *sat_scale };
-                if shift.is_identity() {
-                    // Preset uses identity => defer to global theme color
-                    ColorScheme::from_shift(self.theme_color.theme_shift())
-                } else {
-                    preset.color_scheme.clone()
-                }
-            }
-        }
-    }
-
-    /// Get left-facing head art for a preset
-    fn get_left_head_for_preset(&self, preset_id: &str) -> Option<String> {
-        match preset_id {
+    /// Get left-facing head art for a head ID
+    fn get_left_head_for_id(&self, head_id: &str) -> Option<String> {
+        match head_id {
             "qwen" => Some(include_str!("../assets/heads/qwen-left.ans").to_string()),
             "openai" => Some(include_str!("../assets/heads/openai-left.ans").to_string()),
             "gemini" => Some(include_str!("../assets/heads/gemini-left.ans").to_string()),
@@ -2243,7 +2224,13 @@ impl App {
         } else {
             Style::default().fg(Color::DarkGray)
         };
-        let color_header = Paragraph::new(Line::from(Span::styled("Color Theme", color_header_style)));
+        let color_header = Paragraph::new(Line::from(vec![
+            Span::styled("Color Theme", color_header_style),
+            Span::styled(
+                if !self.theme_focus_mascot { "  ↓ j/k  ⏎ select  ⇥ heads" } else { "  ⇥ heads" },
+                Style::default().fg(Color::DarkGray),
+            ),
+        ]));
         frame.render_widget(color_header, chunks[0]);
 
         let presets = ThemePreset::all();
@@ -2339,31 +2326,37 @@ impl App {
         let color_menu = List::new(color_items);
         frame.render_widget(color_menu, chunks[1]);
 
-        // ── Mascot Preset section ──
+        // ── Mascot Head section ──
         let mascot_header_style = if self.theme_focus_mascot {
             Style::default().fg(self.accent_color()).add_modifier(Modifier::BOLD)
         } else {
             Style::default().fg(Color::DarkGray)
         };
-        let mascot_header = Paragraph::new(Line::from(Span::styled("Mascot Preset", mascot_header_style)));
+        let mascot_header = Paragraph::new(Line::from(vec![
+            Span::styled("Mascot Head", mascot_header_style),
+            Span::styled(
+                if self.theme_focus_mascot { "  ↓ j/k  ⏎ select  ⇥ colors" } else { "  ⇥ heads" },
+                Style::default().fg(Color::DarkGray),
+            ),
+        ]));
         frame.render_widget(mascot_header, chunks[2]);
 
-        let mascot_presets = self.mascot_registry.all();
-        let mascot_items: Vec<ListItem> = mascot_presets
+        // Use the current accent color for all head swatches (heads are color-independent)
+        let accent = self.accent_color();
+        let mascot_heads = self.mascot_registry.all_heads();
+        let mascot_items: Vec<ListItem> = mascot_heads
             .iter()
             .enumerate()
-            .map(|(i, preset)| {
+            .map(|(i, head)| {
                 let is_selected = self.theme_focus_mascot && i == self.mascot_menu.selected;
-                let is_active = preset.id == self.mascot_preset_id;
-                let (r, g, b) = preset.accent_rgb();
-                let preview_color = Color::Rgb(r, g, b);
+                let is_active = head.id == self.mascot_head_id;
 
                 let style = if is_selected {
                     Style::default()
-                        .fg(preview_color)
+                        .fg(accent)
                         .add_modifier(Modifier::BOLD)
                 } else if is_active {
-                    Style::default().fg(preview_color)
+                    Style::default().fg(accent)
                 } else {
                     Style::default()
                 };
@@ -2371,22 +2364,11 @@ impl App {
                 let prefix = if is_selected { "> " } else { "  " };
                 let active_marker = if is_active { " *" } else { "" };
 
-                // Show gradient swatch for gradient presets
-                let swatch_spans = if preset.color_scheme.is_gradient() {
-                    // Multi-color swatch
-                    vec![
-                        Span::styled(prefix, style),
-                        Span::styled("\u{2588}", Style::default().fg(Color::Rgb(66, 133, 244))),
-                        Span::styled("\u{2588}", Style::default().fg(Color::Rgb(52, 168, 83))),
-                        Span::styled(format!(" {}{}", preset.display_name, active_marker), style),
-                    ]
-                } else {
-                    vec![
-                        Span::styled(prefix, style),
-                        Span::styled("\u{2588}\u{2588}", Style::default().fg(preview_color)),
-                        Span::styled(format!(" {}{}", preset.display_name, active_marker), style),
-                    ]
-                };
+                let swatch_spans = vec![
+                    Span::styled(prefix, style),
+                    Span::styled("\u{2588}\u{2588}", Style::default().fg(accent)),
+                    Span::styled(format!(" {}{}", head.display_name, active_marker), style),
+                ];
 
                 ListItem::new(vec![Line::from(swatch_spans)])
             })
@@ -2895,7 +2877,7 @@ mod tests {
             theme_color: ThemeColor::Preset(ThemePreset::Orange),
             mascot_registry: MascotRegistry::new(),
             mascot_menu: MenuState::new(5),
-            mascot_preset_id: "claude".to_string(),
+            mascot_head_id: "default".to_string(),
             theme_focus_mascot: false,
         };
 

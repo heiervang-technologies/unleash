@@ -94,6 +94,9 @@ pub struct AppConfig {
     /// Mascot preset ID (e.g., "claude", "qwen", "openai", "gemini", "generic")
     #[serde(default = "default_mascot")]
     pub mascot_preset: String,
+    /// Mascot head ID (e.g., "default", "qwen", "openai", "gemini", "generic")
+    #[serde(default = "default_mascot_head")]
+    pub mascot_head: String,
 }
 
 fn default_profile_name() -> String {
@@ -106,6 +109,10 @@ fn default_theme() -> String {
 
 fn default_mascot() -> String {
     "claude".to_string()
+}
+
+fn default_mascot_head() -> String {
+    "default".to_string()
 }
 
 fn default_claude_path() -> String {
@@ -126,6 +133,7 @@ impl Default for AppConfig {
             stop_prompt: None,
             theme: default_theme(),
             mascot_preset: default_mascot(),
+            mascot_head: default_mascot_head(),
         }
     }
 }
