@@ -1,5 +1,16 @@
 # Changelog
 
+## [5.0.0](https://github.com/heiervang-technologies/claude-unleashed/compare/v4.10.0...v5.0.0) (2026-01-29)
+
+
+### ⚠ BREAKING CHANGES
+
+* Project renamed from claude-unleashed to agent-unleashed
+
+### Features
+
+* **v5**: Agent unleashed - agent agnostic wrapper ([#82](https://github.com/heiervang-technologies/claude-unleashed/issues/82)) ([dd97f2d](https://github.com/heiervang-technologies/claude-unleashed/commit/dd97f2da8b70a04852fa6d9f80ca008b3ea4f976))
+
 ## [4.10.0](https://github.com/heiervang-technologies/claude-unleashed/compare/v4.9.0...v4.10.0) (2026-01-28)
 
 
