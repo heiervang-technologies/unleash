@@ -133,9 +133,51 @@ All while maintaining your custom plugins and configurations.
 
 ### Prerequisites
 
-- Node.js/npm (for Claude Code)
-- Git
-- Rust/Cargo (optional, for TUI)
+#### System Dependencies
+
+The Rust TUI binary requires a C toolchain and linker. The project is configured (`.cargo/config.toml`) to use **clang** as the linker and **mold** for fast linking on `x86_64-unknown-linux-gnu`.
+
+**Arch Linux / Omarchy:**
+```bash
+sudo pacman -S rustup clang mold pkg-config
+rustup default stable
+```
+
+**Ubuntu / Debian:**
+```bash
+sudo apt-get install -y rustup clang mold pkg-config build-essential
+rustup default stable
+```
+
+**Fedora / RHEL:**
+```bash
+sudo dnf install -y rustup clang mold pkg-config
+rustup default stable
+```
+
+**macOS:**
+```bash
+# clang ships with Xcode Command Line Tools; mold config is linux-only
+xcode-select --install
+brew install rustup
+rustup default stable
+```
+
+| Dependency | Why | Required? |
+|------------|-----|-----------|
+| **rustup** (+ stable toolchain) | Rust compiler and cargo | Yes (for building from source) |
+| **clang** | C compiler used as the linker (configured in `.cargo/config.toml`) | Yes (on Linux) |
+| **mold** | Modern linker for fast link times via `-fuse-ld=mold` | Yes (on Linux) |
+| **pkg-config** | Locates system libraries for native Rust crate dependencies | Yes |
+| **build-essential** | Standard C build tools (make, gcc, libc headers) | Yes (Debian/Ubuntu only) |
+| **Node.js / npm** | Installs upstream Claude Code (`@anthropic-ai/claude-code`) | Yes (for full install) |
+| **Git** | Cloning repo and managing submodules | Yes |
+| **tmux** | Required only for headless mode (`autx`) | Optional |
+
+> **Note:** On macOS, the `.cargo/config.toml` linker settings only apply to the `x86_64-unknown-linux-gnu` target and are ignored — the default Apple toolchain is used instead.
+
+#### Auth Requirements
+
 - Claude Pro or Max subscription (required for authentication)
 
 ### Headless Environments
