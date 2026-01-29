@@ -361,6 +361,302 @@ impl Default for PixelArt {
     }
 }
 
+// ── Cell-level grid for head/body composition ──────────────────────────
+
+/// A single styled cell in the art grid
+#[cfg(feature = "tui")]
+#[derive(Clone, Debug)]
+pub struct StyledCell {
+    pub ch: char,
+    pub fg: Option<(u8, u8, u8)>,
+    pub bg: Option<(u8, u8, u8)>,
+}
+
+#[cfg(feature = "tui")]
+impl StyledCell {
+    pub fn blank() -> Self {
+        Self { ch: ' ', fg: None, bg: None }
+    }
+
+    pub fn is_transparent(&self) -> bool {
+        self.ch == ' ' && self.fg.is_none() && self.bg.is_none()
+    }
+}
+
+/// A 2D grid of styled cells parsed from ANSI art
+#[cfg(feature = "tui")]
+pub struct CellGrid {
+    pub cells: Vec<Vec<StyledCell>>,
+    pub width: usize,
+    pub height: usize,
+}
+
+#[cfg(feature = "tui")]
+impl CellGrid {
+    /// Parse ANSI art text into a cell grid
+    pub fn from_ansi(ansi_text: &str) -> Self {
+        let mut rows: Vec<Vec<StyledCell>> = Vec::new();
+        let mut max_width = 0;
+
+        for line in ansi_text.lines() {
+            let row = parse_ansi_line_to_cells(line);
+            max_width = max_width.max(row.len());
+            rows.push(row);
+        }
+
+        let height = rows.len();
+        // Pad all rows to max_width
+        for row in &mut rows {
+            while row.len() < max_width {
+                row.push(StyledCell::blank());
+            }
+        }
+
+        Self { cells: rows, width: max_width, height }
+    }
+
+    /// Overlay another grid onto this one at the given offset.
+    /// Non-transparent cells in `overlay` replace cells in `self`.
+    pub fn overlay(&mut self, overlay: &CellGrid, x_offset: usize, y_offset: usize) {
+        for (oy, row) in overlay.cells.iter().enumerate() {
+            let ty = y_offset + oy;
+            if ty >= self.height {
+                break;
+            }
+            for (ox, cell) in row.iter().enumerate() {
+                let tx = x_offset + ox;
+                if tx >= self.width {
+                    break;
+                }
+                if !cell.is_transparent() {
+                    self.cells[ty][tx] = cell.clone();
+                }
+            }
+        }
+    }
+
+    /// Convert to ratatui Lines with a solid color scheme (hue shift)
+    pub fn to_ratatui_themed(&self, shift: crate::theme::ThemeShift, max_lines: usize) -> Vec<RatatuiLine<'static>> {
+        use crate::theme::transform_theme_color;
+
+        let mut lines = Vec::new();
+        let mut skipping_blank = true;
+
+        for row in &self.cells {
+            if skipping_blank && row.iter().all(|c| c.is_transparent()) {
+                continue;
+            }
+            skipping_blank = false;
+            if lines.len() >= max_lines {
+                break;
+            }
+
+            let mut spans: Vec<RatatuiSpan<'static>> = Vec::new();
+            let mut current_style = RatatuiStyle::default();
+            let mut current_text = String::new();
+
+            for cell in row {
+                let cell_style = cell_to_style(cell, |r, g, b| {
+                    if shift.is_identity() { (r, g, b) } else { transform_theme_color(r, g, b, shift) }
+                });
+
+                if cell_style != current_style {
+                    if !current_text.is_empty() {
+                        spans.push(RatatuiSpan::styled(std::mem::take(&mut current_text), current_style));
+                    }
+                    current_style = cell_style;
+                }
+                current_text.push(cell.ch);
+            }
+            if !current_text.is_empty() {
+                spans.push(RatatuiSpan::styled(current_text, current_style));
+            }
+            if spans.is_empty() {
+                spans.push(RatatuiSpan::raw(""));
+            }
+            lines.push(RatatuiLine::from(spans));
+        }
+
+        lines
+    }
+
+    /// Convert to ratatui Lines with a gradient color scheme
+    pub fn to_ratatui_gradient(&self, gradient: &crate::theme::GradientDef, max_lines: usize) -> Vec<RatatuiLine<'static>> {
+        use crate::theme::transform_gradient_color;
+
+        let total_h = self.height.max(1) as f64;
+        let total_w = self.width.max(1) as f64;
+
+        let mut lines = Vec::new();
+        let mut skipping_blank = true;
+
+        for (row_idx, row) in self.cells.iter().enumerate() {
+            if skipping_blank && row.iter().all(|c| c.is_transparent()) {
+                continue;
+            }
+            skipping_blank = false;
+            if lines.len() >= max_lines {
+                break;
+            }
+
+            let y_norm = row_idx as f64 / total_h;
+            let mut spans: Vec<RatatuiSpan<'static>> = Vec::new();
+            let mut current_style = RatatuiStyle::default();
+            let mut current_text = String::new();
+
+            for (col_idx, cell) in row.iter().enumerate() {
+                let x_norm = col_idx as f64 / total_w;
+                let cell_style = cell_to_style(cell, |r, g, b| {
+                    transform_gradient_color(r, g, b, gradient, x_norm, y_norm)
+                });
+
+                if cell_style != current_style {
+                    if !current_text.is_empty() {
+                        spans.push(RatatuiSpan::styled(std::mem::take(&mut current_text), current_style));
+                    }
+                    current_style = cell_style;
+                }
+                current_text.push(cell.ch);
+            }
+            if !current_text.is_empty() {
+                spans.push(RatatuiSpan::styled(current_text, current_style));
+            }
+            if spans.is_empty() {
+                spans.push(RatatuiSpan::raw(""));
+            }
+            lines.push(RatatuiLine::from(spans));
+        }
+
+        lines
+    }
+
+    /// Convert to ratatui Lines using a ColorScheme (dispatches solid vs gradient)
+    pub fn to_ratatui_with_scheme(&self, scheme: &crate::theme::ColorScheme, max_lines: usize) -> Vec<RatatuiLine<'static>> {
+        match scheme {
+            crate::theme::ColorScheme::Solid { hue_shift, sat_scale } => {
+                let shift = crate::theme::ThemeShift { hue: *hue_shift, sat_scale: *sat_scale };
+                self.to_ratatui_themed(shift, max_lines)
+            }
+            crate::theme::ColorScheme::Gradient(g) => {
+                self.to_ratatui_gradient(g, max_lines)
+            }
+        }
+    }
+}
+
+/// Parse a single ANSI line into individual cells
+#[cfg(feature = "tui")]
+fn parse_ansi_line_to_cells(line: &str) -> Vec<StyledCell> {
+    let mut cells: Vec<StyledCell> = Vec::new();
+    let mut current_fg: Option<(u8, u8, u8)> = None;
+    let mut current_bg: Option<(u8, u8, u8)> = None;
+    let mut chars = line.chars().peekable();
+
+    while let Some(ch) = chars.next() {
+        if ch == '\x1b' {
+            if let Some(&'[') = chars.peek() {
+                chars.next();
+                let mut seq = String::new();
+                while let Some(&c) = chars.peek() {
+                    if c == 'm' {
+                        chars.next();
+                        break;
+                    }
+                    seq.push(chars.next().unwrap());
+                }
+                parse_ansi_seq_to_colors(&seq, &mut current_fg, &mut current_bg);
+            }
+        } else {
+            cells.push(StyledCell {
+                ch,
+                fg: current_fg,
+                bg: current_bg,
+            });
+        }
+    }
+
+    cells
+}
+
+/// Parse ANSI sequence to update fg/bg color state
+#[cfg(feature = "tui")]
+fn parse_ansi_seq_to_colors(seq: &str, fg: &mut Option<(u8, u8, u8)>, bg: &mut Option<(u8, u8, u8)>) {
+    let parts: Vec<&str> = seq.split(';').collect();
+    let mut i = 0;
+    while i < parts.len() {
+        match parts[i] {
+            "0" => {
+                *fg = None;
+                *bg = None;
+            }
+            "38" => {
+                if i + 4 < parts.len() && parts[i + 1] == "2" {
+                    if let (Ok(r), Ok(g), Ok(b)) = (
+                        parts[i + 2].parse::<u8>(),
+                        parts[i + 3].parse::<u8>(),
+                        parts[i + 4].parse::<u8>(),
+                    ) {
+                        *fg = Some((r, g, b));
+                    }
+                    i += 4;
+                }
+            }
+            "48" => {
+                if i + 4 < parts.len() && parts[i + 1] == "2" {
+                    if let (Ok(r), Ok(g), Ok(b)) = (
+                        parts[i + 2].parse::<u8>(),
+                        parts[i + 3].parse::<u8>(),
+                        parts[i + 4].parse::<u8>(),
+                    ) {
+                        *bg = Some((r, g, b));
+                    }
+                    i += 4;
+                }
+            }
+            _ => {}
+        }
+        i += 1;
+    }
+}
+
+/// Convert a StyledCell to a ratatui Style, applying a color transform function
+#[cfg(feature = "tui")]
+fn cell_to_style<F>(cell: &StyledCell, transform: F) -> RatatuiStyle
+where
+    F: Fn(u8, u8, u8) -> (u8, u8, u8),
+{
+    let mut style = RatatuiStyle::default();
+    if let Some((r, g, b)) = cell.fg {
+        let (nr, ng, nb) = transform(r, g, b);
+        style = style.fg(RatatuiColor::Rgb(nr, ng, nb));
+    }
+    if let Some((r, g, b)) = cell.bg {
+        let (nr, ng, nb) = transform(r, g, b);
+        style = style.bg(RatatuiColor::Rgb(nr, ng, nb));
+    }
+    style
+}
+
+/// Compose a head overlay onto body art and render with a color scheme.
+/// This is the main entry point for mascot rendering with head swapping.
+#[cfg(feature = "tui")]
+pub fn compose_and_render_ratatui(
+    body_ansi: &str,
+    head_ansi: Option<&str>,
+    head_bounds: &crate::mascot::HeadBounds,
+    color_scheme: &crate::theme::ColorScheme,
+    max_lines: usize,
+) -> Vec<RatatuiLine<'static>> {
+    let mut body_grid = CellGrid::from_ansi(body_ansi);
+
+    if let Some(head) = head_ansi {
+        let head_grid = CellGrid::from_ansi(head);
+        body_grid.overlay(&head_grid, head_bounds.x_offset as usize, head_bounds.y_offset as usize);
+    }
+
+    body_grid.to_ratatui_with_scheme(color_scheme, max_lines)
+}
+
 /// Parse ANSI escape sequences and convert to ratatui styled lines
 #[cfg(feature = "tui")]
 pub fn parse_ansi_to_ratatui(ansi_text: &str) -> Vec<RatatuiLine<'static>> {

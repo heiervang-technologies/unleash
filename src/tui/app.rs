@@ -3,9 +3,10 @@
 use crate::agents::{AgentManager, AgentType};
 use crate::config::{AppConfig, Profile, ProfileManager};
 use crate::input::{key_to_action, MenuState, NavAction};
-use crate::pixel_art::mascots;
+use crate::mascot::{HeadAsset, MascotPreset, MascotRegistry};
+use crate::pixel_art::{self, mascots};
 use crate::text_input::{censor_sensitive, is_sensitive_key, TextInput};
-use crate::theme::{ThemeColor, ThemePreset};
+use crate::theme::{ColorScheme, ThemeColor, ThemePreset};
 use crate::version::{get_version_filter_mode, is_version_allowed, InstallResult, VersionFilterMode, VersionInfo, VersionManager};
 
 use crossterm::event::{Event, KeyCode, KeyEvent, KeyModifiers};
@@ -254,6 +255,16 @@ pub struct App {
     pub theme_menu: MenuState,
     /// Currently active color theme (preset or custom RGB)
     pub theme_color: ThemeColor,
+
+    // Mascot
+    /// Mascot preset registry (built-in + user-defined)
+    pub mascot_registry: MascotRegistry,
+    /// Menu state for mascot preset selection (within theme screen)
+    pub mascot_menu: MenuState,
+    /// Currently active mascot preset ID
+    pub mascot_preset_id: String,
+    /// Whether the theme screen focus is on colors (false) or mascots (true)
+    pub theme_focus_mascot: bool,
 }
 
 impl App {
@@ -286,6 +297,9 @@ impl App {
         });
 
         let theme_color = ThemeColor::from_config(&app_config.theme).unwrap_or(ThemeColor::Preset(ThemePreset::Orange));
+        let mascot_registry = MascotRegistry::with_user_presets();
+        let mascot_preset_id = app_config.mascot_preset.clone();
+        let mascot_count = mascot_registry.len();
 
         Ok(Self {
             running: true,
@@ -328,6 +342,10 @@ impl App {
             konami_progress: 0,
             theme_menu: MenuState::new(ThemePreset::all().len() + 1), // presets + Custom
             theme_color,
+            mascot_registry,
+            mascot_menu: MenuState::new(mascot_count),
+            mascot_preset_id,
+            theme_focus_mascot: false,
         })
     }
 
@@ -1369,34 +1387,53 @@ impl App {
     fn handle_theme_input(&mut self, action: NavAction) {
         match action {
             NavAction::Up | NavAction::Down => {
-                self.theme_menu.handle_action(action);
+                if self.theme_focus_mascot {
+                    self.mascot_menu.handle_action(action);
+                } else {
+                    self.theme_menu.handle_action(action);
+                }
+            }
+            NavAction::Tab => {
+                // Toggle between color theme and mascot preset sections
+                self.theme_focus_mascot = !self.theme_focus_mascot;
             }
             NavAction::Select => {
-                let presets = ThemePreset::all();
-                if let Some(preset) = presets.get(self.theme_menu.selected) {
-                    // Selected a preset
-                    self.theme_color = ThemeColor::Preset(*preset);
-                    self.app_config.theme = self.theme_color.to_config();
-                    let _ = self.profile_manager.save_app_config(&self.app_config);
-                    self.status_message = Some(format!("Theme: {}", preset.display_name()));
-                    self.trigger_screen_animation(false, Screen::Main);
-                    self.pending_screen = Some(Screen::Main);
+                if self.theme_focus_mascot {
+                    // Selecting a mascot preset
+                    let presets = self.mascot_registry.all();
+                    if let Some(preset) = presets.get(self.mascot_menu.selected) {
+                        self.mascot_preset_id = preset.id.clone();
+                        self.app_config.mascot_preset = preset.id.clone();
+                        let _ = self.profile_manager.save_app_config(&self.app_config);
+                        self.status_message = Some(format!("Mascot: {}", preset.display_name));
+                    }
                 } else {
-                    // "Custom" entry (last item, past all presets)
-                    // Pre-fill with current custom hex or empty
-                    let initial = if let ThemeColor::Custom(r, g, b) = self.theme_color {
-                        format!("{:02X}{:02X}{:02X}", r, g, b)
+                    // Selecting a color theme
+                    let presets = ThemePreset::all();
+                    if let Some(preset) = presets.get(self.theme_menu.selected) {
+                        self.theme_color = ThemeColor::Preset(*preset);
+                        self.app_config.theme = self.theme_color.to_config();
+                        let _ = self.profile_manager.save_app_config(&self.app_config);
+                        self.status_message = Some(format!("Theme: {}", preset.display_name()));
+                        self.trigger_screen_animation(false, Screen::Main);
+                        self.pending_screen = Some(Screen::Main);
                     } else {
-                        String::new()
-                    };
-                    self.key_input.clear();
-                    self.key_input.value = initial;
-                    self.key_input.cursor = self.key_input.value.len();
-                    self.key_input.placeholder = "RRGGBB".to_string();
-                    self.edit_field = EditField::ThemeHex;
+                        // "Custom" entry
+                        let initial = if let ThemeColor::Custom(r, g, b) = self.theme_color {
+                            format!("{:02X}{:02X}{:02X}", r, g, b)
+                        } else {
+                            String::new()
+                        };
+                        self.key_input.clear();
+                        self.key_input.value = initial;
+                        self.key_input.cursor = self.key_input.value.len();
+                        self.key_input.placeholder = "RRGGBB".to_string();
+                        self.edit_field = EditField::ThemeHex;
+                    }
                 }
             }
             NavAction::Back | NavAction::Quit => {
+                self.theme_focus_mascot = false;
                 self.trigger_screen_animation(false, Screen::Main);
                 self.pending_screen = Some(Screen::Main);
             }
@@ -1521,8 +1558,8 @@ impl App {
                 (2 + max_len + 2) as u16
             }
             Screen::Theme => {
-                // Theme list with color swatches
-                35
+                // Theme list with color swatches + mascot presets
+                40
             }
             Screen::Help => {
                 // Help screen has fixed text
@@ -1609,11 +1646,22 @@ impl App {
             };
 
             let max_lines = figure_rect.height as usize;
-            let shift = self.theme_color.theme_shift();
-            let art_lines: Vec<Line> = if !shift.is_identity() {
-                mascots::unleashed_claude_full_ratatui_themed(max_lines, shift)
-            } else {
-                mascots::unleashed_claude_full_ratatui(max_lines)
+            let art_lines: Vec<Line> = {
+                let preset = self.mascot_registry.get(&self.mascot_preset_id);
+                if let Some(preset) = preset {
+                    let scheme = self.effective_color_scheme(preset);
+                    let body = mascots::unleashed_claude_full();
+                    // For animation, don't compose heads (full figure)
+                    let grid = pixel_art::CellGrid::from_ansi(&body);
+                    grid.to_ratatui_with_scheme(&scheme, max_lines)
+                } else {
+                    let shift = self.theme_color.theme_shift();
+                    if !shift.is_identity() {
+                        mascots::unleashed_claude_full_ratatui_themed(max_lines, shift)
+                    } else {
+                        mascots::unleashed_claude_full_ratatui(max_lines)
+                    }
+                }
             };
             let art_widget = Paragraph::new(art_lines).scroll((0, scroll_x));
             frame.render_widget(art_widget, figure_rect);
@@ -1676,13 +1724,10 @@ impl App {
         // Render muscular Claude ANSI art (right-facing)
         // Lava lamp mode is an easter egg triggered by Konami code (idea by cac taurus)
         let max_lines = area.height as usize;
-        let shift = self.theme_color.theme_shift();
         let art_lines: Vec<Line> = if self.lava_mode {
             mascots::unleashed_claude_ratatui_lava(max_lines, self.animation_frame)
-        } else if !shift.is_identity() {
-            mascots::unleashed_claude_ratatui_themed(max_lines, shift)
         } else {
-            mascots::unleashed_claude_ratatui(max_lines)
+            self.render_mascot_art_right(max_lines)
         };
         let art_widget = Paragraph::new(art_lines);
         frame.render_widget(art_widget, area);
@@ -1692,16 +1737,100 @@ impl App {
         // Render muscular Claude ANSI art (left-facing)
         // Lava lamp mode is an easter egg triggered by Konami code (idea by cac taurus)
         let max_lines = area.height as usize;
-        let shift = self.theme_color.theme_shift();
         let art_lines: Vec<Line> = if self.lava_mode {
             mascots::unleashed_claude_left_ratatui_lava(max_lines, self.animation_frame)
-        } else if !shift.is_identity() {
-            mascots::unleashed_claude_left_ratatui_themed(max_lines, shift)
         } else {
-            mascots::unleashed_claude_left_ratatui(max_lines)
+            self.render_mascot_art_left(max_lines)
         };
         let art_widget = Paragraph::new(art_lines);
         frame.render_widget(art_widget, area);
+    }
+
+    /// Render right-facing mascot art with current preset's head + color scheme
+    fn render_mascot_art_right(&self, max_lines: usize) -> Vec<Line<'static>> {
+        let preset = self.mascot_registry.get(&self.mascot_preset_id);
+        let body = mascots::unleashed_claude();
+
+        if let Some(preset) = preset {
+            let head_ansi = match &preset.head {
+                HeadAsset::AnsiArt(s) => Some(s.as_str()),
+                HeadAsset::Default => None,
+            };
+
+            // Use mascot preset's color scheme if it's non-identity,
+            // otherwise fall back to the theme color
+            let scheme = self.effective_color_scheme(preset);
+            pixel_art::compose_and_render_ratatui(&body, head_ansi, &preset.head_bounds, &scheme, max_lines)
+        } else {
+            // Fallback: no preset found, use theme color
+            let shift = self.theme_color.theme_shift();
+            if !shift.is_identity() {
+                mascots::unleashed_claude_ratatui_themed(max_lines, shift)
+            } else {
+                mascots::unleashed_claude_ratatui(max_lines)
+            }
+        }
+    }
+
+    /// Render left-facing mascot art with current preset's head + color scheme
+    fn render_mascot_art_left(&self, max_lines: usize) -> Vec<Line<'static>> {
+        let preset = self.mascot_registry.get(&self.mascot_preset_id);
+        let body = mascots::unleashed_claude_left();
+
+        if let Some(preset) = preset {
+            // For left-facing: mirror the head x_offset
+            let head_ansi: Option<String> = match &preset.head {
+                HeadAsset::AnsiArt(_) => {
+                    // Use left-facing head variant if available
+                    self.get_left_head_for_preset(&preset.id)
+                }
+                HeadAsset::Default => None,
+            };
+
+            let scheme = self.effective_color_scheme(preset);
+            pixel_art::compose_and_render_ratatui(
+                &body,
+                head_ansi.as_deref(),
+                &preset.head_bounds,
+                &scheme,
+                max_lines,
+            )
+        } else {
+            let shift = self.theme_color.theme_shift();
+            if !shift.is_identity() {
+                mascots::unleashed_claude_left_ratatui_themed(max_lines, shift)
+            } else {
+                mascots::unleashed_claude_left_ratatui(max_lines)
+            }
+        }
+    }
+
+    /// Get the effective color scheme: use preset's scheme if non-identity,
+    /// otherwise use the global theme color.
+    fn effective_color_scheme(&self, preset: &MascotPreset) -> ColorScheme {
+        match &preset.color_scheme {
+            ColorScheme::Gradient(_) => preset.color_scheme.clone(),
+            ColorScheme::Solid { hue_shift, sat_scale } => {
+                let shift = crate::theme::ThemeShift { hue: *hue_shift, sat_scale: *sat_scale };
+                if shift.is_identity() {
+                    // Preset uses identity => defer to global theme color
+                    ColorScheme::from_shift(self.theme_color.theme_shift())
+                } else {
+                    preset.color_scheme.clone()
+                }
+            }
+        }
+    }
+
+    /// Get left-facing head art for a preset
+    fn get_left_head_for_preset(&self, preset_id: &str) -> Option<String> {
+        match preset_id {
+            "qwen" => Some(include_str!("../assets/heads/qwen-left.ans").to_string()),
+            "openai" => Some(include_str!("../assets/heads/openai-left.ans").to_string()),
+            "gemini" => Some(include_str!("../assets/heads/gemini-left.ans").to_string()),
+            "generic" => Some(include_str!("../assets/heads/generic-left.ans").to_string()),
+            _ => None,
+        }
     }
 
     fn render_main_menu(&mut self, frame: &mut Frame, area: Rect) {
@@ -2097,14 +2226,34 @@ impl App {
     }
 
     fn render_theme(&self, frame: &mut Frame, area: Rect) {
+        // Split into color themes (top) and mascot presets (bottom)
+        let chunks = Layout::default()
+            .direction(Direction::Vertical)
+            .constraints([
+                Constraint::Length(2),   // Color theme header
+                Constraint::Length((ThemePreset::all().len() as u16 + 1) + 1), // Color items + Custom + padding
+                Constraint::Length(2),   // Mascot header
+                Constraint::Min(5),      // Mascot items
+            ])
+            .split(area);
+
+        // ── Color Theme section ──
+        let color_header_style = if !self.theme_focus_mascot {
+            Style::default().fg(self.accent_color()).add_modifier(Modifier::BOLD)
+        } else {
+            Style::default().fg(Color::DarkGray)
+        };
+        let color_header = Paragraph::new(Line::from(Span::styled("Color Theme", color_header_style)));
+        frame.render_widget(color_header, chunks[0]);
+
         let presets = ThemePreset::all();
         let custom_index = presets.len();
 
-        let mut items: Vec<ListItem> = presets
+        let mut color_items: Vec<ListItem> = presets
             .iter()
             .enumerate()
             .map(|(i, preset)| {
-                let is_selected = i == self.theme_menu.selected;
+                let is_selected = !self.theme_focus_mascot && i == self.theme_menu.selected;
                 let is_active = self.theme_color.is_preset(*preset);
                 let (r, g, b) = preset.accent_rgb();
                 let preview_color = Color::Rgb(r, g, b);
@@ -2133,7 +2282,7 @@ impl App {
             .collect();
 
         // "Custom" entry
-        let custom_selected = self.theme_menu.selected == custom_index;
+        let custom_selected = !self.theme_focus_mascot && self.theme_menu.selected == custom_index;
         let custom_active = self.theme_color.is_custom();
         let custom_accent = if custom_active {
             let (r, g, b) = self.theme_color.accent_rgb();
@@ -2153,9 +2302,8 @@ impl App {
         let custom_prefix = if custom_selected { "> " } else { "  " };
 
         if self.edit_field == EditField::ThemeHex {
-            // Show hex input inline
             let cursor = "\u{2588}";
-            items.push(ListItem::new(vec![
+            color_items.push(ListItem::new(vec![
                 Line::from(vec![
                     Span::styled(custom_prefix, custom_style),
                     Span::styled("# ", custom_style),
@@ -2185,11 +2333,67 @@ impl App {
                     Span::styled("   Custom...", custom_style),
                 ]
             };
-            items.push(ListItem::new(vec![Line::from(swatch)]));
+            color_items.push(ListItem::new(vec![Line::from(swatch)]));
         }
 
-        let menu = List::new(items);
-        frame.render_widget(menu, area);
+        let color_menu = List::new(color_items);
+        frame.render_widget(color_menu, chunks[1]);
+
+        // ── Mascot Preset section ──
+        let mascot_header_style = if self.theme_focus_mascot {
+            Style::default().fg(self.accent_color()).add_modifier(Modifier::BOLD)
+        } else {
+            Style::default().fg(Color::DarkGray)
+        };
+        let mascot_header = Paragraph::new(Line::from(Span::styled("Mascot Preset", mascot_header_style)));
+        frame.render_widget(mascot_header, chunks[2]);
+
+        let mascot_presets = self.mascot_registry.all();
+        let mascot_items: Vec<ListItem> = mascot_presets
+            .iter()
+            .enumerate()
+            .map(|(i, preset)| {
+                let is_selected = self.theme_focus_mascot && i == self.mascot_menu.selected;
+                let is_active = preset.id == self.mascot_preset_id;
+                let (r, g, b) = preset.accent_rgb();
+                let preview_color = Color::Rgb(r, g, b);
+
+                let style = if is_selected {
+                    Style::default()
+                        .fg(preview_color)
+                        .add_modifier(Modifier::BOLD)
+                } else if is_active {
+                    Style::default().fg(preview_color)
+                } else {
+                    Style::default()
+                };
+
+                let prefix = if is_selected { "> " } else { "  " };
+                let active_marker = if is_active { " *" } else { "" };
+
+                // Show gradient swatch for gradient presets
+                let swatch_spans = if preset.color_scheme.is_gradient() {
+                    // Multi-color swatch
+                    vec![
+                        Span::styled(prefix, style),
+                        Span::styled("\u{2588}", Style::default().fg(Color::Rgb(66, 133, 244))),
+                        Span::styled("\u{2588}", Style::default().fg(Color::Rgb(52, 168, 83))),
+                        Span::styled(format!(" {}{}", preset.display_name, active_marker), style),
+                    ]
+                } else {
+                    vec![
+                        Span::styled(prefix, style),
+                        Span::styled("\u{2588}\u{2588}", Style::default().fg(preview_color)),
+                        Span::styled(format!(" {}{}", preset.display_name, active_marker), style),
+                    ]
+                };
+
+                ListItem::new(vec![Line::from(swatch_spans)])
+            })
+            .collect();
+
+        let mascot_menu = List::new(mascot_items);
+        frame.render_widget(mascot_menu, chunks[3]);
     }
 
     fn render_help(&mut self, frame: &mut Frame, area: Rect) {
@@ -2689,6 +2893,10 @@ mod tests {
             konami_progress: 0,
             theme_menu: MenuState::new(ThemePreset::all().len() + 1),
             theme_color: ThemeColor::Preset(ThemePreset::Orange),
+            mascot_registry: MascotRegistry::new(),
+            mascot_menu: MenuState::new(5),
+            mascot_preset_id: "claude".to_string(),
+            theme_focus_mascot: false,
         };
 
         (app, temp)

@@ -17,6 +17,8 @@ mod hooks;
 mod input;
 mod json_output;
 mod launcher;
+#[cfg(feature = "tui")]
+mod mascot;
 mod patcher;
 mod pixel_art;
 #[cfg(feature = "tui")]

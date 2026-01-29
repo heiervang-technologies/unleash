@@ -91,6 +91,9 @@ pub struct AppConfig {
     /// Color theme name (e.g., "orange", "blue", "green")
     #[serde(default = "default_theme")]
     pub theme: String,
+    /// Mascot preset ID (e.g., "claude", "qwen", "openai", "gemini", "generic")
+    #[serde(default = "default_mascot")]
+    pub mascot_preset: String,
 }
 
 fn default_profile_name() -> String {
@@ -99,6 +102,10 @@ fn default_profile_name() -> String {
 
 fn default_theme() -> String {
     "orange".to_string()
+}
+
+fn default_mascot() -> String {
+    "claude".to_string()
 }
 
 fn default_claude_path() -> String {
@@ -118,6 +125,7 @@ impl Default for AppConfig {
             claude_args: Vec::new(),
             stop_prompt: None,
             theme: default_theme(),
+            mascot_preset: default_mascot(),
         }
     }
 }

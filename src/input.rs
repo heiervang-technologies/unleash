@@ -16,6 +16,7 @@ pub enum NavAction {
     Edit,
     New,
     Help,
+    Tab,
     #[allow(dead_code)]
     ExternalEdit,
     None,
@@ -53,6 +54,7 @@ pub fn key_to_action(key: KeyEvent) -> NavAction {
         KeyCode::Char('e') => NavAction::Edit,
         KeyCode::Char('n') => NavAction::New,
         KeyCode::Char('?') => NavAction::Help,
+        KeyCode::Tab => NavAction::Tab,
 
         _ => NavAction::None,
     }

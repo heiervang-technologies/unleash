@@ -1,11 +1,13 @@
-//! Theme color presets and hue rotation logic
+//! Theme color presets, hue rotation, and gradient color logic
 //!
 //! The mascot art uses orange tones (~20 deg HSL hue). Rather than maintaining
 //! separate art files per color, we rotate the hue at parse time:
 //! 1. Convert each RGB pixel to HSL
 //! 2. Detect orange-family pixels (hue ~10-40 deg)
-//! 3. Shift hue by a fixed offset per theme
+//! 3. Shift hue by a fixed offset per theme (or interpolate along a gradient)
 //! 4. Convert back to RGB
+
+use serde::{Deserialize, Serialize};
 
 /// Available color theme presets
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -125,6 +127,202 @@ impl ThemeShift {
     pub fn is_identity(&self) -> bool {
         self.hue == 0.0 && (self.sat_scale - 1.0).abs() < f64::EPSILON
     }
+}
+
+// ── Gradient color system ──────────────────────────────────────────────
+
+/// Direction of a gradient across the mascot art
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum GradientDirection {
+    /// Top-left to bottom-right
+    Diagonal,
+    /// Top to bottom
+    Vertical,
+    /// Left to right
+    Horizontal,
+}
+
+/// A color stop in a gradient
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+pub struct GradientStop {
+    /// Position along the gradient axis (0.0 = start, 1.0 = end)
+    pub position: f64,
+    /// Target RGB color at this stop
+    pub color: [u8; 3],
+}
+
+/// Multi-stop gradient definition
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct GradientDef {
+    pub stops: Vec<GradientStop>,
+    pub direction: GradientDirection,
+}
+
+impl GradientDef {
+    /// Gemini preset: diagonal blue → green → yellow → purple
+    pub fn gemini() -> Self {
+        Self {
+            direction: GradientDirection::Diagonal,
+            stops: vec![
+                GradientStop { position: 0.0,  color: [66, 133, 244] },   // Google Blue
+                GradientStop { position: 0.33, color: [52, 168, 83] },    // Google Green
+                GradientStop { position: 0.66, color: [251, 188, 4] },    // Google Yellow
+                GradientStop { position: 1.0,  color: [154, 60, 219] },   // Purple
+            ],
+        }
+    }
+
+    /// Interpolate the gradient at a normalized position `t` (0.0–1.0)
+    /// to get the target RGB color.
+    pub fn color_at(&self, t: f64) -> (u8, u8, u8) {
+        let t = t.clamp(0.0, 1.0);
+        if self.stops.is_empty() {
+            return (217, 119, 87); // fallback to base orange
+        }
+        if self.stops.len() == 1 {
+            let c = self.stops[0].color;
+            return (c[0], c[1], c[2]);
+        }
+
+        // Find the two stops that bracket `t`
+        let mut lo = &self.stops[0];
+        let mut hi = &self.stops[self.stops.len() - 1];
+        for i in 0..self.stops.len() - 1 {
+            if t >= self.stops[i].position && t <= self.stops[i + 1].position {
+                lo = &self.stops[i];
+                hi = &self.stops[i + 1];
+                break;
+            }
+        }
+
+        let range = hi.position - lo.position;
+        let frac = if range.abs() < f64::EPSILON {
+            0.0
+        } else {
+            (t - lo.position) / range
+        };
+
+        // Linear interpolation in RGB
+        let lerp = |a: u8, b: u8| -> u8 {
+            let v = a as f64 + (b as f64 - a as f64) * frac;
+            v.round().clamp(0.0, 255.0) as u8
+        };
+
+        (
+            lerp(lo.color[0], hi.color[0]),
+            lerp(lo.color[1], hi.color[1]),
+            lerp(lo.color[2], hi.color[2]),
+        )
+    }
+
+    /// Compute the normalized position along the gradient axis
+    /// given pixel coordinates normalized to [0.0, 1.0].
+    pub fn position(&self, x_norm: f64, y_norm: f64) -> f64 {
+        match self.direction {
+            GradientDirection::Diagonal => (x_norm + y_norm) / 2.0,
+            GradientDirection::Vertical => y_norm,
+            GradientDirection::Horizontal => x_norm,
+        }
+    }
+
+    /// First color in the gradient (for UI accent/swatch)
+    pub fn accent_rgb(&self) -> (u8, u8, u8) {
+        self.color_at(0.0)
+    }
+}
+
+/// A color scheme: either a solid hue shift or a multi-stop gradient.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(tag = "type", rename_all = "lowercase")]
+pub enum ColorScheme {
+    /// Single-color hue rotation (existing behavior)
+    Solid {
+        #[serde(default)]
+        hue_shift: f64,
+        #[serde(default = "default_sat_scale")]
+        sat_scale: f64,
+    },
+    /// Multi-stop gradient
+    Gradient(GradientDef),
+}
+
+fn default_sat_scale() -> f64 {
+    1.0
+}
+
+impl ColorScheme {
+    /// Solid color from a ThemeShift
+    pub fn from_shift(shift: ThemeShift) -> Self {
+        ColorScheme::Solid {
+            hue_shift: shift.hue,
+            sat_scale: shift.sat_scale,
+        }
+    }
+
+    /// Identity (orange, no change)
+    pub fn identity() -> Self {
+        ColorScheme::from_shift(ThemeShift::identity())
+    }
+
+    /// Extract ThemeShift for solid schemes (gradient returns identity)
+    #[allow(dead_code)]
+    pub fn as_theme_shift(&self) -> ThemeShift {
+        match self {
+            ColorScheme::Solid { hue_shift, sat_scale } => ThemeShift {
+                hue: *hue_shift,
+                sat_scale: *sat_scale,
+            },
+            ColorScheme::Gradient(_) => ThemeShift::identity(),
+        }
+    }
+
+    /// Whether this is a gradient scheme
+    pub fn is_gradient(&self) -> bool {
+        matches!(self, ColorScheme::Gradient(_))
+    }
+
+    /// UI accent color for this scheme
+    pub fn accent_rgb(&self) -> (u8, u8, u8) {
+        match self {
+            ColorScheme::Solid { hue_shift, sat_scale } => {
+                transform_theme_color(217, 119, 87, ThemeShift { hue: *hue_shift, sat_scale: *sat_scale })
+            }
+            ColorScheme::Gradient(g) => g.accent_rgb(),
+        }
+    }
+}
+
+/// Transform a color using a gradient, based on pixel position.
+/// `x_norm` and `y_norm` are the pixel's normalized coordinates (0.0–1.0).
+/// Only orange-tone pixels are affected.
+pub fn transform_gradient_color(
+    r: u8, g: u8, b: u8,
+    gradient: &GradientDef,
+    x_norm: f64, y_norm: f64,
+) -> (u8, u8, u8) {
+    let (h, s, l) = rgb_to_hsl(r, g, b);
+
+    if !is_orange_tone(h, s) {
+        return (r, g, b);
+    }
+
+    // Get the target color at this position along the gradient
+    let t = gradient.position(x_norm, y_norm);
+    let (tr, tg, tb) = gradient.color_at(t);
+    let (target_h, target_s, _) = rgb_to_hsl(tr, tg, tb);
+
+    // Compute hue shift from base orange to gradient target
+    let hue_shift = (target_h - BASE_ORANGE_HUE).rem_euclid(360.0);
+    let sat_scale = if BASE_ORANGE_SAT > f64::EPSILON {
+        target_s / BASE_ORANGE_SAT
+    } else {
+        1.0
+    };
+
+    let new_h = (h + hue_shift).rem_euclid(360.0);
+    let new_s = (s * sat_scale).clamp(0.0, 1.0);
+    hsl_to_rgb(new_h, new_s, l)
 }
 
 /// A resolved theme color: either a named preset or a custom RGB.
@@ -254,14 +452,14 @@ pub fn transform_theme_color(r: u8, g: u8, b: u8, shift: ThemeShift) -> (u8, u8,
 /// The mascot art uses hundreds of warm tones spanning hue 0-45 degrees:
 /// bright oranges, red-oranges, dark browns, peach/skin tones.
 /// We also catch near-red tones wrapping around 360 (hue > 350).
-fn is_orange_tone(h: f64, s: f64) -> bool {
+pub fn is_orange_tone(h: f64, s: f64) -> bool {
     // Warm hues: 0-50 degrees (red through orange-yellow) or 350-360 (near-red wrap)
     // Saturation > 0.10 excludes grays/neutrals that happen to land in this hue range
     (h <= 50.0 || h >= 350.0) && s > 0.10
 }
 
 /// Convert RGB (0-255) to HSL (h: 0-360, s: 0-1, l: 0-1)
-fn rgb_to_hsl(r: u8, g: u8, b: u8) -> (f64, f64, f64) {
+pub fn rgb_to_hsl(r: u8, g: u8, b: u8) -> (f64, f64, f64) {
     let r = r as f64 / 255.0;
     let g = g as f64 / 255.0;
     let b = b as f64 / 255.0;
@@ -298,7 +496,7 @@ fn rgb_to_hsl(r: u8, g: u8, b: u8) -> (f64, f64, f64) {
 }
 
 /// Convert HSL (h: 0-360, s: 0-1, l: 0-1) to RGB (0-255)
-fn hsl_to_rgb(h: f64, s: f64, l: f64) -> (u8, u8, u8) {
+pub fn hsl_to_rgb(h: f64, s: f64, l: f64) -> (u8, u8, u8) {
     if s.abs() < f64::EPSILON {
         let v = (l * 255.0).round() as u8;
         return (v, v, v);
@@ -480,6 +678,87 @@ mod tests {
         let shift = ThemeColor::Custom(217, 119, 87).theme_shift();
         assert!(shift.hue.abs() < 1.0, "base orange should have near-zero hue shift: {}", shift.hue);
         assert!((shift.sat_scale - 1.0).abs() < 0.01, "base orange should have ~1.0 sat_scale: {}", shift.sat_scale);
+    }
+
+    #[test]
+    fn test_gradient_color_at_endpoints() {
+        let g = GradientDef::gemini();
+        let (r, _, _) = g.color_at(0.0);
+        assert_eq!(r, 66, "gradient start should be blue");
+        let (r, g_val, b) = g.color_at(1.0);
+        assert_eq!((r, g_val, b), (154, 60, 219), "gradient end should be purple");
+    }
+
+    #[test]
+    fn test_gradient_color_at_midpoint() {
+        let g = GradientDef::gemini();
+        let (r, g_val, b) = g.color_at(0.33);
+        // Should be at the green stop
+        assert_eq!((r, g_val, b), (52, 168, 83));
+    }
+
+    #[test]
+    fn test_gradient_interpolation() {
+        let g = GradientDef {
+            direction: GradientDirection::Horizontal,
+            stops: vec![
+                GradientStop { position: 0.0, color: [0, 0, 0] },
+                GradientStop { position: 1.0, color: [200, 100, 50] },
+            ],
+        };
+        let (r, g_val, b) = g.color_at(0.5);
+        assert_eq!((r, g_val, b), (100, 50, 25));
+    }
+
+    #[test]
+    fn test_gradient_position_diagonal() {
+        let g = GradientDef::gemini();
+        assert!((g.position(0.0, 0.0) - 0.0).abs() < f64::EPSILON);
+        assert!((g.position(1.0, 1.0) - 1.0).abs() < f64::EPSILON);
+        assert!((g.position(0.5, 0.5) - 0.5).abs() < f64::EPSILON);
+    }
+
+    #[test]
+    fn test_gradient_position_vertical() {
+        let g = GradientDef {
+            direction: GradientDirection::Vertical,
+            stops: vec![],
+        };
+        assert!((g.position(0.7, 0.3) - 0.3).abs() < f64::EPSILON);
+    }
+
+    #[test]
+    fn test_transform_gradient_color_non_orange_unchanged() {
+        let g = GradientDef::gemini();
+        // Gray pixel should not be affected
+        let (r, g_val, b) = transform_gradient_color(128, 128, 128, &g, 0.5, 0.5);
+        assert_eq!((r, g_val, b), (128, 128, 128));
+    }
+
+    #[test]
+    fn test_transform_gradient_color_orange_changes() {
+        let g = GradientDef::gemini();
+        // Orange pixel at the start (blue target) should shift to blue
+        let (r, _, b) = transform_gradient_color(217, 119, 87, &g, 0.0, 0.0);
+        assert!(b > r, "gradient blue end should shift orange toward blue: r={}, b={}", r, b);
+    }
+
+    #[test]
+    fn test_color_scheme_solid_roundtrip() {
+        let scheme = ColorScheme::from_shift(ThemeShift { hue: 200.0, sat_scale: 1.0 });
+        let shift = scheme.as_theme_shift();
+        assert!((shift.hue - 200.0).abs() < f64::EPSILON);
+    }
+
+    #[test]
+    fn test_color_scheme_accent() {
+        let solid = ColorScheme::from_shift(ThemeShift { hue: 200.0, sat_scale: 1.0 });
+        let (r, _, b) = solid.accent_rgb();
+        assert!(b > r, "blue scheme accent should be blueish");
+
+        let gradient = ColorScheme::Gradient(GradientDef::gemini());
+        let (r, _, _) = gradient.accent_rgb();
+        assert_eq!(r, 66, "gemini gradient accent is first stop (blue)");
     }
 
     #[test]
