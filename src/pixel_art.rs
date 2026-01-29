@@ -1204,5 +1204,131 @@ mod tests {
             assert!(!art.is_empty());
             assert!(art.contains('\x1b')); // Contains ANSI escape codes
         }
+
+        // ── Mascot integration tests ─────────────────────────────────
+
+        #[test]
+        fn test_cellgrid_from_ansi_roundtrip() {
+            let body = mascots::unleashed_claude();
+            let grid = CellGrid::from_ansi(&body);
+            assert!(grid.width > 0, "body grid width should be non-zero");
+            assert!(grid.height > 0, "body grid height should be non-zero");
+        }
+
+        #[test]
+        fn test_cellgrid_overlay_non_destructive() {
+            let body = mascots::unleashed_claude();
+            let mut grid = CellGrid::from_ansi(&body);
+            let original_width = grid.width;
+            let original_height = grid.height;
+
+            let head = include_str!("assets/heads/qwen-right.ans");
+            let head_grid = CellGrid::from_ansi(head);
+            grid.overlay(&head_grid, 10, 0);
+
+            assert_eq!(grid.width, original_width, "overlay must not change body width");
+            assert_eq!(grid.height, original_height, "overlay must not change body height");
+        }
+
+        #[test]
+        fn test_compose_all_presets_right() {
+            use crate::mascot::MascotRegistry;
+            let registry = MascotRegistry::new();
+            let body = mascots::unleashed_claude();
+
+            for preset in registry.all() {
+                let head_ansi = match &preset.head {
+                    crate::mascot::HeadAsset::AnsiArt(s) => Some(s.as_str()),
+                    crate::mascot::HeadAsset::Default => None,
+                };
+                let lines = compose_and_render_ratatui(
+                    &body, head_ansi, &preset.head_bounds, &preset.color_scheme, 50,
+                );
+                assert!(
+                    !lines.is_empty(),
+                    "preset '{}' right-facing produced no output lines",
+                    preset.id
+                );
+                // Verify at least some spans have visible content
+                let has_content = lines.iter().any(|l| {
+                    l.spans.iter().any(|s| !s.content.trim().is_empty())
+                });
+                assert!(
+                    has_content,
+                    "preset '{}' right-facing produced only blank lines",
+                    preset.id
+                );
+            }
+        }
+
+        #[test]
+        fn test_compose_all_presets_left() {
+            use crate::mascot::MascotRegistry;
+            let registry = MascotRegistry::new();
+            let body = mascots::unleashed_claude_left();
+
+            let left_heads: std::collections::HashMap<&str, &str> = [
+                ("qwen", include_str!("assets/heads/qwen-left.ans")),
+                ("openai", include_str!("assets/heads/openai-left.ans")),
+                ("gemini", include_str!("assets/heads/gemini-left.ans")),
+                ("generic", include_str!("assets/heads/generic-left.ans")),
+            ].into();
+
+            for preset in registry.all() {
+                let head_ansi: Option<&str> = match &preset.head {
+                    crate::mascot::HeadAsset::AnsiArt(_) => left_heads.get(preset.id.as_str()).copied(),
+                    crate::mascot::HeadAsset::Default => None,
+                };
+                let lines = compose_and_render_ratatui(
+                    &body, head_ansi, &preset.head_bounds, &preset.color_scheme, 50,
+                );
+                assert!(
+                    !lines.is_empty(),
+                    "preset '{}' left-facing produced no output lines",
+                    preset.id
+                );
+            }
+        }
+
+        #[test]
+        fn test_gradient_rendering_produces_varied_colors() {
+            use crate::theme::GradientDef;
+            // Build a small grid with orange-tone cells to test gradient color variation
+            let ansi = "\x1b[38;2;217;119;68m████████████████████\x1b[0m\n\
+                         \x1b[38;2;217;119;68m████████████████████\x1b[0m\n\
+                         \x1b[38;2;217;119;68m████████████████████\x1b[0m";
+            let grid = CellGrid::from_ansi(ansi);
+            let gradient = GradientDef::gemini();
+            let lines = grid.to_ratatui_gradient(&gradient, 10);
+
+            assert!(!lines.is_empty(), "gradient should produce output");
+
+            // Collect all fg colors across all spans
+            let mut colors = std::collections::HashSet::new();
+            for line in &lines {
+                for span in &line.spans {
+                    if let Some(RatatuiColor::Rgb(r, g, b)) = span.style.fg {
+                        colors.insert((r, g, b));
+                    }
+                }
+            }
+            // A diagonal gradient across a 20-wide × 3-high grid of orange pixels
+            // should produce multiple distinct output colors
+            assert!(
+                colors.len() > 1,
+                "gradient should produce varied colors, got {} distinct color(s): {:?}",
+                colors.len(), colors
+            );
+        }
+
+        #[test]
+        fn test_compose_gemini_gradient_on_real_body() {
+            let body = mascots::unleashed_claude();
+            let head = include_str!("assets/heads/gemini-right.ans");
+            let bounds = crate::mascot::HeadBounds::default();
+            let scheme = crate::theme::ColorScheme::Gradient(crate::theme::GradientDef::gemini());
+            let lines = compose_and_render_ratatui(&body, Some(head), &bounds, &scheme, 60);
+            assert!(lines.len() > 20, "gemini full composition should produce substantial output, got {}", lines.len());
+        }
     }
 }
