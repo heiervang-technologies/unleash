@@ -1,5 +1,12 @@
 # Changelog
 
+## [5.0.1](https://github.com/heiervang-technologies/agent-unleashed/compare/v5.0.0...v5.0.1) (2026-01-29)
+
+
+### Bug Fixes
+
+* **ci:** install clang/mold for Rust builds and rewrite upstream sync ([7b0582f](https://github.com/heiervang-technologies/agent-unleashed/commit/7b0582f95a5011cbefdce4b5517f45af063c3bf9))
+
 ## [5.0.0](https://github.com/heiervang-technologies/claude-unleashed/compare/v4.10.0...v5.0.0) (2026-01-29)
 
 
