@@ -265,6 +265,8 @@ pub struct App {
     pub mascot_preset_id: String,
     /// Whether the theme screen focus is on colors (false) or mascots (true)
     pub theme_focus_mascot: bool,
+    /// Cached full composite ANSI (106 cols, body + both heads baked in)
+    pub cached_composite_full: Option<String>,
 }
 
 impl App {
@@ -344,9 +346,27 @@ impl App {
             theme_color,
             mascot_registry,
             mascot_menu: MenuState::new(mascot_count),
-            mascot_preset_id,
+            mascot_preset_id: mascot_preset_id.clone(),
             theme_focus_mascot: false,
+            cached_composite_full: None,
         })
+    }
+
+    /// Load or generate the full composite for the current preset.
+    /// Caches the result in `self.cached_composite_full`.
+    fn ensure_composite(&mut self) -> Option<String> {
+        if self.cached_composite_full.is_some() {
+            return self.cached_composite_full.clone();
+        }
+        let preset = self.mascot_registry.get(&self.mascot_preset_id)?;
+        let composite = crate::sprite_cache::load_or_generate(preset);
+        self.cached_composite_full = composite.clone();
+        composite
+    }
+
+    /// Invalidate the cached composite (call on preset change)
+    fn invalidate_composite(&mut self) {
+        self.cached_composite_full = None;
     }
 
     /// Refresh the cached installed version for a specific agent
@@ -419,6 +439,11 @@ impl App {
     /// Called on each tick to advance animation and poll async operations
     pub fn tick(&mut self) {
         self.animation_frame = self.animation_frame.wrapping_add(1);
+
+        // Lazy-init composite cache on first tick
+        if self.cached_composite_full.is_none() {
+            self.ensure_composite();
+        }
 
         // Poll async version fetch (drains all available agent version messages)
         if let Some(ref receiver) = self.version_fetch_receiver {
@@ -1402,10 +1427,13 @@ impl App {
                     // Selecting a mascot preset
                     let presets = self.mascot_registry.all();
                     if let Some(preset) = presets.get(self.mascot_menu.selected) {
-                        self.mascot_preset_id = preset.id.clone();
-                        self.app_config.mascot_preset = preset.id.clone();
+                        let id = preset.id.clone();
+                        let display_name = preset.display_name.clone();
+                        self.mascot_preset_id = id.clone();
+                        self.app_config.mascot_preset = id;
                         let _ = self.profile_manager.save_app_config(&self.app_config);
-                        self.status_message = Some(format!("Mascot: {}", preset.display_name));
+                        self.invalidate_composite();
+                        self.status_message = Some(format!("Mascot: {}", display_name));
                     }
                 } else {
                     // Selecting a color theme
@@ -1650,9 +1678,10 @@ impl App {
                 let preset = self.mascot_registry.get(&self.mascot_preset_id);
                 if let Some(preset) = preset {
                     let scheme = self.effective_color_scheme(preset);
-                    let body = mascots::unleashed_claude_full();
-                    // For animation, don't compose heads (full figure)
-                    let grid = pixel_art::CellGrid::from_ansi(&body);
+                    // Use cached composite (heads baked in) if available
+                    let full_ansi = self.cached_composite_full.clone()
+                        .unwrap_or_else(|| mascots::unleashed_claude_full());
+                    let grid = pixel_art::CellGrid::from_ansi(&full_ansi);
                     grid.to_ratatui_with_scheme(&scheme, max_lines)
                 } else {
                     let shift = self.theme_color.theme_shift();
@@ -1746,20 +1775,27 @@ impl App {
         frame.render_widget(art_widget, area);
     }
 
-    /// Render right-facing mascot art with current preset's head + color scheme
+    /// Render right-facing mascot art with current preset's head + color scheme.
+    /// Uses cached composite (head baked in) when available.
     fn render_mascot_art_right(&self, max_lines: usize) -> Vec<Line<'static>> {
         let preset = self.mascot_registry.get(&self.mascot_preset_id);
-        let body = mascots::unleashed_claude();
 
         if let Some(preset) = preset {
-            let head_ansi = match &preset.head {
+            let scheme = self.effective_color_scheme(preset);
+
+            // Try cached composite: split right half from full sprite
+            if let Some(ref full_ansi) = self.cached_composite_full {
+                let grid = pixel_art::CellGrid::from_ansi(full_ansi);
+                let (_left, right) = grid.split_at_col(53);
+                return right.to_ratatui_with_scheme(&scheme, max_lines);
+            }
+
+            // Fallback: compose on the fly (first frame before cache is ready)
+            let body = mascots::unleashed_claude();
+            let head_ansi = match &preset.head_right {
                 HeadAsset::AnsiArt(s) => Some(s.as_str()),
                 HeadAsset::Default => None,
             };
-
-            // Use mascot preset's color scheme if it's non-identity,
-            // otherwise fall back to the theme color
-            let scheme = self.effective_color_scheme(preset);
             pixel_art::compose_and_render_ratatui(&body, head_ansi, &preset.head_bounds, &scheme, max_lines)
         } else {
             // Fallback: no preset found, use theme color
@@ -1772,22 +1808,27 @@ impl App {
         }
     }
 
-    /// Render left-facing mascot art with current preset's head + color scheme
+    /// Render left-facing mascot art with current preset's head + color scheme.
+    /// Uses cached composite (head baked in) when available.
     fn render_mascot_art_left(&self, max_lines: usize) -> Vec<Line<'static>> {
         let preset = self.mascot_registry.get(&self.mascot_preset_id);
-        let body = mascots::unleashed_claude_left();
 
         if let Some(preset) = preset {
-            // For left-facing: mirror the head x_offset
-            let head_ansi: Option<String> = match &preset.head {
-                HeadAsset::AnsiArt(_) => {
-                    // Use left-facing head variant if available
-                    self.get_left_head_for_preset(&preset.id)
-                }
+            let scheme = self.effective_color_scheme(preset);
+
+            // Try cached composite: split left half from full sprite
+            if let Some(ref full_ansi) = self.cached_composite_full {
+                let grid = pixel_art::CellGrid::from_ansi(full_ansi);
+                let (left, _right) = grid.split_at_col(53);
+                return left.to_ratatui_with_scheme(&scheme, max_lines);
+            }
+
+            // Fallback: compose on the fly
+            let body = mascots::unleashed_claude_left();
+            let head_ansi = match &preset.head_left {
+                HeadAsset::AnsiArt(s) => Some(s.as_str()),
                 HeadAsset::Default => None,
             };
-
-            let scheme = self.effective_color_scheme(preset);
             pixel_art::compose_and_render_ratatui(
                 &body,
                 head_ansi.as_deref(),
@@ -1819,17 +1860,6 @@ impl App {
                     preset.color_scheme.clone()
                 }
             }
-        }
-    }
-
-    /// Get left-facing head art for a preset
-    fn get_left_head_for_preset(&self, preset_id: &str) -> Option<String> {
-        match preset_id {
-            "qwen" => Some(include_str!("../assets/heads/qwen-left.ans").to_string()),
-            "openai" => Some(include_str!("../assets/heads/openai-left.ans").to_string()),
-            "gemini" => Some(include_str!("../assets/heads/gemini-left.ans").to_string()),
-            "generic" => Some(include_str!("../assets/heads/generic-left.ans").to_string()),
-            _ => None,
         }
     }
 
@@ -2897,6 +2927,7 @@ mod tests {
             mascot_menu: MenuState::new(5),
             mascot_preset_id: "claude".to_string(),
             theme_focus_mascot: false,
+            cached_composite_full: None,
         };
 
         (app, temp)

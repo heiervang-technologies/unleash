@@ -22,6 +22,8 @@ mod mascot;
 mod patcher;
 mod pixel_art;
 #[cfg(feature = "tui")]
+mod sprite_cache;
+#[cfg(feature = "tui")]
 mod text_input;
 #[cfg(feature = "tui")]
 mod theme;

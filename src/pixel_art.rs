@@ -435,6 +435,77 @@ impl CellGrid {
         }
     }
 
+    /// Serialize the cell grid back to an ANSI-escaped string.
+    /// Inverse of `from_ansi()`. Tracks current fg/bg state and emits
+    /// escape codes only on change. Rows are newline-separated.
+    pub fn to_ansi(&self) -> String {
+        let mut out = String::new();
+        for (row_idx, row) in self.cells.iter().enumerate() {
+            let mut cur_fg: Option<(u8, u8, u8)> = None;
+            let mut cur_bg: Option<(u8, u8, u8)> = None;
+            for cell in row {
+                // Emit fg change
+                if cell.fg != cur_fg {
+                    if let Some((r, g, b)) = cell.fg {
+                        out.push_str(&format!("\x1b[38;2;{};{};{}m", r, g, b));
+                    } else if cur_fg.is_some() {
+                        out.push_str("\x1b[0m");
+                        // Reset clears bg too, re-emit if needed
+                        if let Some((r, g, b)) = cell.bg {
+                            out.push_str(&format!("\x1b[48;2;{};{};{}m", r, g, b));
+                        }
+                        cur_bg = cell.bg;
+                    }
+                    cur_fg = cell.fg;
+                }
+                // Emit bg change
+                if cell.bg != cur_bg {
+                    if let Some((r, g, b)) = cell.bg {
+                        out.push_str(&format!("\x1b[48;2;{};{};{}m", r, g, b));
+                    } else if cur_bg.is_some() {
+                        out.push_str("\x1b[0m");
+                        // Reset clears fg too, re-emit if needed
+                        if let Some((r, g, b)) = cell.fg {
+                            out.push_str(&format!("\x1b[38;2;{};{};{}m", r, g, b));
+                        }
+                        cur_fg = cell.fg;
+                    }
+                    cur_bg = cell.bg;
+                }
+                out.push(cell.ch);
+            }
+            // Reset at end of line if any color was active
+            if cur_fg.is_some() || cur_bg.is_some() {
+                out.push_str("\x1b[0m");
+            }
+            if row_idx < self.cells.len() - 1 {
+                out.push('\n');
+            }
+        }
+        out
+    }
+
+    /// Split the grid at the given column, producing two `CellGrid`s.
+    /// Left gets columns `[0..col)`, right gets `[col..width)`.
+    pub fn split_at_col(&self, col: usize) -> (CellGrid, CellGrid) {
+        let col = col.min(self.width);
+        let right_width = self.width.saturating_sub(col);
+
+        let mut left_rows = Vec::with_capacity(self.height);
+        let mut right_rows = Vec::with_capacity(self.height);
+
+        for row in &self.cells {
+            let left: Vec<StyledCell> = row[..col].to_vec();
+            let right: Vec<StyledCell> = row[col..].to_vec();
+            left_rows.push(left);
+            right_rows.push(right);
+        }
+
+        let left = CellGrid { cells: left_rows, width: col, height: self.height };
+        let right = CellGrid { cells: right_rows, width: right_width, height: self.height };
+        (left, right)
+    }
+
     /// Convert to ratatui Lines with a solid color scheme (hue shift)
     pub fn to_ratatui_themed(&self, shift: crate::theme::ThemeShift, max_lines: usize) -> Vec<RatatuiLine<'static>> {
         use crate::theme::transform_theme_color;
@@ -906,10 +977,21 @@ fn parse_ansi_sequence(seq: &str, style: RatatuiStyle) -> RatatuiStyle {
 pub mod mascots {
     use super::*;
 
-    /// Muscular Claude breaking chains - the "Unleashed" mascot
-    /// Returns raw ANSI escape sequences for direct terminal output
+    /// Muscular Claude breaking chains - the "Unleashed" mascot (right-facing half)
+    /// Derived from the full sprite by splitting at column 53.
+    /// Returns raw ANSI escape sequences for direct terminal output.
+    #[cfg(feature = "tui")]
     pub fn unleashed_claude() -> String {
-        include_str!("assets/ct4-right.ans").to_string()
+        let full = unleashed_claude_full();
+        let grid = super::CellGrid::from_ansi(&full);
+        let (_left, right) = grid.split_at_col(53);
+        right.to_ansi()
+    }
+
+    /// Non-TUI fallback: returns the full sprite (CellGrid unavailable without TUI)
+    #[cfg(not(feature = "tui"))]
+    pub fn unleashed_claude() -> String {
+        unleashed_claude_full()
     }
 
     /// Get lines from the unleashed Claude art (for TUI integration)
@@ -948,9 +1030,14 @@ pub mod mascots {
             .collect()
     }
 
-    /// Muscular Claude breaking chains - left facing version
+    /// Muscular Claude breaking chains - left facing version.
+    /// Derived from the full sprite by splitting at column 53.
+    #[cfg(feature = "tui")]
     pub fn unleashed_claude_left() -> String {
-        include_str!("assets/ct4-left.ans").to_string()
+        let full = unleashed_claude_full();
+        let grid = super::CellGrid::from_ansi(&full);
+        let (left, _right) = grid.split_at_col(53);
+        left.to_ansi()
     }
 
     /// Get unleashed Claude art as ratatui Lines (parsed ANSI) - left facing
@@ -1237,7 +1324,7 @@ mod tests {
             let body = mascots::unleashed_claude();
 
             for preset in registry.all() {
-                let head_ansi = match &preset.head {
+                let head_ansi = match &preset.head_right {
                     crate::mascot::HeadAsset::AnsiArt(s) => Some(s.as_str()),
                     crate::mascot::HeadAsset::Default => None,
                 };
@@ -1267,16 +1354,9 @@ mod tests {
             let registry = MascotRegistry::new();
             let body = mascots::unleashed_claude_left();
 
-            let left_heads: std::collections::HashMap<&str, &str> = [
-                ("qwen", include_str!("assets/heads/qwen-left.ans")),
-                ("openai", include_str!("assets/heads/openai-left.ans")),
-                ("gemini", include_str!("assets/heads/gemini-left.ans")),
-                ("generic", include_str!("assets/heads/generic-left.ans")),
-            ].into();
-
             for preset in registry.all() {
-                let head_ansi: Option<&str> = match &preset.head {
-                    crate::mascot::HeadAsset::AnsiArt(_) => left_heads.get(preset.id.as_str()).copied(),
+                let head_ansi: Option<&str> = match &preset.head_left {
+                    crate::mascot::HeadAsset::AnsiArt(s) => Some(s.as_str()),
                     crate::mascot::HeadAsset::Default => None,
                 };
                 let lines = compose_and_render_ratatui(
@@ -1288,6 +1368,98 @@ mod tests {
                     preset.id
                 );
             }
+        }
+
+        // ── New tests: round-trip, split, composite ──────────────────
+
+        #[test]
+        fn test_to_ansi_roundtrip() {
+            // from_ansi → to_ansi → from_ansi should produce identical grid
+            let original = "\x1b[38;2;255;128;64mHello\x1b[0m \x1b[48;2;0;0;255mWorld\x1b[0m";
+            let grid1 = CellGrid::from_ansi(original);
+            let serialized = grid1.to_ansi();
+            let grid2 = CellGrid::from_ansi(&serialized);
+
+            assert_eq!(grid1.width, grid2.width, "width mismatch after round-trip");
+            assert_eq!(grid1.height, grid2.height, "height mismatch after round-trip");
+            for (y, (row1, row2)) in grid1.cells.iter().zip(grid2.cells.iter()).enumerate() {
+                for (x, (c1, c2)) in row1.iter().zip(row2.iter()).enumerate() {
+                    assert_eq!(c1.ch, c2.ch, "char mismatch at ({}, {})", x, y);
+                    assert_eq!(c1.fg, c2.fg, "fg mismatch at ({}, {})", x, y);
+                    assert_eq!(c1.bg, c2.bg, "bg mismatch at ({}, {})", x, y);
+                }
+            }
+        }
+
+        #[test]
+        fn test_to_ansi_roundtrip_full_sprite() {
+            let full = mascots::unleashed_claude_full();
+            let grid1 = CellGrid::from_ansi(&full);
+            let serialized = grid1.to_ansi();
+            let grid2 = CellGrid::from_ansi(&serialized);
+
+            assert_eq!(grid1.width, grid2.width, "full sprite width mismatch after round-trip");
+            assert_eq!(grid1.height, grid2.height, "full sprite height mismatch after round-trip");
+
+            // Spot-check: same characters on every row
+            for (y, (row1, row2)) in grid1.cells.iter().zip(grid2.cells.iter()).enumerate() {
+                for (x, (c1, c2)) in row1.iter().zip(row2.iter()).enumerate() {
+                    assert_eq!(c1.ch, c2.ch, "char mismatch at ({}, {}) in full sprite", x, y);
+                    assert_eq!(c1.fg, c2.fg, "fg mismatch at ({}, {}) in full sprite", x, y);
+                    assert_eq!(c1.bg, c2.bg, "bg mismatch at ({}, {}) in full sprite", x, y);
+                }
+            }
+        }
+
+        #[test]
+        fn test_split_at_col_dimensions() {
+            let full = mascots::unleashed_claude_full();
+            let grid = CellGrid::from_ansi(&full);
+            let (left, right) = grid.split_at_col(53);
+
+            assert_eq!(left.width, 53, "left half should be 53 cols wide");
+            assert_eq!(right.width, grid.width - 53, "right half should be remaining cols");
+            assert_eq!(left.height, grid.height, "left half height must match");
+            assert_eq!(right.height, grid.height, "right half height must match");
+        }
+
+        #[test]
+        fn test_split_at_col_content() {
+            let full = mascots::unleashed_claude_full();
+            let grid = CellGrid::from_ansi(&full);
+            let (left, right) = grid.split_at_col(53);
+
+            // Verify cells match original
+            for y in 0..grid.height {
+                for x in 0..53 {
+                    assert_eq!(
+                        left.cells[y][x].ch, grid.cells[y][x].ch,
+                        "left cell mismatch at ({}, {})", x, y
+                    );
+                }
+                for x in 53..grid.width {
+                    assert_eq!(
+                        right.cells[y][x - 53].ch, grid.cells[y][x].ch,
+                        "right cell mismatch at ({}, {})", x, y
+                    );
+                }
+            }
+        }
+
+        #[test]
+        fn test_composite_has_head_content() {
+            use crate::mascot::MascotRegistry;
+            let registry = MascotRegistry::new();
+
+            // Qwen preset has a custom head — verify composite differs from bare body
+            let qwen = registry.get("qwen").expect("qwen preset must exist");
+            let composite = crate::sprite_cache::generate_composite(qwen);
+            assert!(composite.is_some(), "composite generation should succeed");
+
+            let composite = composite.unwrap();
+            let body = mascots::unleashed_claude_full();
+            // The composite should differ from the bare body (head was overlaid)
+            assert_ne!(composite, body, "composite should differ from bare body");
         }
 
         #[test]
