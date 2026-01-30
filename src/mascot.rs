@@ -59,8 +59,10 @@ pub struct MascotPreset {
     /// Description shown in preset selector
     #[allow(dead_code)]
     pub description: String,
-    /// Head asset to overlay onto the body
-    pub head: HeadAsset,
+    /// Head asset to overlay onto the right-facing body
+    pub head_right: HeadAsset,
+    /// Head asset to overlay onto the left-facing body
+    pub head_left: HeadAsset,
     /// Color scheme (solid hue shift or gradient)
     pub color_scheme: ColorScheme,
     /// Bounding box for head overlay on right-facing body
@@ -85,7 +87,8 @@ fn preset_claude() -> MascotPreset {
         id: "claude".to_string(),
         display_name: "Claude".to_string(),
         description: "Anthropic Claude - Orange".to_string(),
-        head: HeadAsset::Default,
+        head_right: HeadAsset::Default,
+        head_left: HeadAsset::Default,
         color_scheme: ColorScheme::identity(),
         head_bounds: HeadBounds::default(),
         builtin: true,
@@ -98,7 +101,8 @@ fn preset_qwen() -> MascotPreset {
         id: "qwen".to_string(),
         display_name: "Qwen".to_string(),
         description: "Alibaba Qwen - Purple".to_string(),
-        head: HeadAsset::AnsiArt(include_str!("assets/heads/qwen-right.ans").to_string()),
+        head_right: HeadAsset::AnsiArt(include_str!("assets/heads/qwen-right.ans").to_string()),
+        head_left: HeadAsset::AnsiArt(include_str!("assets/heads/qwen-left.ans").to_string()),
         color_scheme: ColorScheme::Solid {
             hue_shift: 260.0,
             sat_scale: 1.0,
@@ -114,7 +118,8 @@ fn preset_openai() -> MascotPreset {
         id: "openai".to_string(),
         display_name: "OpenAI".to_string(),
         description: "OpenAI - Grey".to_string(),
-        head: HeadAsset::AnsiArt(include_str!("assets/heads/openai-right.ans").to_string()),
+        head_right: HeadAsset::AnsiArt(include_str!("assets/heads/openai-right.ans").to_string()),
+        head_left: HeadAsset::AnsiArt(include_str!("assets/heads/openai-left.ans").to_string()),
         color_scheme: ColorScheme::Solid {
             hue_shift: 0.0,
             sat_scale: 0.08, // near-zero saturation = grey
@@ -130,7 +135,8 @@ fn preset_gemini() -> MascotPreset {
         id: "gemini".to_string(),
         display_name: "Gemini".to_string(),
         description: "Google Gemini - Gradient".to_string(),
-        head: HeadAsset::AnsiArt(include_str!("assets/heads/gemini-right.ans").to_string()),
+        head_right: HeadAsset::AnsiArt(include_str!("assets/heads/gemini-right.ans").to_string()),
+        head_left: HeadAsset::AnsiArt(include_str!("assets/heads/gemini-left.ans").to_string()),
         color_scheme: ColorScheme::Gradient(GradientDef::gemini()),
         head_bounds: HeadBounds::default(),
         builtin: true,
@@ -143,7 +149,8 @@ fn preset_generic() -> MascotPreset {
         id: "generic".to_string(),
         display_name: "Generic".to_string(),
         description: "Generic agent - Theme color".to_string(),
-        head: HeadAsset::AnsiArt(include_str!("assets/heads/generic-right.ans").to_string()),
+        head_right: HeadAsset::AnsiArt(include_str!("assets/heads/generic-right.ans").to_string()),
+        head_left: HeadAsset::AnsiArt(include_str!("assets/heads/generic-left.ans").to_string()),
         color_scheme: ColorScheme::identity(), // uses whatever theme color is active
         head_bounds: HeadBounds::default(),
         builtin: true,
@@ -204,11 +211,11 @@ impl MascotRegistry {
             head_bounds: HeadBounds::default(),
         }];
         for preset in &builtins {
-            if matches!(preset.head, HeadAsset::AnsiArt(_)) {
+            if matches!(preset.head_right, HeadAsset::AnsiArt(_)) {
                 heads.push(HeadEntry {
                     id: preset.id.clone(),
                     display_name: preset.display_name.clone(),
-                    head_right: preset.head.clone(),
+                    head_right: preset.head_right.clone(),
                     head_bounds: preset.head_bounds,
                 });
             }
@@ -263,12 +270,12 @@ impl MascotRegistry {
     /// Register a user-defined preset
     pub fn register(&mut self, preset: MascotPreset) {
         // Also register as a head entry if it has a custom head
-        if matches!(preset.head, HeadAsset::AnsiArt(_)) {
+        if matches!(preset.head_right, HeadAsset::AnsiArt(_)) {
             if !self.heads.iter().any(|h| h.id == preset.id) {
                 self.heads.push(HeadEntry {
                     id: preset.id.clone(),
                     display_name: preset.display_name.clone(),
-                    head_right: preset.head.clone(),
+                    head_right: preset.head_right.clone(),
                     head_bounds: preset.head_bounds,
                 });
             }
@@ -365,13 +372,26 @@ fn load_user_preset(path: &std::path::Path) -> Option<MascotPreset> {
     let content = fs::read_to_string(path).ok()?;
     let config: UserPresetConfig = toml::from_str(&content).ok()?;
 
-    let head = match config.head_file {
+    let (head_right, head_left) = match config.head_file {
         Some(ref file) => {
             let head_path = path.parent()?.join(file);
-            let head_content = fs::read_to_string(head_path).ok()?;
-            HeadAsset::AnsiArt(head_content)
+            let head_content = fs::read_to_string(&head_path).ok()?;
+            // Try to find a left variant: replace "-right" with "-left" in filename
+            let left_content = {
+                let left_file = file.replace("-right", "-left");
+                if left_file != *file {
+                    let left_path = path.parent()?.join(&left_file);
+                    fs::read_to_string(left_path).ok()
+                } else {
+                    None
+                }
+            };
+            let left = left_content
+                .map(|s| HeadAsset::AnsiArt(s))
+                .unwrap_or_else(|| HeadAsset::AnsiArt(head_content.clone()));
+            (HeadAsset::AnsiArt(head_content), left)
         }
-        None => HeadAsset::Default,
+        None => (HeadAsset::Default, HeadAsset::Default),
     };
 
     let color_scheme = match config.color {
@@ -399,7 +419,8 @@ fn load_user_preset(path: &std::path::Path) -> Option<MascotPreset> {
         id: config.id,
         display_name: config.display_name,
         description: config.description,
-        head,
+        head_right,
+        head_left,
         color_scheme,
         head_bounds: HeadBounds::default(),
         builtin: false,
@@ -495,7 +516,8 @@ mod tests {
             id: "custom-test".to_string(),
             display_name: "Test".to_string(),
             description: "A test preset".to_string(),
-            head: HeadAsset::Default,
+            head_right: HeadAsset::Default,
+            head_left: HeadAsset::Default,
             color_scheme: ColorScheme::identity(),
             head_bounds: HeadBounds::default(),
             builtin: false,

@@ -3,7 +3,7 @@
 use crate::agents::{AgentManager, AgentType};
 use crate::config::{AppConfig, Profile, ProfileManager};
 use crate::input::{key_to_action, MenuState, NavAction};
-use crate::mascot::{HeadAsset, MascotRegistry};
+use crate::mascot::{HeadAsset, MascotPreset, MascotRegistry};
 use crate::pixel_art::{self, mascots};
 use crate::text_input::{censor_sensitive, is_sensitive_key, TextInput};
 use crate::theme::{ColorScheme, ThemeColor, ThemePreset};
@@ -265,6 +265,8 @@ pub struct App {
     pub mascot_head_id: String,
     /// Whether the theme screen focus is on colors (false) or mascot heads (true)
     pub theme_focus_mascot: bool,
+    /// Cached full composite ANSI (106 cols, body + both heads baked in)
+    pub cached_composite_full: Option<String>,
 }
 
 impl App {
@@ -358,7 +360,46 @@ impl App {
             mascot_menu: MenuState::new(mascot_count),
             mascot_head_id,
             theme_focus_mascot: false,
+            cached_composite_full: None,
         })
+    }
+
+    /// Load or generate the full composite for the current preset.
+    /// Caches the result in `self.cached_composite_full`.
+    fn ensure_composite(&mut self) -> Option<String> {
+        if self.cached_composite_full.is_some() {
+            return self.cached_composite_full.clone();
+        }
+        // Build composite from the selected head entry
+        let head_entry = self.mascot_registry.get_head(&self.mascot_head_id)?;
+        let head_id = head_entry.id.clone();
+        let head_right = head_entry.head_right.clone();
+        let head_bounds = head_entry.head_bounds;
+
+        // Find matching preset for left head, or fall back to Default
+        let preset = self.mascot_registry.get(&head_id);
+        let head_left = preset
+            .map(|p| p.head_left.clone())
+            .unwrap_or(crate::mascot::HeadAsset::Default);
+
+        let synthetic = crate::mascot::MascotPreset {
+            id: head_id,
+            display_name: String::new(),
+            description: String::new(),
+            head_right,
+            head_left,
+            color_scheme: crate::theme::ColorScheme::identity(),
+            head_bounds,
+            builtin: false,
+        };
+        let composite = crate::sprite_cache::load_or_generate(&synthetic);
+        self.cached_composite_full = composite.clone();
+        composite
+    }
+
+    /// Invalidate the cached composite (call on preset change)
+    fn invalidate_composite(&mut self) {
+        self.cached_composite_full = None;
     }
 
     /// Refresh the cached installed version for a specific agent
@@ -431,6 +472,11 @@ impl App {
     /// Called on each tick to advance animation and poll async operations
     pub fn tick(&mut self) {
         self.animation_frame = self.animation_frame.wrapping_add(1);
+
+        // Lazy-init composite cache on first tick
+        if self.cached_composite_full.is_none() {
+            self.ensure_composite();
+        }
 
         // Poll async version fetch (drains all available agent version messages)
         if let Some(ref receiver) = self.version_fetch_receiver {
@@ -1414,10 +1460,13 @@ impl App {
                     // Selecting a mascot head
                     let heads = self.mascot_registry.all_heads();
                     if let Some(head) = heads.get(self.mascot_menu.selected) {
-                        self.mascot_head_id = head.id.clone();
-                        self.app_config.mascot_head = head.id.clone();
+                        let id = head.id.clone();
+                        let display_name = head.display_name.clone();
+                        self.mascot_head_id = id.clone();
+                        self.app_config.mascot_head = id;
                         let _ = self.profile_manager.save_app_config(&self.app_config);
-                        self.status_message = Some(format!("Head: {}", head.display_name));
+                        self.invalidate_composite();
+                        self.status_message = Some(format!("Head: {}", display_name));
                     }
                 } else {
                     // Selecting a color theme
@@ -1660,9 +1709,10 @@ impl App {
             let max_lines = figure_rect.height as usize;
             let art_lines: Vec<Line> = {
                 let scheme = ColorScheme::from_shift(self.theme_color.theme_shift());
-                let body = mascots::unleashed_claude_full();
-                // For animation, don't compose heads (full figure)
-                let grid = pixel_art::CellGrid::from_ansi(&body);
+                // Use cached composite (heads baked in) if available
+                let full_ansi = self.cached_composite_full.clone()
+                    .unwrap_or_else(|| mascots::unleashed_claude_full());
+                let grid = pixel_art::CellGrid::from_ansi(&full_ansi);
                 grid.to_ratatui_with_scheme(&scheme, max_lines)
             };
             let art_widget = Paragraph::new(art_lines).scroll((0, scroll_x));
@@ -1748,18 +1798,27 @@ impl App {
         frame.render_widget(art_widget, area);
     }
 
-    /// Render right-facing mascot art with current head + global theme color
+    /// Render right-facing mascot art with current head + global theme color.
+    /// Uses cached composite (head baked in) when available.
     fn render_mascot_art_right(&self, max_lines: usize) -> Vec<Line<'static>> {
+        let scheme = ColorScheme::from_shift(self.theme_color.theme_shift());
+
+        // Try cached composite: split right half from full sprite
+        if let Some(ref full_ansi) = self.cached_composite_full {
+            let grid = pixel_art::CellGrid::from_ansi(full_ansi);
+            let (_left, right) = grid.split_at_col(53);
+            return right.to_ratatui_with_scheme(&scheme, max_lines);
+        }
+
+        // Fallback: compose on the fly (first frame before cache is ready)
         let head_entry = self.mascot_registry.get_head(&self.mascot_head_id);
         let body = mascots::unleashed_claude();
-        let scheme = ColorScheme::from_shift(self.theme_color.theme_shift());
 
         if let Some(entry) = head_entry {
             let head_ansi = match &entry.head_right {
                 HeadAsset::AnsiArt(s) => Some(s.as_str()),
                 HeadAsset::Default => None,
             };
-
             pixel_art::compose_and_render_ratatui(&body, head_ansi, &entry.head_bounds, &scheme, max_lines)
         } else {
             // Fallback: no head found, render with theme color
@@ -1772,23 +1831,38 @@ impl App {
         }
     }
 
-    /// Render left-facing mascot art with current head + global theme color
+    /// Render left-facing mascot art with current head + global theme color.
+    /// Uses cached composite (head baked in) when available.
     fn render_mascot_art_left(&self, max_lines: usize) -> Vec<Line<'static>> {
-        let head_entry = self.mascot_registry.get_head(&self.mascot_head_id);
-        let body = mascots::unleashed_claude_left();
         let scheme = ColorScheme::from_shift(self.theme_color.theme_shift());
 
+        // Try cached composite: split left half from full sprite
+        if let Some(ref full_ansi) = self.cached_composite_full {
+            let grid = pixel_art::CellGrid::from_ansi(full_ansi);
+            let (left, _right) = grid.split_at_col(53);
+            return left.to_ratatui_with_scheme(&scheme, max_lines);
+        }
+
+        // Fallback: compose on the fly
+        let head_entry = self.mascot_registry.get_head(&self.mascot_head_id);
+        let body = mascots::unleashed_claude_left();
+
         if let Some(entry) = head_entry {
-            let head_ansi: Option<String> = match &entry.head_right {
-                HeadAsset::AnsiArt(_) => {
-                    self.get_left_head_for_id(&entry.id)
-                }
-                HeadAsset::Default => None,
-            };
+            // Use left-facing head for the left body half
+            let preset = self.mascot_registry.get(&entry.id);
+            let head_ansi: Option<&str> = preset
+                .and_then(|p| match &p.head_left {
+                    HeadAsset::AnsiArt(s) => Some(s.as_str()),
+                    HeadAsset::Default => None,
+                })
+                .or_else(|| match &entry.head_right {
+                    HeadAsset::AnsiArt(s) => Some(s.as_str()),
+                    HeadAsset::Default => None,
+                });
 
             pixel_art::compose_and_render_ratatui(
                 &body,
-                head_ansi.as_deref(),
+                head_ansi,
                 &entry.head_bounds,
                 &scheme,
                 max_lines,
@@ -1803,16 +1877,6 @@ impl App {
         }
     }
 
-    /// Get left-facing head art for a head ID
-    fn get_left_head_for_id(&self, head_id: &str) -> Option<String> {
-        match head_id {
-            "qwen" => Some(include_str!("../assets/heads/qwen-left.ans").to_string()),
-            "openai" => Some(include_str!("../assets/heads/openai-left.ans").to_string()),
-            "gemini" => Some(include_str!("../assets/heads/gemini-left.ans").to_string()),
-            "generic" => Some(include_str!("../assets/heads/generic-left.ans").to_string()),
-            _ => None,
-        }
-    }
 
     fn render_main_menu(&mut self, frame: &mut Frame, area: Rect) {
         // Split area for title and menu
@@ -2879,6 +2943,7 @@ mod tests {
             mascot_menu: MenuState::new(5),
             mascot_head_id: "default".to_string(),
             theme_focus_mascot: false,
+            cached_composite_full: None,
         };
 
         (app, temp)
