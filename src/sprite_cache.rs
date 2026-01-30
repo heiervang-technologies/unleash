@@ -48,14 +48,13 @@ pub fn generate_composite(preset: &MascotPreset) -> Option<String> {
     let mut grid = CellGrid::from_ansi(body_ansi);
     let bounds = &preset.head_bounds;
 
-    // Overlay right-facing head onto right half (columns 53+)
+    // Overlay right-facing head onto right half (columns 53+).
+    // The right half is a mirror of the left, so the x position must be
+    // mirrored: 53 + (53 - x_offset - head_width)
     if let HeadAsset::AnsiArt(ref head) = preset.head_right {
         let head_grid = CellGrid::from_ansi(head);
-        grid.overlay(
-            &head_grid,
-            53 + bounds.x_offset as usize,
-            bounds.y_offset as usize,
-        );
+        let mirrored_x = 53 + (53usize.saturating_sub(bounds.x_offset as usize + head_grid.width));
+        grid.overlay(&head_grid, mirrored_x, bounds.y_offset as usize);
     }
 
     // Overlay left-facing head onto left half (columns 0..53)
