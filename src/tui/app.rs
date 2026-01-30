@@ -259,11 +259,11 @@ pub struct App {
     // Mascot
     /// Mascot preset registry (built-in + user-defined)
     pub mascot_registry: MascotRegistry,
-    /// Menu state for mascot preset selection (within theme screen)
+    /// Menu state for mascot head selection (within theme screen)
     pub mascot_menu: MenuState,
-    /// Currently active mascot preset ID
-    pub mascot_preset_id: String,
-    /// Whether the theme screen focus is on colors (false) or mascots (true)
+    /// Currently active mascot head ID
+    pub mascot_head_id: String,
+    /// Whether the theme screen focus is on colors (false) or mascot heads (true)
     pub theme_focus_mascot: bool,
     /// Cached full composite ANSI (106 cols, body + both heads baked in)
     pub cached_composite_full: Option<String>,
@@ -300,8 +300,20 @@ impl App {
 
         let theme_color = ThemeColor::from_config(&app_config.theme).unwrap_or(ThemeColor::Preset(ThemePreset::Orange));
         let mascot_registry = MascotRegistry::with_user_presets();
-        let mascot_preset_id = app_config.mascot_preset.clone();
-        let mascot_count = mascot_registry.len();
+
+        // Migration: if mascot_head is still "default" but mascot_preset was set
+        // to a non-claude value, infer the head from the old preset ID.
+        let mascot_head_id = if app_config.mascot_head == "default" && app_config.mascot_preset != "claude" {
+            let inferred = app_config.mascot_preset.clone();
+            if mascot_registry.get_head(&inferred).is_some() {
+                inferred
+            } else {
+                app_config.mascot_head.clone()
+            }
+        } else {
+            app_config.mascot_head.clone()
+        };
+        let mascot_count = mascot_registry.head_count();
 
         Ok(Self {
             running: true,
@@ -346,7 +358,7 @@ impl App {
             theme_color,
             mascot_registry,
             mascot_menu: MenuState::new(mascot_count),
-            mascot_preset_id: mascot_preset_id.clone(),
+            mascot_head_id,
             theme_focus_mascot: false,
             cached_composite_full: None,
         })
@@ -358,8 +370,29 @@ impl App {
         if self.cached_composite_full.is_some() {
             return self.cached_composite_full.clone();
         }
-        let preset = self.mascot_registry.get(&self.mascot_preset_id)?;
-        let composite = crate::sprite_cache::load_or_generate(preset);
+        // Build composite from the selected head entry
+        let head_entry = self.mascot_registry.get_head(&self.mascot_head_id)?;
+        let head_id = head_entry.id.clone();
+        let head_right = head_entry.head_right.clone();
+        let head_bounds = head_entry.head_bounds;
+
+        // Find matching preset for left head, or fall back to Default
+        let preset = self.mascot_registry.get(&head_id);
+        let head_left = preset
+            .map(|p| p.head_left.clone())
+            .unwrap_or(crate::mascot::HeadAsset::Default);
+
+        let synthetic = crate::mascot::MascotPreset {
+            id: head_id,
+            display_name: String::new(),
+            description: String::new(),
+            head_right,
+            head_left,
+            color_scheme: crate::theme::ColorScheme::identity(),
+            head_bounds,
+            builtin: false,
+        };
+        let composite = crate::sprite_cache::load_or_generate(&synthetic);
         self.cached_composite_full = composite.clone();
         composite
     }
@@ -1424,16 +1457,16 @@ impl App {
             }
             NavAction::Select => {
                 if self.theme_focus_mascot {
-                    // Selecting a mascot preset
-                    let presets = self.mascot_registry.all();
-                    if let Some(preset) = presets.get(self.mascot_menu.selected) {
-                        let id = preset.id.clone();
-                        let display_name = preset.display_name.clone();
-                        self.mascot_preset_id = id.clone();
-                        self.app_config.mascot_preset = id;
+                    // Selecting a mascot head
+                    let heads = self.mascot_registry.all_heads();
+                    if let Some(head) = heads.get(self.mascot_menu.selected) {
+                        let id = head.id.clone();
+                        let display_name = head.display_name.clone();
+                        self.mascot_head_id = id.clone();
+                        self.app_config.mascot_head = id;
                         let _ = self.profile_manager.save_app_config(&self.app_config);
                         self.invalidate_composite();
-                        self.status_message = Some(format!("Mascot: {}", display_name));
+                        self.status_message = Some(format!("Head: {}", display_name));
                     }
                 } else {
                     // Selecting a color theme
@@ -1675,22 +1708,12 @@ impl App {
 
             let max_lines = figure_rect.height as usize;
             let art_lines: Vec<Line> = {
-                let preset = self.mascot_registry.get(&self.mascot_preset_id);
-                if let Some(preset) = preset {
-                    let scheme = self.effective_color_scheme(preset);
-                    // Use cached composite (heads baked in) if available
-                    let full_ansi = self.cached_composite_full.clone()
-                        .unwrap_or_else(|| mascots::unleashed_claude_full());
-                    let grid = pixel_art::CellGrid::from_ansi(&full_ansi);
-                    grid.to_ratatui_with_scheme(&scheme, max_lines)
-                } else {
-                    let shift = self.theme_color.theme_shift();
-                    if !shift.is_identity() {
-                        mascots::unleashed_claude_full_ratatui_themed(max_lines, shift)
-                    } else {
-                        mascots::unleashed_claude_full_ratatui(max_lines)
-                    }
-                }
+                let scheme = ColorScheme::from_shift(self.theme_color.theme_shift());
+                // Use cached composite (heads baked in) if available
+                let full_ansi = self.cached_composite_full.clone()
+                    .unwrap_or_else(|| mascots::unleashed_claude_full());
+                let grid = pixel_art::CellGrid::from_ansi(&full_ansi);
+                grid.to_ratatui_with_scheme(&scheme, max_lines)
             };
             let art_widget = Paragraph::new(art_lines).scroll((0, scroll_x));
             frame.render_widget(art_widget, figure_rect);
@@ -1775,30 +1798,30 @@ impl App {
         frame.render_widget(art_widget, area);
     }
 
-    /// Render right-facing mascot art with current preset's head + color scheme.
+    /// Render right-facing mascot art with current head + global theme color.
     /// Uses cached composite (head baked in) when available.
     fn render_mascot_art_right(&self, max_lines: usize) -> Vec<Line<'static>> {
-        let preset = self.mascot_registry.get(&self.mascot_preset_id);
+        let scheme = ColorScheme::from_shift(self.theme_color.theme_shift());
 
-        if let Some(preset) = preset {
-            let scheme = self.effective_color_scheme(preset);
+        // Try cached composite: split right half from full sprite
+        if let Some(ref full_ansi) = self.cached_composite_full {
+            let grid = pixel_art::CellGrid::from_ansi(full_ansi);
+            let (_left, right) = grid.split_at_col(53);
+            return right.to_ratatui_with_scheme(&scheme, max_lines);
+        }
 
-            // Try cached composite: split right half from full sprite
-            if let Some(ref full_ansi) = self.cached_composite_full {
-                let grid = pixel_art::CellGrid::from_ansi(full_ansi);
-                let (_left, right) = grid.split_at_col(53);
-                return right.to_ratatui_with_scheme(&scheme, max_lines);
-            }
+        // Fallback: compose on the fly (first frame before cache is ready)
+        let head_entry = self.mascot_registry.get_head(&self.mascot_head_id);
+        let body = mascots::unleashed_claude();
 
-            // Fallback: compose on the fly (first frame before cache is ready)
-            let body = mascots::unleashed_claude();
-            let head_ansi = match &preset.head_right {
+        if let Some(entry) = head_entry {
+            let head_ansi = match &entry.head_right {
                 HeadAsset::AnsiArt(s) => Some(s.as_str()),
                 HeadAsset::Default => None,
             };
-            pixel_art::compose_and_render_ratatui(&body, head_ansi, &preset.head_bounds, &scheme, max_lines)
+            pixel_art::compose_and_render_ratatui(&body, head_ansi, &entry.head_bounds, &scheme, max_lines)
         } else {
-            // Fallback: no preset found, use theme color
+            // Fallback: no head found, render with theme color
             let shift = self.theme_color.theme_shift();
             if !shift.is_identity() {
                 mascots::unleashed_claude_ratatui_themed(max_lines, shift)
@@ -1808,31 +1831,32 @@ impl App {
         }
     }
 
-    /// Render left-facing mascot art with current preset's head + color scheme.
+    /// Render left-facing mascot art with current head + global theme color.
     /// Uses cached composite (head baked in) when available.
     fn render_mascot_art_left(&self, max_lines: usize) -> Vec<Line<'static>> {
-        let preset = self.mascot_registry.get(&self.mascot_preset_id);
+        let scheme = ColorScheme::from_shift(self.theme_color.theme_shift());
 
-        if let Some(preset) = preset {
-            let scheme = self.effective_color_scheme(preset);
+        // Try cached composite: split left half from full sprite
+        if let Some(ref full_ansi) = self.cached_composite_full {
+            let grid = pixel_art::CellGrid::from_ansi(full_ansi);
+            let (left, _right) = grid.split_at_col(53);
+            return left.to_ratatui_with_scheme(&scheme, max_lines);
+        }
 
-            // Try cached composite: split left half from full sprite
-            if let Some(ref full_ansi) = self.cached_composite_full {
-                let grid = pixel_art::CellGrid::from_ansi(full_ansi);
-                let (left, _right) = grid.split_at_col(53);
-                return left.to_ratatui_with_scheme(&scheme, max_lines);
-            }
+        // Fallback: compose on the fly
+        let head_entry = self.mascot_registry.get_head(&self.mascot_head_id);
+        let body = mascots::unleashed_claude_left();
 
-            // Fallback: compose on the fly
-            let body = mascots::unleashed_claude_left();
-            let head_ansi = match &preset.head_left {
+        if let Some(entry) = head_entry {
+            let head_ansi: Option<&str> = match &entry.head_right {
                 HeadAsset::AnsiArt(s) => Some(s.as_str()),
                 HeadAsset::Default => None,
             };
+
             pixel_art::compose_and_render_ratatui(
                 &body,
-                head_ansi.as_deref(),
-                &preset.head_bounds,
+                head_ansi,
+                &entry.head_bounds,
                 &scheme,
                 max_lines,
             )
@@ -1848,13 +1872,13 @@ impl App {
 
     /// Get the effective color scheme: use preset's scheme if non-identity,
     /// otherwise use the global theme color.
+    #[allow(dead_code)]
     fn effective_color_scheme(&self, preset: &MascotPreset) -> ColorScheme {
         match &preset.color_scheme {
             ColorScheme::Gradient(_) => preset.color_scheme.clone(),
             ColorScheme::Solid { hue_shift, sat_scale } => {
                 let shift = crate::theme::ThemeShift { hue: *hue_shift, sat_scale: *sat_scale };
                 if shift.is_identity() {
-                    // Preset uses identity => defer to global theme color
                     ColorScheme::from_shift(self.theme_color.theme_shift())
                 } else {
                     preset.color_scheme.clone()
@@ -2273,7 +2297,13 @@ impl App {
         } else {
             Style::default().fg(Color::DarkGray)
         };
-        let color_header = Paragraph::new(Line::from(Span::styled("Color Theme", color_header_style)));
+        let color_header = Paragraph::new(Line::from(vec![
+            Span::styled("Color Theme", color_header_style),
+            Span::styled(
+                if !self.theme_focus_mascot { "  ↓ j/k  ⏎ select  ⇥ heads" } else { "  ⇥ heads" },
+                Style::default().fg(Color::DarkGray),
+            ),
+        ]));
         frame.render_widget(color_header, chunks[0]);
 
         let presets = ThemePreset::all();
@@ -2369,31 +2399,37 @@ impl App {
         let color_menu = List::new(color_items);
         frame.render_widget(color_menu, chunks[1]);
 
-        // ── Mascot Preset section ──
+        // ── Mascot Head section ──
         let mascot_header_style = if self.theme_focus_mascot {
             Style::default().fg(self.accent_color()).add_modifier(Modifier::BOLD)
         } else {
             Style::default().fg(Color::DarkGray)
         };
-        let mascot_header = Paragraph::new(Line::from(Span::styled("Mascot Preset", mascot_header_style)));
+        let mascot_header = Paragraph::new(Line::from(vec![
+            Span::styled("Mascot Head", mascot_header_style),
+            Span::styled(
+                if self.theme_focus_mascot { "  ↓ j/k  ⏎ select  ⇥ colors" } else { "  ⇥ heads" },
+                Style::default().fg(Color::DarkGray),
+            ),
+        ]));
         frame.render_widget(mascot_header, chunks[2]);
 
-        let mascot_presets = self.mascot_registry.all();
-        let mascot_items: Vec<ListItem> = mascot_presets
+        // Use the current accent color for all head swatches (heads are color-independent)
+        let accent = self.accent_color();
+        let mascot_heads = self.mascot_registry.all_heads();
+        let mascot_items: Vec<ListItem> = mascot_heads
             .iter()
             .enumerate()
-            .map(|(i, preset)| {
+            .map(|(i, head)| {
                 let is_selected = self.theme_focus_mascot && i == self.mascot_menu.selected;
-                let is_active = preset.id == self.mascot_preset_id;
-                let (r, g, b) = preset.accent_rgb();
-                let preview_color = Color::Rgb(r, g, b);
+                let is_active = head.id == self.mascot_head_id;
 
                 let style = if is_selected {
                     Style::default()
-                        .fg(preview_color)
+                        .fg(accent)
                         .add_modifier(Modifier::BOLD)
                 } else if is_active {
-                    Style::default().fg(preview_color)
+                    Style::default().fg(accent)
                 } else {
                     Style::default()
                 };
@@ -2401,22 +2437,11 @@ impl App {
                 let prefix = if is_selected { "> " } else { "  " };
                 let active_marker = if is_active { " *" } else { "" };
 
-                // Show gradient swatch for gradient presets
-                let swatch_spans = if preset.color_scheme.is_gradient() {
-                    // Multi-color swatch
-                    vec![
-                        Span::styled(prefix, style),
-                        Span::styled("\u{2588}", Style::default().fg(Color::Rgb(66, 133, 244))),
-                        Span::styled("\u{2588}", Style::default().fg(Color::Rgb(52, 168, 83))),
-                        Span::styled(format!(" {}{}", preset.display_name, active_marker), style),
-                    ]
-                } else {
-                    vec![
-                        Span::styled(prefix, style),
-                        Span::styled("\u{2588}\u{2588}", Style::default().fg(preview_color)),
-                        Span::styled(format!(" {}{}", preset.display_name, active_marker), style),
-                    ]
-                };
+                let swatch_spans = vec![
+                    Span::styled(prefix, style),
+                    Span::styled("\u{2588}\u{2588}", Style::default().fg(accent)),
+                    Span::styled(format!(" {}{}", head.display_name, active_marker), style),
+                ];
 
                 ListItem::new(vec![Line::from(swatch_spans)])
             })
@@ -2925,7 +2950,7 @@ mod tests {
             theme_color: ThemeColor::Preset(ThemePreset::Orange),
             mascot_registry: MascotRegistry::new(),
             mascot_menu: MenuState::new(5),
-            mascot_preset_id: "claude".to_string(),
+            mascot_head_id: "default".to_string(),
             theme_focus_mascot: false,
             cached_composite_full: None,
         };

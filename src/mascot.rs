@@ -157,6 +157,21 @@ fn preset_generic() -> MascotPreset {
     }
 }
 
+// ── Head entries ──────────────────────────────────────────────────────
+
+/// A standalone head entry: head overlay without any color binding.
+#[derive(Debug, Clone)]
+pub struct HeadEntry {
+    /// Unique identifier (e.g. "default", "qwen")
+    pub id: String,
+    /// Display name for the UI
+    pub display_name: String,
+    /// Head asset to overlay onto the body (right-facing)
+    pub head_right: HeadAsset,
+    /// Bounding box for head overlay
+    pub head_bounds: HeadBounds,
+}
+
 // ── Preset registry ────────────────────────────────────────────────────
 
 /// Registry of all available mascot presets (built-in + user-defined)
@@ -164,6 +179,8 @@ pub struct MascotRegistry {
     presets: HashMap<String, MascotPreset>,
     /// Ordered list of preset IDs for display
     order: Vec<String>,
+    /// Ordered list of head entries (independent of presets)
+    heads: Vec<HeadEntry>,
 }
 
 impl MascotRegistry {
@@ -180,12 +197,31 @@ impl MascotRegistry {
         let mut presets = HashMap::new();
         let mut order = Vec::new();
 
-        for preset in builtins {
+        for preset in &builtins {
             order.push(preset.id.clone());
-            presets.insert(preset.id.clone(), preset);
+            presets.insert(preset.id.clone(), preset.clone());
         }
 
-        Self { presets, order }
+        // Build head entries from built-in presets.
+        // The first entry is "default" (no head overlay), then one per non-default preset.
+        let mut heads = vec![HeadEntry {
+            id: "default".to_string(),
+            display_name: "Default".to_string(),
+            head_right: HeadAsset::Default,
+            head_bounds: HeadBounds::default(),
+        }];
+        for preset in &builtins {
+            if matches!(preset.head_right, HeadAsset::AnsiArt(_)) {
+                heads.push(HeadEntry {
+                    id: preset.id.clone(),
+                    display_name: preset.display_name.clone(),
+                    head_right: preset.head_right.clone(),
+                    head_bounds: preset.head_bounds,
+                });
+            }
+        }
+
+        Self { presets, order, heads }
     }
 
     /// Create registry and load user presets from config directory
@@ -216,8 +252,35 @@ impl MascotRegistry {
         self.presets.len()
     }
 
+    /// List all head entries in display order
+    pub fn all_heads(&self) -> &[HeadEntry] {
+        &self.heads
+    }
+
+    /// Get a head entry by ID
+    pub fn get_head(&self, id: &str) -> Option<&HeadEntry> {
+        self.heads.iter().find(|h| h.id == id)
+    }
+
+    /// Number of registered head entries
+    pub fn head_count(&self) -> usize {
+        self.heads.len()
+    }
+
     /// Register a user-defined preset
     pub fn register(&mut self, preset: MascotPreset) {
+        // Also register as a head entry if it has a custom head
+        if matches!(preset.head_right, HeadAsset::AnsiArt(_)) {
+            if !self.heads.iter().any(|h| h.id == preset.id) {
+                self.heads.push(HeadEntry {
+                    id: preset.id.clone(),
+                    display_name: preset.display_name.clone(),
+                    head_right: preset.head_right.clone(),
+                    head_bounds: preset.head_bounds,
+                });
+            }
+        }
+
         if !self.order.contains(&preset.id) {
             self.order.push(preset.id.clone());
         }
@@ -394,6 +457,32 @@ mod tests {
     fn test_default_preset_is_claude() {
         let registry = MascotRegistry::new();
         assert_eq!(registry.default_preset().id, "claude");
+    }
+
+    #[test]
+    fn test_all_heads_order() {
+        let registry = MascotRegistry::new();
+        let heads = registry.all_heads();
+        assert_eq!(heads[0].id, "default");
+        assert_eq!(heads[1].id, "qwen");
+        assert_eq!(heads[2].id, "openai");
+        assert_eq!(heads[3].id, "gemini");
+        assert_eq!(heads[4].id, "generic");
+        assert_eq!(heads.len(), 5);
+    }
+
+    #[test]
+    fn test_get_head() {
+        let registry = MascotRegistry::new();
+        assert!(registry.get_head("default").is_some());
+        assert!(registry.get_head("qwen").is_some());
+        assert!(registry.get_head("nonexistent").is_none());
+    }
+
+    #[test]
+    fn test_head_count() {
+        let registry = MascotRegistry::new();
+        assert_eq!(registry.head_count(), 5);
     }
 
     #[test]
