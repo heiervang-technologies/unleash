@@ -1848,10 +1848,17 @@ impl App {
         let body = mascots::unleashed_claude_left();
 
         if let Some(entry) = head_entry {
-            let head_ansi: Option<&str> = match &entry.head_right {
-                HeadAsset::AnsiArt(s) => Some(s.as_str()),
-                HeadAsset::Default => None,
-            };
+            // Use left-facing head for the left body half
+            let preset = self.mascot_registry.get(&entry.id);
+            let head_ansi: Option<&str> = preset
+                .and_then(|p| match &p.head_left {
+                    HeadAsset::AnsiArt(s) => Some(s.as_str()),
+                    HeadAsset::Default => None,
+                })
+                .or_else(|| match &entry.head_right {
+                    HeadAsset::AnsiArt(s) => Some(s.as_str()),
+                    HeadAsset::Default => None,
+                });
 
             pixel_art::compose_and_render_ratatui(
                 &body,
@@ -1870,22 +1877,6 @@ impl App {
         }
     }
 
-    /// Get the effective color scheme: use preset's scheme if non-identity,
-    /// otherwise use the global theme color.
-    #[allow(dead_code)]
-    fn effective_color_scheme(&self, preset: &MascotPreset) -> ColorScheme {
-        match &preset.color_scheme {
-            ColorScheme::Gradient(_) => preset.color_scheme.clone(),
-            ColorScheme::Solid { hue_shift, sat_scale } => {
-                let shift = crate::theme::ThemeShift { hue: *hue_shift, sat_scale: *sat_scale };
-                if shift.is_identity() {
-                    ColorScheme::from_shift(self.theme_color.theme_shift())
-                } else {
-                    preset.color_scheme.clone()
-                }
-            }
-        }
-    }
 
     fn render_main_menu(&mut self, frame: &mut Frame, area: Rect) {
         // Split area for title and menu
