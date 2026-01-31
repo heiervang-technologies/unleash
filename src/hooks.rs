@@ -354,18 +354,21 @@ impl HookManager {
     pub fn install_default_hooks(&self) -> io::Result<()> {
         // Install PreCompact hook
         let compact_script = r#"#!/usr/bin/env bash
-# compact-notify.sh - Notify Claude that compaction is complete
+# compact-notify.sh - Notify Claude that compaction happened
 #
-# This hook runs after conversation compaction and returns a message
-# to help Claude understand what happened.
+# This hook runs after conversation compaction and sends a wake-up
+# message to the terminal and back to Claude.
 
 set -euo pipefail
 
-# Output format for Claude Code hooks
+# Print to terminal (stderr) so the user sees it
+echo "COMPACTED" >&2
+
+# Return message to Claude via hook JSON
 cat <<'EOF'
 {
   "continue": true,
-  "message": "COMPACT COMPLETE. Previous context has been summarized. Continue with your current task."
+  "message": "COMPACTED"
 }
 EOF
 "#;
