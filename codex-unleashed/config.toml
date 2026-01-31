@@ -8,10 +8,47 @@ base_url = "https://openrouter.ai/api/v1"
 env_key = "OPENROUTER_API_KEY"
 wire_api = "responses"
 
+[model_providers.llamacpp]
+name = "llama.cpp"
+base_url = "http://llm.ht.local/v1"
+wire_api = "chat"
+
 # Profile for Minimax model
 [profiles.minimax]
 model = "minimax/minimax-m2.1"
 model_provider = "openrouter"
 
+# Local llama.cpp models
+[profiles.borealis]
+model = "borealis-4b"
+model_provider = "llamacpp"
+
+[profiles.devstral]
+model = "devstral-24b"
+model_provider = "llamacpp"
+
+[profiles.gemma-1b]
+model = "gemma-3-1b-it"
+model_provider = "llamacpp"
+
+[profiles.gemma-27b]
+model = "gemma-3-27b-it-qat"
+model_provider = "llamacpp"
+
+[profiles.glm-flash]
+model = "glm-4.7-flash"
+model_provider = "llamacpp"
+
+[profiles.orchestrator]
+model = "nvidia-orchestrator-8b"
+model_provider = "llamacpp"
+
+[profiles.qwen-coder]
+model = "qwen3-coder-30b"
+model_provider = "llamacpp"
+
 [projects."/home/me/claude-unleashed"]
+trust_level = "trusted"
+
+[projects."/home/me/dotfiles/private"]
 trust_level = "trusted"
