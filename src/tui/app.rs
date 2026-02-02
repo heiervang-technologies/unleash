@@ -6,7 +6,9 @@ use crate::input::{key_to_action, MenuState, NavAction};
 use crate::pixel_art::mascots;
 use crate::text_input::{censor_sensitive, is_sensitive_key, TextInput};
 use crate::theme::{ThemeColor, ThemePreset};
-use crate::version::{get_version_filter_mode_for, is_version_allowed_for, is_whitelisted_for, is_blacklisted_for, InstallResult, VersionFilterMode, VersionInfo, VersionManager};
+use crate::version::{get_version_filter_mode_for, is_version_allowed_for, InstallResult, VersionFilterMode, VersionInfo, VersionManager};
+#[cfg(test)]
+use crate::version::{is_whitelisted_for, is_blacklisted_for};
 
 use crossterm::event::{Event, KeyCode, KeyEvent, KeyModifiers};
 use ratatui::{

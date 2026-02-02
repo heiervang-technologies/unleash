@@ -179,6 +179,7 @@ pub fn is_whitelisted_for(version: &str, agent: AgentType) -> bool {
 }
 
 /// Check if a version is whitelisted (Claude Code, for backward compat)
+#[allow(dead_code)]
 pub fn is_whitelisted(version: &str) -> bool {
     is_whitelisted_for(version, AgentType::Claude)
 }
@@ -189,6 +190,7 @@ pub fn is_blacklisted_for(version: &str, agent: AgentType) -> bool {
 }
 
 /// Check if a version is blacklisted (Claude Code, for backward compat)
+#[allow(dead_code)]
 pub fn is_blacklisted(version: &str) -> bool {
     is_blacklisted_for(version, AgentType::Claude)
 }
@@ -361,8 +363,8 @@ impl VersionManager {
                     version: v.clone(),
                     is_installed: installed.as_ref() == Some(v),
                     has_patch: true,
-                    is_whitelisted: is_whitelisted(v),
-                    is_blacklisted: is_blacklisted(v),
+                    is_whitelisted: is_whitelisted_for(v, AgentType::Claude),
+                    is_blacklisted: is_blacklisted_for(v, AgentType::Claude),
                 });
             }
         }
@@ -374,8 +376,8 @@ impl VersionManager {
                     version: v.clone(),
                     is_installed: installed.as_ref() == Some(v),
                     has_patch: supported.contains(v),
-                    is_whitelisted: is_whitelisted(v),
-                    is_blacklisted: is_blacklisted(v),
+                    is_whitelisted: is_whitelisted_for(v, AgentType::Claude),
+                    is_blacklisted: is_blacklisted_for(v, AgentType::Claude),
                 });
             }
         }
@@ -502,14 +504,16 @@ impl VersionManager {
 
         if output.status.success() {
             let tag_output = String::from_utf8_lossy(&output.stdout);
-            let versions: Vec<String> = tag_output
+            let mut versions: Vec<String> = tag_output
                 .lines()
                 .filter(|line| line.starts_with("rust-v"))
                 .filter(|line| !line.contains("alpha"))
                 .map(|line| line.trim_start_matches("rust-v").to_string())
-                .filter(|v| !v.is_empty())
-                .take(20)
+                .filter(|v| !v.is_empty() && v.starts_with(|c: char| c.is_ascii_digit()))
                 .collect();
+            // Sort newest first, then take top 20
+            versions.sort_by(|a, b| version_compare(b, a));
+            versions.truncate(20);
             Ok(versions)
         } else {
             Err(io::Error::new(
@@ -555,6 +559,15 @@ impl VersionManager {
             });
         }
 
+        // Save current HEAD so we can restore on failure
+        let prev_head = Command::new("git")
+            .args(["rev-parse", "HEAD"])
+            .current_dir(&codex_dir)
+            .output()
+            .ok()
+            .filter(|o| o.status.success())
+            .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string());
+
         // Fetch tags and checkout the specific version
         let tag = format!("rust-v{}", version);
 
@@ -598,6 +611,25 @@ impl VersionManager {
         if build_output.status.success() {
             // Install the binary
             let binary_path = codex_rs_dir.join("target/release/codex");
+            if !binary_path.exists() {
+                // Restore previous HEAD before returning
+                if let Some(ref prev) = prev_head {
+                    let _ = Command::new("git")
+                        .args(["checkout", prev])
+                        .current_dir(&codex_dir)
+                        .output();
+                }
+                return Ok(InstallResult {
+                    success: false,
+                    stdout,
+                    stderr,
+                    error: Some(format!(
+                        "Build succeeded but binary not found at {}",
+                        binary_path.display()
+                    )),
+                });
+            }
+
             let install_path = dirs::home_dir()
                 .ok_or_else(|| io::Error::new(io::ErrorKind::NotFound, "Home dir not found"))?
                 .join(".local/bin/codex");
@@ -612,6 +644,13 @@ impl VersionManager {
                 error: None,
             })
         } else {
+            // Build failed - restore previous HEAD
+            if let Some(ref prev) = prev_head {
+                let _ = Command::new("git")
+                    .args(["checkout", prev])
+                    .current_dir(&codex_dir)
+                    .output();
+            }
             Ok(InstallResult {
                 success: false,
                 stdout,
@@ -657,7 +696,7 @@ impl Default for VersionManager {
 }
 
 /// Compare version strings (semver-like)
-pub fn version_compare(a: &str, b: &str) -> std::cmp::Ordering {
+pub(crate) fn version_compare(a: &str, b: &str) -> std::cmp::Ordering {
     let parse = |s: &str| -> Vec<u32> {
         s.split('.')
             .map(|p| p.parse::<u32>().unwrap_or(0))
