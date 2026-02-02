@@ -58,6 +58,14 @@ if [[ "$(basename "$CLAUDE_REAL")" != "cli.js" ]]; then
 fi
 
 if [[ ! -f "$CLI_JS" ]]; then
+    # Fallback: try npm global root (for managed binary setups)
+    NPM_ROOT=$(npm root -g 2>/dev/null || echo "")
+    if [[ -n "$NPM_ROOT" ]]; then
+        CLI_JS="$NPM_ROOT/@anthropic-ai/claude-code/cli.js"
+    fi
+fi
+
+if [[ ! -f "$CLI_JS" ]]; then
     echo "Error: cli.js not found at $CLI_JS"
     exit 1
 fi

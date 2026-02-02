@@ -331,6 +331,22 @@ impl VersionManager {
         let stderr = String::from_utf8_lossy(&output.stderr).to_string();
 
         if output.status.success() {
+            // After install, update symlink to npm-installed cli.js
+            if let Ok(npm_output) = Command::new("npm").args(["root", "-g"]).output() {
+                if npm_output.status.success() {
+                    let npm_root = String::from_utf8_lossy(&npm_output.stdout).trim().to_string();
+                    let cli_js = PathBuf::from(&npm_root).join("@anthropic-ai/claude-code/cli.js");
+                    if cli_js.exists() {
+                        if let Some(home) = dirs::home_dir() {
+                            let bin_claude = home.join(".local/bin/claude");
+                            let _ = std::fs::remove_file(&bin_claude);
+                            #[cfg(unix)]
+                            std::os::unix::fs::symlink(&cli_js, &bin_claude).ok();
+                        }
+                    }
+                }
+            }
+
             Ok(InstallResult {
                 success: true,
                 stdout,

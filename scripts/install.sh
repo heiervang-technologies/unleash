@@ -35,6 +35,87 @@ success() { echo -e "${GREEN}==>${NC} $1"; }
 warn() { echo -e "${YELLOW}==>${NC} $1"; }
 error() { echo -e "${RED}==>${NC} $1"; }
 
+# --- Version filtering (mirrors Rust logic in src/version.rs) ---
+
+# Parse the version filter mode from user config or Cargo.toml default
+get_filter_mode() {
+    local user_config="$HOME/.config/agent-unleashed/config.toml"
+    if [[ -f "$user_config" ]]; then
+        local mode
+        mode=$(grep -m1 'version_filter_mode' "$user_config" 2>/dev/null | sed 's/.*=//;s/[" '\'']*//g;s/[[:space:]]//g')
+        if [[ -n "$mode" ]]; then
+            echo "$mode"
+            return
+        fi
+    fi
+    # Parse default from Cargo.toml
+    sed -n '/\[package\.metadata\.claude-code-versions\]/,/^\[/p' "$REPO_ROOT/Cargo.toml" | \
+        grep -m1 'default_mode' | sed 's/.*=//;s/[" '\'']*//g;s/[[:space:]]//g'
+}
+
+# Get whitelist versions (user override or Cargo.toml default), one per line
+get_whitelist() {
+    local user_file="$HOME/.config/agent-unleashed/whitelist.txt"
+    if [[ -f "$user_file" ]]; then
+        grep -v '^\s*#' "$user_file" | grep -v '^\s*$' | sed 's/[[:space:]]//g'
+        return
+    fi
+    sed -n '/\[package\.metadata\.claude-code-whitelist\]/,/^\[/p' "$REPO_ROOT/Cargo.toml" | \
+        grep '^versions\s*=' | sed 's/.*\[//;s/\].*//;s/"//g;s/,/\n/g' | sed 's/[[:space:]]//g' | grep -v '^$'
+}
+
+# Get blacklist versions (user override or Cargo.toml default), one per line
+get_blacklist() {
+    local user_file="$HOME/.config/agent-unleashed/blacklist.txt"
+    if [[ -f "$user_file" ]]; then
+        grep -v '^\s*#' "$user_file" | grep -v '^\s*$' | sed 's/[[:space:]]//g'
+        return
+    fi
+    sed -n '/\[package\.metadata\.claude-code-blacklist\]/,/^\[/p' "$REPO_ROOT/Cargo.toml" | \
+        grep '^versions\s*=' | sed 's/.*\[//;s/\].*//;s/"//g;s/,/\n/g' | sed 's/[[:space:]]//g' | grep -v '^$'
+}
+
+# Resolve "latest" to the newest allowed version from npm
+# Returns the version string, or empty if none found
+resolve_latest_allowed() {
+    local mode
+    mode=$(get_filter_mode)
+
+    # Get all npm versions (newest first)
+    local npm_versions
+    npm_versions=$(npm view @anthropic-ai/claude-code versions --json 2>/dev/null | \
+        grep -o '"[^"]*"' | tr -d '"' | tac)
+
+    if [[ -z "$npm_versions" ]]; then
+        return 1
+    fi
+
+    if [[ "$mode" == "blacklist" ]]; then
+        local blacklist
+        blacklist=$(get_blacklist)
+        while IFS= read -r ver; do
+            [[ -z "$ver" ]] && continue
+            if ! echo "$blacklist" | grep -qx "$ver"; then
+                echo "$ver"
+                return
+            fi
+        done <<< "$npm_versions"
+    else
+        # whitelist mode (default)
+        local whitelist
+        whitelist=$(get_whitelist)
+        while IFS= read -r ver; do
+            [[ -z "$ver" ]] && continue
+            if echo "$whitelist" | grep -qx "$ver"; then
+                echo "$ver"
+                return
+            fi
+        done <<< "$npm_versions"
+    fi
+
+    return 1
+}
+
 # Parse arguments
 BUILD_TUI=true
 RUN_PATCH=true
@@ -144,15 +225,23 @@ if $INSTALL_CLAUDE_CODE; then
         # Determine target version
         TARGET_VERSION="$CLAUDE_CODE_VERSION"
         if [[ "$TARGET_VERSION" == "latest" ]]; then
-            NPM_LATEST=$(npm view @anthropic-ai/claude-code version 2>/dev/null || echo "")
-            if [[ -n "$NPM_LATEST" ]]; then
-                TARGET_VERSION="$NPM_LATEST"
-                info "Latest available version: v${TARGET_VERSION}"
+            FILTER_MODE=$(get_filter_mode)
+            info "Version filter mode: ${FILTER_MODE}"
+            RESOLVED=$(resolve_latest_allowed)
+            if [[ -n "$RESOLVED" ]]; then
+                TARGET_VERSION="$RESOLVED"
+                info "Latest allowed version: v${TARGET_VERSION}"
+            else
+                warn "No allowed version found in npm registry"
+                warn "Check your whitelist in Cargo.toml or ~/.config/agent-unleashed/whitelist.txt"
+                TARGET_VERSION=""
             fi
         fi
 
         # Check if update needed
-        if [[ -n "$CURRENT_VERSION" ]] && [[ "$CURRENT_VERSION" == "$TARGET_VERSION" ]]; then
+        if [[ -z "$TARGET_VERSION" ]]; then
+            warn "Skipping Claude Code install (no target version)"
+        elif [[ -n "$CURRENT_VERSION" ]] && [[ "$CURRENT_VERSION" == "$TARGET_VERSION" ]]; then
             success "Claude Code is already up to date (v${CURRENT_VERSION})"
         else
             if [[ -n "$CURRENT_VERSION" ]]; then
@@ -161,38 +250,20 @@ if $INSTALL_CLAUDE_CODE; then
                 info "Installing Claude Code v${TARGET_VERSION}..."
             fi
 
-            if [[ "$CLAUDE_CODE_VERSION" == "latest" ]]; then
-                npm install -g @anthropic-ai/claude-code
-            else
-                npm install -g "@anthropic-ai/claude-code@${CLAUDE_CODE_VERSION}"
-            fi
+            npm install -g --force "@anthropic-ai/claude-code@${TARGET_VERSION}"
 
             NEW_VERSION=$(claude --version 2>/dev/null | head -1 | sed 's/ (Claude Code)//' || echo "unknown")
             success "Claude Code installed: v${NEW_VERSION}"
         fi
 
-        # Create symlink for claude binary in BIN_DIR
-        CLAUDE_BIN=$(command -v claude 2>/dev/null || true)
-        if [[ -n "$CLAUDE_BIN" ]]; then
-            # Resolve to actual binary path to avoid circular symlinks
-            # (e.g., when ~/.local/bin/claude is already a symlink and in PATH)
-            CLAUDE_REAL=$(readlink -f "$CLAUDE_BIN" 2>/dev/null || realpath "$CLAUDE_BIN" 2>/dev/null || echo "$CLAUDE_BIN")
-            TARGET_PATH="$BIN_DIR/claude"
-
-            # Get real path of target to compare (if it exists)
-            TARGET_REAL=""
-            if [[ -e "$TARGET_PATH" ]] || [[ -L "$TARGET_PATH" ]]; then
-                TARGET_REAL=$(readlink -f "$TARGET_PATH" 2>/dev/null || realpath "$TARGET_PATH" 2>/dev/null || echo "$TARGET_PATH")
-            fi
-
-            if [[ "$CLAUDE_REAL" == "$TARGET_REAL" ]]; then
-                success "Symlink already correct: $TARGET_PATH"
-            elif [[ ! -e "$TARGET_PATH" ]] || [[ -L "$TARGET_PATH" ]]; then
-                ln -sf "$CLAUDE_REAL" "$TARGET_PATH"
-                success "Symlink: $TARGET_PATH -> $CLAUDE_REAL"
-            else
-                warn "$TARGET_PATH exists and is not a symlink, skipping"
-            fi
+        # After npm install, point claude symlink to the npm-installed cli.js
+        NPM_ROOT=$(npm root -g 2>/dev/null || echo "")
+        NPM_CLAUDE="$NPM_ROOT/@anthropic-ai/claude-code/cli.js"
+        if [[ -f "$NPM_CLAUDE" ]]; then
+            ln -sf "$NPM_CLAUDE" "$BIN_DIR/claude"
+            success "Symlink: $BIN_DIR/claude -> $NPM_CLAUDE"
+        else
+            warn "Could not find npm-installed cli.js at $NPM_CLAUDE"
         fi
     else
         warn "npm not found, skipping Claude Code installation"
@@ -205,6 +276,18 @@ if $BUILD_TUI; then
     if command -v cargo &> /dev/null; then
         info "Building CLI binaries..."
         cd "$REPO_ROOT"
+
+        # Detect fast linker (clang + mold) and use if available
+        if command -v clang &> /dev/null && command -v mold &> /dev/null; then
+            info "Using fast linker: clang + mold"
+            export CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_LINKER=clang
+            export CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_RUSTFLAGS="-C link-arg=-fuse-ld=mold"
+        else
+            if ! command -v mold &> /dev/null; then
+                info "mold not found, using default linker (install mold for faster builds)"
+            fi
+        fi
+
         if cargo build --release; then
             success "CLI built successfully"
 
