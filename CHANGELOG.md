@@ -1,5 +1,12 @@
 # Changelog
 
+## [5.1.1](https://github.com/heiervang-technologies/agent-unleashed/compare/v5.1.0...v5.1.1) (2026-02-02)
+
+
+### Bug Fixes
+
+* handle multiline TOML stop_prompt in auto-mode hook ([#115](https://github.com/heiervang-technologies/agent-unleashed/issues/115)) ([8ac908b](https://github.com/heiervang-technologies/agent-unleashed/commit/8ac908ba0f7f11fee845b11bffccb7bad7d39745))
+
 ## [5.1.0](https://github.com/heiervang-technologies/agent-unleashed/compare/v5.0.2...v5.1.0) (2026-02-02)
 
 
