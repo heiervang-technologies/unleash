@@ -1,5 +1,12 @@
 # Changelog
 
+## [5.0.2](https://github.com/heiervang-technologies/agent-unleashed/compare/v5.0.1...v5.0.2) (2026-02-02)
+
+
+### Bug Fixes
+
+* point claude symlink to npm cli.js instead of managed binary ([#111](https://github.com/heiervang-technologies/agent-unleashed/issues/111)) ([e1b06f2](https://github.com/heiervang-technologies/agent-unleashed/commit/e1b06f23462797579eb690399d21a34282675373))
+
 ## [5.0.1](https://github.com/heiervang-technologies/agent-unleashed/compare/v5.0.0...v5.0.1) (2026-01-29)
 
 
