@@ -602,30 +602,44 @@ impl App {
 
     /// Get the default stop prompt from the hook script (source of truth)
     fn get_default_stop_prompt(&self) -> String {
-        // Read from the auto-mode-stop.sh hook script
-        let hook_path = std::env::var("CLAUDE_UNLEASHED_ROOT")
-            .map(|root| format!("{}/plugins/unleashed/auto-mode/hooks/auto-mode-stop.sh", root))
-            .unwrap_or_else(|_| {
-                // Fallback: try to find relative to executable
-                let exe = std::env::current_exe().ok();
-                exe.and_then(|p| p.parent().map(|p| p.to_path_buf()))
-                    .map(|p| p.join("../plugins/unleashed/auto-mode/hooks/auto-mode-stop.sh").to_string_lossy().to_string())
-                    .unwrap_or_default()
-            });
+        const HOOK_RELATIVE: &str = "plugins/unleashed/auto-mode/hooks/auto-mode-stop.sh";
+        const FALLBACK_MSG: &str = "You ended your turn, but you are in auto-mode. If you are awaiting a decision, select your recommended decision. If you are done, consider that you have covered all other diligences, testing, documentation, technical debt and cleanup. Use the executables (in PATH) 'restart-claude' if you need to restart yourself, and 'exit-claude' if you are truly done with all your tasks.";
 
-        if let Ok(content) = std::fs::read_to_string(&hook_path) {
-            // Parse DEFAULT_MSG="..." from the script
-            for line in content.lines() {
-                if let Some(rest) = line.trim().strip_prefix("DEFAULT_MSG=\"") {
-                    if let Some(msg) = rest.strip_suffix('"') {
-                        return msg.to_string();
+        // Build candidate paths to search
+        let mut candidates: Vec<String> = Vec::new();
+
+        // 1. CLAUDE_UNLEASHED_ROOT env var
+        if let Ok(root) = std::env::var("CLAUDE_UNLEASHED_ROOT") {
+            candidates.push(format!("{}/{}", root, HOOK_RELATIVE));
+        }
+
+        // 2. Relative to executable (e.g. ~/.local/bin/../plugins/...)
+        if let Ok(exe) = std::env::current_exe() {
+            if let Some(parent) = exe.parent() {
+                candidates.push(parent.join("..").join(HOOK_RELATIVE).to_string_lossy().to_string());
+            }
+        }
+
+        // 3. Installed location (~/.local/share/agent-unleashed/plugins/...)
+        if let Ok(home) = std::env::var("HOME") {
+            candidates.push(format!("{}/.local/share/agent-unleashed/{}", home, HOOK_RELATIVE));
+        }
+
+        for path in &candidates {
+            if let Ok(content) = std::fs::read_to_string(path) {
+                // Parse DEFAULT_MSG="..." from the script
+                for line in content.lines() {
+                    if let Some(rest) = line.trim().strip_prefix("DEFAULT_MSG=\"") {
+                        if let Some(msg) = rest.strip_suffix('"') {
+                            return msg.to_string();
+                        }
                     }
                 }
             }
         }
 
-        // Fallback if we can't read the script
-        "(unable to read default from hook script)".to_string()
+        // Hardcoded fallback matching the hook script's DEFAULT_MSG
+        FALLBACK_MSG.to_string()
     }
 
     /// Show cached version list immediately, then fetch fresh data async.
@@ -812,17 +826,7 @@ impl App {
                 if key.modifiers.contains(KeyModifiers::CONTROL) {
                     match c {
                         'a' => input.move_home(),      // Ctrl+A: go to start
-                        'e' => {
-                            // Ctrl+E: External editor for StopPrompt, otherwise go to end
-                            if self.edit_field == EditField::StopPrompt {
-                                // Set pending external edit with current value
-                                self.pending_external_edit = Some(self.key_input.value.clone());
-                                self.edit_field = EditField::None;
-                                return None;
-                            } else {
-                                input.move_end();
-                            }
-                        }
+                        'e' => input.move_end(),      // Ctrl+E: go to end
                         'w' => input.delete_word_back(), // Ctrl+W: delete word
                         'u' => input.delete_to_start(), // Ctrl+U: delete to start
                         'k' => input.delete_to_end(),  // Ctrl+K: delete to end
@@ -1340,11 +1344,10 @@ impl App {
                         self.edit_field = EditField::ClaudeArgs;
                     }
                     2 => {
-                        // Edit stop prompt - read default from hook script (source of truth)
+                        // Edit stop prompt - open directly in $EDITOR
                         let default_prompt = self.get_default_stop_prompt();
                         let current = self.app_config.stop_prompt.clone().unwrap_or(default_prompt);
-                        self.key_input = TextInput::new().with_value(&current);
-                        self.edit_field = EditField::StopPrompt;
+                        self.pending_external_edit = Some(current);
                     }
                     3 => {
                         // Reset settings to defaults
@@ -1988,7 +1991,7 @@ impl App {
         let settings: Vec<(&str, String, &str)> = vec![
             ("Entry Point", self.app_config.claude_path.clone(), "Command to launch (e.g., claude)"),
             ("Arguments", args_str, "Additional command-line arguments"),
-            ("Stop Prompt", stop_prompt_display, "Auto-mode stop hook message (empty = default)"),
+            ("Stop Prompt", stop_prompt_display, "Opens in $EDITOR (empty = default)"),
             ("Reset Settings", "".to_string(), "Reset all settings to defaults"),
         ];
 
@@ -2209,9 +2212,6 @@ impl App {
             Line::from("  Tab      Switch field"),
             Line::from("  Enter    Save"),
             Line::from("  Esc      Cancel"),
-            Line::from(""),
-            Line::from(Span::styled("In Settings (Stop Prompt):", Style::default().add_modifier(Modifier::BOLD))),
-            Line::from("  Ctrl+E   Open in external editor ($EDITOR)"),
         ];
 
         let total_lines = lines.len() as u16;
