@@ -31,9 +31,19 @@ if [[ -f "${AUTO_MODE_FILE}" ]]; then
         # 1. Session-specific reminder (highest priority)
         REASON=$(cat "${REMINDER_FILE}")
     elif [[ -f "${CONFIG_FILE}" ]]; then
-        # 2. Global config from config.toml
-        GLOBAL_PROMPT=$(grep -E "^stop_prompt\s*=" "${CONFIG_FILE}" 2>/dev/null | \
-            sed -E 's/^stop_prompt\s*=\s*"(.*)"\s*$/\1/' | head -1)
+        # 2. Global config from config.toml (handles single-line and multiline TOML)
+        GLOBAL_PROMPT=$(python3 -c "
+import sys, json
+try:
+    import tomllib
+except ImportError:
+    import tomli as tomllib
+with open(sys.argv[1], 'rb') as f:
+    c = tomllib.load(f)
+v = c.get('stop_prompt', '')
+if v:
+    print(v, end='')
+" "${CONFIG_FILE}" 2>/dev/null)
         if [[ -n "${GLOBAL_PROMPT}" ]]; then
             REASON="${GLOBAL_PROMPT}"
         else
@@ -44,13 +54,10 @@ if [[ -f "${AUTO_MODE_FILE}" ]]; then
         REASON="${DEFAULT_MSG}"
     fi
 
-    # Auto mode is active - redirect to check MCP before stopping
-    cat <<EOF
-{
-  "decision": "block",
-  "reason": "${REASON}"
-}
-EOF
+    # Emit JSON with proper escaping via python
+    printf '%s' "${REASON}" | python3 -c "
+import json, sys
+print(json.dumps({'decision': 'block', 'reason': sys.stdin.read()}))"
     exit 0
 fi
 
