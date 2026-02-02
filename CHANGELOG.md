@@ -1,5 +1,12 @@
 # Changelog
 
+## [5.1.0](https://github.com/heiervang-technologies/agent-unleashed/compare/v5.0.2...v5.1.0) (2026-02-02)
+
+
+### Features
+
+* add Claude Code 2.1.29 patch support and fix stop prompt handling ([#113](https://github.com/heiervang-technologies/agent-unleashed/issues/113)) ([acd736a](https://github.com/heiervang-technologies/agent-unleashed/commit/acd736a46f384e52d0e7ac34260a859a1a16fcb3))
+
 ## [5.0.2](https://github.com/heiervang-technologies/agent-unleashed/compare/v5.0.1...v5.0.2) (2026-02-02)
 
 
