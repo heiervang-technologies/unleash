@@ -545,147 +545,111 @@ impl VersionManager {
         versions
     }
 
-    /// Install a specific Codex version by checking out the tag and building from source
+    /// Install a specific Codex version by downloading prebuilt binaries from GitHub releases
     pub fn install_codex_version(&self, version: &str) -> io::Result<InstallResult> {
-        let codex_dir = Self::find_codex_submodule()?;
-        let codex_rs_dir = codex_dir.join("codex-rs");
+        let tag = format!("rust-v{}", version);
+        let asset_name = Self::codex_asset_name();
 
-        if !codex_rs_dir.exists() {
+        let install_dir = dirs::home_dir()
+            .ok_or_else(|| io::Error::new(io::ErrorKind::NotFound, "Home dir not found"))?
+            .join(".local/bin");
+        fs::create_dir_all(&install_dir)?;
+
+        // Download to a temp directory
+        let tmp_dir = std::env::temp_dir().join(format!("codex-install-{}", version));
+        let _ = fs::remove_dir_all(&tmp_dir);
+        fs::create_dir_all(&tmp_dir)?;
+
+        // Download the main codex binary tarball
+        let download = Command::new("gh")
+            .args([
+                "release", "download", &tag,
+                "--repo", "openai/codex",
+                "--pattern", &format!("{}.tar.gz", asset_name),
+                "--dir", tmp_dir.to_str().unwrap_or("/tmp"),
+            ])
+            .output()?;
+
+        if !download.status.success() {
+            let _ = fs::remove_dir_all(&tmp_dir);
+            return Ok(InstallResult {
+                success: false,
+                stdout: String::from_utf8_lossy(&download.stdout).to_string(),
+                stderr: String::from_utf8_lossy(&download.stderr).to_string(),
+                error: Some(format!(
+                    "Failed to download {} from release {}",
+                    asset_name, tag
+                )),
+            });
+        }
+
+        // Extract the tarball
+        let extract = Command::new("tar")
+            .args(["xzf", &format!("{}.tar.gz", asset_name)])
+            .current_dir(&tmp_dir)
+            .output()?;
+
+        if !extract.status.success() {
+            let _ = fs::remove_dir_all(&tmp_dir);
+            return Ok(InstallResult {
+                success: false,
+                stdout: String::from_utf8_lossy(&extract.stdout).to_string(),
+                stderr: String::from_utf8_lossy(&extract.stderr).to_string(),
+                error: Some("Failed to extract tarball".to_string()),
+            });
+        }
+
+        // Install the binary
+        let extracted_binary = tmp_dir.join(&asset_name);
+        let install_path = install_dir.join("codex");
+
+        if !extracted_binary.exists() {
+            let _ = fs::remove_dir_all(&tmp_dir);
             return Ok(InstallResult {
                 success: false,
                 stdout: String::new(),
-                stderr: "codex-rs directory not found in submodule".to_string(),
-                error: Some("codex-rs directory not found".to_string()),
+                stderr: format!("Expected binary {} not found in archive", asset_name),
+                error: Some(format!("Binary {} not found after extraction", asset_name)),
             });
         }
 
-        // Save current HEAD so we can restore on failure
-        let prev_head = Command::new("git")
-            .args(["rev-parse", "HEAD"])
-            .current_dir(&codex_dir)
-            .output()
-            .ok()
-            .filter(|o| o.status.success())
-            .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string());
-
-        // Fetch tags and checkout the specific version
-        let tag = format!("rust-v{}", version);
-
-        let fetch_output = Command::new("git")
-            .args(["fetch", "--tags"])
-            .current_dir(&codex_dir)
-            .output()?;
-
-        if !fetch_output.status.success() {
-            return Ok(InstallResult {
-                success: false,
-                stdout: String::from_utf8_lossy(&fetch_output.stdout).to_string(),
-                stderr: String::from_utf8_lossy(&fetch_output.stderr).to_string(),
-                error: Some("Failed to fetch tags".to_string()),
-            });
+        fs::copy(&extracted_binary, &install_path)?;
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let mut perms = fs::metadata(&install_path)?.permissions();
+            perms.set_mode(0o755);
+            fs::set_permissions(&install_path, perms)?;
         }
 
-        let checkout_output = Command::new("git")
-            .args(["checkout", &tag])
-            .current_dir(&codex_dir)
-            .output()?;
+        let _ = fs::remove_dir_all(&tmp_dir);
 
-        if !checkout_output.status.success() {
-            return Ok(InstallResult {
-                success: false,
-                stdout: String::from_utf8_lossy(&checkout_output.stdout).to_string(),
-                stderr: String::from_utf8_lossy(&checkout_output.stderr).to_string(),
-                error: Some(format!("Tag {} not found", tag)),
-            });
-        }
-
-        // Build from source
-        let build_output = Command::new("cargo")
-            .args(["build", "--release", "-p", "codex-cli"])
-            .current_dir(&codex_rs_dir)
-            .output()?;
-
-        let stdout = String::from_utf8_lossy(&build_output.stdout).to_string();
-        let stderr = String::from_utf8_lossy(&build_output.stderr).to_string();
-
-        if build_output.status.success() {
-            // Install the binary
-            let binary_path = codex_rs_dir.join("target/release/codex");
-            if !binary_path.exists() {
-                // Restore previous HEAD before returning
-                if let Some(ref prev) = prev_head {
-                    let _ = Command::new("git")
-                        .args(["checkout", prev])
-                        .current_dir(&codex_dir)
-                        .output();
-                }
-                return Ok(InstallResult {
-                    success: false,
-                    stdout,
-                    stderr,
-                    error: Some(format!(
-                        "Build succeeded but binary not found at {}",
-                        binary_path.display()
-                    )),
-                });
-            }
-
-            let install_path = dirs::home_dir()
-                .ok_or_else(|| io::Error::new(io::ErrorKind::NotFound, "Home dir not found"))?
-                .join(".local/bin/codex");
-
-            fs::create_dir_all(install_path.parent().unwrap())?;
-            fs::copy(&binary_path, &install_path)?;
-
-            Ok(InstallResult {
-                success: true,
-                stdout: format!("Codex v{} installed to {}", version, install_path.display()),
-                stderr,
-                error: None,
-            })
-        } else {
-            // Build failed - restore previous HEAD
-            if let Some(ref prev) = prev_head {
-                let _ = Command::new("git")
-                    .args(["checkout", prev])
-                    .current_dir(&codex_dir)
-                    .output();
-            }
-            Ok(InstallResult {
-                success: false,
-                stdout,
-                stderr,
-                error: Some("cargo build failed".to_string()),
-            })
-        }
+        Ok(InstallResult {
+            success: true,
+            stdout: format!("Codex v{} installed to {}", version, install_path.display()),
+            stderr: String::new(),
+            error: None,
+        })
     }
 
-    /// Find the codex submodule directory
-    fn find_codex_submodule() -> io::Result<PathBuf> {
-        let possible_paths = [
-            std::env::current_dir()
-                .ok()
-                .map(|p| p.join("codex-unleashed/codex")),
-            std::env::current_exe()
-                .ok()
-                .and_then(|p| p.parent().map(|p| p.to_path_buf()))
-                .map(|p| p.join("../codex-unleashed/codex")),
-            dirs::home_dir().map(|p| p.join("ht/agent-unleashed/codex-unleashed/codex")),
-            dirs::home_dir().map(|p| p.join("agent-unleashed/codex-unleashed/codex")),
-            dirs::home_dir().map(|p| p.join("ht/claude-unleashed/codex-unleashed/codex")),
-            dirs::home_dir().map(|p| p.join("claude-unleashed/codex-unleashed/codex")),
-        ];
+    /// Determine the correct GitHub release asset name for this platform
+    fn codex_asset_name() -> String {
+        let arch = std::env::consts::ARCH;
+        let os = std::env::consts::OS;
 
-        possible_paths
-            .into_iter()
-            .flatten()
-            .find(|p| p.exists())
-            .ok_or_else(|| {
-                io::Error::new(
-                    io::ErrorKind::NotFound,
-                    "Codex submodule not found. Clone agent-unleashed repo with submodules.",
-                )
-            })
+        let target_arch = match arch {
+            "x86_64" => "x86_64",
+            "aarch64" => "aarch64",
+            _ => "x86_64",
+        };
+
+        let target_triple = match os {
+            "linux" => format!("{}-unknown-linux-gnu", target_arch),
+            "macos" => format!("{}-apple-darwin", target_arch),
+            _ => format!("{}-unknown-linux-gnu", target_arch),
+        };
+
+        format!("codex-{}", target_triple)
     }
 }
 
