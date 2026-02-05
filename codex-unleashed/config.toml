@@ -1,6 +1,8 @@
+approval_policy = "never"
+sandbox_mode = "danger-full-access"
 # OpenRouter Configuration
-model_provider = "openrouter"
-model = "z-ai/glm-4.7"
+model_provider = "llamacpp"
+model = "glm-4.7-flash"
 
 [model_providers.openrouter]
 name = "OpenRouter"
