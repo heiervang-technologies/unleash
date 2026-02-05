@@ -23,8 +23,8 @@ if ! kill -0 "${CLAUDE_PID}" 2>/dev/null; then
     exit 1
 fi
 
-# Deactivate auto mode if active (wrapper-specific, supports legacy)
-WRAPPER_PID="${AGENT_WRAPPER_PID:-${CLAUDE_WRAPPER_PID:-}}"
+# Deactivate auto mode if active
+WRAPPER_PID="${AGENT_WRAPPER_PID:-}"
 if [[ -n "${WRAPPER_PID}" ]]; then
     AUTO_MODE_FILE="${HOME}/.cache/agent-unleashed/auto-mode/active-${WRAPPER_PID}"
     if [[ -f "${AUTO_MODE_FILE}" ]]; then

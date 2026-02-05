@@ -19,7 +19,7 @@
 # 1. Checks prerequisites (npm, optionally cargo)
 # 2. Installs Claude Code via npm if not present
 # 3. Downloads pre-built binary or builds from source
-# 4. Sets up au/aui/aug/autx commands (cu* available as legacy aliases)
+# 4. Sets up au/aui/aug/autx commands
 # 5. Runs initial patch
 
 set -euo pipefail
@@ -34,7 +34,7 @@ REPO_URL="https://github.com/${REPO_OWNER}/${REPO_NAME}"
 RAW_URL="https://raw.githubusercontent.com/${REPO_OWNER}/${REPO_NAME}/main"
 INSTALL_DIR="${INSTALL_DIR:-$HOME/.local/bin}"
 BUILD_FROM_SOURCE="${BUILD_FROM_SOURCE:-0}"
-AGENT_UNLEASHED_VERSION="${AGENT_UNLEASHED_VERSION:-${CLAUDE_UNLEASHED_VERSION:-latest}}"
+AGENT_UNLEASHED_VERSION="${AGENT_UNLEASHED_VERSION:-latest}"
 CLAUDE_CODE_VERSION="${CLAUDE_CODE_VERSION:-latest}"
 
 # GCS bucket for native Claude Code binaries
@@ -616,13 +616,6 @@ download_binary() {
     ln -sf "${INSTALL_DIR}/au" "${INSTALL_DIR}/autx"
     ln -sf "${INSTALL_DIR}/au" "${INSTALL_DIR}/agent-unleashed"
 
-    # Legacy symlinks (cu* -> au*) for backwards compatibility
-    ln -sf "${INSTALL_DIR}/au" "${INSTALL_DIR}/cu"
-    ln -sf "${INSTALL_DIR}/au" "${INSTALL_DIR}/cui"
-    ln -sf "${INSTALL_DIR}/au" "${INSTALL_DIR}/cug"
-    ln -sf "${INSTALL_DIR}/au" "${INSTALL_DIR}/cutx"
-    ln -sf "${INSTALL_DIR}/au" "${INSTALL_DIR}/claude-unleashed"
-
     success "Binary downloaded and installed"
     return 0
 }
@@ -653,14 +646,6 @@ build_from_source() {
 
     # agent-unleashed is an alias for au
     ln -sf "${INSTALL_DIR}/au" "${INSTALL_DIR}/agent-unleashed"
-
-    # Legacy symlinks (cu* -> au*) for backwards compatibility
-    ln -sf "${INSTALL_DIR}/au" "${INSTALL_DIR}/cu"
-    ln -sf "${INSTALL_DIR}/au" "${INSTALL_DIR}/cui"
-    ln -sf "${INSTALL_DIR}/au" "${INSTALL_DIR}/cug"
-    ln -sf "${INSTALL_DIR}/au" "${INSTALL_DIR}/cutx"
-    ln -sf "${INSTALL_DIR}/au" "${INSTALL_DIR}/cutxg"
-    ln -sf "${INSTALL_DIR}/au" "${INSTALL_DIR}/claude-unleashed"
 
     # Cleanup
     rm -rf "$temp_dir"
@@ -835,9 +820,6 @@ main() {
     echo "  au       - Main CLI (run Claude with unleashed features)"
     echo "  aui      - TUI mode (profile & version management)"
     echo "  autx     - Headless tmux mode"
-    echo ""
-    echo "Legacy commands (backwards compatible):"
-    echo "  cu, cui, cug, cutx - same as au* variants"
     echo ""
     echo "Quick start:"
     echo "  au                 - Launch Claude directly"

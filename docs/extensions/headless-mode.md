@@ -1,6 +1,6 @@
 # Headless Mode (autx)
 
-`autx` (Agent Unleashed tmux eXecutor) provides a headless mode for running Claude Code in the background. Note: The legacy command `cutx` still works using tmux as the session manager. This approach offers significant advantages over native headless modes for automation, scripting, and CI/CD integration.
+`autx` (Agent Unleashed tmux eXecutor) provides a headless mode for running Claude Code in the background using tmux as the session manager. This approach offers significant advantages over native headless modes for automation, scripting, and CI/CD integration.
 
 ## Overview
 

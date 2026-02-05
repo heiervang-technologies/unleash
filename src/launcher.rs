@@ -19,8 +19,6 @@ use which::which;
 
 /// Environment variable set when running under the wrapper
 pub const UNLEASHED_ENV_VAR: &str = "AGENT_UNLEASHED";
-/// Legacy environment variable for backwards compatibility
-pub const LEGACY_UNLEASHED_ENV_VAR: &str = "CLAUDE_UNLEASHED";
 
 /// Cache directory for restart triggers
 fn cache_dir() -> PathBuf {
@@ -179,7 +177,6 @@ fn load_profile_env() -> io::Result<HashMap<String, String>> {
 /// Only returns from ONE source to avoid duplicate hooks:
 /// - Prefer repo dev path (plugins/unleashed/) when running from repo
 /// - Fall back to installed path (~/.local/share/agent-unleashed/plugins/)
-/// - Also check legacy path (~/.local/share/claude-unleashed/plugins/)
 pub fn find_plugin_dirs() -> Vec<PathBuf> {
     let mut dirs = Vec::new();
     let mut seen_names = std::collections::HashSet::new();
@@ -202,19 +199,9 @@ pub fn find_plugin_dirs() -> Vec<PathBuf> {
         }
     }
 
-    // Check ~/.local/share/agent-unleashed/plugins (new path)
-    // and ~/.local/share/claude-unleashed/plugins (legacy) - only add if not already seen
+    // Check ~/.local/share/agent-unleashed/plugins - only add if not already seen
     if let Some(data_dir) = dirs::data_local_dir() {
-        // Prefer new path, fall back to legacy
-        let plugins_dir = {
-            let new_path = data_dir.join("agent-unleashed/plugins");
-            let legacy_path = data_dir.join("claude-unleashed/plugins");
-            if new_path.exists() {
-                new_path
-            } else {
-                legacy_path
-            }
-        };
+        let plugins_dir = data_dir.join("agent-unleashed/plugins");
         if plugins_dir.exists() {
             if let Ok(entries) = fs::read_dir(&plugins_dir) {
                 for entry in entries.flatten() {
@@ -261,16 +248,13 @@ fn run_claude(
         cmd.env(key, value);
     }
 
-    // Set wrapper environment variables (both new and legacy for compatibility)
+    // Set wrapper environment variables
     cmd.env(UNLEASHED_ENV_VAR, "1");
-    cmd.env(LEGACY_UNLEASHED_ENV_VAR, "1");
     cmd.env("AGENT_WRAPPER_PID", wrapper_pid.to_string());
-    cmd.env("CLAUDE_WRAPPER_PID", wrapper_pid.to_string()); // Legacy
 
     // Set auto mode if requested
     if auto_mode {
         cmd.env("AGENT_AUTO_MODE", "1");
-        cmd.env("CLAUDE_AUTO_MODE", "1"); // Legacy
 
         // Create auto-mode marker file
         let auto_dir = dirs::cache_dir()

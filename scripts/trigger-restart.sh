@@ -183,7 +183,7 @@ case "${METHOD}" in
         echo ""
         echo "  1. Wrapper method (recommended):"
         echo "     Start Claude with: au (Agent Unleashed)"
-        echo "     Location: scripts/au (legacy: cu)"
+        echo "     Location: scripts/au"
         echo ""
         echo "  2. tmux method:"
         echo "     Run Claude inside tmux: tmux new-session -s claude"

@@ -85,7 +85,7 @@ To exit: run 'exit-claude' via Bash tool. Do not end your turn without taking ac
 
 ### Customizing via CLI
 
-The `au` command (legacy: `cu` still works) provides flags to manage the stop prompt:
+The `au` command provides flags to manage the stop prompt:
 
 #### Set Inline
 
@@ -230,7 +230,7 @@ The prompt is only shown when:
 - The stop hook is triggered (Claude tries to end turn)
 
 If you're not seeing the prompt:
-- Verify you started Claude with `au` or `cu` (not `claude` directly)
+- Verify you started Claude with `au` or `aug` (not `claude` directly)
 - Check that auto mode is active (`/auto` was run)
 - Ensure Claude is actually trying to exit
 
@@ -307,15 +307,15 @@ The `au` wrapper exports these variables:
 
 | Variable | Purpose |
 |----------|---------|
-| `CLAUDE_UNLEASHED` | Set to `1` when running under wrapper |
-| `CLAUDE_WRAPPER_PID` | Process ID of the wrapper |
-| `CLAUDE_AUTO_MODE` | Set to `1` when auto mode is active |
-| `CLAUDE_UNLEASHED_ROOT` | Path to agent-unleashed repository |
+| `AGENT_UNLEASHED` | Set to `1` when running under wrapper |
+| `AGENT_WRAPPER_PID` | Process ID of the wrapper |
+| `AGENT_AUTO_MODE` | Set to `1` when auto mode is active |
+| `AGENT_UNLEASHED_ROOT` | Path to agent-unleashed repository |
 
 Check if running under wrapper:
 
 ```bash
-if [[ "$CLAUDE_UNLEASHED" == "1" ]]; then
+if [[ "$AGENT_UNLEASHED" == "1" ]]; then
     echo "Running under agent-unleashed wrapper"
 fi
 ```

@@ -1,6 +1,6 @@
 [package]
 name = "agent-unleashed"
-version = "5.8.0"
+version = "6.0.0"
 edition = "2021"
 description = "Agent Unleashed - Extended CLI for AI Code Agents"
 authors = ["Heiervang Technologies"]
@@ -28,26 +28,6 @@ path = "src/main.rs"
 name = "autxg"
 path = "src/main.rs"
 
-# Legacy binaries for backwards compatibility (cu = claude unleashed)
-[[bin]]
-name = "cu"
-path = "src/main.rs"
-
-[[bin]]
-name = "cui"
-path = "src/main.rs"
-
-[[bin]]
-name = "cug"
-path = "src/main.rs"
-
-[[bin]]
-name = "cutx"
-path = "src/main.rs"
-
-[[bin]]
-name = "cutxg"
-path = "src/main.rs"
 
 [features]
 default = ["tui"]

@@ -29,8 +29,6 @@ aui         # TUI for profiles & version management
 autx        # Headless mode for automation
 ```
 
-> **Note:** Legacy commands (`cu`, `cug`, `cui`, `cutx`, `cutxg`) still work for backwards compatibility.
-
 > **Already have it installed?** Run the same command to update to latest versions.
 
 ---
@@ -159,7 +157,7 @@ curl -fsSL https://raw.githubusercontent.com/heiervang-technologies/agent-unleas
 This will:
 - Install Claude Code via npm (if not already installed)
 - Download the pre-built TUI binary
-- Set up `au`, `aug`, `autx`, and `aui` commands (plus legacy `cu*` aliases)
+- Set up `au`, `aug`, `autx`, and `aui` commands
 - Apply the auto-mode patch
 
 ### Installation Options
@@ -312,8 +310,6 @@ restart-claude        # Restart Claude (preserves session)
 exit-claude           # Exit Claude cleanly
 ```
 
-> **Note:** Legacy `cu*` commands (`cu`, `cug`, `cui`, `cutx`) still work for backwards compatibility.
-
 ### Configuration Options
 
 #### Stop Prompt Customization
@@ -419,8 +415,6 @@ autx stop
 | `AUTX_TERM_HEIGHT` | `50` | Terminal height |
 | `AUTX_STABLE_THRESHOLD` | `3` | Seconds of stable output to consider response complete |
 | `AUTX_INIT_WAIT` | `5` | Seconds to wait for Claude initialization |
-
-> **Note:** Legacy `CUTX_*` environment variables are still supported for backwards compatibility.
 
 ### Full Documentation
 

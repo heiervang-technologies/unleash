@@ -1,16 +1,16 @@
 #!/usr/bin/env bash
-# cu-queue - Add messages to the omnihook queue
+# au-queue - Add messages to the omnihook queue
 #
 # This tool allows external programs (like voice transcription)
 # to queue messages that will be injected into Claude sessions.
 #
 # Usage:
-#   cu-queue "Your message here"
-#   cu-queue --pid 12345 "Message for specific session"
-#   echo "Message" | cu-queue --stdin
-#   cu-queue --list                    # List all active queues
-#   cu-queue --clear                   # Clear queue for current session
-#   cu-queue --notify                  # Also wake Claude via FIFO
+#   au-queue "Your message here"
+#   au-queue --pid 12345 "Message for specific session"
+#   echo "Message" | au-queue --stdin
+#   au-queue --list                    # List all active queues
+#   au-queue --clear                   # Clear queue for current session
+#   au-queue --notify                  # Also wake Claude via FIFO
 #
 # The message will be picked up by the next hook event in Claude Code.
 
@@ -20,7 +20,7 @@ set -euo pipefail
 QUEUE_DIR="${HOME}/.cache/agent-unleashed/omnihook"
 
 # Defaults
-TARGET_PID="${CLAUDE_WRAPPER_PID:-}"
+TARGET_PID="${AGENT_WRAPPER_PID:-}"
 USE_STDIN=false
 LIST_MODE=false
 CLEAR_MODE=false
@@ -32,11 +32,11 @@ while [[ $# -gt 0 ]]; do
   case "$1" in
     -h|--help)
       cat <<'EOF'
-cu-queue - Add messages to the omnihook queue
+au-queue - Add messages to the omnihook queue
 
 USAGE:
-  cu-queue [OPTIONS] "MESSAGE"
-  echo "MESSAGE" | cu-queue --stdin
+  au-queue [OPTIONS] "MESSAGE"
+  echo "MESSAGE" | au-queue --stdin
 
 OPTIONS:
   -p, --pid PID      Target a specific Claude wrapper PID
@@ -49,27 +49,27 @@ OPTIONS:
 
 EXAMPLES:
   # Queue a voice transcription
-  cu-queue "Please search for files containing auth"
+  au-queue "Please search for files containing auth"
 
   # From voice transcription pipeline
-  echo "$TRANSCRIPTION" | cu-queue --stdin --notify
+  echo "$TRANSCRIPTION" | au-queue --stdin --notify
 
   # Target specific session
-  cu-queue --pid 12345 "Message for that session"
+  au-queue --pid 12345 "Message for that session"
 
   # Send to all sessions
-  cu-queue --all "Attention all Claude sessions"
+  au-queue --all "Attention all Claude sessions"
 
   # Check what's queued
-  cu-queue --list
+  au-queue --list
 
 ENVIRONMENT:
-  CLAUDE_WRAPPER_PID  - Default target PID if --pid not specified
+  AGENT_WRAPPER_PID  - Default target PID if --pid not specified
 
 NOTES:
   Messages are JSON-encoded and newline-separated in the queue file.
   The omnihook will pick up messages on the next hook event.
-  Use --notify with cu-wait for immediate wakeup.
+  Use --notify with au-wait for immediate wakeup.
 EOF
       exit 0
       ;;
@@ -152,7 +152,7 @@ fi
 if [[ "${CLEAR_MODE}" == "true" ]]; then
   if [[ -z "${TARGET_PID}" ]]; then
     echo "Error: No target PID specified" >&2
-    echo "Use --pid PID or set CLAUDE_WRAPPER_PID environment variable" >&2
+    echo "Use --pid PID or set AGENT_WRAPPER_PID environment variable" >&2
     exit 1
   fi
 
@@ -174,8 +174,8 @@ fi
 # Validate we have a message
 if [[ -z "${MESSAGE}" ]]; then
   echo "Error: No message provided" >&2
-  echo "Usage: cu-queue \"Your message here\"" >&2
-  echo "   or: echo \"message\" | cu-queue --stdin" >&2
+  echo "Usage: au-queue \"Your message here\"" >&2
+  echo "   or: echo \"message\" | au-queue --stdin" >&2
   exit 1
 fi
 
@@ -194,7 +194,7 @@ queue_for_pid() {
   json_message=$(jq -c -n \
     --arg text "${MESSAGE}" \
     --arg ts "${timestamp}" \
-    --arg src "cu-queue" \
+    --arg src "au-queue" \
     '{
       text: $text,
       timestamp: $ts,
@@ -239,7 +239,7 @@ elif [[ -n "${TARGET_PID}" ]]; then
   queue_for_pid "${TARGET_PID}"
 else
   echo "Error: No target PID specified" >&2
-  echo "Use --pid PID or set CLAUDE_WRAPPER_PID environment variable" >&2
+  echo "Use --pid PID or set AGENT_WRAPPER_PID environment variable" >&2
   echo "Use --all to send to all active sessions" >&2
   exit 1
 fi

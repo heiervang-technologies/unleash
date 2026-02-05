@@ -1,7 +1,7 @@
 ---
 name: omnihook-cleanup
 description: Clean up omnihook FIFO and queue files for this session
-allowed-tools: ["Bash(${CLAUDE_PLUGIN_ROOT}/scripts/cu-wait:*)"]
+allowed-tools: ["Bash(${CLAUDE_PLUGIN_ROOT}/scripts/au-wait:*)"]
 ---
 
 # Omnihook Cleanup
@@ -9,7 +9,7 @@ allowed-tools: ["Bash(${CLAUDE_PLUGIN_ROOT}/scripts/cu-wait:*)"]
 Remove the omnihook FIFO and queue files for this session.
 
 ```!
-"${CLAUDE_PLUGIN_ROOT}/scripts/cu-wait" --cleanup
+"${CLAUDE_PLUGIN_ROOT}/scripts/au-wait" --cleanup
 ```
 
 This should be run when ending a voice-enabled session to clean up resources.

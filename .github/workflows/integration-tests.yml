@@ -45,8 +45,8 @@ jobs:
           scandir: './tests'
           severity: warning
 
-  test-cutx:
-    name: Test cutx (Headless Mode)
+  test-autx:
+    name: Test autx (Headless Mode)
     runs-on: self-hosted
     strategy:
       matrix:
@@ -61,16 +61,16 @@ jobs:
         run: sudo apt-get update && sudo apt-get install -y tmux
 
       - name: Make test scripts executable
-        run: chmod +x tests/*.sh scripts/cutx
+        run: chmod +x tests/*.sh scripts/autx
 
-      - name: Run cutx tests
-        run: ./tests/test-cutx.sh
+      - name: Run autx tests
+        run: ./tests/test-autx.sh
 
       - name: Upload test results
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: cutx-test-results-${{ matrix.os }}
+          name: autx-test-results-${{ matrix.os }}
           path: |
             ~/.cache/agent-unleashed/autx/*.output
             ~/.cache/agent-unleashed/autx/*.marker
@@ -362,7 +362,7 @@ jobs:
   summary:
     name: Test Summary
     runs-on: self-hosted
-    needs: [shellcheck, test-cutx, test-plugins, test-patches, test-patches-matrix, test-plugins-with-patches]
+    needs: [shellcheck, test-autx, test-plugins, test-patches, test-patches-matrix, test-plugins-with-patches]
     if: always()
 
     steps:
@@ -373,7 +373,7 @@ jobs:
           echo "| Job | Status |" >> $GITHUB_STEP_SUMMARY
           echo "|-----|--------|" >> $GITHUB_STEP_SUMMARY
           echo "| ShellCheck Linting | ${{ needs.shellcheck.result == 'success' && '✅ Passed' || '❌ Failed' }} |" >> $GITHUB_STEP_SUMMARY
-          echo "| cutx Tests (Headless Mode) | ${{ needs.test-cutx.result == 'success' && '✅ Passed' || '❌ Failed' }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| autx Tests (Headless Mode) | ${{ needs.test-autx.result == 'success' && '✅ Passed' || '❌ Failed' }} |" >> $GITHUB_STEP_SUMMARY
           echo "| Plugin Tests | ${{ needs.test-plugins.result == 'success' && '✅ Passed' || '❌ Failed' }} |" >> $GITHUB_STEP_SUMMARY
           echo "| Patch Tests (Comprehensive) | ${{ needs.test-patches.result == 'success' && '✅ Passed' || '❌ Failed' }} |" >> $GITHUB_STEP_SUMMARY
           echo "| Patch Tests (Matrix: 2.1.0-2.1.5) | ${{ needs.test-patches-matrix.result == 'success' && '✅ Passed' || '❌ Failed' }} |" >> $GITHUB_STEP_SUMMARY
@@ -382,7 +382,7 @@ jobs:
       - name: Check test results
         run: |
           if [[ "${{ needs.shellcheck.result }}" == "success" ]] && \
-             [[ "${{ needs.test-cutx.result }}" == "success" ]] && \
+             [[ "${{ needs.test-autx.result }}" == "success" ]] && \
              [[ "${{ needs.test-plugins.result }}" == "success" ]] && \
              [[ "${{ needs.test-patches.result }}" == "success" ]] && \
              [[ "${{ needs.test-patches-matrix.result }}" == "success" ]] && \
@@ -392,7 +392,7 @@ jobs:
           else
             echo "❌ Some tests failed:"
             echo "  - shellcheck: ${{ needs.shellcheck.result }}"
-            echo "  - test-cutx: ${{ needs.test-cutx.result }}"
+            echo "  - test-autx: ${{ needs.test-autx.result }}"
             echo "  - test-plugins: ${{ needs.test-plugins.result }}"
             echo "  - test-patches: ${{ needs.test-patches.result }}"
             echo "  - test-patches-matrix: ${{ needs.test-patches-matrix.result }}"

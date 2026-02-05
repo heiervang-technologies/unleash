@@ -24,8 +24,8 @@ When using Jessica (voice assistant) with Claude Code:
 
 **After (with omnihook):**
 1. User speaks via voice input
-2. Transcription calls `cu-queue --notify "transcribed text"`
-3. Claude's `cu-wait` unblocks immediately
+2. Transcription calls `au-queue --notify "transcribed text"`
+3. Claude's `au-wait` unblocks immediately
 4. Message injected via next hook event
 5. Near-instant response
 
@@ -35,49 +35,49 @@ The plugin is automatically available when using agent-unleashed. The hooks regi
 
 ## CLI Tools
 
-### cu-queue
+### au-queue
 
 Add messages to the omnihook queue:
 
 ```bash
 # Queue a message for the current session
-cu-queue "Please search for files containing auth"
+au-queue "Please search for files containing auth"
 
 # From voice transcription pipeline
-echo "$TRANSCRIPTION" | cu-queue --stdin --notify
+echo "$TRANSCRIPTION" | au-queue --stdin --notify
 
 # Target a specific session
-cu-queue --pid 12345 "Message for that session"
+au-queue --pid 12345 "Message for that session"
 
 # Send to all active sessions
-cu-queue --all "Attention all sessions"
+au-queue --all "Attention all sessions"
 
 # List active queues
-cu-queue --list
+au-queue --list
 
 # Clear the queue
-cu-queue --clear
+au-queue --clear
 ```
 
-### cu-wait
+### au-wait
 
 Block until a message arrives:
 
 ```bash
 # Wait with 60 second timeout
-cu-wait --timeout 60
+au-wait --timeout 60
 
 # Wait indefinitely
-cu-wait
+au-wait
 
 # Just check if messages exist
-cu-wait --check
+au-wait --check
 
 # Setup FIFO for this session
-cu-wait --setup
+au-wait --setup
 
 # Cleanup when done
-cu-wait --cleanup
+au-wait --cleanup
 ```
 
 ## Slash Commands
@@ -93,14 +93,14 @@ cu-wait --cleanup
 External Tool (jessica-listen)
          |
          v
-    cu-queue --notify "message"
+    au-queue --notify "message"
          |
          +---> Queue File (~/.cache/agent-unleashed/omnihook/queue-PID)
          |
          +---> FIFO (~/.cache/agent-unleashed/omnihook/fifo-PID)
                     |
                     v
-              cu-wait unblocks
+              au-wait unblocks
                     |
                     v
          Claude resumes work
@@ -144,7 +144,7 @@ External Tool (jessica-listen)
 # Start listening
 jessica-listen --continuous | while read -r transcription; do
   # Queue the transcription with notification
-  cu-queue --notify "${transcription}"
+  au-queue --notify "${transcription}"
 done
 ```
 
@@ -155,7 +155,7 @@ done
 sleep 30
 
 # Use:
-cu-wait --timeout 60
+au-wait --timeout 60
 if [[ $? -eq 0 ]]; then
   echo "Voice message received!"
 fi
@@ -169,7 +169,7 @@ Messages in the queue are JSON objects:
 {
   "text": "The transcribed voice message",
   "timestamp": "2026-01-23T15:30:00Z",
-  "source": "cu-queue"
+  "source": "au-queue"
 }
 ```
 
@@ -185,20 +185,20 @@ cat ~/.cache/agent-unleashed/omnihook/queue-*
 ls -la ~/.cache/agent-unleashed/omnihook/fifo-*
 
 # Test queue manually
-CLAUDE_WRAPPER_PID=$$ cu-queue "Test message"
-CLAUDE_WRAPPER_PID=$$ cu-wait --check
+AGENT_WRAPPER_PID=$$ au-queue "Test message"
+AGENT_WRAPPER_PID=$$ au-wait --check
 ```
 
 ## Environment Variables
 
 | Variable | Purpose |
 |----------|---------|
-| `CLAUDE_WRAPPER_PID` | Session identifier (set by agent-unleashed wrapper) |
+| `AGENT_WRAPPER_PID` | Session identifier (set by agent-unleashed wrapper) |
 | `HOOK_EVENT` | Hook event type (set by hooks.json) |
 
 ## Limitations
 
-- Requires running under agent-unleashed wrapper (CLAUDE_WRAPPER_PID must be set)
+- Requires running under agent-unleashed wrapper (AGENT_WRAPPER_PID must be set)
 - FIFO-based wakeup requires the FIFO to be set up first
 - Messages are processed one at a time on each hook event
 

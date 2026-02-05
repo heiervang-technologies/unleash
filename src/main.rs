@@ -5,8 +5,11 @@
 //! - `au tui` / `aui` - TUI for profile/version management
 //! - `au tmux` / `autx` - Headless tmux mode
 //!
-//! Legacy aliases (backwards compatible):
-//! - `cu` / `cui` / `cug` / `cutx` / `cutxg` - same as au* variants
+//! Shorthand aliases:
+//! - `aui` - TUI for profile/version management
+//! - `aug` - Launch agent wrapper
+//! - `autx` - Headless tmux mode
+//! - `autxg` - Start and attach tmux session
 
 mod agents;
 mod auth;
@@ -59,17 +62,17 @@ fn main() -> io::Result<()> {
         })
         .unwrap_or_default();
 
-    // Handle symlink invocations (au* = new, cu* = legacy)
+    // Handle symlink invocations
     match invoked_as.as_str() {
         #[cfg(feature = "tui")]
-        "aui" | "cui" => return tui::run(),
+        "aui" => return tui::run(),
         #[cfg(not(feature = "tui"))]
-        "aui" | "cui" => {
+        "aui" => {
             eprintln!("Error: TUI support is not compiled in this build");
             eprintln!("Rebuild with: cargo build --features tui");
             std::process::exit(1);
         }
-        "aug" | "cug" => {
+        "aug" => {
             // Shorthand for `au go` - launch agent wrapper
             let args: Vec<String> = env::args().skip(1).collect();
             // Parse args for --auto and -p flags
@@ -85,12 +88,12 @@ fn main() -> io::Result<()> {
                 .collect();
             return launcher::run(auto, prompt, pass_args);
         }
-        "autx" | "cutx" => {
+        "autx" => {
             // Pass remaining args to tmux module
             let args: Vec<String> = env::args().skip(1).collect();
             return tmux::run(&args);
         }
-        "autxg" | "cutxg" => {
+        "autxg" => {
             // Shorthand for 'autx go' - start and attach to tmux session
             let mut args: Vec<String> = vec!["go".to_string()];
             args.extend(env::args().skip(1));

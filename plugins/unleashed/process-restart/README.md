@@ -90,8 +90,8 @@ Multiple concurrent `agent-unleashed` instances are fully isolated:
 
 | Variable | Description |
 |----------|-------------|
-| `CLAUDE_UNLEASHED=1` | Set when running under wrapper |
-| `CLAUDE_WRAPPER_PID` | PID of the wrapper process |
+| `AGENT_UNLEASHED=1` | Set when running under wrapper |
+| `AGENT_WRAPPER_PID` | PID of the wrapper process |
 
 ## What Gets Preserved
 
