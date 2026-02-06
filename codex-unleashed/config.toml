@@ -1,6 +1,8 @@
 # OpenRouter Configuration
 model_provider = "openrouter"
-model = "z-ai/glm-4.7"
+model = "gpt-5.2-codex"
+personality = "pragmatic"
+model_reasoning_effort = "high"
 
 [model_providers.openrouter]
 name = "OpenRouter"
@@ -8,10 +10,23 @@ base_url = "https://openrouter.ai/api/v1"
 env_key = "OPENROUTER_API_KEY"
 wire_api = "responses"
 
+# Profile for OpenRouter (explicit, same as default)
+[profiles.openrouter]
+model = "gpt-5.2-codex"
+model_provider = "openrouter"
+
 # Profile for Minimax model
 [profiles.minimax]
 model = "minimax/minimax-m2.1"
 model_provider = "openrouter"
 
+# Profile for OpenAI direct
+[profiles.openai]
+model = "codex-5.3"
+model_provider = "openai"
+
 [projects."/home/me/claude-unleashed"]
+trust_level = "trusted"
+
+[projects."/home/me/ht/agent-unleashed"]
 trust_level = "trusted"
