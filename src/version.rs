@@ -1,12 +1,13 @@
-//! Claude Code version management
+//! Version management for code agents (Claude Code, Codex)
 //!
 //! Handles detecting installed version, listing available versions,
-//! and switching between Claude Code versions.
+//! and switching between versions for multiple agents.
 //!
-//! Supports two filtering modes:
+//! Supports two filtering modes per agent:
 //! - **Whitelist mode** (default): Only whitelisted versions are allowed
 //! - **Blacklist mode**: All versions except blacklisted ones are allowed
 
+use crate::agents::AgentType;
 use crate::json_output::{self, VersionListItem, VersionListOutput, VersionOutput};
 use std::fs;
 use std::io;
@@ -43,20 +44,26 @@ impl std::fmt::Display for VersionFilterMode {
     }
 }
 
-/// Get the version filter mode from config or default
+/// Get the version filter mode for an agent from config or default
 ///
 /// User can override in ~/.config/agent-unleashed/config.toml with:
 /// ```toml
-/// version_filter_mode = "blacklist"  # or "whitelist"
+/// version_filter_mode = "blacklist"        # Claude Code (legacy, still works)
+/// codex_version_filter_mode = "blacklist"  # Codex
 /// ```
-pub fn get_version_filter_mode() -> VersionFilterMode {
+pub fn get_version_filter_mode_for(agent: AgentType) -> VersionFilterMode {
+    let config_key = match agent {
+        AgentType::Claude => "version_filter_mode",
+        AgentType::Codex => "codex_version_filter_mode",
+    };
+
     if let Some(home) = dirs::home_dir() {
         let config_path = home.join(".config/agent-unleashed/config.toml");
         if config_path.exists() {
             if let Ok(content) = fs::read_to_string(&config_path) {
                 for line in content.lines() {
                     let trimmed = line.trim();
-                    if trimmed.starts_with("version_filter_mode") {
+                    if trimmed.starts_with(config_key) {
                         if let Some(eq_pos) = trimmed.find('=') {
                             let value = trimmed[eq_pos + 1..].trim().trim_matches('"').trim_matches('\'');
                             return match value {
@@ -70,17 +77,36 @@ pub fn get_version_filter_mode() -> VersionFilterMode {
         }
     }
 
-    VersionFilterMode::default()
+    // Use compiled default for this agent
+    let default_mode = match agent {
+        AgentType::Claude => DEFAULT_VERSION_FILTER_MODE,
+        AgentType::Codex => DEFAULT_CODEX_VERSION_FILTER_MODE,
+    };
+    match default_mode {
+        "blacklist" => VersionFilterMode::Blacklist,
+        _ => VersionFilterMode::Whitelist,
+    }
 }
 
-/// Get the effective whitelist (user override or default from Cargo.toml)
+/// Get the version filter mode (Claude Code, for backward compat)
+pub fn get_version_filter_mode() -> VersionFilterMode {
+    get_version_filter_mode_for(AgentType::Claude)
+}
+
+/// Get the effective whitelist for an agent (user override or default from Cargo.toml)
 ///
-/// User can override by creating ~/.config/agent-unleashed/whitelist.txt
-/// with one version per line. Empty file means no whitelist (all versions blocked).
-pub fn get_whitelist() -> Vec<String> {
+/// User can override by creating:
+/// - Claude: ~/.config/agent-unleashed/whitelist.txt
+/// - Codex:  ~/.config/agent-unleashed/codex-whitelist.txt
+pub fn get_whitelist_for(agent: AgentType) -> Vec<String> {
+    let filename = match agent {
+        AgentType::Claude => "whitelist.txt",
+        AgentType::Codex => "codex-whitelist.txt",
+    };
+
     // Check for user override
     if let Some(home) = dirs::home_dir() {
-        let user_whitelist = home.join(".config/agent-unleashed/whitelist.txt");
+        let user_whitelist = home.join(".config/agent-unleashed").join(filename);
         if user_whitelist.exists() {
             if let Ok(content) = fs::read_to_string(&user_whitelist) {
                 return content
@@ -94,17 +120,33 @@ pub fn get_whitelist() -> Vec<String> {
     }
 
     // Use default from Cargo.toml
-    DEFAULT_WHITELIST.iter().map(|s| s.to_string()).collect()
+    let defaults: &[&str] = match agent {
+        AgentType::Claude => DEFAULT_WHITELIST,
+        AgentType::Codex => DEFAULT_CODEX_WHITELIST,
+    };
+    defaults.iter().map(|s| s.to_string()).collect()
 }
 
-/// Get the effective blacklist (user override or default from Cargo.toml)
+/// Get the effective whitelist (Claude Code, for backward compat)
+#[allow(dead_code)]
+pub fn get_whitelist() -> Vec<String> {
+    get_whitelist_for(AgentType::Claude)
+}
+
+/// Get the effective blacklist for an agent (user override or default from Cargo.toml)
 ///
-/// User can override by creating ~/.config/agent-unleashed/blacklist.txt
-/// with one version per line. Empty file means no blacklist (all versions allowed).
-pub fn get_blacklist() -> Vec<String> {
+/// User can override by creating:
+/// - Claude: ~/.config/agent-unleashed/blacklist.txt
+/// - Codex:  ~/.config/agent-unleashed/codex-blacklist.txt
+pub fn get_blacklist_for(agent: AgentType) -> Vec<String> {
+    let filename = match agent {
+        AgentType::Claude => "blacklist.txt",
+        AgentType::Codex => "codex-blacklist.txt",
+    };
+
     // Check for user override
     if let Some(home) = dirs::home_dir() {
-        let user_blacklist = home.join(".config/agent-unleashed/blacklist.txt");
+        let user_blacklist = home.join(".config/agent-unleashed").join(filename);
         if user_blacklist.exists() {
             if let Ok(content) = fs::read_to_string(&user_blacklist) {
                 return content
@@ -118,31 +160,56 @@ pub fn get_blacklist() -> Vec<String> {
     }
 
     // Use default from Cargo.toml
-    DEFAULT_BLACKLIST.iter().map(|s| s.to_string()).collect()
+    let defaults: &[&str] = match agent {
+        AgentType::Claude => DEFAULT_BLACKLIST,
+        AgentType::Codex => DEFAULT_CODEX_BLACKLIST,
+    };
+    defaults.iter().map(|s| s.to_string()).collect()
 }
 
-/// Check if a version is whitelisted (verified to work)
+/// Get the effective blacklist (Claude Code, for backward compat)
+#[allow(dead_code)]
+pub fn get_blacklist() -> Vec<String> {
+    get_blacklist_for(AgentType::Claude)
+}
+
+/// Check if a version is whitelisted for an agent
+pub fn is_whitelisted_for(version: &str, agent: AgentType) -> bool {
+    get_whitelist_for(agent).iter().any(|v| v == version)
+}
+
+/// Check if a version is whitelisted (Claude Code, for backward compat)
+#[allow(dead_code)]
 pub fn is_whitelisted(version: &str) -> bool {
-    get_whitelist().iter().any(|v| v == version)
+    is_whitelisted_for(version, AgentType::Claude)
 }
 
-/// Check if a version is blacklisted (known issues)
+/// Check if a version is blacklisted for an agent
+pub fn is_blacklisted_for(version: &str, agent: AgentType) -> bool {
+    get_blacklist_for(agent).iter().any(|v| v == version)
+}
+
+/// Check if a version is blacklisted (Claude Code, for backward compat)
+#[allow(dead_code)]
 pub fn is_blacklisted(version: &str) -> bool {
-    get_blacklist().iter().any(|v| v == version)
+    is_blacklisted_for(version, AgentType::Claude)
 }
 
-/// Check if a version is allowed based on the current filter mode
-///
-/// - In whitelist mode: version must be in the whitelist
-/// - In blacklist mode: version must NOT be in the blacklist
-pub fn is_version_allowed(version: &str) -> bool {
-    match get_version_filter_mode() {
-        VersionFilterMode::Whitelist => is_whitelisted(version),
-        VersionFilterMode::Blacklist => !is_blacklisted(version),
+/// Check if a version is allowed for an agent based on the current filter mode
+pub fn is_version_allowed_for(version: &str, agent: AgentType) -> bool {
+    match get_version_filter_mode_for(agent) {
+        VersionFilterMode::Whitelist => is_whitelisted_for(version, agent),
+        VersionFilterMode::Blacklist => !is_blacklisted_for(version, agent),
     }
 }
 
-/// Information about a Claude Code version
+/// Check if a version is allowed (Claude Code, for backward compat)
+#[allow(dead_code)]
+pub fn is_version_allowed(version: &str) -> bool {
+    is_version_allowed_for(version, AgentType::Claude)
+}
+
+/// Information about an agent version
 #[derive(Debug, Clone)]
 pub struct VersionInfo {
     pub version: String,
@@ -162,9 +229,9 @@ pub struct InstallResult {
     pub error: Option<String>,
 }
 
-/// Version manager for Claude Code
+/// Version manager for code agents
 pub struct VersionManager {
-    /// Path to patches directory (for checking supported versions)
+    /// Path to patches directory (for checking supported Claude versions)
     patches_dir: Option<PathBuf>,
 }
 
@@ -204,6 +271,8 @@ impl VersionManager {
         None
     }
 
+    // ── Claude Code ──────────────────────────────────────────────
+
     /// Get the currently installed Claude Code version
     pub fn get_installed_version(&self) -> Option<String> {
         let output = Command::new("claude")
@@ -225,7 +294,7 @@ impl VersionManager {
         }
     }
 
-    /// Get list of versions that have patch configs
+    /// Get list of Claude versions that have patch configs
     pub fn get_supported_versions(&self) -> Vec<String> {
         let mut versions = Vec::new();
 
@@ -248,7 +317,7 @@ impl VersionManager {
         versions
     }
 
-    /// Get available versions from npm registry
+    /// Get available Claude Code versions from npm registry
     pub fn get_available_versions(&self) -> io::Result<Vec<String>> {
         let output = Command::new("npm")
             .args(["view", "@anthropic-ai/claude-code", "versions", "--json"])
@@ -277,7 +346,7 @@ impl VersionManager {
         }
     }
 
-    /// Get combined version list with status
+    /// Get combined Claude Code version list with status
     pub fn get_version_list(&self) -> Vec<VersionInfo> {
         let installed = self.get_installed_version();
         let supported = self.get_supported_versions();
@@ -294,8 +363,8 @@ impl VersionManager {
                     version: v.clone(),
                     is_installed: installed.as_ref() == Some(v),
                     has_patch: true,
-                    is_whitelisted: is_whitelisted(v),
-                    is_blacklisted: is_blacklisted(v),
+                    is_whitelisted: is_whitelisted_for(v, AgentType::Claude),
+                    is_blacklisted: is_blacklisted_for(v, AgentType::Claude),
                 });
             }
         }
@@ -307,8 +376,8 @@ impl VersionManager {
                     version: v.clone(),
                     is_installed: installed.as_ref() == Some(v),
                     has_patch: supported.contains(v),
-                    is_whitelisted: is_whitelisted(v),
-                    is_blacklisted: is_blacklisted(v),
+                    is_whitelisted: is_whitelisted_for(v, AgentType::Claude),
+                    is_blacklisted: is_blacklisted_for(v, AgentType::Claude),
                 });
             }
         }
@@ -320,7 +389,6 @@ impl VersionManager {
     }
 
     /// Install a specific version of Claude Code
-    /// Returns (success, stdout, stderr) for TUI to display if needed
     pub fn install_version(&self, version: &str) -> io::Result<InstallResult> {
         // Use --force to allow downgrading to older versions
         let output = Command::new("npm")
@@ -363,10 +431,8 @@ impl VersionManager {
         }
     }
 
-    /// Run the patch script for the installed version
-    /// Returns InstallResult with captured output
+    /// Run the patch script for the installed Claude version
     pub fn run_patch(&self) -> io::Result<InstallResult> {
-        // Try to find patch script
         let patch_script = self.find_patch_script()?;
 
         let output = Command::new("bash")
@@ -423,6 +489,168 @@ impl VersionManager {
             "patch-claude.sh not found",
         ))
     }
+
+    // ── Codex ────────────────────────────────────────────────────
+
+    /// Get available Codex versions from GitHub releases (tags matching rust-v*)
+    pub fn get_codex_available_versions(&self) -> io::Result<Vec<String>> {
+        let output = Command::new("gh")
+            .args([
+                "api", "repos/openai/codex/tags",
+                "--paginate",
+                "--jq", ".[].name",
+            ])
+            .output()?;
+
+        if output.status.success() {
+            let tag_output = String::from_utf8_lossy(&output.stdout);
+            let mut versions: Vec<String> = tag_output
+                .lines()
+                .filter(|line| line.starts_with("rust-v"))
+                .filter(|line| !line.contains("alpha"))
+                .map(|line| line.trim_start_matches("rust-v").to_string())
+                .filter(|v| !v.is_empty() && v.starts_with(|c: char| c.is_ascii_digit()))
+                .collect();
+            // Sort newest first, then take top 20
+            versions.sort_by(|a, b| version_compare(b, a));
+            versions.truncate(20);
+            Ok(versions)
+        } else {
+            Err(io::Error::new(
+                io::ErrorKind::Other,
+                "Failed to query GitHub releases for Codex",
+            ))
+        }
+    }
+
+    /// Get combined Codex version list with status
+    pub fn get_codex_version_list(&self, installed: Option<&str>) -> Vec<VersionInfo> {
+        let available = self.get_codex_available_versions().unwrap_or_default();
+
+        let mut versions = Vec::new();
+
+        for v in &available {
+            versions.push(VersionInfo {
+                version: v.clone(),
+                is_installed: installed == Some(v.as_str()),
+                has_patch: false,
+                is_whitelisted: is_whitelisted_for(v, AgentType::Codex),
+                is_blacklisted: is_blacklisted_for(v, AgentType::Codex),
+            });
+        }
+
+        // Sort by version (newest first)
+        versions.sort_by(|a, b| version_compare(&b.version, &a.version));
+
+        versions
+    }
+
+    /// Install a specific Codex version by downloading prebuilt binaries from GitHub releases
+    pub fn install_codex_version(&self, version: &str) -> io::Result<InstallResult> {
+        let tag = format!("rust-v{}", version);
+        let asset_name = Self::codex_asset_name();
+
+        let install_dir = dirs::home_dir()
+            .ok_or_else(|| io::Error::new(io::ErrorKind::NotFound, "Home dir not found"))?
+            .join(".local/bin");
+        fs::create_dir_all(&install_dir)?;
+
+        // Download to a temp directory
+        let tmp_dir = std::env::temp_dir().join(format!("codex-install-{}", version));
+        let _ = fs::remove_dir_all(&tmp_dir);
+        fs::create_dir_all(&tmp_dir)?;
+
+        // Download the main codex binary tarball
+        let download = Command::new("gh")
+            .args([
+                "release", "download", &tag,
+                "--repo", "openai/codex",
+                "--pattern", &format!("{}.tar.gz", asset_name),
+                "--dir", tmp_dir.to_str().unwrap_or("/tmp"),
+            ])
+            .output()?;
+
+        if !download.status.success() {
+            let _ = fs::remove_dir_all(&tmp_dir);
+            return Ok(InstallResult {
+                success: false,
+                stdout: String::from_utf8_lossy(&download.stdout).to_string(),
+                stderr: String::from_utf8_lossy(&download.stderr).to_string(),
+                error: Some(format!(
+                    "Failed to download {} from release {}",
+                    asset_name, tag
+                )),
+            });
+        }
+
+        // Extract the tarball
+        let extract = Command::new("tar")
+            .args(["xzf", &format!("{}.tar.gz", asset_name)])
+            .current_dir(&tmp_dir)
+            .output()?;
+
+        if !extract.status.success() {
+            let _ = fs::remove_dir_all(&tmp_dir);
+            return Ok(InstallResult {
+                success: false,
+                stdout: String::from_utf8_lossy(&extract.stdout).to_string(),
+                stderr: String::from_utf8_lossy(&extract.stderr).to_string(),
+                error: Some("Failed to extract tarball".to_string()),
+            });
+        }
+
+        // Install the binary
+        let extracted_binary = tmp_dir.join(&asset_name);
+        let install_path = install_dir.join("codex");
+
+        if !extracted_binary.exists() {
+            let _ = fs::remove_dir_all(&tmp_dir);
+            return Ok(InstallResult {
+                success: false,
+                stdout: String::new(),
+                stderr: format!("Expected binary {} not found in archive", asset_name),
+                error: Some(format!("Binary {} not found after extraction", asset_name)),
+            });
+        }
+
+        fs::copy(&extracted_binary, &install_path)?;
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let mut perms = fs::metadata(&install_path)?.permissions();
+            perms.set_mode(0o755);
+            fs::set_permissions(&install_path, perms)?;
+        }
+
+        let _ = fs::remove_dir_all(&tmp_dir);
+
+        Ok(InstallResult {
+            success: true,
+            stdout: format!("Codex v{} installed to {}", version, install_path.display()),
+            stderr: String::new(),
+            error: None,
+        })
+    }
+
+    /// Determine the correct GitHub release asset name for this platform
+    fn codex_asset_name() -> String {
+        let arch = std::env::consts::ARCH;
+        let os = std::env::consts::OS;
+
+        let target_arch = match arch {
+            "x86_64" => "x86_64",
+            "aarch64" => "aarch64",
+            _ => "x86_64",
+        };
+
+        let target_triple = match os {
+            "linux" => format!("{}-unknown-linux-gnu", target_arch),
+            "macos" => format!("{}-apple-darwin", target_arch),
+            _ => format!("{}-unknown-linux-gnu", target_arch),
+        };
+
+        format!("codex-{}", target_triple)
+    }
 }
 
 impl Default for VersionManager {
@@ -432,7 +660,7 @@ impl Default for VersionManager {
 }
 
 /// Compare version strings (semver-like)
-fn version_compare(a: &str, b: &str) -> std::cmp::Ordering {
+pub(crate) fn version_compare(a: &str, b: &str) -> std::cmp::Ordering {
     let parse = |s: &str| -> Vec<u32> {
         s.split('.')
             .map(|p| p.parse::<u32>().unwrap_or(0))
@@ -627,11 +855,6 @@ mod tests {
 
     /// Test that demonstrates the performance problem with calling get_installed_version
     /// on every frame vs using a cached value.
-    ///
-    /// This test proves that:
-    /// 1. Calling subprocess 10 times takes significant time (>100ms with 50ms sleep)
-    /// 2. Accessing cached value 10 times is nearly instant (<1ms)
-    /// 3. The cached approach is at least 100x faster
     #[test]
     fn test_cached_version_performance() {
         // Create mock claude that takes 50ms to respond
@@ -703,10 +926,7 @@ mod tests {
 
     #[test]
     fn test_default_whitelist() {
-        // Verify the default whitelist from Cargo.toml is loaded
         assert!(!DEFAULT_WHITELIST.is_empty(), "Default whitelist should not be empty");
-
-        // Verify expected versions are in the default whitelist
         assert!(DEFAULT_WHITELIST.contains(&"2.1.12"), "2.1.12 should be whitelisted");
         assert!(DEFAULT_WHITELIST.contains(&"2.1.4"), "2.1.4 should be whitelisted");
         assert!(DEFAULT_WHITELIST.contains(&"2.1.3"), "2.1.3 should be whitelisted");
@@ -716,25 +936,33 @@ mod tests {
 
     #[test]
     fn test_default_blacklist() {
-        // Verify the default blacklist from Cargo.toml is loaded
         assert!(!DEFAULT_BLACKLIST.is_empty(), "Default blacklist should not be empty");
-
-        // Verify expected versions are in the default blacklist
         assert!(DEFAULT_BLACKLIST.contains(&"2.1.5"), "2.1.5 should be blacklisted");
         assert!(DEFAULT_BLACKLIST.contains(&"2.1.1"), "2.1.1 should be blacklisted");
         assert!(DEFAULT_BLACKLIST.contains(&"2.1.0"), "2.1.0 should be blacklisted");
     }
 
     #[test]
+    fn test_default_codex_whitelist() {
+        assert!(!DEFAULT_CODEX_WHITELIST.is_empty(), "Codex whitelist should not be empty");
+        assert!(DEFAULT_CODEX_WHITELIST.contains(&"0.93.0"), "0.93.0 should be in Codex whitelist");
+        assert!(DEFAULT_CODEX_WHITELIST.contains(&"0.92.0"), "0.92.0 should be in Codex whitelist");
+    }
+
+    #[test]
+    fn test_default_codex_blacklist() {
+        // Codex blacklist is currently empty
+        assert!(DEFAULT_CODEX_BLACKLIST.is_empty(), "Codex blacklist should be empty initially");
+    }
+
+    #[test]
     fn test_is_whitelisted() {
-        // Test that whitelisted versions are detected
         assert!(is_whitelisted("2.1.12"), "2.1.12 should be whitelisted");
         assert!(is_whitelisted("2.1.4"), "2.1.4 should be whitelisted");
         assert!(is_whitelisted("2.1.3"), "2.1.3 should be whitelisted");
         assert!(is_whitelisted("2.1.2"), "2.1.2 should be whitelisted");
         assert!(is_whitelisted("2.0.77"), "2.0.77 should be whitelisted");
 
-        // Test that non-whitelisted versions are not detected
         assert!(!is_whitelisted("2.1.14"), "2.1.14 should not be whitelisted");
         assert!(!is_whitelisted("2.1.5"), "2.1.5 should not be whitelisted");
         assert!(!is_whitelisted("2.1.1"), "2.1.1 should not be whitelisted");
@@ -744,12 +972,10 @@ mod tests {
 
     #[test]
     fn test_is_blacklisted() {
-        // Test that blacklisted versions are detected
         assert!(is_blacklisted("2.1.5"), "2.1.5 should be blacklisted");
         assert!(is_blacklisted("2.1.1"), "2.1.1 should be blacklisted");
         assert!(is_blacklisted("2.1.0"), "2.1.0 should be blacklisted");
 
-        // Test that non-blacklisted versions are not detected
         assert!(!is_blacklisted("2.1.4"), "2.1.4 should not be blacklisted");
         assert!(!is_blacklisted("2.1.3"), "2.1.3 should not be blacklisted");
         assert!(!is_blacklisted("2.0.77"), "2.0.77 should not be blacklisted");
@@ -757,28 +983,42 @@ mod tests {
     }
 
     #[test]
+    fn test_is_whitelisted_for_codex() {
+        assert!(is_whitelisted_for("0.93.0", AgentType::Codex), "0.93.0 should be Codex whitelisted");
+        assert!(is_whitelisted_for("0.92.0", AgentType::Codex), "0.92.0 should be Codex whitelisted");
+        assert!(!is_whitelisted_for("0.50.0", AgentType::Codex), "0.50.0 should not be Codex whitelisted");
+    }
+
+    #[test]
+    fn test_is_version_allowed_for() {
+        // Claude uses whitelist mode by default
+        assert!(is_version_allowed_for("2.1.12", AgentType::Claude));
+        assert!(!is_version_allowed_for("9.9.9", AgentType::Claude));
+
+        // Codex uses whitelist mode by default
+        assert!(is_version_allowed_for("0.93.0", AgentType::Codex));
+        assert!(!is_version_allowed_for("9.9.9", AgentType::Codex));
+    }
+
+    #[test]
     fn test_default_filter_mode() {
-        // Verify default mode is whitelist
         assert_eq!(DEFAULT_VERSION_FILTER_MODE, "whitelist");
+        assert_eq!(DEFAULT_CODEX_VERSION_FILTER_MODE, "whitelist");
     }
 
     /// Create a mock "npm" binary that captures arguments to a file.
-    /// Returns the temp directory (must be kept alive), the path to add to PATH,
-    /// and the path to the args capture file.
     fn create_mock_npm() -> (TempDir, PathBuf, PathBuf) {
         let temp = TempDir::new().unwrap();
         let mock_path = temp.path().to_path_buf();
         let mock_npm = mock_path.join("npm");
         let args_file = mock_path.join("npm_args.txt");
 
-        // Create a shell script that captures all arguments to a file
         let script = format!(
             "#!/bin/bash\necho \"$@\" > \"{}\"\nexit 0\n",
             args_file.display()
         );
         std::fs::write(&mock_npm, script).unwrap();
 
-        // Make executable
         #[cfg(unix)]
         {
             use std::os::unix::fs::PermissionsExt;
@@ -790,17 +1030,10 @@ mod tests {
         (temp, mock_path, args_file)
     }
 
-    /// Test that install_version uses --force flag to allow downgrades.
-    ///
-    /// This is critical because npm won't downgrade a globally installed package
-    /// to an older version without --force. Without this flag, users cannot
-    /// install older whitelisted versions when a newer version is installed.
     #[test]
     fn test_install_version_uses_force_flag() {
-        // Create mock npm that captures arguments
         let (_temp, mock_path, args_file) = create_mock_npm();
 
-        // Prepend mock to PATH
         let original_path = std::env::var("PATH").unwrap_or_default();
         let new_path = format!("{}:{}", mock_path.display(), original_path);
 
@@ -812,29 +1045,23 @@ mod tests {
         let vm = VersionManager::new();
         let result = vm.install_version("2.1.4");
 
-        // Restore PATH before any assertions
         // SAFETY: Restoring original PATH value
         unsafe {
             std::env::set_var("PATH", original_path);
         }
 
-        // Verify the install succeeded (mock returns exit 0)
         assert!(result.is_ok(), "install_version should not return an error");
         let install_result = result.unwrap();
         assert!(install_result.success, "install should succeed with mock npm");
 
-        // Read the captured arguments
         let captured_args = std::fs::read_to_string(&args_file)
             .expect("Should be able to read captured npm arguments");
 
-        // Verify --force flag is present
         assert!(
             captured_args.contains("--force"),
             "npm install should include --force flag for downgrades. Got: {}",
             captured_args.trim()
         );
-
-        // Verify the full expected command structure
         assert!(
             captured_args.contains("install"),
             "Should contain 'install' command. Got: {}",

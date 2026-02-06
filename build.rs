@@ -8,28 +8,45 @@ fn main() {
     // Read Cargo.toml
     let manifest = fs::read_to_string("Cargo.toml").expect("Failed to read Cargo.toml");
 
-    // Parse both whitelist and blacklist sections
+    // Parse Claude Code whitelist and blacklist
     let whitelist = parse_version_list(&manifest, "claude-code-whitelist");
     let blacklist = parse_version_list(&manifest, "claude-code-blacklist");
-    let default_mode = parse_default_mode(&manifest);
+    let default_mode = parse_default_mode(&manifest, "claude-code-versions");
+
+    // Parse Codex whitelist and blacklist
+    let codex_whitelist = parse_version_list(&manifest, "codex-whitelist");
+    let codex_blacklist = parse_version_list(&manifest, "codex-blacklist");
+    let codex_default_mode = parse_default_mode(&manifest, "codex-versions");
 
     // Generate the output file
     let out_dir = env::var("OUT_DIR").expect("OUT_DIR not set");
     let dest_path = Path::new(&out_dir).join("version_lists.rs");
 
     let code = format!(
-        r#"/// Official whitelist from Cargo.toml (verified working versions)
+        r#"/// Official Claude Code whitelist from Cargo.toml (verified working versions)
 pub const DEFAULT_WHITELIST: &[&str] = &[{}];
 
-/// Official blacklist from Cargo.toml (versions with known issues)
+/// Official Claude Code blacklist from Cargo.toml (versions with known issues)
 pub const DEFAULT_BLACKLIST: &[&str] = &[{}];
 
-/// Default version filter mode from Cargo.toml
+/// Default Claude Code version filter mode from Cargo.toml
 pub const DEFAULT_VERSION_FILTER_MODE: &str = "{}";
+
+/// Official Codex whitelist from Cargo.toml (verified working versions)
+pub const DEFAULT_CODEX_WHITELIST: &[&str] = &[{}];
+
+/// Official Codex blacklist from Cargo.toml (versions with known issues)
+pub const DEFAULT_CODEX_BLACKLIST: &[&str] = &[{}];
+
+/// Default Codex version filter mode from Cargo.toml
+pub const DEFAULT_CODEX_VERSION_FILTER_MODE: &str = "{}";
 "#,
         format_version_array(&whitelist),
         format_version_array(&blacklist),
-        default_mode
+        default_mode,
+        format_version_array(&codex_whitelist),
+        format_version_array(&codex_blacklist),
+        codex_default_mode
     );
 
     fs::write(&dest_path, code).expect("Failed to write version_lists.rs");
@@ -82,8 +99,8 @@ fn parse_version_list(manifest: &str, section_name: &str) -> Vec<String> {
     versions
 }
 
-fn parse_default_mode(manifest: &str) -> String {
-    let section_header = "[package.metadata.claude-code-versions]";
+fn parse_default_mode(manifest: &str, section_name: &str) -> String {
+    let section_header = format!("[package.metadata.{}]", section_name);
     let mut in_section = false;
 
     for line in manifest.lines() {

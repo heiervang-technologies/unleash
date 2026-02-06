@@ -6,7 +6,9 @@ use crate::input::{key_to_action, MenuState, NavAction};
 use crate::pixel_art::mascots;
 use crate::text_input::{censor_sensitive, is_sensitive_key, TextInput};
 use crate::theme::{ThemeColor, ThemePreset};
-use crate::version::{get_version_filter_mode, is_version_allowed, InstallResult, VersionFilterMode, VersionInfo, VersionManager};
+use crate::version::{get_version_filter_mode_for, is_version_allowed_for, InstallResult, VersionFilterMode, VersionInfo, VersionManager};
+#[cfg(test)]
+use crate::version::{is_whitelisted_for, is_blacklisted_for};
 
 use crossterm::event::{Event, KeyCode, KeyEvent, KeyModifiers};
 use ratatui::{
@@ -643,74 +645,63 @@ impl App {
     }
 
     /// Show cached version list immediately, then fetch fresh data async.
-    /// For Codex the list is local-only (no network), so it's always synchronous.
     pub fn refresh_versions(&mut self) {
         let agent = self.version_agent;
 
-        match agent {
-            AgentType::Claude => {
-                // Show cached list instantly (may be empty on first load)
-                if let Some(cached) = self.cached_version_lists.get(&agent) {
-                    self.versions = cached.clone();
-                }
-                self.version_menu.set_items_count(self.versions.len());
-
-                // Kick off async refresh from npm registry
-                self.start_async_version_fetch(agent);
-            }
-            AgentType::Codex => {
-                // Codex list is local-only, no async needed
-                self.versions = self.get_codex_version_list();
-                self.cached_version_lists
-                    .insert(AgentType::Codex, self.versions.clone());
-                self.version_menu.set_items_count(self.versions.len());
-            }
+        // Show cached list instantly (may be empty on first load)
+        if let Some(cached) = self.cached_version_lists.get(&agent) {
+            self.versions = cached.clone();
         }
+        self.version_menu.set_items_count(self.versions.len());
+
+        // Kick off async refresh (both Claude and Codex fetch from network)
+        self.start_async_version_fetch(agent);
     }
 
     /// Spawn a background thread to fetch the version list for an agent
     fn start_async_version_fetch(&mut self, agent: AgentType) {
+        let (tx, rx) = mpsc::channel();
         match agent {
             AgentType::Claude => {
-                let (tx, rx) = mpsc::channel();
                 thread::spawn(move || {
                     let vm = VersionManager::new();
                     let versions = vm.get_version_list();
                     let _ = tx.send((AgentType::Claude, versions));
                 });
-                self.version_list_receiver = Some(rx);
             }
-            AgentType::Codex => {} // No async fetch needed
+            AgentType::Codex => {
+                let installed = self
+                    .cached_agent_versions
+                    .get(&AgentType::Codex)
+                    .and_then(|v| v.clone());
+                thread::spawn(move || {
+                    let vm = VersionManager::new();
+                    let versions = vm.get_codex_version_list(installed.as_deref());
+                    let _ = tx.send((AgentType::Codex, versions));
+                });
+            }
         }
+        self.version_list_receiver = Some(rx);
     }
 
-    /// Build version list for Codex (build-from-source model)
+    /// Build version list for Codex (synchronous fallback before async fetch completes)
+    #[cfg(test)]
     fn get_codex_version_list(&self) -> Vec<VersionInfo> {
         let installed = self
             .cached_agent_versions
             .get(&AgentType::Codex)
             .and_then(|v| v.clone());
 
-        let has_installed = installed.is_some();
         let mut versions = Vec::new();
-
-        // "latest" is always available -- builds from source
-        versions.push(VersionInfo {
-            version: "latest (build from source)".to_string(),
-            is_installed: has_installed,
-            has_patch: false,
-            is_whitelisted: false,
-            is_blacklisted: false,
-        });
 
         // Show installed version if present
         if let Some(v) = installed {
             versions.push(VersionInfo {
-                version: v,
+                version: v.clone(),
                 is_installed: true,
                 has_patch: false,
-                is_whitelisted: false,
-                is_blacklisted: false,
+                is_whitelisted: is_whitelisted_for(&v, AgentType::Codex),
+                is_blacklisted: is_blacklisted_for(&v, AgentType::Codex),
             });
         }
 
@@ -1104,7 +1095,7 @@ impl App {
     fn install_claude_version(&mut self) {
         if let Some(version_info) = self.versions.get(self.version_menu.selected) {
             let version = version_info.version.clone();
-            let is_allowed = is_version_allowed(&version);
+            let is_allowed = is_version_allowed_for(&version, AgentType::Claude);
             let is_reinstall = version_info.is_installed;
 
             self.selected_version = Some(version.clone());
@@ -1165,58 +1156,50 @@ impl App {
         }
     }
 
-    /// Install/update Codex (build from source)
+    /// Install a specific Codex version (build from source at tag)
     fn install_codex_version(&mut self) {
-        let is_rebuild = self
-            .versions
-            .get(self.version_menu.selected)
-            .map(|v| v.is_installed)
-            .unwrap_or(false);
+        if let Some(version_info) = self.versions.get(self.version_menu.selected) {
+            let version = version_info.version.clone();
+            let is_allowed = is_version_allowed_for(&version, AgentType::Codex);
+            let is_rebuild = version_info.is_installed;
 
-        let action = if is_rebuild { "Rebuilding" } else { "Building" };
-        self.selected_version = Some("latest".to_string());
-        self.screen = Screen::VersionInstalling;
-        self.status_message = Some(format!("{} Codex from source...", action));
+            self.selected_version = Some(version.clone());
+            self.screen = Screen::VersionInstalling;
 
-        let (tx, rx) = mpsc::channel();
+            let action = if is_rebuild { "Rebuilding" } else { "Building" };
+            let warning = if !is_allowed {
+                " (WARNING: not recommended)"
+            } else {
+                ""
+            };
+            self.status_message = Some(format!("{} Codex v{}{}...", action, version, warning));
 
-        let handle = thread::spawn(move || {
-            let result = match AgentManager::new() {
-                Ok(mut manager) => match manager.update_agent(AgentType::Codex) {
-                    Ok(msg) => InstallResult {
-                        success: true,
-                        stdout: msg,
-                        stderr: String::new(),
-                        error: None,
-                    },
-                    Err(e) => InstallResult {
-                        success: false,
-                        stdout: String::new(),
-                        stderr: e.to_string(),
-                        error: Some(e.to_string()),
-                    },
-                },
-                Err(e) => InstallResult {
+            let (tx, rx) = mpsc::channel();
+
+            let version_clone = version.clone();
+            let handle = thread::spawn(move || {
+                let vm = VersionManager::new();
+                let result = vm.install_codex_version(&version_clone).unwrap_or_else(|e| InstallResult {
                     success: false,
                     stdout: String::new(),
                     stderr: e.to_string(),
                     error: Some(e.to_string()),
-                },
-            };
-            let _ = tx.send(InstallStepResult::InstallComplete(result));
-        });
+                });
+                let _ = tx.send(InstallStepResult::InstallComplete(result));
+            });
 
-        self.install_state = Some(InstallState {
-            agent_type: AgentType::Codex,
-            version: "latest".to_string(),
-            is_allowed: true,
-            receiver: rx,
-            _handle: handle,
-            start_time: Instant::now(),
-            current_step: InstallStep::Installing,
-            install_result: None,
-            patch_result: None,
-        });
+            self.install_state = Some(InstallState {
+                agent_type: AgentType::Codex,
+                version,
+                is_allowed,
+                receiver: rx,
+                _handle: handle,
+                start_time: Instant::now(),
+                current_step: InstallStep::Installing,
+                install_result: None,
+                patch_result: None,
+            });
+        }
     }
 
     fn handle_profiles_input(&mut self, action: NavAction) {
@@ -2328,7 +2311,7 @@ impl App {
         let is_claude = self.version_agent == AgentType::Claude;
 
         // Calculate visible height (area minus legend lines)
-        let legend_lines: u16 = if is_claude { 3 } else { 1 };
+        let legend_lines: u16 = 3;
         let visible_height = area.height.saturating_sub(legend_lines) as usize;
 
         // Ensure selected item is visible
@@ -2345,9 +2328,10 @@ impl App {
             .map(|(i, version_info)| {
                 let is_selected = i == self.version_menu.selected;
 
-                if is_claude {
-                    // Claude: show whitelist/blacklist/patch markers
-                    let is_allowed = is_version_allowed(&version_info.version);
+                {
+                    // Show whitelist/blacklist markers for all agents
+                    let agent = self.version_agent;
+                    let is_allowed = is_version_allowed_for(&version_info.version, agent);
 
                     let style = if is_selected {
                         if !is_allowed {
@@ -2384,55 +2368,37 @@ impl App {
                         Span::styled(whitelist_marker, Style::default().fg(Color::Green)),
                         Span::styled(blacklist_marker, Style::default().fg(Color::Red)),
                     ])])
-                } else {
-                    // Codex/other: simple display
-                    let style = if is_selected {
-                        Style::default()
-                            .fg(self.accent_color())
-                            .add_modifier(Modifier::BOLD)
-                    } else if version_info.is_installed {
-                        Style::default().fg(Color::Green)
-                    } else {
-                        Style::default()
-                    };
-
-                    let prefix = if is_selected { "> " } else { "  " };
-                    let installed_marker =
-                        if version_info.is_installed { " [installed]" } else { "" };
-
-                    ListItem::new(vec![Line::from(vec![
-                        Span::styled(prefix, style),
-                        Span::styled(&version_info.version, style),
-                        Span::styled(installed_marker, Style::default().fg(Color::Green)),
-                    ])])
                 }
             })
             .collect();
 
         let mut list_items = items;
 
-        // Add legend at the bottom (agent-specific)
+        // Add legend at the bottom
         if !self.versions.is_empty() {
             list_items.push(ListItem::new(Line::from("")));
-            if is_claude {
-                let filter_mode = get_version_filter_mode();
-                list_items.push(ListItem::new(Line::from(Span::styled(
-                    "  * = has auto-mode patch  ✓ = whitelisted  ⛔ = blacklisted",
-                    Style::default().fg(Color::DarkGray),
-                ))));
-                let mode_hint = match filter_mode {
-                    VersionFilterMode::Whitelist => {
-                        "  Mode: whitelist (only ✓ versions allowed)"
-                    }
-                    VersionFilterMode::Blacklist => {
-                        "  Mode: blacklist (all except ⛔ allowed)"
-                    }
-                };
-                list_items.push(ListItem::new(Line::from(Span::styled(
-                    mode_hint,
-                    Style::default().fg(Color::DarkGray),
-                ))));
-            }
+            let legend = if is_claude {
+                "  * = has auto-mode patch  ✓ = whitelisted  ⛔ = blacklisted"
+            } else {
+                "  ✓ = whitelisted  ⛔ = blacklisted"
+            };
+            list_items.push(ListItem::new(Line::from(Span::styled(
+                legend,
+                Style::default().fg(Color::DarkGray),
+            ))));
+            let filter_mode = get_version_filter_mode_for(self.version_agent);
+            let mode_hint = match filter_mode {
+                VersionFilterMode::Whitelist => {
+                    "  Mode: whitelist (only ✓ versions allowed)"
+                }
+                VersionFilterMode::Blacklist => {
+                    "  Mode: blacklist (all except ⛔ allowed)"
+                }
+            };
+            list_items.push(ListItem::new(Line::from(Span::styled(
+                mode_hint,
+                Style::default().fg(Color::DarkGray),
+            ))));
         }
 
         let menu = List::new(list_items);
@@ -3086,11 +3052,9 @@ mod tests {
     fn test_codex_version_list_no_installed() {
         let (app, _temp) = test_app();
 
-        // No cached Codex version -> only "latest" entry
+        // No cached Codex version -> empty fallback list
         let versions = app.get_codex_version_list();
-        assert_eq!(versions.len(), 1);
-        assert_eq!(versions[0].version, "latest (build from source)");
-        assert!(!versions[0].is_installed);
+        assert_eq!(versions.len(), 0);
     }
 
     #[test]
@@ -3099,16 +3063,14 @@ mod tests {
 
         // Cache a Codex installed version
         app.cached_agent_versions
-            .insert(AgentType::Codex, Some("0.1.0".to_string()));
+            .insert(AgentType::Codex, Some("0.93.0".to_string()));
 
         let versions = app.get_codex_version_list();
-        assert_eq!(versions.len(), 2);
-        // "latest" should show as installed when Codex is present
-        assert_eq!(versions[0].version, "latest (build from source)");
+        assert_eq!(versions.len(), 1);
+        assert_eq!(versions[0].version, "0.93.0");
         assert!(versions[0].is_installed);
-        // Second entry is the specific installed version
-        assert_eq!(versions[1].version, "0.1.0");
-        assert!(versions[1].is_installed);
+        // Whitelisted version should show marker
+        assert!(versions[0].is_whitelisted);
     }
 
     #[test]
@@ -3118,18 +3080,24 @@ mod tests {
         app.screen = Screen::VersionManagement;
         app.version_agent = AgentType::Codex;
 
-        // Populate Codex version list
-        app.versions = app.get_codex_version_list();
+        // Populate Codex version list with a whitelisted version
+        app.versions = vec![VersionInfo {
+            version: "0.93.0".to_string(),
+            is_installed: false,
+            has_patch: false,
+            is_whitelisted: true,
+            is_blacklisted: false,
+        }];
         app.version_menu.set_items_count(app.versions.len());
 
         // Select and install
         app.install_codex_version();
 
         assert_eq!(app.screen, Screen::VersionInstalling);
-        assert_eq!(app.selected_version, Some("latest".to_string()));
+        assert_eq!(app.selected_version, Some("0.93.0".to_string()));
         let state = app.install_state.as_ref().unwrap();
         assert_eq!(state.agent_type, AgentType::Codex);
-        assert_eq!(state.version, "latest");
+        assert_eq!(state.version, "0.93.0");
         assert!(state.is_allowed);
         assert_eq!(state.current_step, InstallStep::Installing);
     }
