@@ -1,5 +1,12 @@
 # Changelog
 
+## [5.3.0](https://github.com/heiervang-technologies/agent-unleashed/compare/v5.2.0...v5.3.0) (2026-02-06)
+
+
+### Features
+
+* add Codex version management with whitelist/blacklist filtering ([#117](https://github.com/heiervang-technologies/agent-unleashed/issues/117)) ([05d10f8](https://github.com/heiervang-technologies/agent-unleashed/commit/05d10f8faa67e21cf02b59d47a36e5e6bd3aa162))
+
 ## [5.2.0](https://github.com/heiervang-technologies/agent-unleashed/compare/v5.1.1...v5.2.0) (2026-02-06)
 
 
