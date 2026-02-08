@@ -373,7 +373,7 @@ pub fn trigger_exit(wrapper_pid: u32) -> io::Result<()> {
     use nix::unistd::Pid;
 
     kill(Pid::from_raw(wrapper_pid as i32), Signal::SIGTERM)
-        .map_err(|e| io::Error::new(io::ErrorKind::Other, e))?;
+        .map_err(io::Error::other)?;
 
     Ok(())
 }

@@ -78,11 +78,10 @@ pub fn check_auth() -> AuthStatus {
     }
 
     // 3. Check macOS Keychain (only on macOS)
-    if cfg!(target_os = "macos") {
-        if check_macos_keychain() {
+    if cfg!(target_os = "macos")
+        && check_macos_keychain() {
             return AuthStatus::MacOSKeychain;
         }
-    }
 
     AuthStatus::NotFound
 }

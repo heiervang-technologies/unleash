@@ -223,7 +223,7 @@ fn cmd_start(config: &Config, args: &[String]) -> io::Result<()> {
         .status()?;
 
     if !status.success() {
-        return Err(io::Error::new(io::ErrorKind::Other, "Failed to create tmux session"));
+        return Err(io::Error::other("Failed to create tmux session"));
     }
 
     // Enable logging
@@ -363,7 +363,7 @@ fn cmd_wait(config: &Config, timeout_override: Option<u64>) -> io::Result<()> {
         // Check if session still exists
         if !session_exists(&config.session_name) {
             log_error("Session terminated unexpectedly");
-            return Err(io::Error::new(io::ErrorKind::Other, "Session terminated"));
+            return Err(io::Error::other("Session terminated"));
         }
 
         let current_size = fs::read(config.output_file())

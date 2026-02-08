@@ -67,7 +67,7 @@ fn get_claude_version() -> io::Result<String> {
             .replace(" (Claude Code)", "");
         Ok(version)
     } else {
-        Err(io::Error::new(io::ErrorKind::Other, "Failed to get Claude version"))
+        Err(io::Error::other("Failed to get Claude version"))
     }
 }
 

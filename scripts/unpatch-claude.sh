@@ -23,7 +23,7 @@ CLAUDE_DIR=$(dirname "$CLAUDE_REAL")
 CLI_JS="$CLAUDE_DIR/cli.js"
 
 # Find most recent backup
-LATEST_BACKUP=$(ls -t "$CLI_JS.backup."* 2>/dev/null | head -1 || echo "")
+LATEST_BACKUP=$(find "$(dirname "$CLI_JS")" -maxdepth 1 -name "$(basename "$CLI_JS").backup.*" -type f -printf "%T@ %p\n" 2>/dev/null | sort -rn | head -1 | cut -d" " -f2- || echo "")
 
 if [[ -z "$LATEST_BACKUP" ]]; then
     echo "Error: No backup found"

@@ -513,12 +513,10 @@ impl App {
                         } else {
                             format!("Installed and patched v{}", version)
                         }
+                    } else if !is_allowed {
+                        format!("Installed v{} (not recommended, patch unavailable)", version)
                     } else {
-                        if !is_allowed {
-                            format!("Installed v{} (not recommended, patch unavailable)", version)
-                        } else {
-                            format!("Installed v{} (patch unavailable)", version)
-                        }
+                        format!("Installed v{} (patch unavailable)", version)
                     }
                 } else {
                     format!("{} v{} installed", agent_name, version)
@@ -751,12 +749,11 @@ impl App {
     pub fn handle_event(&mut self, event: Event) -> io::Result<Option<AppAction>> {
         if let Event::Key(key) = event {
             // Global quit with Ctrl+C (except when editing)
-            if key.code == KeyCode::Char('c') && key.modifiers.contains(KeyModifiers::CONTROL) {
-                if self.edit_field == EditField::None {
+            if key.code == KeyCode::Char('c') && key.modifiers.contains(KeyModifiers::CONTROL)
+                && self.edit_field == EditField::None {
                     self.running = false;
                     return Ok(None);
                 }
-            }
 
             // Easter egg: Konami code detection (idea by cac taurus)
             // Up, Up, Down, Down, Left, Right, Left, Right, B, A
@@ -2570,8 +2567,7 @@ impl UpdateRequest {
             .status()?;
 
         if !git_status.success() {
-            return Err(io::Error::new(
-                io::ErrorKind::Other,
+            return Err(io::Error::other(
                 "git pull failed",
             ));
         }
@@ -2584,8 +2580,7 @@ impl UpdateRequest {
             .status()?;
 
         if !build_status.success() {
-            return Err(io::Error::new(
-                io::ErrorKind::Other,
+            return Err(io::Error::other(
                 "cargo build failed",
             ));
         }
@@ -2596,8 +2591,7 @@ impl UpdateRequest {
 
         let err = Command::new(&new_binary).exec();
         // exec() only returns on error
-        Err(io::Error::new(
-            io::ErrorKind::Other,
+        Err(io::Error::other(
             format!("Failed to exec new binary: {}", err),
         ))
     }

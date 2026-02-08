@@ -32,7 +32,8 @@ sync_cli_visual() {
 
     if [[ "$target_auto" == "on" ]]; then
         # Cycle until we reach auto mode (»» indicator)
-        for i in {1..4}; do
+        # shellcheck disable=SC2034
+        for _ in {1..4}; do
             if cli_in_auto_mode; then
                 echo "(CLI synced to auto mode)"
                 return

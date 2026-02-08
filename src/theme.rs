@@ -147,7 +147,7 @@ impl ThemeColor {
     }
 
     /// Serialize to config string
-    pub fn to_config(&self) -> String {
+    pub fn to_config(self) -> String {
         match self {
             ThemeColor::Preset(p) => p.as_str().to_string(),
             ThemeColor::Custom(r, g, b) => format!("#{:02x}{:02x}{:02x}", r, g, b),

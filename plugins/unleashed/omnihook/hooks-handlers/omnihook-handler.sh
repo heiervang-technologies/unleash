@@ -18,6 +18,7 @@ set -euo pipefail
 QUEUE_DIR="${HOME}/.cache/agent-unleashed/omnihook"
 WRAPPER_PID="${CLAUDE_WRAPPER_PID:-$$}"
 QUEUE_FILE="${QUEUE_DIR}/queue-${WRAPPER_PID}"
+# shellcheck disable=SC2034
 FIFO_FILE="${QUEUE_DIR}/fifo-${WRAPPER_PID}"
 LOCK_FILE="${QUEUE_DIR}/lock-${WRAPPER_PID}"
 
@@ -27,6 +28,7 @@ HOOK_EVENT="${HOOK_EVENT:-unknown}"
 # Read hook input from stdin (may be empty for some hooks)
 HOOK_INPUT=""
 if [[ ! -t 0 ]]; then
+  # shellcheck disable=SC2034
   HOOK_INPUT=$(cat 2>/dev/null || echo "")
 fi
 
