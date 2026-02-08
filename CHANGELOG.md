@@ -1,5 +1,12 @@
 # Changelog
 
+## [5.4.0](https://github.com/heiervang-technologies/agent-unleashed/compare/v5.3.0...v5.4.0) (2026-02-08)
+
+
+### Features
+
+* add local and pony codex profiles ([be4aa75](https://github.com/heiervang-technologies/agent-unleashed/commit/be4aa754d669236c355f479408c62d3b27ee7a42))
+
 ## [5.3.0](https://github.com/heiervang-technologies/agent-unleashed/compare/v5.2.0...v5.3.0) (2026-02-06)
 
 
