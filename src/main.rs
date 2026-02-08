@@ -122,13 +122,11 @@ fn main() -> io::Result<()> {
                 version::list_versions(cli.json)
             } else if let Some(ver) = install {
                 version::install_version(&ver, cli.json)
+            } else if cli.json {
+                version::show_current_json();
+                Ok(())
             } else {
-                if cli.json {
-                    version::show_current_json();
-                    Ok(())
-                } else {
-                    version::show_current()
-                }
+                version::show_current()
             }
         }
         Some(Commands::Auth { verbose, quiet }) => {

@@ -443,8 +443,8 @@ fn parse_ansi_sequence_lava(seq: &str, mut style: RatatuiStyle, animation_frame:
                 style = RatatuiStyle::default();
             }
             "38" => {
-                if i + 1 < parts.len() && parts[i + 1] == "2" {
-                    if i + 4 < parts.len() {
+                if i + 1 < parts.len() && parts[i + 1] == "2"
+                    && i + 4 < parts.len() {
                         if let (Ok(r), Ok(g), Ok(b)) = (
                             parts[i + 2].parse::<u8>(),
                             parts[i + 3].parse::<u8>(),
@@ -455,11 +455,10 @@ fn parse_ansi_sequence_lava(seq: &str, mut style: RatatuiStyle, animation_frame:
                         }
                         i += 4;
                     }
-                }
             }
             "48" => {
-                if i + 1 < parts.len() && parts[i + 1] == "2" {
-                    if i + 4 < parts.len() {
+                if i + 1 < parts.len() && parts[i + 1] == "2"
+                    && i + 4 < parts.len() {
                         if let (Ok(r), Ok(g), Ok(b)) = (
                             parts[i + 2].parse::<u8>(),
                             parts[i + 3].parse::<u8>(),
@@ -470,7 +469,6 @@ fn parse_ansi_sequence_lava(seq: &str, mut style: RatatuiStyle, animation_frame:
                         }
                         i += 4;
                     }
-                }
             }
             _ => {}
         }
@@ -557,8 +555,8 @@ fn parse_ansi_sequence_themed(seq: &str, mut style: RatatuiStyle, shift: crate::
                 style = RatatuiStyle::default();
             }
             "38" => {
-                if i + 1 < parts.len() && parts[i + 1] == "2" {
-                    if i + 4 < parts.len() {
+                if i + 1 < parts.len() && parts[i + 1] == "2"
+                    && i + 4 < parts.len() {
                         if let (Ok(r), Ok(g), Ok(b)) = (
                             parts[i + 2].parse::<u8>(),
                             parts[i + 3].parse::<u8>(),
@@ -569,11 +567,10 @@ fn parse_ansi_sequence_themed(seq: &str, mut style: RatatuiStyle, shift: crate::
                         }
                         i += 4;
                     }
-                }
             }
             "48" => {
-                if i + 1 < parts.len() && parts[i + 1] == "2" {
-                    if i + 4 < parts.len() {
+                if i + 1 < parts.len() && parts[i + 1] == "2"
+                    && i + 4 < parts.len() {
                         if let (Ok(r), Ok(g), Ok(b)) = (
                             parts[i + 2].parse::<u8>(),
                             parts[i + 3].parse::<u8>(),
@@ -584,7 +581,6 @@ fn parse_ansi_sequence_themed(seq: &str, mut style: RatatuiStyle, shift: crate::
                         }
                         i += 4;
                     }
-                }
             }
             _ => {}
         }

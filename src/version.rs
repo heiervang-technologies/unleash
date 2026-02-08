@@ -339,8 +339,7 @@ impl VersionManager {
             let recent: Vec<String> = versions.into_iter().rev().take(20).collect();
             Ok(recent)
         } else {
-            Err(io::Error::new(
-                io::ErrorKind::Other,
+            Err(io::Error::other(
                 "Failed to query npm registry",
             ))
         }
@@ -516,8 +515,7 @@ impl VersionManager {
             versions.truncate(20);
             Ok(versions)
         } else {
-            Err(io::Error::new(
-                io::ErrorKind::Other,
+            Err(io::Error::other(
                 "Failed to query GitHub releases for Codex",
             ))
         }
@@ -746,8 +744,7 @@ pub fn install_version(version: &str, json: bool) -> io::Result<()> {
                 eprintln!("{}", install_result.stderr);
             }
         }
-        return Err(io::Error::new(
-            io::ErrorKind::Other,
+        return Err(io::Error::other(
             format!("Failed to install Claude Code {}", version),
         ));
     }
@@ -1014,7 +1011,7 @@ mod tests {
         let args_file = mock_path.join("npm_args.txt");
 
         let script = format!(
-            "#!/bin/bash\necho \"$@\" > \"{}\"\nexit 0\n",
+            "#!/bin/bash\necho \"$@\" >> \"{}\"\nexit 0\n",
             args_file.display()
         );
         std::fs::write(&mock_npm, script).unwrap();

@@ -9,7 +9,7 @@ use serde_json::{json, Value};
 use std::collections::HashMap;
 use std::fs;
 use std::io;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process::Command;
 use which::which;
 
@@ -74,8 +74,7 @@ impl ClaudeInstallation {
                 .replace(" (Claude Code)", "");
             Ok(version)
         } else {
-            Err(io::Error::new(
-                io::ErrorKind::Other,
+            Err(io::Error::other(
                 "Failed to get Claude version",
             ))
         }
@@ -391,7 +390,7 @@ EOF
     }
 
     /// Sync hooks from a single plugin's hooks.json
-    fn sync_plugin_hook_file(&self, hooks_json: &PathBuf, plugin_dir: &PathBuf) -> io::Result<()> {
+    fn sync_plugin_hook_file(&self, hooks_json: &PathBuf, plugin_dir: &Path) -> io::Result<()> {
         let content = fs::read_to_string(hooks_json)?;
         let hooks: Value = serde_json::from_str(&content)
             .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e.to_string()))?;
@@ -424,7 +423,7 @@ EOF
         &self,
         event: HookEvent,
         config: &Value,
-        plugin_dir: &PathBuf,
+        plugin_dir: &Path,
     ) -> io::Result<()> {
         if let Some(hooks) = config.get("hooks").and_then(|h| h.as_array()) {
             for hook in hooks {

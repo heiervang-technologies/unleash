@@ -26,12 +26,6 @@ impl AgentType {
         &[AgentType::Claude, AgentType::Codex]
     }
 
-    pub fn as_str(&self) -> &'static str {
-        match self {
-            AgentType::Claude => "claude",
-            AgentType::Codex => "codex",
-        }
-    }
 
     pub fn display_name(&self) -> &'static str {
         match self {
@@ -106,6 +100,7 @@ impl AgentDefinition {
 
 /// Version information for an agent
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Default)]
 pub struct AgentVersion {
     /// Current installed version
     pub installed: Option<String>,
@@ -117,16 +112,6 @@ pub struct AgentVersion {
     pub last_checked: Option<u64>,
 }
 
-impl Default for AgentVersion {
-    fn default() -> Self {
-        Self {
-            installed: None,
-            latest: None,
-            binary_path: None,
-            last_checked: None,
-        }
-    }
-}
 
 /// Agent manager for handling multiple code agents
 pub struct AgentManager {
@@ -331,8 +316,7 @@ impl AgentManager {
         if output.status.success() {
             Ok("Claude Code updated successfully".to_string())
         } else {
-            Err(io::Error::new(
-                io::ErrorKind::Other,
+            Err(io::Error::other(
                 format!(
                     "Failed to update Claude Code: {}",
                     String::from_utf8_lossy(&output.stderr)
@@ -397,8 +381,7 @@ impl AgentManager {
             .output()?;
 
         if !output.status.success() {
-            return Err(io::Error::new(
-                io::ErrorKind::Other,
+            return Err(io::Error::other(
                 format!(
                     "Failed to update codex submodule: {}",
                     String::from_utf8_lossy(&output.stderr)
@@ -428,8 +411,7 @@ impl AgentManager {
                 install_path.display()
             ))
         } else {
-            Err(io::Error::new(
-                io::ErrorKind::Other,
+            Err(io::Error::other(
                 format!(
                     "Failed to build Codex: {}",
                     String::from_utf8_lossy(&output.stderr)

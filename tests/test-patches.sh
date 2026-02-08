@@ -88,6 +88,7 @@ load_version_configs() {
             # Source the config in a subshell to extract variables
             eval "$(grep -E '^(MODES_ARRAY_VAR|MODE_VAR|TELEMETRY_FN|DELEGATE_FN1|DELEGATE_FN2|PERMISSION_CTX_VAR|PERMISSION_BOOL_VAR|TOOL_PERMISSION_CTX|PASSTHROUGH_MODE_VAR|DELEGATE_MODE_CTX)=' "$conf_file")"
             VERSION_MODES_ARRAY_VAR[$version]="$MODES_ARRAY_VAR"
+            # shellcheck disable=SC2153
             VERSION_MODE_VAR[$version]="$MODE_VAR"
             VERSION_TELEMETRY_FN[$version]="$TELEMETRY_FN"
             VERSION_DELEGATE_FN1[$version]="$DELEGATE_FN1"

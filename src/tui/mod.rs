@@ -137,8 +137,7 @@ fn run_external_editor(content: &str) -> io::Result<String> {
 
     if !status.success() {
         let _ = fs::remove_file(&temp_path);
-        return Err(io::Error::new(
-            io::ErrorKind::Other,
+        return Err(io::Error::other(
             format!("Editor '{}' exited with error", editor),
         ));
     }

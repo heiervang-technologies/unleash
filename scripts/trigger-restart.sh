@@ -56,7 +56,8 @@ find_claude_pid() {
     local pid
     pid=$(pgrep -f "^claude" | head -1 || true)
     if [[ -z "${pid}" ]]; then
-        pid=$(ps aux | grep '[c]laude' | grep -v defunct | head -1 | awk '{print $2}' || true)
+        # shellcheck disable=SC2009
+    pid=$(ps aux | grep '[c]laude' | grep -v defunct | head -1 | awk '{print $2}' || true)
     fi
     echo "${pid}"
 }
