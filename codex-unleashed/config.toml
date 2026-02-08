@@ -10,6 +10,18 @@ base_url = "https://openrouter.ai/api/v1"
 env_key = "OPENROUTER_API_KEY"
 wire_api = "responses"
 
+
+[model_providers.local]
+name = "local"
+base_url = "http://192.168.8.158:30180/v1"
+env_key = "OPENROUTER_API_KEY"
+wire_api = "responses"
+
+[profiles.coder-next]
+model = "gpt-5.2-codex"
+model_provider = "local"
+model_reasoning_effort = "high"
+
 # Profile for OpenRouter (explicit, same as default)
 [profiles.openrouter]
 model = "gpt-5.2-codex"
@@ -18,6 +30,11 @@ model_provider = "openrouter"
 # Profile for Minimax model
 [profiles.minimax]
 model = "minimax/minimax-m2.1"
+model_provider = "openrouter"
+
+# Profile for Pony Alpha (via OpenRouter, chat API)
+[profiles.pony]
+model = "openrouter/pony-alpha"
 model_provider = "openrouter"
 
 # Profile for OpenAI direct
@@ -30,3 +47,6 @@ trust_level = "trusted"
 
 [projects."/home/me/ht/agent-unleashed"]
 trust_level = "trusted"
+
+[projects."/home/me"]
+trust_level = "untrusted"
