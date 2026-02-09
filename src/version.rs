@@ -14,6 +14,9 @@ use std::io;
 use std::path::PathBuf;
 use std::process::Command;
 
+/// GCS bucket base URL for Claude Code native releases
+const CLAUDE_GCS_BUCKET: &str = "https://storage.googleapis.com/claude-code-dist-86c565f3-f756-42ad-8dfa-d59b1c096819/claude-code-releases";
+
 // Include the generated version lists from Cargo.toml
 include!(concat!(env!("OUT_DIR"), "/version_lists.rs"));
 
@@ -317,32 +320,85 @@ impl VersionManager {
         versions
     }
 
-    /// Get available Claude Code versions from npm registry
-    pub fn get_available_versions(&self) -> io::Result<Vec<String>> {
-        let output = Command::new("npm")
-            .args(["view", "@anthropic-ai/claude-code", "versions", "--json"])
-            .output()?;
-
+    /// Get the latest Claude Code version from GCS
+    pub fn get_latest_gcs_version() -> Option<String> {
+        let output = Command::new("curl")
+            .args(["-fsSL", &format!("{}/latest", CLAUDE_GCS_BUCKET)])
+            .output()
+            .ok()?;
         if output.status.success() {
-            let json_str = String::from_utf8_lossy(&output.stdout);
-            // Simple JSON array parsing (avoid adding serde_json dependency)
-            let versions: Vec<String> = json_str
-                .trim()
-                .trim_start_matches('[')
-                .trim_end_matches(']')
-                .split(',')
-                .map(|s| s.trim().trim_matches('"').to_string())
-                .filter(|s| !s.is_empty())
-                .collect();
-
-            // Return recent versions (last 20)
-            let recent: Vec<String> = versions.into_iter().rev().take(20).collect();
-            Ok(recent)
+            Some(String::from_utf8_lossy(&output.stdout).trim().to_string())
         } else {
-            Err(io::Error::other(
-                "Failed to query npm registry",
-            ))
+            None
         }
+    }
+
+    /// Check if a version exists on GCS (by checking if its manifest exists)
+    fn gcs_version_exists(version: &str) -> bool {
+        Command::new("curl")
+            .args(["-fsSL", "--head", &format!("{}/{}/manifest.json", CLAUDE_GCS_BUCKET, version)])
+            .output()
+            .is_ok_and(|o| o.status.success())
+    }
+
+    /// Get available Claude Code versions from GCS + npm registry
+    pub fn get_available_versions(&self) -> io::Result<Vec<String>> {
+        let mut seen = std::collections::HashSet::new();
+        let mut versions = Vec::new();
+
+        // Try GCS first: get latest version
+        if let Some(latest) = Self::get_latest_gcs_version() {
+            if seen.insert(latest.clone()) {
+                versions.push(latest);
+            }
+        }
+
+        // Check known whitelisted versions on GCS
+        let whitelist = get_whitelist_for(AgentType::Claude);
+        for v in &whitelist {
+            if !seen.contains(v) && Self::gcs_version_exists(v) {
+                seen.insert(v.clone());
+                versions.push(v.clone());
+            }
+        }
+
+        // Fallback: query npm registry for additional versions
+        if Self::has_npm() {
+            if let Ok(output) = Command::new("npm")
+                .args(["view", "@anthropic-ai/claude-code", "versions", "--json"])
+                .output()
+            {
+                if output.status.success() {
+                    let json_str = String::from_utf8_lossy(&output.stdout);
+                    let npm_versions: Vec<String> = json_str
+                        .trim()
+                        .trim_start_matches('[')
+                        .trim_end_matches(']')
+                        .split(',')
+                        .map(|s| s.trim().trim_matches('"').to_string())
+                        .filter(|s| !s.is_empty())
+                        .collect();
+
+                    // Add recent npm versions not already seen
+                    for v in npm_versions.into_iter().rev().take(20) {
+                        if seen.insert(v.clone()) {
+                            versions.push(v);
+                        }
+                    }
+                }
+            }
+        }
+
+        if versions.is_empty() {
+            return Err(io::Error::other(
+                "Failed to query available versions from GCS and npm",
+            ));
+        }
+
+        // Sort newest first and take top 20
+        versions.sort_by(|a, b| version_compare(b, a));
+        versions.truncate(20);
+        Ok(versions)
     }
 
     /// Get combined Claude Code version list with status
@@ -387,47 +443,193 @@ impl VersionManager {
         versions
     }
 
-    /// Install a specific version of Claude Code
-    pub fn install_version(&self, version: &str) -> io::Result<InstallResult> {
-        // Use --force to allow downgrading to older versions
-        let output = Command::new("npm")
-            .args(["install", "-g", "--force", &format!("@anthropic-ai/claude-code@{}", version)])
+    /// Detect the current platform for GCS downloads
+    fn detect_platform() -> String {
+        let arch = std::env::consts::ARCH;
+        let os = std::env::consts::OS;
+
+        let gcs_arch = match arch {
+            "x86_64" => "x64",
+            "aarch64" => "arm64",
+            _ => "x64",
+        };
+
+        let gcs_os = match os {
+            "linux" => "linux",
+            "macos" => "darwin",
+            _ => "linux",
+        };
+
+        // Check for musl on Linux
+        if gcs_os == "linux" {
+            if std::path::Path::new("/lib/libc.musl-x86_64.so.1").exists()
+                || std::path::Path::new("/lib/libc.musl-aarch64.so.1").exists()
+            {
+                return format!("{}-{}-musl", gcs_os, gcs_arch);
+            }
+        }
+
+        format!("{}-{}", gcs_os, gcs_arch)
+    }
+
+    /// Install Claude Code using the native installer (GCS binary download)
+    pub fn install_version_native(&self, version: &str) -> io::Result<InstallResult> {
+        let platform = Self::detect_platform();
+        let download_url = format!("{}/{}/{}/claude", CLAUDE_GCS_BUCKET, version, platform);
+        let manifest_url = format!("{}/{}/manifest.json", CLAUDE_GCS_BUCKET, version);
+
+        // Create version directory
+        let version_dir = dirs::home_dir()
+            .ok_or_else(|| io::Error::new(io::ErrorKind::NotFound, "Home dir not found"))?
+            .join(".local/share/claude/versions");
+        std::fs::create_dir_all(&version_dir)?;
+
+        let binary_path = version_dir.join(version);
+        let temp_path = version_dir.join(format!("{}.tmp", version));
+
+        // Download binary
+        let download = Command::new("curl")
+            .args(["-fsSL", "-o", temp_path.to_str().unwrap(), &download_url])
             .output()?;
 
-        let stdout = String::from_utf8_lossy(&output.stdout).to_string();
-        let stderr = String::from_utf8_lossy(&output.stderr).to_string();
+        if !download.status.success() {
+            let _ = std::fs::remove_file(&temp_path);
+            return Ok(InstallResult {
+                success: false,
+                stdout: String::new(),
+                stderr: String::from_utf8_lossy(&download.stderr).to_string(),
+                error: Some(format!("Failed to download Claude Code {} from GCS", version)),
+            });
+        }
 
-        if output.status.success() {
-            // After install, update symlink to npm-installed cli.js
-            if let Ok(npm_output) = Command::new("npm").args(["root", "-g"]).output() {
-                if npm_output.status.success() {
-                    let npm_root = String::from_utf8_lossy(&npm_output.stdout).trim().to_string();
-                    let cli_js = PathBuf::from(&npm_root).join("@anthropic-ai/claude-code/cli.js");
-                    if cli_js.exists() {
-                        if let Some(home) = dirs::home_dir() {
-                            let bin_claude = home.join(".local/bin/claude");
-                            let _ = std::fs::remove_file(&bin_claude);
-                            #[cfg(unix)]
-                            std::os::unix::fs::symlink(&cli_js, &bin_claude).ok();
+        // Download manifest for checksum verification
+        let manifest_output = Command::new("curl")
+            .args(["-fsSL", &manifest_url])
+            .output()?;
+
+        if manifest_output.status.success() {
+            let manifest = String::from_utf8_lossy(&manifest_output.stdout);
+            // Extract checksum for our platform (simple JSON parsing)
+            if let Some(expected_checksum) = Self::extract_checksum_from_manifest(&manifest, &platform) {
+                // Verify checksum
+                let checksum_output = Command::new("sha256sum")
+                    .arg(temp_path.to_str().unwrap())
+                    .output()?;
+
+                if checksum_output.status.success() {
+                    let actual = String::from_utf8_lossy(&checksum_output.stdout);
+                    let actual_checksum = actual.split_whitespace().next().unwrap_or("");
+                    if actual_checksum != expected_checksum {
+                        let _ = std::fs::remove_file(&temp_path);
+                        return Ok(InstallResult {
+                            success: false,
+                            stdout: String::new(),
+                            stderr: format!("Checksum mismatch: expected {}, got {}", expected_checksum, actual_checksum),
+                            error: Some("Checksum verification failed".to_string()),
+                        });
+                    }
+                }
+            }
+        }
+
+        // Make executable and move into place
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let mut perms = std::fs::metadata(&temp_path)?.permissions();
+            perms.set_mode(0o755);
+            std::fs::set_permissions(&temp_path, perms)?;
+        }
+
+        std::fs::rename(&temp_path, &binary_path)?;
+
+        // Update ~/.local/bin/claude symlink to point to the new binary
+        if let Some(home) = dirs::home_dir() {
+            let bin_dir = home.join(".local/bin");
+            std::fs::create_dir_all(&bin_dir)?;
+            let bin_claude = bin_dir.join("claude");
+            let _ = std::fs::remove_file(&bin_claude);
+            #[cfg(unix)]
+            std::os::unix::fs::symlink(&binary_path, &bin_claude).ok();
+        }
+
+        Ok(InstallResult {
+            success: true,
+            stdout: format!("Claude Code v{} installed natively to {}", version, binary_path.display()),
+            stderr: String::new(),
+            error: None,
+        })
+    }
+
+    /// Extract SHA256 checksum from manifest JSON for a given platform
+    fn extract_checksum_from_manifest(manifest: &str, platform: &str) -> Option<String> {
+        // Simple parsing without serde_json
+        // Look for: "platform": { ... "checksum": "hex" ... }
+        let platform_key = format!("\"{}\"", platform);
+        if let Some(platform_pos) = manifest.find(&platform_key) {
+            let rest = &manifest[platform_pos..];
+            if let Some(checksum_pos) = rest.find("\"checksum\"") {
+                let after_key = &rest[checksum_pos + 10..]; // skip "checksum"
+                // Find the next quoted string value
+                if let Some(start) = after_key.find('"') {
+                    let value_start = start + 1;
+                    if let Some(end) = after_key[value_start..].find('"') {
+                        let checksum = &after_key[value_start..value_start + end];
+                        if checksum.len() == 64 && checksum.chars().all(|c| c.is_ascii_hexdigit()) {
+                            return Some(checksum.to_string());
                         }
                     }
                 }
             }
-
-            Ok(InstallResult {
-                success: true,
-                stdout,
-                stderr,
-                error: None,
-            })
-        } else {
-            Ok(InstallResult {
-                success: false,
-                stdout,
-                stderr,
-                error: Some(format!("npm install exited with status {}", output.status)),
-            })
         }
+        None
+    }
+
+    /// Check if npm is available
+    fn has_npm() -> bool {
+        Command::new("npm").arg("--version").output().is_ok_and(|o| o.status.success())
+    }
+
+    /// Install a specific version of Claude Code (npm first, GCS fallback)
+    pub fn install_version(&self, version: &str) -> io::Result<InstallResult> {
+        // Try npm first (produces patchable cli.js for auto-mode support)
+        if Self::has_npm() {
+            let output = Command::new("npm")
+                .args(["install", "-g", "--force", &format!("@anthropic-ai/claude-code@{}", version)])
+                .output()?;
+
+            let stdout = String::from_utf8_lossy(&output.stdout).to_string();
+            let stderr = String::from_utf8_lossy(&output.stderr).to_string();
+
+            if output.status.success() {
+                // After install, update symlink to npm-installed cli.js
+                if let Ok(npm_output) = Command::new("npm").args(["root", "-g"]).output() {
+                    if npm_output.status.success() {
+                        let npm_root = String::from_utf8_lossy(&npm_output.stdout).trim().to_string();
+                        let cli_js = PathBuf::from(&npm_root).join("@anthropic-ai/claude-code/cli.js");
+                        if cli_js.exists() {
+                            if let Some(home) = dirs::home_dir() {
+                                let bin_claude = home.join(".local/bin/claude");
+                                let _ = std::fs::remove_file(&bin_claude);
+                                #[cfg(unix)]
+                                std::os::unix::fs::symlink(&cli_js, &bin_claude).ok();
+                            }
+                        }
+                    }
+                }
+
+                return Ok(InstallResult {
+                    success: true,
+                    stdout,
+                    stderr,
+                    error: None,
+                });
+            }
+            // npm failed, fall through to native
+        }
+
+        // Fallback: install via native binary from GCS
+        self.install_version_native(version)
     }
 
     /// Run the patch script for the installed Claude version
