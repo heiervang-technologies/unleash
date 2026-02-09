@@ -1,5 +1,12 @@
 # Changelog
 
+## [5.5.0](https://github.com/heiervang-technologies/agent-unleashed/compare/v5.4.0...v5.5.0) (2026-02-09)
+
+
+### Features
+
+* whitelist Claude Code v2.1.37 ([#124](https://github.com/heiervang-technologies/agent-unleashed/issues/124)) ([c7293ab](https://github.com/heiervang-technologies/agent-unleashed/commit/c7293ab83f59bb38391524c5145c31d704cef14b))
+
 ## [5.4.0](https://github.com/heiervang-technologies/agent-unleashed/compare/v5.3.0...v5.4.0) (2026-02-08)
 
 
