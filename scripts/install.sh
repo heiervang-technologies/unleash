@@ -23,6 +23,9 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(dirname "$SCRIPT_DIR")"
 
+# GCS bucket for native Claude Code binaries
+GCS_BUCKET="https://storage.googleapis.com/claude-code-dist-86c565f3-f756-42ad-8dfa-d59b1c096819/claude-code-releases"
+
 # Colors
 RED='\033[0;31m'
 GREEN='\033[0;32m'
@@ -75,16 +78,43 @@ get_blacklist() {
         grep '^versions\s*=' | sed 's/.*\[//;s/\].*//;s/"//g;s/,/\n/g' | sed 's/[[:space:]]//g' | grep -v '^$'
 }
 
-# Resolve "latest" to the newest allowed version from npm
+# Resolve "latest" to the newest allowed version
+# Tries GCS first for version discovery, falls back to npm
 # Returns the version string, or empty if none found
 resolve_latest_allowed() {
     local mode
     mode=$(get_filter_mode)
 
-    # Get all npm versions (newest first)
-    local npm_versions
-    npm_versions=$(npm view @anthropic-ai/claude-code versions --json 2>/dev/null | \
-        grep -o '"[^"]*"' | tr -d '"' | tac)
+    # Try GCS-based version discovery first
+    local gcs_latest
+    gcs_latest=$(curl -fsSL "$GCS_BUCKET/latest" 2>/dev/null || echo "")
+
+    if [[ -n "$gcs_latest" ]]; then
+        # Check if GCS latest is allowed by our filter
+        if [[ "$mode" == "blacklist" ]]; then
+            local blacklist
+            blacklist=$(get_blacklist)
+            if ! echo "$blacklist" | grep -qx "$gcs_latest"; then
+                echo "$gcs_latest"
+                return
+            fi
+        else
+            local whitelist
+            whitelist=$(get_whitelist)
+            if echo "$whitelist" | grep -qx "$gcs_latest"; then
+                echo "$gcs_latest"
+                return
+            fi
+        fi
+        # GCS latest not allowed, fall through to npm for full version list
+    fi
+
+    # Fallback: get all npm versions (newest first)
+    local npm_versions=""
+    if command -v npm &> /dev/null; then
+        npm_versions=$(npm view @anthropic-ai/claude-code versions --json 2>/dev/null | \
+            grep -o '"[^"]*"' | tr -d '"' | tac)
+    fi
 
     if [[ -z "$npm_versions" ]]; then
         return 1
@@ -114,6 +144,79 @@ resolve_latest_allowed() {
     fi
 
     return 1
+}
+
+# Install Claude Code natively from GCS binary distribution
+install_native() {
+    local version="$1"
+    local os arch platform
+
+    # Detect platform
+    case "$(uname -s)" in
+        Darwin) os="darwin" ;;
+        Linux) os="linux" ;;
+        *) error "Unsupported OS: $(uname -s)"; return 1 ;;
+    esac
+    case "$(uname -m)" in
+        x86_64|amd64) arch="x64" ;;
+        arm64|aarch64) arch="arm64" ;;
+        *) error "Unsupported architecture: $(uname -m)"; return 1 ;;
+    esac
+
+    # Check for musl on Linux
+    if [[ "$os" == "linux" ]]; then
+        if [[ -f /lib/libc.musl-x86_64.so.1 ]] || [[ -f /lib/libc.musl-aarch64.so.1 ]]; then
+            platform="${os}-${arch}-musl"
+        else
+            platform="${os}-${arch}"
+        fi
+    else
+        platform="${os}-${arch}"
+    fi
+
+    local url="${GCS_BUCKET}/${version}/${platform}/claude"
+    local manifest_url="${GCS_BUCKET}/${version}/manifest.json"
+    local version_dir="$HOME/.local/share/claude/versions"
+    local binary_path="${version_dir}/${version}"
+
+    mkdir -p "$version_dir"
+
+    info "Downloading Claude Code v${version} (native binary for ${platform})..."
+    if ! curl -fsSL -o "${binary_path}.tmp" "$url"; then
+        error "Failed to download native binary from GCS"
+        rm -f "${binary_path}.tmp"
+        return 1
+    fi
+
+    # Verify checksum from manifest
+    local manifest
+    manifest=$(curl -fsSL "$manifest_url" 2>/dev/null || echo "")
+    if [[ -n "$manifest" ]]; then
+        local expected_checksum
+        expected_checksum=$(echo "$manifest" | python3 -c "import sys,json; m=json.load(sys.stdin); print(m.get('platforms',{}).get('$platform',{}).get('checksum',''))" 2>/dev/null || echo "")
+        if [[ -n "$expected_checksum" ]]; then
+            local actual_checksum
+            actual_checksum=$(sha256sum "${binary_path}.tmp" 2>/dev/null | cut -d' ' -f1 || shasum -a 256 "${binary_path}.tmp" 2>/dev/null | cut -d' ' -f1)
+            if [[ "$actual_checksum" != "$expected_checksum" ]]; then
+                error "Checksum verification failed"
+                error "  Expected: $expected_checksum"
+                error "  Got:      $actual_checksum"
+                rm -f "${binary_path}.tmp"
+                return 1
+            fi
+            success "Checksum verified"
+        fi
+    fi
+
+    chmod +x "${binary_path}.tmp"
+    mv "${binary_path}.tmp" "$binary_path"
+
+    # Create symlink
+    ln -sf "$binary_path" "$BIN_DIR/claude"
+    success "Claude Code v${version} installed natively"
+
+    # Disable auto-updates since we manage versions
+    export DISABLE_AUTOUPDATER=1
 }
 
 # Parse arguments
@@ -215,59 +318,60 @@ fi
 
 # Step 0: Install or update Claude Code (if requested)
 if $INSTALL_CLAUDE_CODE; then
-    if command -v npm &> /dev/null; then
-        CURRENT_VERSION=""
-        if command -v claude &> /dev/null; then
-            CURRENT_VERSION=$(claude --version 2>/dev/null | head -1 | sed 's/ (Claude Code)//' || echo "unknown")
-            info "Claude Code currently installed: v${CURRENT_VERSION}"
-        fi
+    # Detect current version
+    CURRENT_VERSION=""
+    if command -v claude &> /dev/null; then
+        CURRENT_VERSION=$(claude --version 2>/dev/null | head -1 | sed 's/ (Claude Code)//' || echo "unknown")
+        info "Claude Code currently installed: v${CURRENT_VERSION}"
+    fi
 
-        # Determine target version
-        TARGET_VERSION="$CLAUDE_CODE_VERSION"
-        if [[ "$TARGET_VERSION" == "latest" ]]; then
-            FILTER_MODE=$(get_filter_mode)
-            info "Version filter mode: ${FILTER_MODE}"
-            RESOLVED=$(resolve_latest_allowed)
-            if [[ -n "$RESOLVED" ]]; then
-                TARGET_VERSION="$RESOLVED"
-                info "Latest allowed version: v${TARGET_VERSION}"
-            else
-                warn "No allowed version found in npm registry"
-                warn "Check your whitelist in Cargo.toml or ~/.config/agent-unleashed/whitelist.txt"
-                TARGET_VERSION=""
-            fi
-        fi
-
-        # Check if update needed
-        if [[ -z "$TARGET_VERSION" ]]; then
-            warn "Skipping Claude Code install (no target version)"
-        elif [[ -n "$CURRENT_VERSION" ]] && [[ "$CURRENT_VERSION" == "$TARGET_VERSION" ]]; then
-            success "Claude Code is already up to date (v${CURRENT_VERSION})"
+    # Determine target version
+    TARGET_VERSION="$CLAUDE_CODE_VERSION"
+    if [[ "$TARGET_VERSION" == "latest" ]]; then
+        FILTER_MODE=$(get_filter_mode)
+        info "Version filter mode: ${FILTER_MODE}"
+        RESOLVED=$(resolve_latest_allowed)
+        if [[ -n "$RESOLVED" ]]; then
+            TARGET_VERSION="$RESOLVED"
+            info "Latest allowed version: v${TARGET_VERSION}"
         else
-            if [[ -n "$CURRENT_VERSION" ]]; then
-                info "Updating Claude Code: v${CURRENT_VERSION} -> v${TARGET_VERSION}..."
-            else
-                info "Installing Claude Code v${TARGET_VERSION}..."
-            fi
+            warn "No allowed version found"
+            warn "Check your whitelist in Cargo.toml or ~/.config/agent-unleashed/whitelist.txt"
+            TARGET_VERSION=""
+        fi
+    fi
 
+    # Install
+    if [[ -z "$TARGET_VERSION" ]]; then
+        warn "Skipping Claude Code install (no target version)"
+    elif [[ -n "$CURRENT_VERSION" ]] && [[ "$CURRENT_VERSION" == "$TARGET_VERSION" ]]; then
+        success "Claude Code is already up to date (v${CURRENT_VERSION})"
+    else
+        if [[ -n "$CURRENT_VERSION" ]]; then
+            info "Updating Claude Code: v${CURRENT_VERSION} -> v${TARGET_VERSION}..."
+        else
+            info "Installing Claude Code v${TARGET_VERSION}..."
+        fi
+
+        if command -v npm &> /dev/null; then
+            # Prefer npm install (produces patchable cli.js for auto-mode)
             npm install -g --force "@anthropic-ai/claude-code@${TARGET_VERSION}"
 
-            NEW_VERSION=$(claude --version 2>/dev/null | head -1 | sed 's/ (Claude Code)//' || echo "unknown")
-            success "Claude Code installed: v${NEW_VERSION}"
+            # Point symlink to npm-installed cli.js
+            NPM_ROOT=$(npm root -g 2>/dev/null || echo "")
+            NPM_CLAUDE="$NPM_ROOT/@anthropic-ai/claude-code/cli.js"
+            if [[ -f "$NPM_CLAUDE" ]]; then
+                ln -sf "$NPM_CLAUDE" "$BIN_DIR/claude"
+                success "Symlink: $BIN_DIR/claude -> $NPM_CLAUDE"
+            fi
+        else
+            # Fallback: native install from GCS (no Node.js dependency)
+            warn "npm not found, using native binary installer"
+            install_native "$TARGET_VERSION"
         fi
 
-        # After npm install, point claude symlink to the npm-installed cli.js
-        NPM_ROOT=$(npm root -g 2>/dev/null || echo "")
-        NPM_CLAUDE="$NPM_ROOT/@anthropic-ai/claude-code/cli.js"
-        if [[ -f "$NPM_CLAUDE" ]]; then
-            ln -sf "$NPM_CLAUDE" "$BIN_DIR/claude"
-            success "Symlink: $BIN_DIR/claude -> $NPM_CLAUDE"
-        else
-            warn "Could not find npm-installed cli.js at $NPM_CLAUDE"
-        fi
-    else
-        warn "npm not found, skipping Claude Code installation"
-        warn "Install Node.js from https://nodejs.org/ to install Claude Code"
+        NEW_VERSION=$(claude --version 2>/dev/null | head -1 | sed 's/ (Claude Code)//' || echo "unknown")
+        success "Claude Code installed: v${NEW_VERSION}"
     fi
 fi
 

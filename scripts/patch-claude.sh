@@ -66,6 +66,18 @@ if [[ ! -f "$CLI_JS" ]]; then
 fi
 
 if [[ ! -f "$CLI_JS" ]]; then
+    # Check if this is a native binary install (not patchable)
+    NATIVE_DIR="$HOME/.local/share/claude/versions"
+    if [[ -d "$NATIVE_DIR" ]] && ls "$NATIVE_DIR"/* &>/dev/null; then
+        echo "Notice: Claude Code is installed as a native binary (not patchable)"
+        echo "  Native binaries at: $NATIVE_DIR"
+        echo ""
+        echo "Auto-mode patching requires an npm-based install (produces cli.js)."
+        echo "Options:"
+        echo "  1. Install via npm for patch support: npm install -g @anthropic-ai/claude-code"
+        echo "  2. Use the /auto slash command as a fallback (no patching needed)"
+        exit 0
+    fi
     echo "Error: cli.js not found at $CLI_JS"
     exit 1
 fi

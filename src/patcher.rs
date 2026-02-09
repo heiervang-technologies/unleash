@@ -17,32 +17,56 @@ fn version_cache_file() -> PathBuf {
         .join("agent-unleashed/last-patched-version")
 }
 
-/// Get Claude Code installation directory
+/// Check if Claude Code is installed as a native binary (not patchable)
+fn is_native_install() -> bool {
+    if let Some(home) = dirs::home_dir() {
+        let versions_dir = home.join(".local/share/claude/versions");
+        if versions_dir.exists() {
+            if let Ok(entries) = fs::read_dir(&versions_dir) {
+                return entries.flatten().next().is_some();
+            }
+        }
+    }
+    false
+}
+
+/// Get Claude Code installation directory (npm-based, with cli.js)
 fn get_claude_dir() -> io::Result<PathBuf> {
     // Try to find via npm
-    let output = Command::new("npm")
+    if let Ok(output) = Command::new("npm")
         .args(["root", "-g"])
-        .output()?;
-
-    if output.status.success() {
-        let npm_root = String::from_utf8_lossy(&output.stdout).trim().to_string();
-        let claude_dir = PathBuf::from(npm_root).join("@anthropic-ai/claude-code");
-        if claude_dir.exists() {
-            return Ok(claude_dir);
+        .output()
+    {
+        if output.status.success() {
+            let npm_root = String::from_utf8_lossy(&output.stdout).trim().to_string();
+            let claude_dir = PathBuf::from(npm_root).join("@anthropic-ai/claude-code");
+            if claude_dir.exists() {
+                return Ok(claude_dir);
+            }
         }
     }
 
     // Try to find via which
     if let Ok(claude_path) = which("claude") {
         // Resolve symlinks
-        let resolved = fs::canonicalize(&claude_path)?;
-        // Go up from bin/claude to package root
-        if let Some(parent) = resolved.parent().and_then(|p| p.parent()) {
-            let claude_dir = parent.join("lib/node_modules/@anthropic-ai/claude-code");
-            if claude_dir.exists() {
-                return Ok(claude_dir);
+        if let Ok(resolved) = fs::canonicalize(&claude_path) {
+            // Go up from bin/claude to package root
+            if let Some(parent) = resolved.parent().and_then(|p| p.parent()) {
+                let claude_dir = parent.join("lib/node_modules/@anthropic-ai/claude-code");
+                if claude_dir.exists() {
+                    return Ok(claude_dir);
+                }
             }
         }
+    }
+
+    // Provide a more helpful error if native binary is detected
+    if is_native_install() {
+        return Err(io::Error::new(
+            io::ErrorKind::NotFound,
+            "Claude Code is installed as a native binary (not patchable). \
+             Auto-mode patching requires npm install. Use /auto command as a fallback.",
+        ));
     }
 
     Err(io::Error::new(
@@ -137,6 +161,11 @@ fn load_patch_config(version: &str) -> io::Result<HashMap<String, String>> {
 
 /// Check if patching is needed and apply if so
 pub fn check_and_patch() -> io::Result<()> {
+    // Skip patching silently for native binary installs
+    if is_native_install() && get_claude_dir().is_err() {
+        return Ok(());
+    }
+
     let version = match get_claude_version() {
         Ok(v) => v,
         Err(_) => return Ok(()), // Claude not installed, nothing to patch
@@ -164,7 +193,20 @@ pub fn check_and_patch() -> io::Result<()> {
 
 /// Apply the patch
 pub fn patch() -> io::Result<()> {
-    let claude_dir = get_claude_dir()?;
+    let claude_dir = match get_claude_dir() {
+        Ok(dir) => dir,
+        Err(e) => {
+            if is_native_install() {
+                println!("Notice: Claude Code is installed as a native binary (not patchable)");
+                println!("  Auto-mode patching requires an npm-based install (produces cli.js).");
+                println!("  Options:");
+                println!("    1. Install via npm: npm install -g @anthropic-ai/claude-code");
+                println!("    2. Use the /auto slash command as a fallback (no patching needed)");
+                return Ok(());
+            }
+            return Err(e);
+        }
+    };
     let version = get_claude_version()?;
 
     println!("Found Claude Code at: {}", claude_dir.display());

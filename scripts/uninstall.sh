@@ -81,15 +81,18 @@ done
 
 DATA_DIR="${HOME}/.local/share/agent-unleashed"
 CONFIG_DIR="${HOME}/.config/agent-unleashed"
+NATIVE_VERSIONS_DIR="${HOME}/.local/share/claude/versions"
 
 HAS_DATA=false
 HAS_CONFIG=false
+HAS_NATIVE_VERSIONS=false
 
 [[ -d "$DATA_DIR" ]] && HAS_DATA=true
 [[ -d "$CONFIG_DIR" ]] && HAS_CONFIG=true
+[[ -d "$NATIVE_VERSIONS_DIR" ]] && HAS_NATIVE_VERSIONS=true
 
 # Show what will be removed
-if [[ ${#INSTALLED_BINS[@]} -eq 0 ]] && ! $HAS_DATA && ! $HAS_CONFIG; then
+if [[ ${#INSTALLED_BINS[@]} -eq 0 ]] && ! $HAS_DATA && ! $HAS_CONFIG && ! $HAS_NATIVE_VERSIONS; then
     warn "Nothing to uninstall"
     exit 0
 fi
@@ -114,6 +117,12 @@ fi
 if $HAS_CONFIG; then
     echo "  Configuration directory:"
     echo "    • $CONFIG_DIR"
+    echo ""
+fi
+
+if $HAS_NATIVE_VERSIONS; then
+    echo "  Native Claude Code binaries:"
+    echo "    • $NATIVE_VERSIONS_DIR"
     echo ""
 fi
 
@@ -167,6 +176,13 @@ if $HAS_CONFIG; then
     fi
 fi
 
+# Remove native Claude Code binaries
+if $HAS_NATIVE_VERSIONS; then
+    info "Removing native Claude Code binaries..."
+    rm -rf "$NATIVE_VERSIONS_DIR"
+    success "Removed: $NATIVE_VERSIONS_DIR"
+fi
+
 # Also check for cargo-installed binary
 CARGO_BIN="${HOME}/.cargo/bin/au"
 if [[ -e "$CARGO_BIN" ]]; then
@@ -191,6 +207,9 @@ info "Agent Unleashed has been uninstalled"
 echo ""
 echo "Note: Claude Code (npm package) was not removed."
 echo "To remove it: npm uninstall -g @anthropic-ai/claude-code"
+echo ""
+echo "Note: The claude symlink in $BIN_DIR may point to an npm or native binary."
+echo "Check with: ls -la $BIN_DIR/claude"
 echo ""
 
 success "Done!"
