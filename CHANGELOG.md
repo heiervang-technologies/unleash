@@ -1,5 +1,12 @@
 # Changelog
 
+## [5.6.0](https://github.com/heiervang-technologies/agent-unleashed/compare/v5.5.0...v5.6.0) (2026-02-09)
+
+
+### Features
+
+* add native Claude Code installation support alongside npm ([#128](https://github.com/heiervang-technologies/agent-unleashed/issues/128)) ([fc27229](https://github.com/heiervang-technologies/agent-unleashed/commit/fc27229dc4ae3366643659d7f22ab090d6d4ec7c)), closes [#126](https://github.com/heiervang-technologies/agent-unleashed/issues/126)
+
 ## [5.5.0](https://github.com/heiervang-technologies/agent-unleashed/compare/v5.4.0...v5.5.0) (2026-02-09)
 
 
