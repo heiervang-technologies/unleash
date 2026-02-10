@@ -1,17 +1,16 @@
 ---
-name: supercompact
-description: Compact conversation using EITF entity-preservation scoring (faster & better than /compact)
-argument-hint: "[budget]"
-allowed-tools: Bash(uv:*, python:*, ls:*, find:*, cat:*, wc:*)
+description: EITF entity-preservation compaction (~400x faster than /compact, 2x better entity retention)
+argument-hint: [budget]
+allowed-tools: Bash(cd *), Bash(uv *), Bash(PROJECT_DIR*), Bash(JSONL_FILE*), Bash(ls *), Bash(wc *), Bash(cp *), Bash(mv *)
 ---
 
 # Supercompact — EITF Entity-Preservation Compaction
 
-You are performing conversation compaction using the supercompact EITF algorithm instead of the built-in /compact. This method is ~400x faster (0.2s vs 80s) and preserves 2x more entities.
+**CRITICAL: Do NOT use the built-in /compact command. You must follow the exact steps below using Bash tool calls.**
 
-## Step 1: Find the current conversation JSONL
+You are running the supercompact EITF algorithm. This is completely separate from Claude Code's built-in /compact. You must execute the bash commands below, not delegate to any built-in compaction.
 
-The conversation JSONL files live at `~/.claude/projects/`. Find the correct project directory by converting the current working directory to a path key (replace `/` with `-`), then find the most recently modified `.jsonl` file in that directory.
+## Step 1: Find the conversation JSONL
 
 ```bash
 PROJECT_DIR=$(echo "$PWD" | sed 's|/|-|g; s|^|/home/me/.claude/projects/|')
@@ -22,7 +21,7 @@ wc -l "$JSONL_FILE"
 
 ## Step 2: Run EITF compaction
 
-Set the token budget. If the user provided an argument, use that: $ARGUMENTS. Otherwise default to 80000.
+Budget: use $ARGUMENTS if provided, otherwise 80000.
 
 ```bash
 cd /home/me/ht/supercompact && uv run python compact.py "$JSONL_FILE" --method eitf --budget ${BUDGET:-80000} --output /tmp/supercompact-output.jsonl --verbose
@@ -30,19 +29,12 @@ cd /home/me/ht/supercompact && uv run python compact.py "$JSONL_FILE" --method e
 
 ## Step 3: Replace the session JSONL
 
-After compaction completes successfully, replace the original session file with the compacted version:
-
 ```bash
 cp "$JSONL_FILE" "${JSONL_FILE}.pre-supercompact"
 mv /tmp/supercompact-output.jsonl "$JSONL_FILE"
+echo "Replaced session JSONL (backup: ${JSONL_FILE}.pre-supercompact)"
 ```
 
-## Step 4: Report results
+## Step 4: Report
 
-After compaction completes, report:
-- How many turns were kept vs dropped
-- Token compression ratio (percentage kept/reduced)
-- Which high-scoring turns were preserved
-- Wall clock time
-
-Tell the user the session JSONL has been compacted in-place (backup saved as `.pre-supercompact`).
+Report: turns kept vs dropped, compression ratio, wall clock time. Tell the user the session JSONL has been compacted in-place and the backup is saved as `.pre-supercompact`.
