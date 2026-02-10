@@ -55,6 +55,14 @@
         "type": "plugin",
         "description": "Universal hook system for low-latency voice integration with FIFO-based message queue",
         "added": "2026-01-23"
+      },
+      {
+        "name": "supercompact",
+        "version": "1.0.0",
+        "path": "plugins/unleashed/supercompact",
+        "type": "plugin",
+        "description": "EITF entity-preservation conversation compaction - ~400x faster, 2x better entity retention than default /compact",
+        "added": "2026-02-11"
       }
     ],
     "core_patches": []

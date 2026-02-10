@@ -9,7 +9,8 @@
       "mcp-refresh",
       "process-restart",
       "voice-output",
-      "auto-mode"
+      "auto-mode",
+      "supercompact"
     ],
     "disabled": [],
     "mcp-refresh": {

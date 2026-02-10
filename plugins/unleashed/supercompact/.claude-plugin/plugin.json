@@ -1,0 +1,9 @@
+{
+  "name": "supercompact",
+  "description": "EITF entity-preservation conversation compaction - replaces default /compact with ~400x faster, 2x better entity retention",
+  "version": "1.0.0",
+  "author": {
+    "name": "Heiervang Technologies",
+    "email": "support@heiervang.com"
+  }
+}
