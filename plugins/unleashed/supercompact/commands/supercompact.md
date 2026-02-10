@@ -1,7 +1,7 @@
 ---
 description: EITF entity-preservation compaction (~400x faster than /compact, 2x better entity retention)
 argument-hint: [budget]
-allowed-tools: Bash(cd *), Bash(uv *), Bash(PROJECT_DIR*), Bash(JSONL_FILE*), Bash(ls *), Bash(wc *), Bash(cp *), Bash(mv *)
+allowed-tools: Bash(cd *), Bash(uv *), Bash(PROJECT_DIR*), Bash(JSONL_FILE*), Bash(ls *), Bash(wc *), Bash(cp *), Bash(mv *), Bash(restart-claude*)
 ---
 
 # Supercompact — EITF Entity-Preservation Compaction
@@ -35,6 +35,16 @@ mv /tmp/supercompact-output.jsonl "$JSONL_FILE"
 echo "Replaced session JSONL (backup: ${JSONL_FILE}.pre-supercompact)"
 ```
 
-## Step 4: Report
+## Step 4: Report results briefly
 
-Report: turns kept vs dropped, compression ratio, wall clock time. Tell the user the session JSONL has been compacted in-place and the backup is saved as `.pre-supercompact`.
+Report: turns kept vs dropped, compression ratio, wall clock time.
+
+## Step 5: Restart to reload compacted context
+
+The JSONL on disk is now compacted, but the live session still has old context in memory. Restart to load the compacted version:
+
+```bash
+restart-claude "Session compacted with supercompact EITF. Restarting to load compacted context."
+```
+
+If `restart-claude` is not available (not running under agent-unleashed), tell the user: "Run `/quit` then `claude --resume` to load the compacted context."
