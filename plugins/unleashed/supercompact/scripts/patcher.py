@@ -1,9 +1,14 @@
 #!/usr/bin/env python3
-"""Patch Claude Code cli.js to replace LLM compaction with EITF.
+"""Patch Claude Code cli.js to replace LLM compaction with supercompact.
 
 Replaces the LLM API call in MW1 (main compaction function) with an
-async IIFE that runs supercompact's EITF algorithm. Falls back to original
-LLM compaction on any error.
+async IIFE that runs supercompact (method/budget configurable via env vars).
+Falls back to original LLM compaction on error (configurable).
+
+Configuration via environment variables:
+    PLUGIN_SETTING_METHOD            Scoring method (default: eitf)
+    PLUGIN_SETTING_BUDGET            Token budget (default: derived from preCompactTokenCount)
+    PLUGIN_SETTING_FALLBACK_TO_BUILTIN  Fall back to LLM on error (default: true)
 
 Uses regex to adapt to minified variable name changes across versions.
 The structural pattern and keyword argument names are stable across versions.
@@ -95,13 +100,18 @@ def build_replacement(m: re.Match, supercompact_dir: str) -> str:
         # Keep the prompt/message creation (harmless, may be used by telemetry)
         f'{prompt_var}={prompt_fn}({prompt_arg}),'
         f'{msg_var}={msg_fn}({{content:{prompt_var}}}),'
-        # Replace LLM call with EITF IIFE
+        # Replace LLM call with supercompact IIFE (configurable via env vars)
         f'{resp_var}=await(async()=>{{'
         f'try{{'
         f'const _cp=require("child_process"),'
         f'_path=require("path"),'
         f'_fs=require("fs");'
         f'const _home=process.env.HOME||"/root";'
+        f'const _method=process.env.PLUGIN_SETTING_METHOD||"eitf";'
+        f'const _cfgBudget=process.env.PLUGIN_SETTING_BUDGET;'
+        f'const _budget=_cfgBudget?parseInt(_cfgBudget,10)'
+        f':Math.max(Math.floor(({tok_var}||160000)*0.4),40000);'
+        f'const _fallback=process.env.PLUGIN_SETTING_FALLBACK_TO_BUILTIN!=="false";'
         f'const _projDir=_path.join(_home,".claude","projects",'
         f'process.cwd().replace(/\\//g,"-"));'
         f'const _files=_fs.readdirSync(_projDir)'
@@ -110,19 +120,22 @@ def build_replacement(m: re.Match, supercompact_dir: str) -> str:
         f'.sort((a,b)=>b.t-a.t);'
         f'if(!_files.length)throw new Error("SUPERCOMPACT_EITF:no_jsonl");'
         f'const _jsonl=_path.join(_projDir,_files[0].f);'
-        f'const _budget={tok_var}||80000;'
+        f'const _outFile="/tmp/supercompact-eitf-"+process.pid+".txt";'
         f'_cp.execSync('
         f'"cd \\"{sc}\\" && uv run python compact.py \\""+_jsonl+"\\" '
-        f'--method eitf --budget "+_budget+" --format summary '
-        f'--output /tmp/supercompact-eitf.txt",'
+        f'--method "+_method+" --budget "+_budget+" --format summary '
+        f'--output "+_outFile,'
         f'{{timeout:30000,encoding:"utf8",stdio:["pipe","pipe","pipe"]}});'
-        f'const _summary=_fs.readFileSync("/tmp/supercompact-eitf.txt","utf8");'
+        f'const _summary=_fs.readFileSync(_outFile,"utf8");'
+        f'try{{_fs.unlinkSync(_outFile)}}catch(_ue){{}};'
         f'if(!_summary)throw new Error("SUPERCOMPACT_EITF:empty");'
         f'return{{type:"assistant",message:{{role:"assistant",'
         f'content:[{{type:"text",text:_summary}}]}}}}'
-        # Fallback to original LLM call on any error
+        # Fallback to original LLM call on error (configurable)
         f'}}catch(_e){{'
-        f'return {llm_fn}({{{orig_args}}})'
+        f'const _fb=process.env.PLUGIN_SETTING_FALLBACK_TO_BUILTIN!=="false";'
+        f'if(_fb)return {llm_fn}({{{orig_args}}});'
+        f'throw _e'
         f'}}}})()'
     )
 
