@@ -1,4 +1,4 @@
-//! Headless tmux mode for Claude Unleashed
+//! Headless tmux mode for Agent Unleashed
 //!
 //! Enables programmatic access for automation, scripting, and CI/CD pipelines.
 
@@ -32,30 +32,30 @@ struct Config {
 
 impl Config {
     fn from_env() -> Self {
-        let session_name = env::var("CUTX_SESSION_NAME").unwrap_or_else(|_| DEFAULT_SESSION_NAME.to_string());
+        let session_name = env::var("AUTX_SESSION_NAME").unwrap_or_else(|_| DEFAULT_SESSION_NAME.to_string());
         let cache_dir = dirs::cache_dir()
             .unwrap_or_else(|| PathBuf::from("/tmp"))
             .join("agent-unleashed/autx");
 
         Self {
             session_name: session_name.clone(),
-            wait_timeout: env::var("CUTX_WAIT_TIMEOUT")
+            wait_timeout: env::var("AUTX_WAIT_TIMEOUT")
                 .ok()
                 .and_then(|v| v.parse().ok())
                 .unwrap_or(DEFAULT_WAIT_TIMEOUT),
-            term_width: env::var("CUTX_TERM_WIDTH")
+            term_width: env::var("AUTX_TERM_WIDTH")
                 .ok()
                 .and_then(|v| v.parse().ok())
                 .unwrap_or(DEFAULT_TERM_WIDTH),
-            term_height: env::var("CUTX_TERM_HEIGHT")
+            term_height: env::var("AUTX_TERM_HEIGHT")
                 .ok()
                 .and_then(|v| v.parse().ok())
                 .unwrap_or(DEFAULT_TERM_HEIGHT),
-            stable_threshold: env::var("CUTX_STABLE_THRESHOLD")
+            stable_threshold: env::var("AUTX_STABLE_THRESHOLD")
                 .ok()
                 .and_then(|v| v.parse().ok())
                 .unwrap_or(DEFAULT_STABLE_THRESHOLD),
-            init_wait: env::var("CUTX_INIT_WAIT")
+            init_wait: env::var("AUTX_INIT_WAIT")
                 .ok()
                 .and_then(|v| v.parse().ok())
                 .unwrap_or(DEFAULT_INIT_WAIT),
@@ -83,15 +83,15 @@ const RED: &str = "\x1b[0;31m";
 const NC: &str = "\x1b[0m";
 
 fn log_info(msg: &str) {
-    println!("{}[cutx]{} {}", GREEN, NC, msg);
+    println!("{}[autx]{} {}", GREEN, NC, msg);
 }
 
 fn log_warn(msg: &str) {
-    println!("{}[cutx]{} {}", YELLOW, NC, msg);
+    println!("{}[autx]{} {}", YELLOW, NC, msg);
 }
 
 fn log_error(msg: &str) {
-    eprintln!("{}[cutx]{} {}", RED, NC, msg);
+    eprintln!("{}[autx]{} {}", RED, NC, msg);
 }
 
 /// Check if tmux is available
@@ -111,26 +111,26 @@ fn session_exists(session_name: &str) -> bool {
         .unwrap_or(false)
 }
 
-/// Find the cu launcher
+/// Find the au launcher
 fn find_launcher() -> io::Result<PathBuf> {
     // Try current exe directory
     if let Ok(exe) = env::current_exe() {
         if let Some(dir) = exe.parent() {
-            let cu = dir.join("cu");
-            if cu.exists() {
-                return Ok(cu);
+            let au = dir.join("au");
+            if au.exists() {
+                return Ok(au);
             }
         }
     }
 
     // Try PATH
-    if let Ok(path) = which("cu") {
+    if let Ok(path) = which("au") {
         return Ok(path);
     }
 
     // Fall back to claude
     which("claude").map_err(|_| {
-        io::Error::new(io::ErrorKind::NotFound, "Neither cu nor claude command found")
+        io::Error::new(io::ErrorKind::NotFound, "Neither au nor claude command found")
     })
 }
 
@@ -174,7 +174,7 @@ fn cmd_start(config: &Config, args: &[String]) -> io::Result<()> {
 
     if session_exists(&config.session_name) {
         log_warn(&format!("Session '{}' already exists", config.session_name));
-        log_info("Use 'cutx attach' to connect or 'cutx stop' to restart");
+        log_info("Use 'autx attach' to connect or 'autx stop' to restart");
         return Ok(());
     }
 
@@ -255,8 +255,8 @@ fn cmd_start(config: &Config, args: &[String]) -> io::Result<()> {
         .args(["send-keys", "-t", &config.session_name, &cmd_str, "Enter"])
         .status()?;
 
-    log_info("Session started. Use 'cutx attach' to connect interactively");
-    log_info("Or use 'cutx send \"message\"' to send commands");
+    log_info("Session started. Use 'autx attach' to connect interactively");
+    log_info("Or use 'autx send \"message\"' to send commands");
 
     Ok(())
 }
@@ -288,14 +288,14 @@ fn cmd_send(config: &Config, args: &[String]) -> io::Result<()> {
     check_tmux()?;
 
     if !session_exists(&config.session_name) {
-        log_error("No active session. Run 'cutx start' first");
+        log_error("No active session. Run 'autx start' first");
         return Err(io::Error::new(io::ErrorKind::NotFound, "No active session"));
     }
 
     let message = args.join(" ");
     if message.is_empty() {
         log_error("No message provided");
-        println!("Usage: cutx send \"your message\"");
+        println!("Usage: autx send \"your message\"");
         return Err(io::Error::new(io::ErrorKind::InvalidInput, "No message"));
     }
 
@@ -391,7 +391,7 @@ fn cmd_attach(config: &Config, join_here: bool) -> io::Result<()> {
     check_tmux()?;
 
     if !session_exists(&config.session_name) {
-        log_error("No active session. Run 'cutx start' first");
+        log_error("No active session. Run 'autx start' first");
         return Err(io::Error::new(io::ErrorKind::NotFound, "No active session"));
     }
 
@@ -498,17 +498,17 @@ fn cmd_query(config: &Config, args: &[String]) -> io::Result<()> {
 /// Show help
 fn cmd_help() {
     println!(
-        r#"cutx - Claude Unleashed Wrapper (Headless tmux mode)
+        r#"autx - Agent Unleashed (Headless tmux mode)
 
 USAGE:
-    cutx <command> [args]
-    cutx "message"           Send message and wait for response
-    cutxg                    Shorthand for 'cutx go'
+    autx <command> [args]
+    autx "message"           Send message and wait for response
+    autxg                    Shorthand for 'autx go'
 
 COMMANDS:
     go [args]       Start session and attach (closes when Claude exits)
-                    This is the recommended way to use cutx interactively.
-                    Shorthand: cutxg
+                    This is the recommended way to use autx interactively.
+                    Shorthand: autxg
 
     start [--auto] [-d] [args]
                     Start a new Claude session in tmux
@@ -534,36 +534,36 @@ COMMANDS:
     help            Show this help message
 
 ENVIRONMENT:
-    CUTX_SESSION_NAME      tmux session name (default: agent-unleashed)
-    CUTX_WAIT_TIMEOUT      Default wait timeout in seconds (default: 300)
-    CUTX_TERM_WIDTH        Terminal width for tmux session (default: 200)
-    CUTX_TERM_HEIGHT       Terminal height for tmux session (default: 50)
-    CUTX_STABLE_THRESHOLD  Seconds of stable output to consider complete (default: 3)
-    CUTX_INIT_WAIT         Seconds to wait for Claude to initialize (default: 5)
+    AUTX_SESSION_NAME      tmux session name (default: agent-unleashed)
+    AUTX_WAIT_TIMEOUT      Default wait timeout in seconds (default: 300)
+    AUTX_TERM_WIDTH        Terminal width for tmux session (default: 200)
+    AUTX_TERM_HEIGHT       Terminal height for tmux session (default: 50)
+    AUTX_STABLE_THRESHOLD  Seconds of stable output to consider complete (default: 3)
+    AUTX_INIT_WAIT         Seconds to wait for Claude to initialize (default: 5)
 
 EXAMPLES:
     # Start and attach interactively (recommended)
-    cutx go
+    autx go
     # Or use the shorthand:
-    cutxg
+    autxg
 
     # Start a background session and send messages
-    cutx start
-    cutx send "Hello Claude, how are you?"
-    cutx wait
-    cutx read
+    autx start
+    autx send "Hello Claude, how are you?"
+    autx wait
+    autx read
 
     # Or use the query shorthand
-    cutx "Hello Claude, how are you?"
+    autx "Hello Claude, how are you?"
 
     # Attach to existing session
-    cutx attach
+    autx attach
 
     # Start with auto mode
-    cutx start --auto
+    autx start --auto
 
     # Check status
-    cutx status
+    autx status
 "#
     );
 }

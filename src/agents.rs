@@ -1,4 +1,4 @@
-//! Multi-agent management for Claude Unleashed
+//! Multi-agent management for Agent Unleashed
 //!
 //! Manages different code agents (Claude Code, Codex, etc.) including:
 //! - Agent definitions and configuration
@@ -338,12 +338,9 @@ impl AgentManager {
                 .ok()
                 .and_then(|p| p.parent().map(|p| p.to_path_buf()))
                 .map(|p| p.join("../codex-unleashed/codex")),
-            // Known locations in home dir (new and legacy paths)
+            // Known locations in home dir
             dirs::home_dir().map(|p| p.join("ht/agent-unleashed/codex-unleashed/codex")),
             dirs::home_dir().map(|p| p.join("agent-unleashed/codex-unleashed/codex")),
-            // Legacy paths
-            dirs::home_dir().map(|p| p.join("ht/claude-unleashed/codex-unleashed/codex")),
-            dirs::home_dir().map(|p| p.join("claude-unleashed/codex-unleashed/codex")),
         ];
 
         let codex_dir = possible_paths

@@ -129,13 +129,13 @@ You can customize this message globally using either the CLI or TUI.
 
 ```bash
 # Set a custom prompt
-cu --stop-prompt="Keep working on the task until complete!"
+aug --stop-prompt="Keep working on the task until complete!"
 
 # Edit with your $EDITOR
-cu --stop-prompt-edit
+aug --stop-prompt-edit
 
 # Reset to default
-cu --stop-prompt-clear
+aug --stop-prompt-clear
 ```
 
 #### Via TUI

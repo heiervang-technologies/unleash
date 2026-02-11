@@ -1,4 +1,4 @@
-# VHS Demo for Claude Unleashed
+# VHS Demo for Agent Unleashed
 # https://github.com/charmbracelet/vhs
 
 Output demo.gif
@@ -10,31 +10,31 @@ Set Theme "Dracula"
 Set Padding 20
 
 # Show the main help command
-Type "cu"
+Type "au"
 Sleep 500ms
 Enter
 Sleep 3s
 
 # Show version management
-Type "cu version"
+Type "au version"
 Sleep 500ms
 Enter
 Sleep 2s
 
 # Show available versions
-Type "cu version --list"
+Type "au version --list"
 Sleep 500ms
 Enter
 Sleep 3s
 
 # Show authentication status
-Type "cu auth"
+Type "au auth"
 Sleep 500ms
 Enter
 Sleep 2s
 
 # Launch the TUI (exit quickly with q)
-Type "cui"
+Type "aui"
 Sleep 500ms
 Enter
 Sleep 3s
@@ -42,7 +42,7 @@ Type "q"
 Sleep 1s
 
 # Show headless mode status
-Type "cutx status"
+Type "autx status"
 Sleep 500ms
 Enter
 Sleep 2s
@@ -52,7 +52,7 @@ Type "# Start Claude with unleashed features:"
 Sleep 500ms
 Enter
 Sleep 500ms
-Type "cug"
+Type "aug"
 Sleep 1s
 Ctrl+C
 Sleep 500ms
@@ -62,7 +62,7 @@ Type "# Or in autonomous mode:"
 Sleep 500ms
 Enter
 Sleep 500ms
-Type "cug --auto"
+Type "aug --auto"
 Sleep 2s
 
 Sleep 2s

@@ -1,6 +1,6 @@
 //! Hook management for Claude Code
 //!
-//! Claude Unleashed acts as the central hook manager for Claude Code.
+//! Agent Unleashed acts as the central hook manager for Claude Code.
 //! It tracks the Claude installation, manages hooks in ~/.claude/settings.json,
 //! and syncs hooks from unleashed plugins.
 

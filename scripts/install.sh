@@ -7,7 +7,6 @@
 # 3. Creates symlinks in ~/.local/bin/
 # 4. Installs plugins to ~/.local/share/agent-unleashed/plugins
 # 5. Runs initial Claude Code patch
-# 6. Creates legacy symlinks (cu* -> au*) for backwards compatibility
 #
 # Usage: ./scripts/install.sh [--no-build] [--no-patch] [--no-claude-code]
 #
@@ -404,14 +403,6 @@ if $BUILD_TUI; then
                 fi
             done
 
-            # Create legacy symlinks (cu* -> au*) for backwards compatibility
-            ln -sf "$BIN_DIR/au" "$BIN_DIR/cu"
-            ln -sf "$BIN_DIR/aui" "$BIN_DIR/cui"
-            ln -sf "$BIN_DIR/aug" "$BIN_DIR/cug"
-            ln -sf "$BIN_DIR/autx" "$BIN_DIR/cutx"
-            ln -sf "$BIN_DIR/autxg" "$BIN_DIR/cutxg"
-            success "Created legacy symlinks: cu* -> au*"
-
             # Install patches to BIN_DIR
             info "Installing patches..."
             mkdir -p "$BIN_DIR/patches/versions"
@@ -434,10 +425,6 @@ info "Creating symlinks..."
 # agent-unleashed is an alias for au
 ln -sf "$BIN_DIR/au" "$BIN_DIR/agent-unleashed"
 success "Symlink: agent-unleashed -> au"
-
-# Legacy alias
-ln -sf "$BIN_DIR/au" "$BIN_DIR/claude-unleashed"
-success "Symlink: claude-unleashed -> au (legacy alias)"
 
 # Helper commands (bash scripts)
 ln -sf "$SCRIPT_DIR/restart-claude" "$BIN_DIR/restart-claude"
@@ -499,9 +486,6 @@ echo "  autx go / autxg - Start tmux session and attach"
 echo "  au auth        - Check authentication status"
 echo "  au patch       - Patch Claude Code for auto mode"
 echo "  au version     - Manage Claude Code versions"
-echo ""
-echo "Legacy Commands (backwards compatible):"
-echo "  cu, cui, cug, cutx, cutxg - same as au* variants"
 echo ""
 echo "Helper Commands:"
 echo "  restart-claude  - Restart agent (preserves session)"

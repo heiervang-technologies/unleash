@@ -2,7 +2,7 @@
 # Showcases the new Theme menu with 7 color presets
 # https://github.com/charmbracelet/vhs
 
-Require cui
+Require aui
 
 Output assets/demo-theme.gif
 
@@ -14,7 +14,7 @@ Set Padding 20
 Set Framerate 30
 
 # Launch the TUI
-Type "cui"
+Type "aui"
 Sleep 500ms
 Enter
 Sleep 2s

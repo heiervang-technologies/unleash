@@ -5,7 +5,7 @@ use std::process::Command;
 
 /// Get the full version information (both Claude Unleashed and Claude Code)
 pub fn get_full_version() -> String {
-    let cu_version = env!("CARGO_PKG_VERSION");
+    let au_version = env!("CARGO_PKG_VERSION");
 
     // Try to get Claude Code version
     let claude_version = Command::new("claude")
@@ -28,13 +28,13 @@ pub fn get_full_version() -> String {
 
     if claude_version == "not installed" {
         format!(
-            "Claude Unleashed: v{}\nClaude Code: {}",
-            cu_version, claude_version
+            "Agent Unleashed: v{}\nClaude Code: {}",
+            au_version, claude_version
         )
     } else {
         format!(
-            "Claude Unleashed: v{}\nClaude Code: v{}",
-            cu_version, claude_version
+            "Agent Unleashed: v{}\nClaude Code: v{}",
+            au_version, claude_version
         )
     }
 }
@@ -59,9 +59,6 @@ BINARY STRUCTURE:
   au     - Wrapper script that runs agent with plugins and features
   aui    - TUI for profile and version management
   autx   - Headless tmux automation mode
-
-LEGACY ALIASES (backwards compatible):
-  cu, cui, cug, cutx, cutxg - same as au* variants
 
 USAGE NOTES:
   When you run 'au', you're using a wrapper script that adds functionality

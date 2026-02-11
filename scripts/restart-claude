@@ -9,18 +9,17 @@ set -uo pipefail
 
 CACHE_DIR="${HOME}/.cache/agent-unleashed/process-restart"
 
-# Check if running under wrapper (support both new and legacy env vars)
-if [[ -z "${AGENT_UNLEASHED:-${CLAUDE_UNLEASHED:-}}" ]]; then
+# Check if running under wrapper
+if [[ -z "${AGENT_UNLEASHED:-}" ]]; then
     echo "Error: Not running under agent-unleashed wrapper"
     echo "Start Claude with: au (or agent-unleashed)"
-    echo "Legacy: cu (or claude-unleashed)"
     exit 1
 fi
 
-# Get wrapper PID from environment (set by agent-unleashed wrapper, supports legacy)
-WRAPPER_PID="${AGENT_WRAPPER_PID:-${CLAUDE_WRAPPER_PID:-}}"
+# Get wrapper PID from environment (set by agent-unleashed wrapper)
+WRAPPER_PID="${AGENT_WRAPPER_PID:-}"
 if [[ -z "${WRAPPER_PID}" ]]; then
-    echo "Error: CLAUDE_WRAPPER_PID not set"
+    echo "Error: AGENT_WRAPPER_PID not set"
     exit 1
 fi
 

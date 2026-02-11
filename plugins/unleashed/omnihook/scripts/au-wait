@@ -1,16 +1,16 @@
 #!/usr/bin/env bash
-# cu-wait - Block until a message arrives in the omnihook queue
+# au-wait - Block until a message arrives in the omnihook queue
 #
 # This tool provides blocking wait functionality for voice integration.
-# Instead of polling with fixed sleep intervals, Claude can call cu-wait
+# Instead of polling with fixed sleep intervals, Claude can call au-wait
 # which will return immediately when a message arrives via the FIFO.
 #
 # Usage:
-#   cu-wait                    # Wait indefinitely
-#   cu-wait --timeout 30       # Wait up to 30 seconds
-#   cu-wait --check            # Just check if messages exist (no wait)
-#   cu-wait --setup            # Create FIFO for this session
-#   cu-wait --cleanup          # Remove FIFO for this session
+#   au-wait                    # Wait indefinitely
+#   au-wait --timeout 30       # Wait up to 30 seconds
+#   au-wait --check            # Just check if messages exist (no wait)
+#   au-wait --setup            # Create FIFO for this session
+#   au-wait --cleanup          # Remove FIFO for this session
 #
 # Returns:
 #   0 - Message available (check queue)
@@ -21,7 +21,7 @@ set -euo pipefail
 
 # Configuration
 QUEUE_DIR="${HOME}/.cache/agent-unleashed/omnihook"
-WRAPPER_PID="${CLAUDE_WRAPPER_PID:-$$}"
+WRAPPER_PID="${AGENT_WRAPPER_PID:-$$}"
 QUEUE_FILE="${QUEUE_DIR}/queue-${WRAPPER_PID}"
 FIFO_FILE="${QUEUE_DIR}/fifo-${WRAPPER_PID}"
 
@@ -36,10 +36,10 @@ while [[ $# -gt 0 ]]; do
   case "$1" in
     -h|--help)
       cat <<'EOF'
-cu-wait - Block until a message arrives in the omnihook queue
+au-wait - Block until a message arrives in the omnihook queue
 
 USAGE:
-  cu-wait [OPTIONS]
+  au-wait [OPTIONS]
 
 OPTIONS:
   -t, --timeout SEC   Maximum seconds to wait (0 = infinite, default)
@@ -55,22 +55,22 @@ EXIT CODES:
 
 EXAMPLES:
   # Wait for voice input (use in auto-mode loop)
-  cu-wait --timeout 60 && echo "Message received!"
+  au-wait --timeout 60 && echo "Message received!"
 
   # Setup FIFO at session start
-  cu-wait --setup
+  au-wait --setup
 
   # Quick check without waiting
-  cu-wait --check && echo "Messages waiting"
+  au-wait --check && echo "Messages waiting"
 
   # Cleanup at session end
-  cu-wait --cleanup
+  au-wait --cleanup
 
 HOW IT WORKS:
   1. Creates a named pipe (FIFO) for this session
   2. Blocks on read from FIFO
-  3. When cu-queue --notify is called, it writes to FIFO
-  4. cu-wait unblocks immediately and returns
+  3. When au-queue --notify is called, it writes to FIFO
+  4. au-wait unblocks immediately and returns
 
   This provides instant wakeup instead of polling with sleep.
 
@@ -79,10 +79,10 @@ INTEGRATION WITH AUTO-MODE:
     sleep 30  # Fixed delay, slow response
 
   Use:
-    cu-wait --timeout 60  # Instant wakeup when message arrives
+    au-wait --timeout 60  # Instant wakeup when message arrives
 
 ENVIRONMENT:
-  CLAUDE_WRAPPER_PID  - Session identifier for queue/FIFO files
+  AGENT_WRAPPER_PID  - Session identifier for queue/FIFO files
 EOF
       exit 0
       ;;

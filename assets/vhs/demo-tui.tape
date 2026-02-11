@@ -1,4 +1,4 @@
-# VHS Demo for Claude Unleashed TUI
+# VHS Demo for Agent Unleashed TUI
 # Shows all TUI submenus and navigation
 # https://github.com/charmbracelet/vhs
 
@@ -11,7 +11,7 @@ Set Theme "Dracula"
 Set Padding 20
 
 # Launch the TUI
-Type "cui"
+Type "aui"
 Sleep 500ms
 Enter
 Sleep 2s

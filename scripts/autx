@@ -1,7 +1,5 @@
 #!/usr/bin/env bash
-# cutx - Agent Unleashed Wrapper (Headless tmux mode)
-# NOTE: This script is kept as 'cutx' for backwards compatibility.
-#       The new name is 'autx'. Both work identically.
+# autx - Agent Unleashed (Headless tmux mode)
 #
 # A headless mode for Claude using tmux instead of native headless.
 # This allows interaction via key inputs and better session management.
@@ -24,19 +22,17 @@
 #   AUTX_STABLE_THRESHOLD  Seconds of stable output to consider complete (default: 3)
 #   AUTX_INIT_WAIT         Seconds to wait for Claude to initialize (default: 5)
 #
-# Legacy environment variables (CUTX_*) are still supported for backwards compatibility.
-#
-# Version: 1.3.0
+# Version: 2.0.0
 
 set -uo pipefail
 
-# Configuration (support both AUTX_* and legacy CUTX_* env vars)
-SESSION_NAME="${AUTX_SESSION_NAME:-${CUTX_SESSION_NAME:-agent-unleashed}}"
-WAIT_TIMEOUT="${AUTX_WAIT_TIMEOUT:-${CUTX_WAIT_TIMEOUT:-300}}"
-TERM_WIDTH="${AUTX_TERM_WIDTH:-${CUTX_TERM_WIDTH:-200}}"
-TERM_HEIGHT="${AUTX_TERM_HEIGHT:-${CUTX_TERM_HEIGHT:-50}}"
-STABLE_THRESHOLD="${AUTX_STABLE_THRESHOLD:-${CUTX_STABLE_THRESHOLD:-3}}"
-INIT_WAIT="${AUTX_INIT_WAIT:-${CUTX_INIT_WAIT:-5}}"
+# Configuration
+SESSION_NAME="${AUTX_SESSION_NAME:-agent-unleashed}"
+WAIT_TIMEOUT="${AUTX_WAIT_TIMEOUT:-300}"
+TERM_WIDTH="${AUTX_TERM_WIDTH:-200}"
+TERM_HEIGHT="${AUTX_TERM_HEIGHT:-50}"
+STABLE_THRESHOLD="${AUTX_STABLE_THRESHOLD:-3}"
+INIT_WAIT="${AUTX_INIT_WAIT:-5}"
 CACHE_DIR="${HOME}/.cache/agent-unleashed/autx"
 OUTPUT_FILE="${CACHE_DIR}/${SESSION_NAME}.output"
 MARKER_FILE="${CACHE_DIR}/${SESSION_NAME}.marker"
@@ -50,23 +46,23 @@ fi
 
 # Validate numeric environment variables
 if ! [[ "$WAIT_TIMEOUT" =~ ^[0-9]+$ ]]; then
-    echo "Error: CUTX_WAIT_TIMEOUT must be a positive integer (got: $WAIT_TIMEOUT)" >&2
+    echo "Error: AUTX_WAIT_TIMEOUT must be a positive integer (got: $WAIT_TIMEOUT)" >&2
     exit 1
 fi
 if ! [[ "$TERM_WIDTH" =~ ^[0-9]+$ ]]; then
-    echo "Error: CUTX_TERM_WIDTH must be a positive integer (got: $TERM_WIDTH)" >&2
+    echo "Error: AUTX_TERM_WIDTH must be a positive integer (got: $TERM_WIDTH)" >&2
     exit 1
 fi
 if ! [[ "$TERM_HEIGHT" =~ ^[0-9]+$ ]]; then
-    echo "Error: CUTX_TERM_HEIGHT must be a positive integer (got: $TERM_HEIGHT)" >&2
+    echo "Error: AUTX_TERM_HEIGHT must be a positive integer (got: $TERM_HEIGHT)" >&2
     exit 1
 fi
 if ! [[ "$STABLE_THRESHOLD" =~ ^[0-9]+$ ]]; then
-    echo "Error: CUTX_STABLE_THRESHOLD must be a positive integer (got: $STABLE_THRESHOLD)" >&2
+    echo "Error: AUTX_STABLE_THRESHOLD must be a positive integer (got: $STABLE_THRESHOLD)" >&2
     exit 1
 fi
 if ! [[ "$INIT_WAIT" =~ ^[0-9]+$ ]]; then
-    echo "Error: CUTX_INIT_WAIT must be a positive integer (got: $INIT_WAIT)" >&2
+    echo "Error: AUTX_INIT_WAIT must be a positive integer (got: $INIT_WAIT)" >&2
     exit 1
 fi
 
@@ -120,10 +116,6 @@ check_claude() {
         return 0
     fi
     if command -v au &>/dev/null; then
-        return 0
-    fi
-    # Legacy: check for cu
-    if command -v cu &>/dev/null; then
         return 0
     fi
     if command -v claude &>/dev/null; then
@@ -203,11 +195,7 @@ cmd_start() {
     if [[ ! -x "$launcher" ]]; then
         launcher="au"
         if ! command -v "$launcher" &>/dev/null; then
-            # Legacy: try cu
-            launcher="cu"
-            if ! command -v "$launcher" &>/dev/null; then
-                launcher="claude"
-            fi
+            launcher="claude"
         fi
     fi
 
@@ -453,8 +441,7 @@ cmd_query() {
 # Show help
 cmd_help() {
     cat << 'EOF'
-autx - Agent Unleashed Wrapper (Headless tmux mode)
-(Legacy name: cutx - still supported for backwards compatibility)
+autx - Agent Unleashed (Headless tmux mode)
 
 USAGE:
     autx <command> [args]
@@ -492,8 +479,6 @@ ENVIRONMENT:
     AUTX_TERM_HEIGHT       Terminal height for tmux session (default: 50)
     AUTX_STABLE_THRESHOLD  Seconds of stable output to consider response complete (default: 3)
     AUTX_INIT_WAIT         Seconds to wait for Claude to initialize (default: 5)
-
-    Legacy environment variables (CUTX_*) are still supported for backwards compatibility.
 
 EXAMPLES:
     # Start a session and send a message

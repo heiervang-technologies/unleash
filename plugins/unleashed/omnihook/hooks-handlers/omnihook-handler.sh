@@ -16,7 +16,7 @@ set -euo pipefail
 
 # Configuration
 QUEUE_DIR="${HOME}/.cache/agent-unleashed/omnihook"
-WRAPPER_PID="${CLAUDE_WRAPPER_PID:-$$}"
+WRAPPER_PID="${AGENT_WRAPPER_PID:-$$}"
 QUEUE_FILE="${QUEUE_DIR}/queue-${WRAPPER_PID}"
 # shellcheck disable=SC2034
 FIFO_FILE="${QUEUE_DIR}/fifo-${WRAPPER_PID}"

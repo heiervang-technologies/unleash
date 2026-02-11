@@ -2,7 +2,7 @@
 
 ## Overview
 
-The `au auth` command (legacy: `cu auth`) provides a standalone way to verify Claude Code authentication status without launching the full Claude CLI. This is particularly useful for:
+The `au auth` command provides a standalone way to verify Claude Code authentication status without launching the full Claude CLI. This is particularly useful for:
 
 - CI/CD pipelines and automation scripts
 - Pre-flight checks before running Claude
@@ -203,7 +203,7 @@ au --auto "$@"
 ### Authentication Logic
 
 The implementation reuses the authentication checking logic from:
-- `scripts/au` (bash wrapper, legacy: `cu`) - `check_authentication()` function
+- `scripts/au` (bash wrapper) - `check_authentication()` function
 - `src/launcher.rs` - `check_authentication()` function
 
 The standalone command provides the same checks without launching Claude, making it faster and suitable for automation.
@@ -225,7 +225,7 @@ The test verifies:
 
 ## Related Commands
 
-- `au`: Launch Claude with wrapper features (includes auth check on startup). Legacy: `cu` still works.
+- `au`: Launch Claude with wrapper features (includes auth check on startup).
 - `claude setup-token`: Generate OAuth token
 - `claude`: Interactive authentication
 

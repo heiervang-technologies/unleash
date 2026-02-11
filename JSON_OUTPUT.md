@@ -1,6 +1,6 @@
 # JSON Output Feature
 
-This document describes the `--json` flag feature for Claude Unleashed CLI.
+This document describes the `--json` flag feature for Agent Unleashed CLI.
 
 ## Overview
 
@@ -16,16 +16,16 @@ The `--json` flag is a global flag that changes command output from human-readab
 Add the `--json` flag to any supported command:
 
 ```bash
-cu --version --json
-cu version --json
-cu version --list --json
-cu auth-check --json
-cu auth-check --json --verbose
+au--version --json
+auversion --json
+auversion --list --json
+auauth-check --json
+auauth-check --json --verbose
 ```
 
 ## Supported Commands
 
-### 1. Version Information (`cu --version --json`)
+### 1. Version Information (`au--version --json`)
 
 Shows version information for both Claude Unleashed and Claude Code.
 
@@ -43,11 +43,11 @@ Shows version information for both Claude Unleashed and Claude Code.
 - `claude_code_version` - Version of installed Claude Code (or "not installed")
 - `claude_code_installed` - Boolean indicating if Claude Code is installed
 
-### 2. Version Command (`cu version --json`)
+### 2. Version Command (`auversion --json`)
 
-Same output as `cu --version --json`.
+Same output as `au--version --json`.
 
-### 3. Version List (`cu version --list --json`)
+### 3. Version List (`auversion --list --json`)
 
 Lists all available Claude Code versions with metadata.
 
@@ -96,7 +96,7 @@ Lists all available Claude Code versions with metadata.
 - `whitelist` (default): Only whitelisted versions are recommended for installation
 - `blacklist`: All versions except blacklisted ones are allowed
 
-### 4. Authentication Check (`cu auth-check --json`)
+### 4. Authentication Check (`auauth-check --json`)
 
 Checks Claude Code authentication status.
 
@@ -136,7 +136,7 @@ Checks Claude Code authentication status.
 - `0` - Authentication found
 - `1` - Authentication not found
 
-### 5. Version Install (`cu version --install <version> --json`)
+### 5. Version Install (`auversion --install <version> --json`)
 
 Installs a specific version of Claude Code.
 
@@ -182,14 +182,14 @@ Added `serde_json = "1.0"` to `Cargo.toml` for JSON serialization.
 ### Parse version with jq
 
 ```bash
-cu --version --json | jq -r '.claude_code_version'
+au--version --json | jq -r '.claude_code_version'
 # Output: 2.1.4
 ```
 
 ### Check if authenticated in script
 
 ```bash
-if cu auth-check --json | jq -e '.authenticated' > /dev/null; then
+if auauth-check --json | jq -e '.authenticated' > /dev/null; then
     echo "Authenticated!"
 else
     echo "Not authenticated!"
@@ -199,32 +199,32 @@ fi
 ### List only installed versions
 
 ```bash
-cu version --list --json | jq '.versions[] | select(.is_installed == true)'
+auversion --list --json | jq '.versions[] | select(.is_installed == true)'
 ```
 
 ### Find latest whitelisted version
 
 ```bash
-cu version --list --json | jq -r '.versions[] | select(.is_whitelisted == true) | .version' | head -1
+auversion --list --json | jq -r '.versions[] | select(.is_whitelisted == true) | .version' | head -1
 ```
 
 ### Find versions that are not blacklisted
 
 ```bash
-cu version --list --json | jq -r '.versions[] | select(.is_blacklisted == false) | .version'
+auversion --list --json | jq -r '.versions[] | select(.is_blacklisted == false) | .version'
 ```
 
 ### Check the current filter mode
 
 ```bash
-cu version --list --json | jq -r '.filter_mode'
+auversion --list --json | jq -r '.filter_mode'
 ```
 
 ### Monitor authentication status
 
 ```bash
 # In a monitoring script
-STATUS=$(cu auth-check --json)
+STATUS=$(auauth-check --json)
 AUTHENTICATED=$(echo "$STATUS" | jq -r '.authenticated')
 
 if [ "$AUTHENTICATED" != "true" ]; then
@@ -236,8 +236,8 @@ fi
 
 Potential commands that could support `--json` in the future:
 
-- `cu patch --check --json` - Patch status as JSON
-- `cu tmux status --json` - Tmux session status
+- `aupatch --check --json` - Patch status as JSON
+- `autmux status --json` - Tmux session status
 - Error messages consistently formatted as JSON when `--json` is used globally
 
 ## Testing
@@ -246,11 +246,11 @@ All JSON outputs have been tested with:
 
 ```bash
 cargo build --release
-./target/release/cu --version --json
-./target/release/cu version --json
-./target/release/cu version --list --json
-./target/release/cu auth-check --json
-./target/release/cu auth-check --json --verbose
+./target/release/au--version --json
+./target/release/auversion --json
+./target/release/auversion --list --json
+./target/release/auauth-check --json
+./target/release/auauth-check --json --verbose
 ```
 
 All outputs produce valid JSON that can be parsed by `jq` and other JSON processors.

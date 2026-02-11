@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# test-cutx.sh - Test suite for cutx headless tmux mode
+# test-autx.sh - Test suite for autx headless tmux mode
 #
 # Tests:
 # 1. Help command functionality
@@ -14,8 +14,8 @@
 set -uo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-CUTX="${SCRIPT_DIR}/../scripts/cutx"
-TEST_SESSION="cutx-test-$$"
+AUTX="${SCRIPT_DIR}/../scripts/autx"
+TEST_SESSION="autx-test-$$"
 
 # Colors
 RED='\033[0;31m'
@@ -97,13 +97,13 @@ trap cleanup EXIT
 check_prerequisites() {
     echo "=== Checking prerequisites ==="
 
-    if [[ ! -f "$CUTX" ]]; then
-        echo -e "${RED}ERROR${NC}: cutx script not found at $CUTX"
+    if [[ ! -f "$AUTX" ]]; then
+        echo -e "${RED}ERROR${NC}: autx script not found at $AUTX"
         exit 1
     fi
 
-    if [[ ! -x "$CUTX" ]]; then
-        echo -e "${RED}ERROR${NC}: cutx script is not executable"
+    if [[ ! -x "$AUTX" ]]; then
+        echo -e "${RED}ERROR${NC}: autx script is not executable"
         exit 1
     fi
 
@@ -121,7 +121,7 @@ test_help_command() {
     echo "=== Test: help command ==="
 
     local output
-    output=$("$CUTX" help 2>&1)
+    output=$("$AUTX" help 2>&1)
     local exit_code=$?
 
     assert_success $exit_code "help command exits successfully"
@@ -143,7 +143,7 @@ test_status_no_session() {
     tmux kill-session -t "$TEST_SESSION" 2>/dev/null || true
 
     local output
-    output=$(CUTX_SESSION_NAME="$TEST_SESSION" "$CUTX" status 2>&1)
+    output=$(AUTX_SESSION_NAME="$TEST_SESSION" "$AUTX" status 2>&1)
 
     assert_contains "$output" "not running" "status shows not running when session absent"
     echo ""
@@ -156,7 +156,7 @@ test_session_lifecycle() {
     # Ensure clean state
     tmux kill-session -t "$TEST_SESSION" 2>/dev/null || true
 
-    # Create a dummy tmux session (simulates what cutx start does with tmux)
+    # Create a dummy tmux session (simulates what autx start does with tmux)
     tmux new-session -d -s "$TEST_SESSION" "sleep 60" 2>/dev/null
     local create_exit=$?
 
@@ -164,13 +164,13 @@ test_session_lifecycle() {
 
     # Check status detects it
     local output
-    output=$(CUTX_SESSION_NAME="$TEST_SESSION" "$CUTX" status 2>&1)
+    output=$(AUTX_SESSION_NAME="$TEST_SESSION" "$AUTX" status 2>&1)
 
     assert_contains "$output" "running" "status detects running session"
     assert_not_contains "$output" "not running" "status does not say 'not running' when session exists"
 
     # Stop should work
-    CUTX_SESSION_NAME="$TEST_SESSION" "$CUTX" stop 2>/dev/null
+    AUTX_SESSION_NAME="$TEST_SESSION" "$AUTX" stop 2>/dev/null
     local stop_exit=$?
 
     assert_success $stop_exit "stop command exits successfully"
@@ -197,7 +197,7 @@ test_send_without_session() {
 
     local output
     local exit_code=0
-    output=$(CUTX_SESSION_NAME="$unique_name" "$CUTX" send "test message" 2>&1) || exit_code=$?
+    output=$(AUTX_SESSION_NAME="$unique_name" "$AUTX" send "test message" 2>&1) || exit_code=$?
 
     assert_failure $exit_code "send fails without active session"
     assert_contains "$output" "No active session" "send shows appropriate error message"
@@ -213,7 +213,7 @@ test_send_without_message() {
 
     local output
     local exit_code=0
-    output=$(CUTX_SESSION_NAME="$TEST_SESSION" "$CUTX" send 2>&1) || exit_code=$?
+    output=$(AUTX_SESSION_NAME="$TEST_SESSION" "$AUTX" send 2>&1) || exit_code=$?
 
     assert_failure $exit_code "send fails without message"
     assert_contains "$output" "No message" "send shows 'No message' error"
@@ -231,14 +231,14 @@ test_environment_variables() {
 
     # Test that custom session name is accepted
     local output
-    output=$(CUTX_SESSION_NAME="$custom_name" "$CUTX" status 2>&1)
+    output=$(AUTX_SESSION_NAME="$custom_name" "$AUTX" status 2>&1)
     local exit_code=$?
 
     assert_success $exit_code "custom session name accepted"
     assert_contains "$output" "$custom_name" "output mentions custom session name"
 
     # Test custom timeout (just check script doesn't fail with it set)
-    output=$(CUTX_WAIT_TIMEOUT=60 CUTX_SESSION_NAME="$custom_name" "$CUTX" help 2>&1)
+    output=$(AUTX_WAIT_TIMEOUT=60 AUTX_SESSION_NAME="$custom_name" "$AUTX" help 2>&1)
     exit_code=$?
 
     assert_success $exit_code "custom timeout variable accepted"
@@ -255,7 +255,7 @@ test_read_without_output() {
 
     local output
     local exit_code=0
-    output=$(CUTX_SESSION_NAME="$unique_name" "$CUTX" read 2>&1) || exit_code=$?
+    output=$(AUTX_SESSION_NAME="$unique_name" "$AUTX" read 2>&1) || exit_code=$?
 
     assert_failure $exit_code "read fails without output file"
     assert_contains "$output" "No output file" "read shows appropriate error"
@@ -271,7 +271,7 @@ test_attach_without_session() {
 
     local output
     local exit_code=0
-    output=$(CUTX_SESSION_NAME="$unique_name" "$CUTX" attach 2>&1) || exit_code=$?
+    output=$(AUTX_SESSION_NAME="$unique_name" "$AUTX" attach 2>&1) || exit_code=$?
 
     assert_failure $exit_code "attach fails without active session"
     assert_contains "$output" "No active session" "attach shows appropriate error"
@@ -287,7 +287,7 @@ test_stop_no_session() {
 
     local output
     local exit_code=0
-    output=$(CUTX_SESSION_NAME="$unique_name" "$CUTX" stop 2>&1) || exit_code=$?
+    output=$(AUTX_SESSION_NAME="$unique_name" "$AUTX" stop 2>&1) || exit_code=$?
 
     assert_success $exit_code "stop succeeds gracefully when no session"
     assert_contains "$output" "No active session" "stop indicates no session was running"
@@ -299,7 +299,7 @@ test_empty_command() {
     echo "=== Test: empty command shows help ==="
 
     local output
-    output=$("$CUTX" 2>&1)
+    output=$("$AUTX" 2>&1)
     local exit_code=$?
 
     assert_success $exit_code "empty command exits successfully"
@@ -314,7 +314,7 @@ test_cache_directory() {
     local cache_dir="${HOME}/.cache/agent-unleashed/autx"
 
     # The script should create cache dir on any operation
-    "$CUTX" help >/dev/null 2>&1
+    "$AUTX" help >/dev/null 2>&1
 
     if [[ -d "$cache_dir" ]]; then
         echo -e "${GREEN}PASS${NC}: cache directory exists at $cache_dir"
@@ -335,7 +335,7 @@ test_wait_without_session() {
 
     local output
     local exit_code=0
-    output=$(CUTX_SESSION_NAME="$unique_name" "$CUTX" wait 1 2>&1) || exit_code=$?
+    output=$(AUTX_SESSION_NAME="$unique_name" "$AUTX" wait 1 2>&1) || exit_code=$?
 
     assert_failure $exit_code "wait fails without active session"
     assert_contains "$output" "No active session" "wait shows appropriate error"
@@ -346,11 +346,11 @@ test_wait_without_session() {
 test_script_syntax() {
     echo "=== Test: script syntax validation ==="
 
-    if bash -n "$CUTX" 2>/dev/null; then
-        echo -e "${GREEN}PASS${NC}: cutx has valid bash syntax"
+    if bash -n "$AUTX" 2>/dev/null; then
+        echo -e "${GREEN}PASS${NC}: autx has valid bash syntax"
         ((passed++))
     else
-        echo -e "${RED}FAIL${NC}: cutx has invalid bash syntax"
+        echo -e "${RED}FAIL${NC}: autx has invalid bash syntax"
         ((failed++))
     fi
     echo ""
@@ -380,7 +380,7 @@ test_session_name_injection() {
     for name in "${malicious_names[@]}"; do
         local output
         local exit_code=0
-        output=$(CUTX_SESSION_NAME="$name" "$CUTX" status 2>&1) || exit_code=$?
+        output=$(AUTX_SESSION_NAME="$name" "$AUTX" status 2>&1) || exit_code=$?
 
         if [[ $exit_code -ne 0 ]] && [[ "$output" == *"Invalid session name"* ]]; then
             ((injection_blocked++))
@@ -401,19 +401,19 @@ test_session_name_injection() {
 test_invalid_numeric_env_vars() {
     echo "=== Test: invalid numeric environment variables ==="
 
-    # Test invalid CUTX_WAIT_TIMEOUT
+    # Test invalid AUTX_WAIT_TIMEOUT
     local output
     local exit_code=0
-    output=$(CUTX_WAIT_TIMEOUT="not-a-number" "$CUTX" help 2>&1) || exit_code=$?
+    output=$(AUTX_WAIT_TIMEOUT="not-a-number" "$AUTX" help 2>&1) || exit_code=$?
 
-    assert_failure $exit_code "script rejects non-numeric CUTX_WAIT_TIMEOUT"
+    assert_failure $exit_code "script rejects non-numeric AUTX_WAIT_TIMEOUT"
     assert_contains "$output" "must be a positive integer" "error message mentions integer requirement"
 
-    # Test invalid CUTX_TERM_WIDTH
+    # Test invalid AUTX_TERM_WIDTH
     exit_code=0
-    output=$(CUTX_TERM_WIDTH="abc" "$CUTX" help 2>&1) || exit_code=$?
+    output=$(AUTX_TERM_WIDTH="abc" "$AUTX" help 2>&1) || exit_code=$?
 
-    assert_failure $exit_code "script rejects non-numeric CUTX_TERM_WIDTH"
+    assert_failure $exit_code "script rejects non-numeric AUTX_TERM_WIDTH"
     assert_contains "$output" "must be a positive integer" "error message mentions integer requirement"
 
     echo ""
@@ -422,7 +422,7 @@ test_invalid_numeric_env_vars() {
 # Run all tests
 main() {
     echo "========================================"
-    echo "cutx Test Suite"
+    echo "autx Test Suite"
     echo "========================================"
     echo ""
 

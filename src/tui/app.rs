@@ -608,8 +608,8 @@ impl App {
         // Build candidate paths to search
         let mut candidates: Vec<String> = Vec::new();
 
-        // 1. CLAUDE_UNLEASHED_ROOT env var
-        if let Ok(root) = std::env::var("CLAUDE_UNLEASHED_ROOT") {
+        // 1. AGENT_UNLEASHED_ROOT env var
+        if let Ok(root) = std::env::var("AGENT_UNLEASHED_ROOT") {
             candidates.push(format!("{}/{}", root, HOOK_RELATIVE));
         }
 
@@ -2531,8 +2531,8 @@ impl LaunchRequest {
         cmd.env("CLAUDE_WRAPPER_PID", wrapper_pid.to_string());
 
         // Only override arg0 for direct claude invocations.
-        // When launching cug/cu, we must preserve argv[0] so the binary
-        // can detect it was invoked as "cug" and run the launcher mode.
+        // When launching aug/au, we must preserve argv[0] so the binary
+        // can detect it was invoked as "aug" and run the launcher mode.
         let cmd_name = std::path::Path::new(&self.claude_path)
             .file_name()
             .and_then(|n| n.to_str())
@@ -2543,7 +2543,7 @@ impl LaunchRequest {
             // Format: "claude:<pid>" - allows correlating with conversation later
             cmd.arg0(format!("claude:{}", wrapper_pid));
         }
-        // For cug/cu, let the binary see its natural argv[0]
+        // For aug/au, let the binary see its natural argv[0]
 
         cmd.args(&self.claude_args);
         cmd.status()

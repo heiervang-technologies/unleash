@@ -2,7 +2,6 @@
 //!
 //! Profiles are stored in ~/.config/agent-unleashed/profiles/
 //! Each profile is a TOML file with environment variables for agent sessions.
-//! Legacy path ~/.config/claude-unleashed/ is also checked for backwards compatibility.
 
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -79,7 +78,7 @@ pub struct AppConfig {
     /// The currently selected profile name
     #[serde(default = "default_profile_name")]
     pub current_profile: String,
-    /// Path to claude executable (default: "cug" for full unleashed features)
+    /// Path to claude executable (default: "aug" for full unleashed features)
     #[serde(default = "default_claude_path")]
     pub claude_path: String,
     /// Additional arguments to pass to claude
@@ -102,12 +101,12 @@ fn default_theme() -> String {
 }
 
 fn default_claude_path() -> String {
-    // Default to cug (cu go) for full unleashed features:
+    // Default to aug (au go) for full unleashed features:
     // - Auto-patching for auto mode
     // - Restart/resurrection support
     // - Plugin loading
     // - Extended timeouts
-    "cug".to_string()
+    "aug".to_string()
 }
 
 impl Default for AppConfig {
@@ -156,22 +155,11 @@ impl ProfileManager {
     }
 
     /// Get the default config directory (~/.config/agent-unleashed)
-    /// Falls back to legacy path (~/.config/claude-unleashed) if it exists
     pub fn default_config_dir() -> io::Result<PathBuf> {
         let config_base = dirs::config_dir()
             .ok_or_else(|| io::Error::new(io::ErrorKind::NotFound, "Could not find config directory"))?;
 
-        let new_path = config_base.join("agent-unleashed");
-        let legacy_path = config_base.join("claude-unleashed");
-
-        // Prefer new path if it exists, otherwise use legacy if it exists, otherwise use new
-        if new_path.exists() {
-            Ok(new_path)
-        } else if legacy_path.exists() {
-            Ok(legacy_path)
-        } else {
-            Ok(new_path) // Default to new path for fresh installs
-        }
+        Ok(config_base.join("agent-unleashed"))
     }
 
     /// Get path to a profile file

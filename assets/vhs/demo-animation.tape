@@ -3,7 +3,7 @@
 
 Output demo-animation.gif
 
-Require cui
+Require aui
 
 Set FontSize 14
 Set Width 1200
@@ -11,7 +11,7 @@ Set Height 700
 Set Framerate 60
 
 # Start the TUI
-Type "cui"
+Type "aui"
 Enter
 Sleep 1s
 
