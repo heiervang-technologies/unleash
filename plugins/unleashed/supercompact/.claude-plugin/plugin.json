@@ -1,0 +1,27 @@
+{
+  "name": "supercompact",
+  "description": "Entity-preservation conversation compaction - replaces default /compact with ~400x faster, 2x better entity retention",
+  "version": "1.1.0",
+  "author": {
+    "name": "Heiervang Technologies",
+    "email": "support@heiervang.com"
+  },
+  "settings": {
+    "method": {
+      "type": "string",
+      "default": "eitf",
+      "description": "Compaction scoring method",
+      "enum": ["eitf", "setcover", "dedup"]
+    },
+    "budget": {
+      "type": "number",
+      "default": 80000,
+      "description": "Target token budget for compacted output"
+    },
+    "fallback_to_builtin": {
+      "type": "boolean",
+      "default": true,
+      "description": "Fall back to Claude's built-in LLM compaction if supercompact fails"
+    }
+  }
+}

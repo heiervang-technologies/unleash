@@ -465,9 +465,18 @@ if $RUN_PATCH; then
     if command -v claude &> /dev/null; then
         info "Patching Claude Code..."
         if "$SCRIPT_DIR/patch-claude.sh"; then
-            success "Claude Code patched"
+            success "Claude Code patched (auto-mode)"
         else
-            warn "Patch failed (Claude Code may not be installed)"
+            warn "Auto-mode patch failed (Claude Code may not be installed)"
+        fi
+        # Supercompact EITF patch (replaces LLM compaction with instant EITF)
+        SUPERCOMPACT_PATCH="$PLUGINS_DIR/supercompact/scripts/patch-compaction.sh"
+        if [[ -f "$SUPERCOMPACT_PATCH" ]]; then
+            if "$SUPERCOMPACT_PATCH"; then
+                success "Claude Code patched (EITF compaction)"
+            else
+                warn "EITF compaction patch failed"
+            fi
         fi
     else
         warn "Claude Code not found, skipping patch"

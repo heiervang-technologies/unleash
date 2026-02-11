@@ -171,21 +171,109 @@ pub fn check_and_patch() -> io::Result<()> {
         Err(_) => return Ok(()), // Claude not installed, nothing to patch
     };
 
-    // Check cached version
-    if let Ok(cached) = fs::read_to_string(version_cache_file()) {
-        if cached.trim() == version {
-            // Already patched this version
-            return Ok(());
+    // Check cached version for auto-mode patch
+    let auto_mode_needed = match fs::read_to_string(version_cache_file()) {
+        Ok(cached) => cached.trim() != version,
+        Err(_) => true,
+    };
+
+    if auto_mode_needed {
+        // Check if patch config exists
+        if let Ok(patches_dir) = get_patches_dir() {
+            let config_file = patches_dir.join(format!("{}.conf", version));
+            if config_file.exists() {
+                patch()?;
+            }
         }
     }
 
-    // Check if patch config exists
-    if get_patches_dir().is_ok() {
-        let patches_dir = get_patches_dir()?;
-        let config_file = patches_dir.join(format!("{}.conf", version));
-        if config_file.exists() {
-            return patch();
+    // Always check EITF patch (version-agnostic, uses regex matching)
+    if let Err(e) = check_and_patch_eitf() {
+        eprintln!("Warning: EITF compaction patch failed: {}", e);
+    }
+
+    Ok(())
+}
+
+/// Find the supercompact patcher script
+fn find_eitf_patcher() -> Option<PathBuf> {
+    // Try installed plugins location
+    if let Some(home) = dirs::home_dir() {
+        let installed = home
+            .join(".local/share/agent-unleashed/plugins/supercompact/scripts/patcher.py");
+        if installed.exists() {
+            return Some(installed);
         }
+    }
+
+    // Try relative to exe (development)
+    if let Ok(exe) = env::current_exe() {
+        if let Some(dir) = exe.parent() {
+            // exe is in target/release or ~/.local/bin, go to repo root
+            for ancestor in dir.ancestors() {
+                let patcher = ancestor
+                    .join("plugins/unleashed/supercompact/scripts/patcher.py");
+                if patcher.exists() {
+                    return Some(patcher);
+                }
+            }
+        }
+    }
+
+    None
+}
+
+/// Check and apply EITF compaction patch if needed
+fn check_and_patch_eitf() -> io::Result<()> {
+    let claude_dir = get_claude_dir()?;
+    let cli_js = claude_dir.join("cli.js");
+
+    if !cli_js.exists() {
+        return Ok(());
+    }
+
+    // Quick check: read a small portion to see if already patched
+    let content = fs::read_to_string(&cli_js)?;
+    if content.contains("SUPERCOMPACT_EITF") {
+        return Ok(());
+    }
+
+    // Find the patcher script
+    let patcher = match find_eitf_patcher() {
+        Some(p) => p,
+        None => return Ok(()), // Supercompact plugin not installed
+    };
+
+    // Find supercompact directory (parent of scripts/)
+    let supercompact_dir = if let Some(home) = dirs::home_dir() {
+        let dir = home.join("ht/supercompact");
+        if dir.join("compact.py").exists() {
+            dir
+        } else {
+            return Ok(()); // Supercompact not available
+        }
+    } else {
+        return Ok(());
+    };
+
+    println!("Applying EITF compaction patch...");
+    let output = Command::new("python3")
+        .arg(&patcher)
+        .arg(&cli_js)
+        .arg(&supercompact_dir)
+        .output()?;
+
+    if output.status.success() {
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        for line in stdout.lines() {
+            println!("  {}", line);
+        }
+    } else {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        return Err(io::Error::other(format!(
+            "EITF patcher failed: {}",
+            stderr.trim()
+        )));
     }
 
     Ok(())

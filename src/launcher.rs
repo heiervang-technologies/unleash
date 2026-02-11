@@ -185,15 +185,18 @@ pub fn find_plugin_dirs() -> Vec<PathBuf> {
     let mut seen_names = std::collections::HashSet::new();
 
     // Check repo location (for development) - PREFERRED when available
+    // Canonicalize to absolute path so hook commands in settings.json work from any CWD
     let repo_plugins = PathBuf::from("plugins/unleashed");
     if repo_plugins.exists() {
+        let repo_plugins = fs::canonicalize(&repo_plugins).unwrap_or(repo_plugins);
         if let Ok(entries) = fs::read_dir(&repo_plugins) {
             for entry in entries.flatten() {
-                if entry.path().is_dir() {
-                    if let Some(name) = entry.path().file_name() {
+                let path = entry.path();
+                if path.is_dir() {
+                    if let Some(name) = path.file_name() {
                         seen_names.insert(name.to_string_lossy().to_string());
                     }
-                    dirs.push(entry.path());
+                    dirs.push(path);
                 }
             }
         }
