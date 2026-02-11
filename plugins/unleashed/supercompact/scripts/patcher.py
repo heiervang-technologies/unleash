@@ -190,8 +190,9 @@ def main():
 
     cli_path.write_text(content)
     print("Patch applied successfully")
-    print(f"  EITF replaces LLM summarization (~0.2s vs ~30s)")
-    print(f"  Falls back to LLM on any error")
+    print(f"  Supercompact replaces LLM summarization (~0.2s vs ~30s)")
+    print(f"  Method/budget configurable via PLUGIN_SETTING_METHOD/PLUGIN_SETTING_BUDGET")
+    print(f"  Fallback to LLM on error (disable with PLUGIN_SETTING_FALLBACK_TO_BUILTIN=false)")
 
 
 if __name__ == "__main__":
