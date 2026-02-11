@@ -1,5 +1,12 @@
 # Changelog
 
+## [5.7.0](https://github.com/heiervang-technologies/agent-unleashed/compare/v5.6.0...v5.7.0) (2026-02-11)
+
+
+### Features
+
+* add supercompact plugin with EITF compaction patch ([370c955](https://github.com/heiervang-technologies/agent-unleashed/commit/370c955f754badb85f8b7238f579fdfb815e4190))
+
 ## [5.6.0](https://github.com/heiervang-technologies/agent-unleashed/compare/v5.5.0...v5.6.0) (2026-02-09)
 
 
