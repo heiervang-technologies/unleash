@@ -241,24 +241,26 @@ impl HookManager {
 
         // Check if this hook already exists (by exact match OR basename match for scripts)
         let new_basename = Self::command_basename(command);
-        let already_exists = event_hooks.iter().any(|h| {
-            h.get("hooks")
-                .and_then(|hooks| hooks.as_array())
-                .map(|hooks| {
-                    hooks.iter().any(|hook| {
-                        hook.get("command")
-                            .and_then(|c| c.as_str())
-                            .map(|c| {
-                                // Check exact match or basename match
-                                c == command || Self::command_basename(c) == new_basename
-                            })
-                            .unwrap_or(false)
-                    })
-                })
-                .unwrap_or(false)
-        });
+        let mut found_exact = false;
+        let mut updated_existing = false;
 
-        if !already_exists {
+        for h in event_hooks.iter_mut() {
+            if let Some(hooks) = h.get_mut("hooks").and_then(|h| h.as_array_mut()) {
+                for hook in hooks.iter_mut() {
+                    if let Some(c) = hook.get("command").and_then(|c| c.as_str()).map(|s| s.to_string()) {
+                        if c == command {
+                            found_exact = true;
+                        } else if Self::command_basename(&c) == new_basename {
+                            // Basename matches but path differs — update to new path
+                            hook["command"] = json!(command);
+                            updated_existing = true;
+                        }
+                    }
+                }
+            }
+        }
+
+        if !found_exact && !updated_existing {
             let mut hook_config = json!({
                 "hooks": [{
                     "type": "command",
