@@ -1,5 +1,12 @@
 # Changelog
 
+## [5.8.0](https://github.com/heiervang-technologies/agent-unleashed/compare/v5.7.0...v5.8.0) (2026-02-11)
+
+
+### Features
+
+* whitelist Codex 0.98.0 ([3a8cd66](https://github.com/heiervang-technologies/agent-unleashed/commit/3a8cd667d5afc83147e6fc82a8c73dc9892e5e08))
+
 ## [5.7.0](https://github.com/heiervang-technologies/agent-unleashed/compare/v5.6.0...v5.7.0) (2026-02-11)
 
 
