@@ -1160,6 +1160,7 @@ mod tests {
     #[test]
     fn test_default_codex_whitelist() {
         assert!(!DEFAULT_CODEX_WHITELIST.is_empty(), "Codex whitelist should not be empty");
+        assert!(DEFAULT_CODEX_WHITELIST.contains(&"0.98.0"), "0.98.0 should be in Codex whitelist");
         assert!(DEFAULT_CODEX_WHITELIST.contains(&"0.93.0"), "0.93.0 should be in Codex whitelist");
         assert!(DEFAULT_CODEX_WHITELIST.contains(&"0.92.0"), "0.92.0 should be in Codex whitelist");
     }
@@ -1199,6 +1200,7 @@ mod tests {
 
     #[test]
     fn test_is_whitelisted_for_codex() {
+        assert!(is_whitelisted_for("0.98.0", AgentType::Codex), "0.98.0 should be Codex whitelisted");
         assert!(is_whitelisted_for("0.93.0", AgentType::Codex), "0.93.0 should be Codex whitelisted");
         assert!(is_whitelisted_for("0.92.0", AgentType::Codex), "0.92.0 should be Codex whitelisted");
         assert!(!is_whitelisted_for("0.50.0", AgentType::Codex), "0.50.0 should not be Codex whitelisted");

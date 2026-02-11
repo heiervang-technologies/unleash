@@ -115,7 +115,7 @@ default_mode = "whitelist"
 # Whitelist - verified working Codex versions
 # Users can override by creating ~/.config/agent-unleashed/codex-whitelist.txt
 [package.metadata.codex-whitelist]
-versions = ["0.93.0", "0.92.0", "0.91.0", "0.90.0"]
+versions = ["0.98.0", "0.93.0", "0.92.0", "0.91.0", "0.90.0"]
 
 # Blacklist - Codex versions with known issues
 # Users can override by creating ~/.config/agent-unleashed/codex-blacklist.txt
