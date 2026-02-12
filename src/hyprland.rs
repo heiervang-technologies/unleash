@@ -22,23 +22,40 @@ pub struct HyprlandInfo {
     pub version: Option<String>,
 }
 
+/// Run a hyprctl command and return its stdout
+#[allow(dead_code)]
+pub fn hyprctl(args: &[&str]) -> io::Result<String> {
+    let output = Command::new("hyprctl").args(args).output()?;
+
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        return Err(io::Error::new(
+            io::ErrorKind::Other,
+            format!("hyprctl {} failed: {}", args.join(" "), stderr),
+        ));
+    }
+    Ok(String::from_utf8_lossy(&output.stdout).to_string())
+}
+
+/// Run a hyprctl command with `-j` flag and parse JSON output
+#[allow(dead_code)]
+pub fn hyprctl_json(args: &[&str]) -> io::Result<serde_json::Value> {
+    let mut full_args: Vec<&str> = args.to_vec();
+    full_args.push("-j");
+    let stdout = hyprctl(&full_args)?;
+    serde_json::from_str(&stdout)
+        .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, format!("JSON parse error: {}", e)))
+}
+
 /// Gather information about the running Hyprland instance.
 /// Returns `None` if not running under Hyprland.
 #[allow(dead_code)]
 pub fn get_info() -> Option<HyprlandInfo> {
     let instance_signature = env::var("HYPRLAND_INSTANCE_SIGNATURE").ok()?;
 
-    let version = Command::new("hyprctl")
-        .args(["version", "-j"])
-        .output()
+    let version = hyprctl_json(&["version"])
         .ok()
-        .filter(|o| o.status.success())
-        .and_then(|o| String::from_utf8(o.stdout).ok())
-        .and_then(|json| {
-            serde_json::from_str::<serde_json::Value>(&json)
-                .ok()
-                .and_then(|v| v["tag"].as_str().map(|s| s.to_string()))
-        });
+        .and_then(|v| v["tag"].as_str().map(|s| s.to_string()));
 
     Some(HyprlandInfo {
         instance_signature,
@@ -51,58 +68,18 @@ pub fn get_info() -> Option<HyprlandInfo> {
 /// Set a window rule via `hyprctl keyword windowrule`.
 /// Uses the Hyprland 0.53+ syntax: `<rule>, match:<match_type> <pattern>`
 pub fn set_window_rule(rule: &str) -> io::Result<()> {
-    let output = Command::new("hyprctl")
-        .args(["keyword", "windowrule", rule])
-        .output()?;
-
-    if !output.status.success() {
-        let stderr = String::from_utf8_lossy(&output.stderr);
-        return Err(io::Error::new(
-            io::ErrorKind::Other,
-            format!("hyprctl keyword windowrule failed: {}", stderr),
-        ));
-    }
+    hyprctl(&["keyword", "windowrule", rule])?;
     Ok(())
 }
 
-/// Apply default window rules for agent-unleashed windows.
-/// Matches windows with title containing "agent-unleashed".
+/// Apply default window rules for agent-unleashed windows using batch mode.
+/// Matches windows with class `agent-unleashed` using 0.53+ regex syntax.
 pub fn apply_agent_window_rules() -> io::Result<()> {
-    // Float agent windows by default
-    set_window_rule("float on, match:title agent-unleashed")?;
-    // Slight transparency for visual distinction
-    set_window_rule("opacity 0.95 0.90, match:title agent-unleashed")?;
-    Ok(())
-}
-
-/// Assign a window to a specific workspace by title match.
-#[allow(dead_code)]
-pub fn set_workspace_rule(title_match: &str, workspace: u32) -> io::Result<()> {
-    set_window_rule(&format!("workspace {}, match:title {}", workspace, title_match))
-}
-
-// --- Notifications ---
-
-/// Send a desktop notification via `hyprctl notify`.
-///
-/// * `urgency` - 0 = info/hint, 1 = warning, 2 = error, 3 = confused (question)
-/// * `timeout_ms` - Duration in milliseconds (0 = default)
-/// * `color` - RGBA color as `0xAARRGGBB`, or 0 for default
-/// * `message` - The notification text
-pub fn notify(urgency: u8, timeout_ms: u32, color: u64, message: &str) -> io::Result<()> {
-    let color_str = if color == 0 {
-        "0".to_string()
-    } else {
-        format!("0x{:08x}", color)
-    };
-
     let output = Command::new("hyprctl")
         .args([
-            "notify",
-            &urgency.to_string(),
-            &timeout_ms.to_string(),
-            &color_str,
-            message,
+            "--batch",
+            "keyword windowrule float on, match:class ^(agent-unleashed)$ ; \
+             keyword windowrule opacity 0.95 0.9, match:class ^(agent-unleashed)$",
         ])
         .output()?;
 
@@ -110,26 +87,70 @@ pub fn notify(urgency: u8, timeout_ms: u32, color: u64, message: &str) -> io::Re
         let stderr = String::from_utf8_lossy(&output.stderr);
         return Err(io::Error::new(
             io::ErrorKind::Other,
-            format!("hyprctl notify failed: {}", stderr),
+            format!("hyprctl --batch window rules failed: {}", stderr),
         ));
     }
     Ok(())
 }
 
-/// Send an info notification (green tint, 5 second default)
+/// Assign a window to a specific workspace by class match.
+#[allow(dead_code)]
+pub fn set_workspace_rule(class_match: &str, workspace: u32) -> io::Result<()> {
+    set_window_rule(&format!(
+        "workspace {}, match:class ^({})$",
+        workspace, class_match
+    ))
+}
+
+// --- Notifications ---
+
+/// Notification icon types matching hyprctl notify API
+#[allow(dead_code)]
+pub mod icon {
+    pub const WARNING: u8 = 0;
+    pub const INFO: u8 = 1;
+    pub const HINT: u8 = 2;
+    pub const ERROR: u8 = 3;
+    pub const OK: u8 = 5;
+}
+
+/// Send a desktop notification via `hyprctl notify`.
+///
+/// * `icon_type` - 0=Warning, 1=Info, 2=Hint, 3=Error, 5=Ok
+/// * `timeout_ms` - Duration in milliseconds (0 = default)
+/// * `color` - Color string like `"rgb(ff9500)"`, or `"0"` for default
+/// * `message` - The notification text
+pub fn notify(icon_type: u8, timeout_ms: u32, color: &str, message: &str) -> io::Result<()> {
+    hyprctl(&[
+        "notify",
+        &icon_type.to_string(),
+        &timeout_ms.to_string(),
+        color,
+        message,
+    ])?;
+    Ok(())
+}
+
+/// Send an info notification (5 second default)
 pub fn notify_info(message: &str) -> io::Result<()> {
-    notify(0, 5000, 0, message)
+    notify(icon::INFO, 5000, "0", message)
 }
 
-/// Send a warning notification (yellow tint, 8 second default)
+/// Send a warning notification (8 second default)
 pub fn notify_warning(message: &str) -> io::Result<()> {
-    notify(1, 8000, 0, message)
+    notify(icon::WARNING, 8000, "0", message)
 }
 
-/// Send an error notification (red tint, 10 second default)
+/// Send an error notification (10 second default)
 #[allow(dead_code)]
 pub fn notify_error(message: &str) -> io::Result<()> {
-    notify(2, 10000, 0, message)
+    notify(icon::ERROR, 10000, "0", message)
+}
+
+/// Send an ok/success notification (5 second default)
+#[allow(dead_code)]
+pub fn notify_ok(message: &str) -> io::Result<()> {
+    notify(icon::OK, 5000, "0", message)
 }
 
 #[cfg(test)]
@@ -183,5 +204,14 @@ mod tests {
             Some(val) => env::set_var("HYPRLAND_INSTANCE_SIGNATURE", val),
             None => env::remove_var("HYPRLAND_INSTANCE_SIGNATURE"),
         }
+    }
+
+    #[test]
+    fn test_icon_constants() {
+        assert_eq!(icon::WARNING, 0);
+        assert_eq!(icon::INFO, 1);
+        assert_eq!(icon::HINT, 2);
+        assert_eq!(icon::ERROR, 3);
+        assert_eq!(icon::OK, 5);
     }
 }
