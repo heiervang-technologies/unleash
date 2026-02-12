@@ -6,28 +6,9 @@ description = "Agent Unleashed - Extended CLI for AI Code Agents"
 authors = ["Heiervang Technologies"]
 license = "MIT"
 
-# All binaries point to the same source - behavior determined by argv[0]
-# Primary binaries (au = agent unleashed)
-[[bin]]
-name = "au"
-path = "src/main.rs"
-
-[[bin]]
-name = "aui"
-path = "src/main.rs"
-
-[[bin]]
-name = "aug"
-path = "src/main.rs"
-
-[[bin]]
-name = "autx"
-path = "src/main.rs"
-
-[[bin]]
-name = "autxg"
-path = "src/main.rs"
-
+# Binaries auto-discovered from src/bin/*.rs
+# Each is a thin wrapper calling agent_unleashed::run()
+# Behavior determined by argv[0]: au, aui, aug, autx, autxg
 
 [features]
 default = ["tui"]
