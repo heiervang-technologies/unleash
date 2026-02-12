@@ -37,7 +37,7 @@ use std::env;
 use std::io;
 use std::path::Path;
 
-fn main() -> io::Result<()> {
+pub fn run() -> io::Result<()> {
     // Check for --version or -V flag before clap processing
     // This allows us to show both Claude Unleashed and Claude Code versions
     let args: Vec<String> = env::args().collect();
