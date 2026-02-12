@@ -8,6 +8,7 @@
 
 use crate::config::ProfileManager;
 use crate::hooks::HookManager;
+use crate::hyprland;
 use crate::patcher;
 use std::collections::HashMap;
 use std::env;
@@ -73,6 +74,14 @@ pub fn run(auto_mode: bool, prompt: Option<String>, extra_args: Vec<String>) -> 
     // Check authentication on first run
     check_authentication();
 
+    // Hyprland integration: set window rules and notify on start
+    if hyprland::is_hyprland() {
+        if let Err(e) = hyprland::apply_agent_window_rules() {
+            eprintln!("Warning: Failed to apply Hyprland window rules: {}", e);
+        }
+        let _ = hyprland::notify_info("Agent Unleashed started");
+    }
+
     let mut restart_count = 0;
 
     loop {
@@ -135,7 +144,22 @@ pub fn run(auto_mode: bool, prompt: Option<String>, extra_args: Vec<String>) -> 
 
         // Treat SIGTERM (143 = 128 + 15) as clean exit
         if exit_code == 143 {
+            if hyprland::is_hyprland() {
+                let _ = hyprland::notify_info("Agent Unleashed stopped");
+            }
             return Ok(());
+        }
+
+        // Notify on exit if running under Hyprland
+        if hyprland::is_hyprland() {
+            if exit_code == 0 {
+                let _ = hyprland::notify_info("Agent Unleashed stopped");
+            } else {
+                let _ = hyprland::notify_warning(&format!(
+                    "Agent Unleashed exited with code {}",
+                    exit_code
+                ));
+            }
         }
 
         // Normal exit
