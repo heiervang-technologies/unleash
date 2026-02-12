@@ -7,6 +7,8 @@ on:
   push:
     branches: [main]
     paths:
+      - 'src/**'
+      - 'Cargo.toml'
       - 'plugins/**'
       - 'scripts/**'
       - 'tests/**'
@@ -14,6 +16,8 @@ on:
   pull_request:
     branches: [main]
     paths:
+      - 'src/**'
+      - 'Cargo.toml'
       - 'plugins/**'
       - 'scripts/**'
       - 'tests/**'
@@ -44,6 +48,26 @@ jobs:
         with:
           scandir: './tests'
           severity: warning
+
+  test-headless:
+    name: Test Headless Commands
+    runs-on: self-hosted
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Build binaries
+        run: cargo build --profile fast
+
+      - name: Make test scripts executable
+        run: chmod +x tests/*.sh
+
+      - name: Run headless tests
+        run: ./tests/test-headless.sh
 
   test-autx:
     name: Test autx (Headless Mode)
@@ -362,7 +386,7 @@ jobs:
   summary:
     name: Test Summary
     runs-on: self-hosted
-    needs: [shellcheck, test-autx, test-plugins, test-patches, test-patches-matrix, test-plugins-with-patches]
+    needs: [shellcheck, test-headless, test-autx, test-plugins, test-patches, test-patches-matrix, test-plugins-with-patches]
     if: always()
 
     steps:
@@ -373,6 +397,7 @@ jobs:
           echo "| Job | Status |" >> $GITHUB_STEP_SUMMARY
           echo "|-----|--------|" >> $GITHUB_STEP_SUMMARY
           echo "| ShellCheck Linting | ${{ needs.shellcheck.result == 'success' && '✅ Passed' || '❌ Failed' }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Headless Commands | ${{ needs.test-headless.result == 'success' && '✅ Passed' || '❌ Failed' }} |" >> $GITHUB_STEP_SUMMARY
           echo "| autx Tests (Headless Mode) | ${{ needs.test-autx.result == 'success' && '✅ Passed' || '❌ Failed' }} |" >> $GITHUB_STEP_SUMMARY
           echo "| Plugin Tests | ${{ needs.test-plugins.result == 'success' && '✅ Passed' || '❌ Failed' }} |" >> $GITHUB_STEP_SUMMARY
           echo "| Patch Tests (Comprehensive) | ${{ needs.test-patches.result == 'success' && '✅ Passed' || '❌ Failed' }} |" >> $GITHUB_STEP_SUMMARY
@@ -382,6 +407,7 @@ jobs:
       - name: Check test results
         run: |
           if [[ "${{ needs.shellcheck.result }}" == "success" ]] && \
+             [[ "${{ needs.test-headless.result }}" == "success" ]] && \
              [[ "${{ needs.test-autx.result }}" == "success" ]] && \
              [[ "${{ needs.test-plugins.result }}" == "success" ]] && \
              [[ "${{ needs.test-patches.result }}" == "success" ]] && \
@@ -392,6 +418,7 @@ jobs:
           else
             echo "❌ Some tests failed:"
             echo "  - shellcheck: ${{ needs.shellcheck.result }}"
+            echo "  - test-headless: ${{ needs.test-headless.result }}"
             echo "  - test-autx: ${{ needs.test-autx.result }}"
             echo "  - test-plugins: ${{ needs.test-plugins.result }}"
             echo "  - test-patches: ${{ needs.test-patches.result }}"
