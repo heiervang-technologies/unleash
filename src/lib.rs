@@ -16,6 +16,7 @@ mod auth;
 mod cli;
 mod config;
 mod hooks;
+mod hyprland;
 #[cfg(feature = "tui")]
 mod input;
 mod json_output;
