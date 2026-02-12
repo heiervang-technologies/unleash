@@ -37,6 +37,12 @@ model_provider = "openrouter"
 model = "openrouter/pony-alpha"
 model_provider = "openrouter"
 
+
+[profiles.glm5]
+model = "openrouter/glm-5"
+model_provider = "openrouter"
+
+
 # Profile for OpenAI direct
 [profiles.openai]
 model = "codex-5.3"
