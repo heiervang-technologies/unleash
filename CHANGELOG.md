@@ -1,5 +1,18 @@
 # Changelog
 
+## [6.0.0](https://github.com/heiervang-technologies/agent-unleashed/compare/v5.8.0...v6.0.0) (2026-02-12)
+
+
+### ⚠ BREAKING CHANGES
+
+* remove c-prefixed backward-compatible entry points (v6) ([#118](https://github.com/heiervang-technologies/agent-unleashed/issues/118))
+* All backward-compatible entry points prefixed with "c" have been removed. This is a major version bump to v6.0.0.
+
+### Features
+
+* remove c-prefixed backward-compatible entry points (v6) ([8d9ec58](https://github.com/heiervang-technologies/agent-unleashed/commit/8d9ec584cb4b1f308d642374e6eb4f69a53f5cba))
+* remove c-prefixed backward-compatible entry points (v6) ([#118](https://github.com/heiervang-technologies/agent-unleashed/issues/118)) ([4300da8](https://github.com/heiervang-technologies/agent-unleashed/commit/4300da8a348e20a5ae10e26237709a263eb3a65f))
+
 ## [5.8.0](https://github.com/heiervang-technologies/agent-unleashed/compare/v5.7.0...v5.8.0) (2026-02-11)
 
 
