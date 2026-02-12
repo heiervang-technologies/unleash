@@ -1,5 +1,8 @@
 # Agent Unleashed
 
+<img width="720" height="480" alt="claude-unleashed" src="https://github.com/user-attachments/assets/0b8ff3af-90e8-4d7d-8204-33a159ae0835" />
+
+
 <p align="center">
   <img src="demo-animation.gif" alt="Agent Unleashed - Smooth menu animations" width="900">
 </p>
