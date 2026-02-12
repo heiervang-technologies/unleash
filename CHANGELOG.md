@@ -1,5 +1,12 @@
 # Changelog
 
+## [6.0.1](https://github.com/heiervang-technologies/agent-unleashed/compare/v6.0.0...v6.0.1) (2026-02-12)
+
+
+### Bug Fixes
+
+* resolve compiler warning for shared main.rs across binaries ([#138](https://github.com/heiervang-technologies/agent-unleashed/issues/138)) ([7159939](https://github.com/heiervang-technologies/agent-unleashed/commit/715993937d1657c665713f89791dda4fc8ca8dae)), closes [#39](https://github.com/heiervang-technologies/agent-unleashed/issues/39)
+
 ## [6.0.0](https://github.com/heiervang-technologies/agent-unleashed/compare/v5.8.0...v6.0.0) (2026-02-12)
 
 
