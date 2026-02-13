@@ -1191,18 +1191,8 @@ impl App {
             NavAction::Up | NavAction::Down => {
                 self.profile_menu.handle_action(action);
             }
-            NavAction::Select => {
-                if let Some(profile) = self.profiles.get(self.profile_menu.selected).cloned() {
-                    let name = profile.name.clone();
-                    self.selected_profile = Some(profile);
-                    self.app_config.current_profile = name.clone();
-                    let _ = self.profile_manager.save_app_config(&self.app_config);
-                    self.sync_theme_from_profile();
-                    self.status_message = Some(format!("Selected: {}", name));
-                    self.screen = Screen::Main;
-                }
-            }
-            NavAction::Edit => {
+            NavAction::Select | NavAction::Edit => {
+                // Enter opens profile for editing
                 if let Some(profile) = self.profiles.get(self.profile_menu.selected).cloned() {
                     self.load_profile_for_editing(profile);
                     self.screen = Screen::ProfileEdit;
@@ -1333,6 +1323,14 @@ impl App {
                 }
             }
             NavAction::Back | NavAction::Quit => {
+                // Activate the edited profile as current
+                if let Some(ref profile) = self.editing_profile {
+                    let name = profile.name.clone();
+                    self.selected_profile = Some(profile.clone());
+                    self.app_config.current_profile = name;
+                    let _ = self.profile_manager.save_app_config(&self.app_config);
+                    self.sync_theme_from_profile();
+                }
                 self.editing_profile = None;
                 self.screen = Screen::Profiles;
             }
