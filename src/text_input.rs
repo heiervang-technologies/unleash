@@ -170,6 +170,7 @@ impl TextInput {
     }
 
     /// Set the viewport width for scrolling
+    #[allow(dead_code)]
     pub fn set_viewport_width(&mut self, width: usize) {
         self.viewport_width = width.max(10); // Minimum width of 10
         self.ensure_cursor_visible();
@@ -214,11 +215,13 @@ impl TextInput {
     }
 
     /// Check if there's content scrolled off to the left
+    #[allow(dead_code)]
     pub fn has_left_overflow(&self) -> bool {
         self.scroll_offset > 0
     }
 
     /// Check if there's content scrolled off to the right
+    #[allow(dead_code)]
     pub fn has_right_overflow(&self) -> bool {
         self.value.len() > self.scroll_offset + self.viewport_width
     }

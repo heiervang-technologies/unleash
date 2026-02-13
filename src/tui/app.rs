@@ -119,7 +119,6 @@ pub enum Screen {
     Profiles,
     ProfileEdit,
     EnvVarEdit,
-    Settings,
     Theme,
     Help,
     ConfirmDelete,
@@ -138,7 +137,7 @@ pub enum EditField {
     ProfileDescription,
     EnvKey,
     EnvValue,
-    ClaudePath,
+    AgentCliPath,
     ClaudeArgs,
     StopPrompt,
     ThemeHex,
@@ -191,7 +190,6 @@ pub struct App {
     pub screen: Screen,
     pub main_menu: MenuState,
     pub profile_menu: MenuState,
-    pub settings_menu: MenuState,
     pub profile_manager: ProfileManager,
     pub app_config: AppConfig,
     pub profiles: Vec<Profile>,
@@ -287,14 +285,15 @@ impl App {
             let _ = version_tx.send((AgentType::Codex, codex_version));
         });
 
-        let theme_color = ThemeColor::from_config(&app_config.theme).unwrap_or(ThemeColor::Preset(ThemePreset::Orange));
+        let theme_color = selected_profile.as_ref()
+            .and_then(|p| ThemeColor::from_config(&p.theme))
+            .unwrap_or(ThemeColor::Preset(ThemePreset::Orange));
 
         Ok(Self {
             running: true,
             screen: Screen::Main,
-            main_menu: MenuState::new(8), // Start, Profiles, Agent Versions, Settings, Theme, Update, Help, Quit
+            main_menu: MenuState::new(6), // Start, Profiles, Agent Versions, Update, Help, Quit
             profile_menu: MenuState::new(profiles.len()),
-            settings_menu: MenuState::new(4), // Entry Point, Arguments, Stop Prompt, Reset
             profile_manager,
             app_config,
             profiles,
@@ -592,7 +591,6 @@ impl App {
             Screen::Main
             | Screen::ProfileEdit
             | Screen::EnvVarEdit
-            | Screen::Settings
             | Screen::Theme
             | Screen::Help
             | Screen::ConfirmDelete
@@ -714,7 +712,8 @@ impl App {
     fn load_profile_for_editing(&mut self, profile: Profile) {
         self.env_vars_list = profile.env.iter().map(|(k, v)| (k.clone(), v.clone())).collect();
         self.env_vars_list.sort_by(|a, b| a.0.cmp(&b.0));
-        self.env_menu.set_items_count(self.env_vars_list.len() + 1); // +1 for "Add new"
+        // Menu items: 4 settings + N env vars + 1 "Add new"
+        self.env_menu.set_items_count(Self::PROFILE_SETTINGS_COUNT + self.env_vars_list.len() + 1);
         self.env_menu.selected = 0;
         self.editing_profile = Some(profile);
     }
@@ -787,7 +786,6 @@ impl App {
                 Screen::Profiles => self.handle_profiles_input(action),
                 Screen::ProfileEdit => self.handle_profile_edit_input(action, key),
                 Screen::EnvVarEdit => self.handle_env_var_edit_input(action, key),
-                Screen::Settings => self.handle_settings_input(action),
                 Screen::Theme => self.handle_theme_input(action),
                 Screen::Help => self.handle_help_input(action),
                 Screen::ConfirmDelete => self.handle_confirm_delete_input(action),
@@ -804,7 +802,7 @@ impl App {
             EditField::EnvKey => &mut self.key_input,
             EditField::EnvValue => &mut self.value_input,
             EditField::ProfileName | EditField::ProfileDescription => &mut self.key_input,
-            EditField::ClaudePath | EditField::ClaudeArgs | EditField::StopPrompt | EditField::ThemeHex => &mut self.key_input,
+            EditField::AgentCliPath | EditField::ClaudeArgs | EditField::StopPrompt | EditField::ThemeHex => &mut self.key_input,
             EditField::None => return None,
         };
 
@@ -866,32 +864,41 @@ impl App {
                         self.edit_field = EditField::None;
                         self.screen = Screen::ProfileEdit;
                     }
-                    EditField::ClaudePath => {
-                        // Save claude_path
-                        self.app_config.claude_path = self.key_input.value.clone();
-                        let _ = self.profile_manager.save_app_config(&self.app_config);
-                        self.status_message = Some("Entry point saved".to_string());
+                    EditField::AgentCliPath => {
+                        // Save agent_cli_path to editing profile
+                        if let Some(ref mut profile) = self.editing_profile {
+                            profile.agent_cli_path = self.key_input.value.clone();
+                            let _ = self.profile_manager.save_profile(profile);
+                        }
+                        self.sync_editing_to_selected();
+                        self.status_message = Some("Agent CLI saved".to_string());
                         self.edit_field = EditField::None;
                     }
                     EditField::ClaudeArgs => {
-                        // Save claude_args (space-separated)
-                        self.app_config.claude_args = self.key_input.value
-                            .split_whitespace()
-                            .map(|s| s.to_string())
-                            .collect();
-                        let _ = self.profile_manager.save_app_config(&self.app_config);
+                        // Save claude_args (space-separated) to editing profile
+                        if let Some(ref mut profile) = self.editing_profile {
+                            profile.claude_args = self.key_input.value
+                                .split_whitespace()
+                                .map(|s| s.to_string())
+                                .collect();
+                            let _ = self.profile_manager.save_profile(profile);
+                        }
+                        self.sync_editing_to_selected();
                         self.status_message = Some("Arguments saved".to_string());
                         self.edit_field = EditField::None;
                     }
                     EditField::StopPrompt => {
-                        // Save stop_prompt (empty string = None/default)
+                        // Save stop_prompt (empty string = None/default) to editing profile
                         let value = self.key_input.value.trim().to_string();
-                        self.app_config.stop_prompt = if value.is_empty() {
-                            None
-                        } else {
-                            Some(value)
-                        };
-                        let _ = self.profile_manager.save_app_config(&self.app_config);
+                        if let Some(ref mut profile) = self.editing_profile {
+                            profile.stop_prompt = if value.is_empty() {
+                                None
+                            } else {
+                                Some(value)
+                            };
+                            let _ = self.profile_manager.save_profile(profile);
+                        }
+                        self.sync_editing_to_selected();
                         self.status_message = Some("Stop prompt saved".to_string());
                         self.edit_field = EditField::None;
                     }
@@ -899,12 +906,14 @@ impl App {
                         let hex = self.key_input.value.trim().to_string();
                         if let Some((r, g, b)) = crate::theme::parse_hex_color(&hex) {
                             self.theme_color = ThemeColor::Custom(r, g, b);
-                            self.app_config.theme = self.theme_color.to_config();
-                            let _ = self.profile_manager.save_app_config(&self.app_config);
+                            if let Some(ref mut profile) = self.editing_profile {
+                                profile.theme = self.theme_color.to_config();
+                                let _ = self.profile_manager.save_profile(profile);
+                            }
+                            self.sync_editing_to_selected();
                             self.status_message = Some(format!("Theme: #{:02X}{:02X}{:02X}", r, g, b));
                             self.edit_field = EditField::None;
-                            self.trigger_screen_animation(false, Screen::Main);
-                            self.pending_screen = Some(Screen::Main);
+                            self.screen = Screen::ProfileEdit;
                         } else {
                             self.status_message = Some("Invalid hex color — use 3 or 6 hex digits (e.g. FFF or FF5500)".to_string());
                         }
@@ -984,8 +993,6 @@ impl App {
                         if let Some(profile) = &self.selected_profile {
                             return Ok(Some(AppAction::Launch(LaunchRequest {
                                 profile: profile.clone(),
-                                claude_path: self.app_config.claude_path.clone(),
-                                claude_args: self.app_config.claude_args.clone(),
                             })));
                         } else {
                             self.status_message = Some("No profile selected!".to_string());
@@ -1002,37 +1009,17 @@ impl App {
                         self.pending_screen = Some(Screen::VersionManagement);
                     }
                     3 => {
-                        // Settings
-                        self.trigger_screen_animation(true, Screen::Settings);
-                        self.pending_screen = Some(Screen::Settings);
-                    }
-                    4 => {
-                        // Theme
-                        // Pre-select the current theme in the menu
-                        let idx = if self.theme_color.is_custom() {
-                            ThemePreset::all().len() // "Custom" is the last entry
-                        } else {
-                            ThemePreset::all()
-                                .iter()
-                                .position(|t| self.theme_color.is_preset(*t))
-                                .unwrap_or(0)
-                        };
-                        self.theme_menu.selected = idx;
-                        self.trigger_screen_animation(true, Screen::Theme);
-                        self.pending_screen = Some(Screen::Theme);
-                    }
-                    5 => {
                         // Update TUI
                         self.trigger_screen_animation(true, Screen::Updating);
                         self.pending_screen = Some(Screen::Updating);
                     }
-                    6 => {
+                    4 => {
                         // Help
                         self.help_return_screen = Some(Screen::Main);
                         self.trigger_screen_animation(true, Screen::Help);
                         self.pending_screen = Some(Screen::Help);
                     }
-                    7 => {
+                    5 => {
                         // Quit
                         self.running = false;
                     }
@@ -1205,11 +1192,13 @@ impl App {
                 self.profile_menu.handle_action(action);
             }
             NavAction::Select => {
-                if let Some(profile) = self.profiles.get(self.profile_menu.selected) {
-                    self.selected_profile = Some(profile.clone());
-                    self.app_config.current_profile = profile.name.clone();
+                if let Some(profile) = self.profiles.get(self.profile_menu.selected).cloned() {
+                    let name = profile.name.clone();
+                    self.selected_profile = Some(profile);
+                    self.app_config.current_profile = name.clone();
                     let _ = self.profile_manager.save_app_config(&self.app_config);
-                    self.status_message = Some(format!("Selected: {}", profile.name));
+                    self.sync_theme_from_profile();
+                    self.status_message = Some(format!("Selected: {}", name));
                     self.screen = Screen::Main;
                 }
             }
@@ -1244,31 +1233,85 @@ impl App {
         }
     }
 
+    /// Number of settings fields shown at the top of profile edit
+    const PROFILE_SETTINGS_COUNT: usize = 4;
+
     fn handle_profile_edit_input(&mut self, action: NavAction, _key: KeyEvent) {
+        let num_settings = Self::PROFILE_SETTINGS_COUNT;
+        let num_env = self.env_vars_list.len();
+        let add_new_idx = num_settings + num_env;
+
         match action {
             NavAction::Up | NavAction::Down => {
                 self.env_menu.handle_action(action);
             }
             NavAction::Select | NavAction::Edit => {
                 let selected = self.env_menu.selected;
-                if selected < self.env_vars_list.len() {
-                    // Edit existing env var
-                    let (key, value) = &self.env_vars_list[selected];
-                    self.key_input = TextInput::new().with_value(key);
-                    self.value_input = TextInput::new().with_value(value);
-                    if is_sensitive_key(key) {
-                        self.value_input.hidden = true;
+                match selected {
+                    0 => {
+                        // Edit Agent CLI path
+                        let current = self.editing_profile.as_ref()
+                            .map(|p| p.agent_cli_path.clone())
+                            .unwrap_or_default();
+                        self.key_input = TextInput::new().with_value(&current);
+                        self.edit_field = EditField::AgentCliPath;
                     }
-                    self.editing_env_index = Some(selected);
-                    self.edit_field = EditField::EnvKey;
-                    self.screen = Screen::EnvVarEdit;
-                } else {
-                    // Add new env var
-                    self.key_input = TextInput::new().with_placeholder("VARIABLE_NAME");
-                    self.value_input = TextInput::new().with_placeholder("value");
-                    self.editing_env_index = None;
-                    self.edit_field = EditField::EnvKey;
-                    self.screen = Screen::EnvVarEdit;
+                    1 => {
+                        // Edit arguments
+                        let current = self.editing_profile.as_ref()
+                            .map(|p| p.claude_args.join(" "))
+                            .unwrap_or_default();
+                        self.key_input = TextInput::new().with_value(&current);
+                        self.edit_field = EditField::ClaudeArgs;
+                    }
+                    2 => {
+                        // Theme selection — go to Theme sub-screen
+                        let theme_str = self.editing_profile.as_ref()
+                            .map(|p| p.theme.as_str())
+                            .unwrap_or("orange");
+                        let theme_color = ThemeColor::from_config(theme_str)
+                            .unwrap_or(ThemeColor::Preset(ThemePreset::Orange));
+                        let idx = if theme_color.is_custom() {
+                            ThemePreset::all().len()
+                        } else {
+                            ThemePreset::all()
+                                .iter()
+                                .position(|t| theme_color.is_preset(*t))
+                                .unwrap_or(0)
+                        };
+                        self.theme_menu.selected = idx;
+                        self.screen = Screen::Theme;
+                    }
+                    3 => {
+                        // Stop prompt — open in $EDITOR
+                        let default_prompt = self.get_default_stop_prompt();
+                        let current = self.editing_profile.as_ref()
+                            .and_then(|p| p.stop_prompt.clone())
+                            .unwrap_or(default_prompt);
+                        self.pending_external_edit = Some(current);
+                    }
+                    idx if idx >= num_settings && idx < add_new_idx => {
+                        // Edit existing env var
+                        let env_idx = idx - num_settings;
+                        let (key, value) = &self.env_vars_list[env_idx];
+                        self.key_input = TextInput::new().with_value(key);
+                        self.value_input = TextInput::new().with_value(value);
+                        if is_sensitive_key(key) {
+                            self.value_input.hidden = true;
+                        }
+                        self.editing_env_index = Some(env_idx);
+                        self.edit_field = EditField::EnvKey;
+                        self.screen = Screen::EnvVarEdit;
+                    }
+                    idx if idx == add_new_idx => {
+                        // Add new env var
+                        self.key_input = TextInput::new().with_placeholder("VARIABLE_NAME");
+                        self.value_input = TextInput::new().with_placeholder("value");
+                        self.editing_env_index = None;
+                        self.edit_field = EditField::EnvKey;
+                        self.screen = Screen::EnvVarEdit;
+                    }
+                    _ => {}
                 }
             }
             NavAction::New => {
@@ -1280,10 +1323,11 @@ impl App {
             }
             NavAction::Delete => {
                 let selected = self.env_menu.selected;
-                if selected < self.env_vars_list.len() {
-                    let key = self.env_vars_list[selected].0.clone();
-                    self.env_vars_list.remove(selected);
-                    self.env_menu.set_items_count(self.env_vars_list.len() + 1);
+                if selected >= num_settings && selected < add_new_idx {
+                    let env_idx = selected - num_settings;
+                    let key = self.env_vars_list[env_idx].0.clone();
+                    self.env_vars_list.remove(env_idx);
+                    self.env_menu.set_items_count(num_settings + self.env_vars_list.len() + 1);
                     let _ = self.save_editing_profile();
                     self.status_message = Some(format!("Deleted: {}", key));
                 }
@@ -1293,6 +1337,25 @@ impl App {
                 self.screen = Screen::Profiles;
             }
             _ => {}
+        }
+    }
+
+    /// If editing_profile matches selected_profile, copy editing_profile to selected_profile and sync theme.
+    /// This is borrow-safe since it doesn't take a reference parameter.
+    fn sync_editing_to_selected(&mut self) {
+        if let Some(ref editing) = self.editing_profile {
+            if self.selected_profile.as_ref().map(|p| &p.name) == Some(&editing.name) {
+                self.selected_profile = Some(editing.clone());
+            }
+        }
+        self.sync_theme_from_profile();
+    }
+
+    /// Derive theme_color from the currently selected profile
+    fn sync_theme_from_profile(&mut self) {
+        if let Some(ref profile) = self.selected_profile {
+            self.theme_color = ThemeColor::from_config(&profile.theme)
+                .unwrap_or(ThemeColor::Preset(ThemePreset::Orange));
         }
     }
 
@@ -1306,49 +1369,6 @@ impl App {
         }
     }
 
-    fn handle_settings_input(&mut self, action: NavAction) {
-        match action {
-            NavAction::Up | NavAction::Down => {
-                self.settings_menu.handle_action(action);
-            }
-            NavAction::Select | NavAction::Edit => {
-                match self.settings_menu.selected {
-                    0 => {
-                        // Edit entry point
-                        self.key_input = TextInput::new().with_value(&self.app_config.claude_path);
-                        self.edit_field = EditField::ClaudePath;
-                    }
-                    1 => {
-                        // Edit arguments
-                        self.key_input = TextInput::new().with_value(&self.app_config.claude_args.join(" "));
-                        self.edit_field = EditField::ClaudeArgs;
-                    }
-                    2 => {
-                        // Edit stop prompt - open directly in $EDITOR
-                        let default_prompt = self.get_default_stop_prompt();
-                        let current = self.app_config.stop_prompt.clone().unwrap_or(default_prompt);
-                        self.pending_external_edit = Some(current);
-                    }
-                    3 => {
-                        // Reset settings to defaults
-                        self.app_config = AppConfig::default();
-                        if let Err(e) = self.profile_manager.save_app_config(&self.app_config) {
-                            self.status_message = Some(format!("Failed to reset: {}", e));
-                        } else {
-                            self.status_message = Some("Settings reset to defaults".to_string());
-                        }
-                    }
-                    _ => {}
-                }
-            }
-            NavAction::Back | NavAction::Quit => {
-                self.trigger_screen_animation(false, Screen::Main);
-                self.pending_screen = Some(Screen::Main);
-            }
-            _ => {}
-        }
-    }
-
     fn handle_theme_input(&mut self, action: NavAction) {
         match action {
             NavAction::Up | NavAction::Down => {
@@ -1357,13 +1377,15 @@ impl App {
             NavAction::Select => {
                 let presets = ThemePreset::all();
                 if let Some(preset) = presets.get(self.theme_menu.selected) {
-                    // Selected a preset
+                    // Selected a preset — save to editing_profile
                     self.theme_color = ThemeColor::Preset(*preset);
-                    self.app_config.theme = self.theme_color.to_config();
-                    let _ = self.profile_manager.save_app_config(&self.app_config);
+                    if let Some(ref mut profile) = self.editing_profile {
+                        profile.theme = self.theme_color.to_config();
+                        let _ = self.profile_manager.save_profile(profile);
+                    }
+                    self.sync_editing_to_selected();
                     self.status_message = Some(format!("Theme: {}", preset.display_name()));
-                    self.trigger_screen_animation(false, Screen::Main);
-                    self.pending_screen = Some(Screen::Main);
+                    self.screen = Screen::ProfileEdit;
                 } else {
                     // "Custom" entry (last item, past all presets)
                     // Pre-fill with current custom hex or empty
@@ -1380,8 +1402,7 @@ impl App {
                 }
             }
             NavAction::Back | NavAction::Quit => {
-                self.trigger_screen_animation(false, Screen::Main);
-                self.pending_screen = Some(Screen::Main);
+                self.screen = Screen::ProfileEdit;
             }
             _ => {}
         }
@@ -1475,10 +1496,8 @@ impl App {
                 // Calculate based on actual menu content
                 let menu_items = [
                     ("Start Session", "Launch Claude with selected profile".to_string()),
-                    ("Profiles", "Manage environment profiles".to_string()),
+                    ("Profiles", "Manage profiles and their settings".to_string()),
                     ("Agent Versions", "Manage installed agent CLIs".to_string()),
-                    ("Settings", "Configure launcher settings".to_string()),
-                    ("Theme", "Customize mascot and UI colors".to_string()),
                     ("Update TUI", "Pull latest and recompile".to_string()),
                     ("Help", "Keyboard shortcuts and tips".to_string()),
                     ("Quit", "Exit the launcher".to_string()),
@@ -1496,12 +1515,6 @@ impl App {
                 let name_width = 2 + max_name + 2; // "> " + name + " *"
                 let desc_width = 4 + 12; // "    X env vars"
                 (name_width.max(desc_width) + 2) as u16
-            }
-            Screen::Settings => {
-                // Settings items
-                let items = ["Claude Entry Point", "Arguments", "Auto-stop Prompt", "Reset to Defaults"];
-                let max_len = items.iter().map(|s| s.len()).max().unwrap_or(20);
-                (2 + max_len + 2) as u16
             }
             Screen::Theme => {
                 // Theme list with color swatches
@@ -1642,7 +1655,6 @@ impl App {
                 self.render_profile_edit(frame, area);
                 self.render_env_var_dialog(frame, frame.area());
             }
-            Screen::Settings => self.render_settings(frame, area),
             Screen::Theme => self.render_theme(frame, area),
             Screen::Help => self.render_help(frame, area),
             Screen::ConfirmDelete => {
@@ -1716,10 +1728,8 @@ impl App {
 
         let menu_items = [
             ("Start Session", "Launch Claude with selected profile".to_string()),
-            ("Profiles", "Manage environment profiles".to_string()),
+            ("Profiles", "Manage profiles and their settings".to_string()),
             ("Agent Versions", "Manage installed agent CLIs".to_string()),
-            ("Settings", "Configure launcher settings".to_string()),
-            ("Theme", "Customize mascot and UI colors".to_string()),
             ("Update TUI", "Pull latest and recompile".to_string()),
             ("Help", "Keyboard shortcuts and tips".to_string()),
             ("Quit", "Exit the launcher".to_string()),
@@ -1797,45 +1807,108 @@ impl App {
     }
 
     fn render_profile_edit(&self, frame: &mut Frame, area: Rect) {
-        let _profile = match &self.editing_profile {
+        let profile = match &self.editing_profile {
             Some(p) => p,
             None => return,
         };
 
-        let mut items: Vec<ListItem> = self
-            .env_vars_list
-            .iter()
-            .enumerate()
-            .map(|(i, (key, value))| {
-                let style = if i == self.env_menu.selected {
-                    Style::default().fg(self.accent_color()).add_modifier(Modifier::BOLD)
-                } else {
-                    Style::default()
-                };
-                let prefix = if i == self.env_menu.selected { "> " } else { "  " };
+        let num_settings = Self::PROFILE_SETTINGS_COUNT;
+        let mut items: Vec<ListItem> = Vec::new();
 
-                let display_value = if is_sensitive_key(key) {
-                    censor_sensitive(value, 7, 4)
-                } else {
-                    value.clone()
-                };
+        // --- Settings fields (indices 0-3) ---
+        let settings: Vec<(&str, String)> = vec![
+            ("Agent CLI", profile.agent_cli_path.clone()),
+            ("Arguments", if profile.claude_args.is_empty() { "(none)".to_string() } else { profile.claude_args.join(" ") }),
+            ("Theme", {
+                ThemeColor::from_config(&profile.theme)
+                    .map(|tc| match tc {
+                        ThemeColor::Preset(p) => p.display_name().to_string(),
+                        ThemeColor::Custom(r, g, b) => format!("#{:02X}{:02X}{:02X}", r, g, b),
+                    })
+                    .unwrap_or_else(|| profile.theme.clone())
+            }),
+            ("Stop Prompt", profile.stop_prompt.clone().unwrap_or_else(|| "(default)".to_string())),
+        ];
 
-                ListItem::new(Line::from(vec![
+        for (i, (name, value)) in settings.iter().enumerate() {
+            let is_selected = i == self.env_menu.selected;
+            let is_editing = is_selected && match i {
+                0 => self.edit_field == EditField::AgentCliPath,
+                1 => self.edit_field == EditField::ClaudeArgs,
+                3 => self.edit_field == EditField::StopPrompt,
+                _ => false,
+            };
+
+            let style = if is_selected {
+                Style::default().fg(self.accent_color()).add_modifier(Modifier::BOLD)
+            } else {
+                Style::default()
+            };
+            let prefix = if is_selected { "> " } else { "  " };
+
+            let display_value = if is_editing {
+                let visible = self.key_input.visible_value();
+                let cursor = "\u{2588}";
+                format!("{}{}", visible, cursor)
+            } else {
+                value.clone()
+            };
+
+            let value_style = if is_editing {
+                Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)
+            } else {
+                Style::default().fg(Color::Cyan)
+            };
+
+            items.push(ListItem::new(vec![
+                Line::from(vec![
                     Span::styled(prefix, style),
-                    Span::styled(key, style),
-                    Span::styled("=", Style::default().fg(Color::DarkGray)),
-                    Span::styled(display_value, Style::default().fg(Color::Cyan)),
-                ]))
-            })
-            .collect();
+                    Span::styled(*name, style),
+                    Span::styled(": ", Style::default().fg(Color::DarkGray)),
+                    Span::styled(display_value, value_style),
+                ]),
+            ]));
+        }
 
-        // Add "Add new" option
-        let add_style = if self.env_menu.selected == self.env_vars_list.len() {
+        // --- Separator ---
+        items.push(ListItem::new(Line::from(Span::styled(
+            "  --- Environment Variables ---",
+            Style::default().fg(Color::DarkGray),
+        ))));
+
+        // --- Env vars (indices num_settings..num_settings+N) ---
+        for (i, (key, value)) in self.env_vars_list.iter().enumerate() {
+            let menu_idx = num_settings + i;
+            let is_selected = menu_idx == self.env_menu.selected;
+            let style = if is_selected {
+                Style::default().fg(self.accent_color()).add_modifier(Modifier::BOLD)
+            } else {
+                Style::default()
+            };
+            let prefix = if is_selected { "> " } else { "  " };
+
+            let display_value = if is_sensitive_key(key) {
+                censor_sensitive(value, 7, 4)
+            } else {
+                value.clone()
+            };
+
+            items.push(ListItem::new(Line::from(vec![
+                Span::styled(prefix, style),
+                Span::styled(key, style),
+                Span::styled("=", Style::default().fg(Color::DarkGray)),
+                Span::styled(display_value, Style::default().fg(Color::Cyan)),
+            ])));
+        }
+
+        // --- Add new variable (index num_settings + N) ---
+        let add_idx = num_settings + self.env_vars_list.len();
+        let add_style = if self.env_menu.selected == add_idx {
             Style::default().fg(Color::Green).add_modifier(Modifier::BOLD)
         } else {
             Style::default().fg(Color::Green)
         };
-        let add_prefix = if self.env_menu.selected == self.env_vars_list.len() { "> " } else { "  " };
+        let add_prefix = if self.env_menu.selected == add_idx { "> " } else { "  " };
         items.push(ListItem::new(Line::from(Span::styled(
             format!("{}+ Add new variable", add_prefix),
             add_style,
@@ -1961,122 +2034,6 @@ impl App {
             );
 
         frame.render_widget(dialog, dialog_area);
-    }
-
-    fn render_settings(&mut self, frame: &mut Frame, area: Rect) {
-        let args_str = self.app_config.claude_args.join(" ");
-        let stop_prompt_display = self.app_config.stop_prompt
-            .clone()
-            .unwrap_or_else(|| "(default)".to_string());
-        let settings: Vec<(&str, String, &str)> = vec![
-            ("Entry Point", self.app_config.claude_path.clone(), "Command to launch (e.g., claude)"),
-            ("Arguments", args_str, "Additional command-line arguments"),
-            ("Stop Prompt", stop_prompt_display, "Opens in $EDITOR (empty = default)"),
-            ("Reset Settings", "".to_string(), "Reset all settings to defaults"),
-        ];
-
-        let cursor_indicator = "█";
-
-        // Calculate viewport width based on area (leave room for label and padding)
-        let viewport_width = area.width.saturating_sub(20) as usize; // Account for prefix, label, padding
-        self.key_input.set_viewport_width(viewport_width.max(30));
-
-        let items: Vec<ListItem> = settings
-            .iter()
-            .enumerate()
-            .map(|(i, (name, value, desc))| {
-                let is_selected = i == self.settings_menu.selected;
-                let is_editing = is_selected && match i {
-                    0 => self.edit_field == EditField::ClaudePath,
-                    1 => self.edit_field == EditField::ClaudeArgs,
-                    2 => self.edit_field == EditField::StopPrompt,
-                    _ => false,
-                };
-
-                let style = if is_selected {
-                    Style::default()
-                        .fg(self.accent_color())
-                        .add_modifier(Modifier::BOLD)
-                } else {
-                    Style::default()
-                };
-
-                let prefix = if is_selected { "> " } else { "  " };
-
-                // Use viewport-aware display when editing
-                let display_value = if is_editing {
-                    let visible = self.key_input.visible_value();
-                    let left = if self.key_input.has_left_overflow() { "..." } else { "" };
-                    let right = if self.key_input.has_right_overflow() { "..." } else { "" };
-                    format!("{}{}{}{}", left, visible, cursor_indicator, right)
-                } else {
-                    // Truncate non-editing values if too long
-                    let max_display = viewport_width.saturating_sub(3);
-                    if value.len() > max_display {
-                        format!("{}...", &value[..max_display])
-                    } else {
-                        value.to_string()
-                    }
-                };
-
-                let value_style = if is_editing {
-                    Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)
-                } else {
-                    Style::default().fg(Color::Cyan)
-                };
-
-                // Show value on separate line if it's long (> 30 chars) for better visibility
-                // But use the full display_value length for decision (includes indicators)
-                let effective_len = display_value.len();
-                let value_on_new_line = effective_len > 30;
-
-                if value_on_new_line {
-                    ListItem::new(vec![
-                        Line::from(vec![
-                            Span::styled(prefix, style),
-                            Span::styled(*name, style),
-                            Span::styled(":", Style::default().fg(Color::DarkGray)),
-                        ]),
-                        Line::from(vec![
-                            Span::raw("    "),
-                            Span::styled(display_value, value_style),
-                        ]),
-                        Line::from(Span::styled(format!("    {}", desc), Style::default().fg(Color::DarkGray))),
-                    ])
-                } else {
-                    ListItem::new(vec![
-                        Line::from(vec![
-                            Span::styled(prefix, style),
-                            Span::styled(*name, style),
-                            Span::styled(": ", Style::default().fg(Color::DarkGray)),
-                            Span::styled(display_value, value_style),
-                        ]),
-                        Line::from(Span::styled(format!("    {}", desc), Style::default().fg(Color::DarkGray))),
-                    ])
-                }
-            })
-            .collect();
-
-        let mut menu_items = items;
-
-        // Add config file info at the bottom
-        menu_items.push(ListItem::new(vec![
-            Line::from(""),
-            Line::from(Span::styled("Config file:", Style::default().fg(Color::DarkGray))),
-            Line::from(Span::styled(
-                format!("  {}/config.toml", self.profile_manager.config_dir().display()),
-                Style::default().fg(Color::DarkGray),
-            )),
-        ]));
-
-        let _hint = if self.edit_field != EditField::None {
-            " [Enter=save Esc=cancel] "
-        } else {
-            " Settings [Enter=edit Esc=back] "
-        };
-
-        let menu = List::new(menu_items);
-        frame.render_widget(menu, area);
     }
 
     fn render_theme(&self, frame: &mut Frame, area: Rect) {
@@ -2507,8 +2464,6 @@ pub enum AppAction {
 #[derive(Debug, Clone)]
 pub struct LaunchRequest {
     pub profile: Profile,
-    pub claude_path: String,
-    pub claude_args: Vec<String>,
 }
 
 /// Request to update the TUI
@@ -2521,7 +2476,7 @@ impl LaunchRequest {
     pub fn execute(&self) -> io::Result<std::process::ExitStatus> {
         use std::os::unix::process::CommandExt;
 
-        let mut cmd = Command::new(&self.claude_path);
+        let mut cmd = Command::new(&self.profile.agent_cli_path);
 
         for (key, value) in &self.profile.env {
             cmd.env(key, value);
@@ -2533,7 +2488,7 @@ impl LaunchRequest {
         // Only override arg0 for direct claude invocations.
         // When launching aug/au, we must preserve argv[0] so the binary
         // can detect it was invoked as "aug" and run the launcher mode.
-        let cmd_name = std::path::Path::new(&self.claude_path)
+        let cmd_name = std::path::Path::new(&self.profile.agent_cli_path)
             .file_name()
             .and_then(|n| n.to_str())
             .unwrap_or("");
@@ -2545,7 +2500,7 @@ impl LaunchRequest {
         }
         // For aug/au, let the binary see its natural argv[0]
 
-        cmd.args(&self.claude_args);
+        cmd.args(&self.profile.claude_args);
         cmd.status()
     }
 }
@@ -2611,9 +2566,8 @@ mod tests {
         let app = App {
             running: true,
             screen: Screen::Main,
-            main_menu: MenuState::new(8),
+            main_menu: MenuState::new(6),
             profile_menu: MenuState::new(profiles.len()),
-            settings_menu: MenuState::new(2),
             profile_manager,
             app_config,
             profiles: profiles.clone(),
@@ -2680,16 +2634,16 @@ mod tests {
 
         let main_width = app.content_width();
 
-        app.screen = Screen::Settings;
-        let settings_width = app.content_width();
-
         app.screen = Screen::Help;
         let help_width = app.content_width();
 
+        app.screen = Screen::ProfileEdit;
+        let edit_width = app.content_width();
+
         // Different screens can have different widths
         assert!(main_width > 0);
-        assert!(settings_width > 0);
         assert!(help_width > 0);
+        assert!(edit_width > 0);
     }
 
     #[test]
@@ -2740,22 +2694,22 @@ mod tests {
         let (mut app, _temp) = test_app();
         app.animations_enabled = false;
 
-        // Navigate to Settings
-        app.main_menu.selected = 3;
+        // Navigate to Profiles (index 1)
+        app.main_menu.selected = 1;
         let _ = app.handle_main_input(NavAction::Select);
         app.tick();
-        assert_eq!(app.screen, Screen::Settings);
+        assert_eq!(app.screen, Screen::Profiles);
 
         // Press ? to open help
         let _ = app.handle_event(Event::Key(KeyEvent::new(KeyCode::Char('?'), KeyModifiers::NONE)));
         app.tick();
         assert_eq!(app.screen, Screen::Help);
-        assert_eq!(app.help_return_screen, Some(Screen::Settings));
+        assert_eq!(app.help_return_screen, Some(Screen::Profiles));
 
-        // Leaving help returns to Settings, not Main
+        // Leaving help returns to Profiles, not Main
         app.handle_help_input(NavAction::Back);
         app.tick();
-        assert_eq!(app.screen, Screen::Settings);
+        assert_eq!(app.screen, Screen::Profiles);
     }
 
     #[test]
@@ -2928,8 +2882,8 @@ mod tests {
         let (mut app, _temp) = test_app();
         app.animations_enabled = false;
 
-        // Select Help menu item (index 6)
-        app.main_menu.selected = 6;
+        // Select Help menu item (index 4)
+        app.main_menu.selected = 4;
         let _ = app.handle_main_input(NavAction::Select);
         app.tick();
         assert_eq!(app.screen, Screen::Help);
@@ -2982,12 +2936,12 @@ mod tests {
     }
 
     #[test]
-    fn test_quit_is_now_index_7() {
+    fn test_quit_is_index_5() {
         let (mut app, _temp) = test_app();
         app.animations_enabled = false;
 
-        // Selecting index 7 should quit
-        app.main_menu.selected = 7;
+        // Selecting index 5 should quit
+        app.main_menu.selected = 5;
         let _ = app.handle_main_input(NavAction::Select);
         assert!(!app.running);
     }
