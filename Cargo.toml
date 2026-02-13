@@ -1,6 +1,6 @@
 [package]
 name = "agent-unleashed"
-version = "7.1.1"
+version = "7.1.2"
 edition = "2021"
 description = "Agent Unleashed - Extended CLI for AI Code Agents"
 authors = ["Heiervang Technologies"]

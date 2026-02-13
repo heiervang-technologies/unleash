@@ -1,5 +1,12 @@
 # Changelog
 
+## [7.1.2](https://github.com/heiervang-technologies/agent-unleashed/compare/v7.1.1...v7.1.2) (2026-02-13)
+
+
+### Bug Fixes
+
+* Enter key opens profile editor instead of just selecting ([#147](https://github.com/heiervang-technologies/agent-unleashed/issues/147)) ([b62eb05](https://github.com/heiervang-technologies/agent-unleashed/commit/b62eb0516f0ac8299847d84df1fe783fb787e73f))
+
 ## [7.1.1](https://github.com/heiervang-technologies/agent-unleashed/compare/v7.1.0...v7.1.1) (2026-02-13)
 
 
