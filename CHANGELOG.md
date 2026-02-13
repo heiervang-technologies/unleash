@@ -1,5 +1,13 @@
 # Changelog
 
+## [7.1.0](https://github.com/heiervang-technologies/agent-unleashed/compare/v7.0.0...v7.1.0) (2026-02-13)
+
+
+### Features
+
+* unify settings into profiles ([80d41df](https://github.com/heiervang-technologies/agent-unleashed/commit/80d41df88467f89694ba58630f0b721bdd868bd2))
+* unify settings into profiles ([cb62cb1](https://github.com/heiervang-technologies/agent-unleashed/commit/cb62cb1ff2c78a22f34e80b7a3c09316689b109f))
+
 ## [7.0.0](https://github.com/heiervang-technologies/agent-unleashed/compare/v6.0.1...v7.0.0) (2026-02-13)
 
 
