@@ -1813,7 +1813,26 @@ impl App {
         };
 
         let num_settings = Self::PROFILE_SETTINGS_COUNT;
-        let mut items: Vec<ListItem> = Vec::new();
+
+        // Split area: title + settings section, then env vars section
+        let chunks = Layout::default()
+            .direction(Direction::Vertical)
+            .constraints([
+                Constraint::Length(3),  // Profile name header
+                Constraint::Length(num_settings as u16 + 1), // Settings + separator
+                Constraint::Min(3),    // Env vars
+            ])
+            .split(area);
+
+        // --- Profile name header ---
+        let header = Paragraph::new(vec![
+            Line::from(vec![
+                Span::styled("Profile: ", Style::default().fg(Color::DarkGray)),
+                Span::styled(&profile.name, Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)),
+            ]),
+            Line::from(""),
+        ]);
+        frame.render_widget(header, chunks[0]);
 
         // --- Settings fields (indices 0-3) ---
         let settings: Vec<(&str, String)> = vec![
@@ -1830,6 +1849,7 @@ impl App {
             ("Stop Prompt", profile.stop_prompt.clone().unwrap_or_else(|| "(default)".to_string())),
         ];
 
+        let mut settings_items: Vec<ListItem> = Vec::new();
         for (i, (name, value)) in settings.iter().enumerate() {
             let is_selected = i == self.env_menu.selected;
             let is_editing = is_selected && match i {
@@ -1860,23 +1880,26 @@ impl App {
                 Style::default().fg(Color::Cyan)
             };
 
-            items.push(ListItem::new(vec![
-                Line::from(vec![
-                    Span::styled(prefix, style),
-                    Span::styled(*name, style),
-                    Span::styled(": ", Style::default().fg(Color::DarkGray)),
-                    Span::styled(display_value, value_style),
-                ]),
-            ]));
+            settings_items.push(ListItem::new(Line::from(vec![
+                Span::styled(prefix, style),
+                Span::styled(*name, style),
+                Span::styled(": ", Style::default().fg(Color::DarkGray)),
+                Span::styled(display_value, value_style),
+            ])));
         }
 
-        // --- Separator ---
-        items.push(ListItem::new(Line::from(Span::styled(
+        // Separator line below settings
+        settings_items.push(ListItem::new(Line::from(Span::styled(
             "  --- Environment Variables ---",
             Style::default().fg(Color::DarkGray),
         ))));
 
-        // --- Env vars (indices num_settings..num_settings+N) ---
+        let settings_list = List::new(settings_items);
+        frame.render_widget(settings_list, chunks[1]);
+
+        // --- Env vars + Add new (separate list, separate area) ---
+        let mut env_items: Vec<ListItem> = Vec::new();
+
         for (i, (key, value)) in self.env_vars_list.iter().enumerate() {
             let menu_idx = num_settings + i;
             let is_selected = menu_idx == self.env_menu.selected;
@@ -1893,7 +1916,7 @@ impl App {
                 value.clone()
             };
 
-            items.push(ListItem::new(Line::from(vec![
+            env_items.push(ListItem::new(Line::from(vec![
                 Span::styled(prefix, style),
                 Span::styled(key, style),
                 Span::styled("=", Style::default().fg(Color::DarkGray)),
@@ -1901,7 +1924,7 @@ impl App {
             ])));
         }
 
-        // --- Add new variable (index num_settings + N) ---
+        // Add new variable option
         let add_idx = num_settings + self.env_vars_list.len();
         let add_style = if self.env_menu.selected == add_idx {
             Style::default().fg(Color::Green).add_modifier(Modifier::BOLD)
@@ -1909,13 +1932,13 @@ impl App {
             Style::default().fg(Color::Green)
         };
         let add_prefix = if self.env_menu.selected == add_idx { "> " } else { "  " };
-        items.push(ListItem::new(Line::from(Span::styled(
+        env_items.push(ListItem::new(Line::from(Span::styled(
             format!("{}+ Add new variable", add_prefix),
             add_style,
         ))));
 
-        let menu = List::new(items);
-        frame.render_widget(menu, area);
+        let env_list = List::new(env_items);
+        frame.render_widget(env_list, chunks[2]);
     }
 
     fn render_env_var_dialog(&self, frame: &mut Frame, area: Rect) {
