@@ -368,10 +368,12 @@ impl AgentManager {
             ));
         }
 
-        println!("Found codex at: {}", codex_dir.display());
+        // Collect progress messages instead of printing directly,
+        // so callers (including the TUI) can display them appropriately
+        let mut progress = vec![format!("Found codex at: {}", codex_dir.display())];
 
         // Update submodule
-        println!("Updating submodule...");
+        progress.push("Updating submodule...".to_string());
         let output = Command::new("git")
             .args(["submodule", "update", "--remote", "codex-unleashed/codex"])
             .current_dir(repo_dir)
@@ -387,7 +389,7 @@ impl AgentManager {
         }
 
         // Build codex CLI (package is codex-cli, binary is codex)
-        println!("Building codex (this may take a while)...");
+        progress.push("Building codex (this may take a while)...".to_string());
         let output = Command::new("cargo")
             .args(["build", "--release", "-p", "codex-cli"])
             .current_dir(&codex_rs_dir)
@@ -403,10 +405,8 @@ impl AgentManager {
             fs::create_dir_all(install_path.parent().unwrap())?;
             fs::copy(&binary_path, &install_path)?;
 
-            Ok(format!(
-                "Codex updated and installed to {}",
-                install_path.display()
-            ))
+            progress.push(format!("Codex updated and installed to {}", install_path.display()));
+            Ok(progress.join("\n"))
         } else {
             Err(io::Error::other(
                 format!(
