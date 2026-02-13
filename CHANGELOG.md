@@ -1,5 +1,13 @@
 # Changelog
 
+## [7.1.1](https://github.com/heiervang-technologies/agent-unleashed/compare/v7.1.0...v7.1.1) (2026-02-13)
+
+
+### Bug Fixes
+
+* profile edit screen layout for settings visibility ([0908b14](https://github.com/heiervang-technologies/agent-unleashed/commit/0908b14f849217badfce861bc68fe808e1882a8a))
+* profile edit settings visibility ([9c44b9d](https://github.com/heiervang-technologies/agent-unleashed/commit/9c44b9d2eb265863f2f4d753e3fb55ed018cc58b))
+
 ## [7.1.0](https://github.com/heiervang-technologies/agent-unleashed/compare/v7.0.0...v7.1.0) (2026-02-13)
 
 
