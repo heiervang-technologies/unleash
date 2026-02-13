@@ -79,7 +79,7 @@ pub fn run() -> io::Result<()> {
                     }
                     Err(e) => {
                         eprintln!("Failed to launch Claude: {}", e);
-                        eprintln!("Make sure 'claude' is in your PATH or set claude_path in config.toml");
+                        eprintln!("Make sure the agent CLI is in your PATH or set agent_cli_path in the profile");
                         std::process::exit(1);
                     }
                 }
@@ -180,14 +180,16 @@ fn run_app(
             // Handle result
             match result {
                 Ok(edited) => {
-                    // Save the edited content to stop_prompt
+                    // Save the edited content to the editing profile's stop_prompt
                     let value = edited.trim().to_string();
-                    app.app_config.stop_prompt = if value.is_empty() {
-                        None
-                    } else {
-                        Some(value.clone())
-                    };
-                    let _ = app.profile_manager.save_app_config(&app.app_config);
+                    if let Some(ref mut profile) = app.editing_profile {
+                        profile.stop_prompt = if value.is_empty() {
+                            None
+                        } else {
+                            Some(value.clone())
+                        };
+                        let _ = app.profile_manager.save_profile(profile);
+                    }
                     app.status_message = Some("Stop prompt saved".to_string());
                 }
                 Err(e) => {
