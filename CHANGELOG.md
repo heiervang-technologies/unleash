@@ -1,5 +1,12 @@
 # Changelog
 
+## [7.3.0](https://github.com/heiervang-technologies/agent-unleashed/compare/v7.2.0...v7.3.0) (2026-02-14)
+
+
+### Features
+
+* add AU_HYPRLAND_FOCUS=1 as default env var for new profiles ([#151](https://github.com/heiervang-technologies/agent-unleashed/issues/151)) ([53cbb01](https://github.com/heiervang-technologies/agent-unleashed/commit/53cbb012de2850b8e4f633aa2ab8b8b88b5ec183))
+
 ## [7.2.0](https://github.com/heiervang-technologies/agent-unleashed/compare/v7.1.2...v7.2.0) (2026-02-14)
 
 
