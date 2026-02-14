@@ -43,7 +43,7 @@ impl Default for Profile {
             claude_args: Vec::new(),
             stop_prompt: None,
             theme: default_theme(),
-            env: HashMap::new(),
+            env: default_env(),
         }
     }
 }
@@ -57,7 +57,7 @@ impl Profile {
             claude_args: Vec::new(),
             stop_prompt: None,
             theme: default_theme(),
-            env: HashMap::new(),
+            env: default_env(),
         }
     }
 
@@ -119,6 +119,12 @@ fn default_agent_cli_path() -> String {
     // - Plugin loading
     // - Extended timeouts
     "aug".to_string()
+}
+
+fn default_env() -> HashMap<String, String> {
+    let mut env = HashMap::new();
+    env.insert("AU_HYPRLAND_FOCUS".to_string(), "1".to_string());
+    env
 }
 
 impl Default for AppConfig {
