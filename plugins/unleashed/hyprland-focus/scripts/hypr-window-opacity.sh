@@ -102,22 +102,24 @@ get_address() {
 
 set_opacity() {
     local active="$1"
-    local inactive="${2:-$active}"
+    local inactive="$2"
     local addr
     addr=$(get_address) || return 1
-    hyprctl dispatch setprop "address:$addr" opacity "$active" "$inactive" override &>/dev/null || true
+    # opacity = focused/hovered, opacity_inactive = unfocused/unhovered
+    hyprctl --batch \
+        "dispatch setprop address:$addr opacity $active override ; \
+         dispatch setprop address:$addr opacity_inactive $inactive override" \
+        &>/dev/null || true
 }
 
 # --- Main ---
 
 case "${1:-}" in
     set)
-        local_active="${AU_FOCUS_OPACITY_ACTIVE:-0.7}"
-        local_inactive="${AU_FOCUS_OPACITY_INACTIVE:-0.4}"
-        set_opacity "$local_active" "$local_inactive"
+        set_opacity "${AU_FOCUS_OPACITY_ACTIVE:-0.7}" "${AU_FOCUS_OPACITY_INACTIVE:-0.4}"
         ;;
     reset)
-        # Set fully opaque so user can read output clearly
+        # Fully opaque so user can read output clearly
         set_opacity 1.0 1.0
         ;;
     address)
