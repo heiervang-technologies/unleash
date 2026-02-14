@@ -93,6 +93,8 @@ pub enum HookEvent {
     SubagentStart,
     SubagentStop,
     Setup,
+    UserPromptSubmit,
+    SessionEnd,
 }
 
 impl HookEvent {
@@ -107,6 +109,8 @@ impl HookEvent {
             HookEvent::SubagentStart => "SubagentStart",
             HookEvent::SubagentStop => "SubagentStop",
             HookEvent::Setup => "Setup",
+            HookEvent::UserPromptSubmit => "UserPromptSubmit",
+            HookEvent::SessionEnd => "SessionEnd",
         }
     }
 
@@ -121,6 +125,8 @@ impl HookEvent {
             "SubagentStart" => Some(HookEvent::SubagentStart),
             "SubagentStop" => Some(HookEvent::SubagentStop),
             "Setup" => Some(HookEvent::Setup),
+            "UserPromptSubmit" => Some(HookEvent::UserPromptSubmit),
+            "SessionEnd" => Some(HookEvent::SessionEnd),
             _ => None,
         }
     }

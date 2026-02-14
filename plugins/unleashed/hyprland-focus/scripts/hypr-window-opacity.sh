@@ -7,8 +7,9 @@
 #   hypr-window-opacity.sh address         # Print window address
 #
 # Environment:
-#   AU_HYPRLAND_FOCUS=0      Disable (default: enabled when Hyprland detected)
-#   AU_FOCUS_OPACITY=0.85    Active agent opacity (default: 0.85)
+#   AU_HYPRLAND_FOCUS=0              Disable (default: enabled when Hyprland detected)
+#   AU_FOCUS_OPACITY_ACTIVE=0.7      Focused window opacity while agent runs (default: 0.7)
+#   AU_FOCUS_OPACITY_INACTIVE=0.4    Unfocused window opacity while agent runs (default: 0.4)
 #
 # State file: /tmp/au-hyprfocus-<wrapper_pid>
 
@@ -100,31 +101,24 @@ get_address() {
 }
 
 set_opacity() {
-    local opacity="$1"
+    local active="$1"
+    local inactive="${2:-$active}"
     local addr
     addr=$(get_address) || return 1
-    hyprctl dispatch setprop "address:$addr" opacity "$opacity" override &>/dev/null || true
-}
-
-# Remove per-window opacity override, falling back to global decoration settings
-# -1 tells Hyprland to clear the per-window override
-unset_opacity() {
-    local addr
-    addr=$(get_address) || return 1
-    hyprctl dispatch setprop "address:$addr" opacity -1 override &>/dev/null || true
+    hyprctl dispatch setprop "address:$addr" opacity "$active" "$inactive" override &>/dev/null || true
 }
 
 # --- Main ---
 
 case "${1:-}" in
     set)
-        set_opacity "${2:-${AU_FOCUS_OPACITY:-0.85}}"
+        local_active="${AU_FOCUS_OPACITY_ACTIVE:-0.7}"
+        local_inactive="${AU_FOCUS_OPACITY_INACTIVE:-0.4}"
+        set_opacity "$local_active" "$local_inactive"
         ;;
     reset)
-        # Remove override so window falls back to global transparency settings
-        unset_opacity
-        # Clean up state file
-        rm -f "$STATE_FILE"
+        # Set fully opaque so user can read output clearly
+        set_opacity 1.0 1.0
         ;;
     address)
         get_address
