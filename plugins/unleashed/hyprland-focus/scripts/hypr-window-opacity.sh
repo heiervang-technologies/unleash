@@ -106,6 +106,14 @@ set_opacity() {
     hyprctl dispatch setprop "address:$addr" opacity "$opacity" override &>/dev/null || true
 }
 
+# Remove per-window opacity override, falling back to global decoration settings
+# -1 tells Hyprland to clear the per-window override
+unset_opacity() {
+    local addr
+    addr=$(get_address) || return 1
+    hyprctl dispatch setprop "address:$addr" opacity -1 override &>/dev/null || true
+}
+
 # --- Main ---
 
 case "${1:-}" in
@@ -113,7 +121,8 @@ case "${1:-}" in
         set_opacity "${2:-${AU_FOCUS_OPACITY:-0.85}}"
         ;;
     reset)
-        set_opacity 1.0
+        # Remove override so window falls back to global transparency settings
+        unset_opacity
         # Clean up state file
         rm -f "$STATE_FILE"
         ;;
