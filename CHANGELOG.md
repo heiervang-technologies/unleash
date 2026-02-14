@@ -1,5 +1,12 @@
 # Changelog
 
+## [7.2.0](https://github.com/heiervang-technologies/agent-unleashed/compare/v7.1.2...v7.2.0) (2026-02-14)
+
+
+### Features
+
+* hyprland-focus plugin for window transparency ([#149](https://github.com/heiervang-technologies/agent-unleashed/issues/149)) ([8772d3e](https://github.com/heiervang-technologies/agent-unleashed/commit/8772d3ef9a18382ccdb779f3db14b02167e362df))
+
 ## [7.1.2](https://github.com/heiervang-technologies/agent-unleashed/compare/v7.1.1...v7.1.2) (2026-02-13)
 
 
