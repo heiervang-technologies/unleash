@@ -1,0 +1,25 @@
+{
+  "description": "Hyprland focus hooks - set window transparency on agent start, restore on stop",
+  "hooks": {
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "${CLAUDE_PLUGIN_ROOT}/hooks-handlers/focus-start.sh"
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "${CLAUDE_PLUGIN_ROOT}/hooks-handlers/focus-stop.sh"
+          }
+        ]
+      }
+    ]
+  }
+}
