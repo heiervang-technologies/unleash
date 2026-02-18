@@ -289,6 +289,8 @@ impl App {
             .and_then(|p| ThemeColor::from_config(&p.theme))
             .unwrap_or(ThemeColor::Preset(ThemePreset::Orange));
 
+        let animations_enabled = app_config.animations;
+
         Ok(Self {
             running: true,
             screen: Screen::Main,
@@ -320,7 +322,7 @@ impl App {
             animation_frame: 0,
             art_layout: ArtLayout::ArtRight,
             art_animation: None,
-            animations_enabled: true,
+            animations_enabled,
             pending_screen: None,
             pending_external_edit: None,
             help_return_screen: None,
