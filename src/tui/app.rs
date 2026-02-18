@@ -1777,7 +1777,7 @@ impl App {
     fn render_profiles(&self, frame: &mut Frame, area: Rect) {
         let chunks = Layout::default()
             .direction(Direction::Vertical)
-            .constraints([Constraint::Min(1), Constraint::Length(1)])
+            .constraints([Constraint::Length(2), Constraint::Min(1)])
             .split(area);
 
         let items: Vec<ListItem> = self
@@ -1805,9 +1805,6 @@ impl App {
             })
             .collect();
 
-        let menu = List::new(items);
-        frame.render_widget(menu, chunks[0]);
-
         let hints = Paragraph::new(Line::from(vec![
             Span::styled(" n", Style::default().fg(self.accent_color()).add_modifier(Modifier::BOLD)),
             Span::styled(" new  ", Style::default().fg(Color::DarkGray)),
@@ -1818,7 +1815,10 @@ impl App {
             Span::styled("esc", Style::default().fg(self.accent_color()).add_modifier(Modifier::BOLD)),
             Span::styled(" back", Style::default().fg(Color::DarkGray)),
         ]));
-        frame.render_widget(hints, chunks[1]);
+        frame.render_widget(hints, chunks[0]);
+
+        let menu = List::new(items);
+        frame.render_widget(menu, chunks[1]);
     }
 
     fn render_profile_edit(&self, frame: &mut Frame, area: Rect) {
