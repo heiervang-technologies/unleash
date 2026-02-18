@@ -1,5 +1,12 @@
 # Changelog
 
+## [7.4.0](https://github.com/heiervang-technologies/agent-unleashed/compare/v7.3.0...v7.4.0) (2026-02-18)
+
+
+### Features
+
+* **ci:** install and enable mold linker in all build jobs ([#154](https://github.com/heiervang-technologies/agent-unleashed/issues/154)) ([31fd20a](https://github.com/heiervang-technologies/agent-unleashed/commit/31fd20a90e076e00518f6fd7ef41ba38f9174b46))
+
 ## [7.3.0](https://github.com/heiervang-technologies/agent-unleashed/compare/v7.2.0...v7.3.0) (2026-02-14)
 
 
