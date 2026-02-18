@@ -52,10 +52,16 @@ jobs:
   test-headless:
     name: Test Headless Commands
     runs-on: self-hosted
+    env:
+      CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_LINKER: clang
+      CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_RUSTFLAGS: "-C link-arg=-fuse-ld=mold"
 
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
+
+      - name: Install build tools
+        run: sudo apt-get update && sudo apt-get install -y clang mold
 
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
