@@ -1,5 +1,12 @@
 # Changelog
 
+## [7.5.0](https://github.com/heiervang-technologies/agent-unleashed/compare/v7.4.0...v7.5.0) (2026-02-19)
+
+
+### Features
+
+* **tui:** add keybind hints to profiles screen ([#156](https://github.com/heiervang-technologies/agent-unleashed/issues/156)) ([d3d3700](https://github.com/heiervang-technologies/agent-unleashed/commit/d3d3700463b3459dbdd032ebd019dbefdff13aa3))
+
 ## [7.4.0](https://github.com/heiervang-technologies/agent-unleashed/compare/v7.3.0...v7.4.0) (2026-02-18)
 
 
