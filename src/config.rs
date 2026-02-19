@@ -102,6 +102,13 @@ pub struct AppConfig {
     /// The currently selected profile name
     #[serde(default = "default_profile_name")]
     pub current_profile: String,
+    /// Whether TUI animations are enabled
+    #[serde(default = "default_true")]
+    pub animations: bool,
+}
+
+fn default_true() -> bool {
+    true
 }
 
 fn default_profile_name() -> String {
@@ -131,6 +138,7 @@ impl Default for AppConfig {
     fn default() -> Self {
         Self {
             current_profile: default_profile_name(),
+            animations: true,
         }
     }
 }
@@ -256,6 +264,7 @@ impl ProfileManager {
         // Rewrite config.toml with only current_profile
         let new_config = AppConfig {
             current_profile: profile_name,
+            ..Default::default()
         };
         self.save_app_config(&new_config)?;
 
@@ -430,6 +439,7 @@ mod tests {
 
         let config = AppConfig {
             current_profile: "custom".to_string(),
+            ..Default::default()
         };
 
         manager.save_app_config(&config).unwrap();

@@ -131,7 +131,6 @@ pub enum Screen {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum EditField {
     None,
-    #[allow(dead_code)]
     ProfileName,
     #[allow(dead_code)]
     ProfileDescription,
@@ -289,6 +288,8 @@ impl App {
             .and_then(|p| ThemeColor::from_config(&p.theme))
             .unwrap_or(ThemeColor::Preset(ThemePreset::Orange));
 
+        let animations_enabled = app_config.animations;
+
         Ok(Self {
             running: true,
             screen: Screen::Main,
@@ -320,7 +321,7 @@ impl App {
             animation_frame: 0,
             art_layout: ArtLayout::ArtRight,
             art_animation: None,
-            animations_enabled: true,
+            animations_enabled,
             pending_screen: None,
             pending_external_edit: None,
             help_return_screen: None,
@@ -401,7 +402,9 @@ impl App {
 
     /// Called on each tick to advance animation and poll async operations
     pub fn tick(&mut self) {
-        self.animation_frame = self.animation_frame.wrapping_add(1);
+        if self.animations_enabled {
+            self.animation_frame = self.animation_frame.wrapping_add(1);
+        }
 
         // Poll async version fetch (drains all available agent version messages)
         if let Some(ref receiver) = self.version_fetch_receiver {
@@ -918,6 +921,30 @@ impl App {
                             self.status_message = Some("Invalid hex color — use 3 or 6 hex digits (e.g. FFF or FF5500)".to_string());
                         }
                     }
+                    EditField::ProfileName => {
+                        let new_name = self.key_input.value.trim().to_string();
+                        if !new_name.is_empty() {
+                            if let Some(ref mut profile) = self.editing_profile {
+                                let old_name = profile.name.clone();
+                                if new_name != old_name {
+                                    // Delete old profile file
+                                    let _ = self.profile_manager.delete_profile(&old_name);
+                                    // Save with new name
+                                    profile.name = new_name.clone();
+                                    let _ = self.profile_manager.save_profile(profile);
+                                    // Update app config if this was the active profile
+                                    if self.app_config.current_profile == old_name {
+                                        self.app_config.current_profile = new_name.clone();
+                                        let _ = self.profile_manager.save_app_config(&self.app_config);
+                                    }
+                                    self.refresh_profiles();
+                                    self.status_message = Some(format!("Renamed: {} -> {}", old_name, new_name));
+                                }
+                            }
+                        }
+                        self.sync_editing_to_selected();
+                        self.edit_field = EditField::None;
+                    }
                     _ => {
                         self.edit_field = EditField::None;
                     }
@@ -1224,7 +1251,7 @@ impl App {
     }
 
     /// Number of settings fields shown at the top of profile edit
-    const PROFILE_SETTINGS_COUNT: usize = 4;
+    const PROFILE_SETTINGS_COUNT: usize = 5;
 
     fn handle_profile_edit_input(&mut self, action: NavAction, _key: KeyEvent) {
         let num_settings = Self::PROFILE_SETTINGS_COUNT;
@@ -1239,6 +1266,14 @@ impl App {
                 let selected = self.env_menu.selected;
                 match selected {
                     0 => {
+                        // Edit profile name
+                        let current = self.editing_profile.as_ref()
+                            .map(|p| p.name.clone())
+                            .unwrap_or_default();
+                        self.key_input = TextInput::new().with_value(&current);
+                        self.edit_field = EditField::ProfileName;
+                    }
+                    1 => {
                         // Edit Agent CLI path
                         let current = self.editing_profile.as_ref()
                             .map(|p| p.agent_cli_path.clone())
@@ -1246,7 +1281,7 @@ impl App {
                         self.key_input = TextInput::new().with_value(&current);
                         self.edit_field = EditField::AgentCliPath;
                     }
-                    1 => {
+                    2 => {
                         // Edit arguments
                         let current = self.editing_profile.as_ref()
                             .map(|p| p.claude_args.join(" "))
@@ -1254,7 +1289,7 @@ impl App {
                         self.key_input = TextInput::new().with_value(&current);
                         self.edit_field = EditField::ClaudeArgs;
                     }
-                    2 => {
+                    3 => {
                         // Theme selection — go to Theme sub-screen
                         let theme_str = self.editing_profile.as_ref()
                             .map(|p| p.theme.as_str())
@@ -1272,7 +1307,7 @@ impl App {
                         self.theme_menu.selected = idx;
                         self.screen = Screen::Theme;
                     }
-                    3 => {
+                    4 => {
                         // Stop prompt — open in $EDITOR
                         let default_prompt = self.get_default_stop_prompt();
                         let current = self.editing_profile.as_ref()
@@ -1775,6 +1810,18 @@ impl App {
     }
 
     fn render_profiles(&self, frame: &mut Frame, area: Rect) {
+        let key_style = Style::default().fg(self.accent_color()).add_modifier(Modifier::BOLD);
+        let desc_style = Style::default().fg(Color::DarkGray);
+
+        // Switch to vertical layout when terminal is too narrow for horizontal hints
+        let vertical_hints = area.width < 34;
+        let hint_height = if vertical_hints { 5 } else { 2 };
+
+        let chunks = Layout::default()
+            .direction(Direction::Vertical)
+            .constraints([Constraint::Length(hint_height), Constraint::Min(1)])
+            .split(area);
+
         let items: Vec<ListItem> = self
             .profiles
             .iter()
@@ -1800,8 +1847,25 @@ impl App {
             })
             .collect();
 
+        let hints = if vertical_hints {
+            Paragraph::new(vec![
+                Line::from(vec![Span::styled(" n", key_style), Span::styled(" new", desc_style)]),
+                Line::from(vec![Span::styled(" e", key_style), Span::styled(" edit", desc_style)]),
+                Line::from(vec![Span::styled(" d", key_style), Span::styled(" delete", desc_style)]),
+                Line::from(vec![Span::styled(" esc", key_style), Span::styled(" back", desc_style)]),
+            ])
+        } else {
+            Paragraph::new(Line::from(vec![
+                Span::styled(" n", key_style), Span::styled(" new  ", desc_style),
+                Span::styled("e", key_style), Span::styled(" edit  ", desc_style),
+                Span::styled("d", key_style), Span::styled(" delete  ", desc_style),
+                Span::styled("esc", key_style), Span::styled(" back", desc_style),
+            ]))
+        };
+        frame.render_widget(hints, chunks[0]);
+
         let menu = List::new(items);
-        frame.render_widget(menu, area);
+        frame.render_widget(menu, chunks[1]);
     }
 
     fn render_profile_edit(&self, frame: &mut Frame, area: Rect) {
@@ -1812,28 +1876,18 @@ impl App {
 
         let num_settings = Self::PROFILE_SETTINGS_COUNT;
 
-        // Split area: title + settings section, then env vars section
+        // Split area: settings section, then env vars section
         let chunks = Layout::default()
             .direction(Direction::Vertical)
             .constraints([
-                Constraint::Length(3),  // Profile name header
                 Constraint::Length(num_settings as u16 + 1), // Settings + separator
                 Constraint::Min(3),    // Env vars
             ])
             .split(area);
 
-        // --- Profile name header ---
-        let header = Paragraph::new(vec![
-            Line::from(vec![
-                Span::styled("Profile: ", Style::default().fg(Color::DarkGray)),
-                Span::styled(&profile.name, Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)),
-            ]),
-            Line::from(""),
-        ]);
-        frame.render_widget(header, chunks[0]);
-
-        // --- Settings fields (indices 0-3) ---
+        // --- Settings fields (indices 0-4) ---
         let settings: Vec<(&str, String)> = vec![
+            ("Name", profile.name.clone()),
             ("Agent CLI", profile.agent_cli_path.clone()),
             ("Arguments", if profile.claude_args.is_empty() { "(none)".to_string() } else { profile.claude_args.join(" ") }),
             ("Theme", {
@@ -1851,9 +1905,10 @@ impl App {
         for (i, (name, value)) in settings.iter().enumerate() {
             let is_selected = i == self.env_menu.selected;
             let is_editing = is_selected && match i {
-                0 => self.edit_field == EditField::AgentCliPath,
-                1 => self.edit_field == EditField::ClaudeArgs,
-                3 => self.edit_field == EditField::StopPrompt,
+                0 => self.edit_field == EditField::ProfileName,
+                1 => self.edit_field == EditField::AgentCliPath,
+                2 => self.edit_field == EditField::ClaudeArgs,
+                4 => self.edit_field == EditField::StopPrompt,
                 _ => false,
             };
 
@@ -1893,7 +1948,7 @@ impl App {
         ))));
 
         let settings_list = List::new(settings_items);
-        frame.render_widget(settings_list, chunks[1]);
+        frame.render_widget(settings_list, chunks[0]);
 
         // --- Env vars + Add new (separate list, separate area) ---
         let mut env_items: Vec<ListItem> = Vec::new();
@@ -1936,7 +1991,7 @@ impl App {
         ))));
 
         let env_list = List::new(env_items);
-        frame.render_widget(env_list, chunks[2]);
+        frame.render_widget(env_list, chunks[1]);
     }
 
     fn render_env_var_dialog(&self, frame: &mut Frame, area: Rect) {
