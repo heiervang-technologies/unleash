@@ -403,7 +403,9 @@ impl App {
 
     /// Called on each tick to advance animation and poll async operations
     pub fn tick(&mut self) {
-        self.animation_frame = self.animation_frame.wrapping_add(1);
+        if self.animations_enabled {
+            self.animation_frame = self.animation_frame.wrapping_add(1);
+        }
 
         // Poll async version fetch (drains all available agent version messages)
         if let Some(ref receiver) = self.version_fetch_receiver {
