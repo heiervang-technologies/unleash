@@ -55,26 +55,23 @@ Lists all available Claude Code versions with metadata.
 ```json
 {
   "currently_installed": "2.1.4",
-  "filter_mode": "whitelist",
+  "filter_mode": "blacklist",
   "versions": [
     {
       "version": "2.1.6",
       "is_installed": false,
-      "has_patch": false,
       "is_whitelisted": false,
       "is_blacklisted": false
     },
     {
       "version": "2.1.5",
       "is_installed": false,
-      "has_patch": true,
       "is_whitelisted": false,
       "is_blacklisted": true
     },
     {
       "version": "2.1.4",
       "is_installed": true,
-      "has_patch": true,
       "is_whitelisted": true,
       "is_blacklisted": false
     }
@@ -88,7 +85,6 @@ Lists all available Claude Code versions with metadata.
 - `versions` - Array of version objects:
   - `version` - Version number
   - `is_installed` - Whether this version is currently installed
-  - `has_patch` - Whether auto-mode patch is available for this version
   - `is_whitelisted` - Whether this version is verified to work correctly
   - `is_blacklisted` - Whether this version has known critical issues
 
@@ -145,14 +141,6 @@ Installs a specific version of Claude Code.
 {
   "success": true,
   "message": "Successfully installed Claude Code v2.1.4"
-}
-```
-
-**Output (success with warning):**
-```json
-{
-  "success": true,
-  "message": "Successfully installed Claude Code v2.1.6 (patch not available)"
 }
 ```
 
@@ -236,7 +224,6 @@ fi
 
 Potential commands that could support `--json` in the future:
 
-- `aupatch --check --json` - Patch status as JSON
 - `autmux status --json` - Tmux session status
 - Error messages consistently formatted as JSON when `--json` is used globally
 

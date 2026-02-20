@@ -4,7 +4,7 @@ Welcome to the comprehensive documentation for the agent-unleashed repository.
 
 ## Overview
 
-Agent Unleashed is a fork of [Claude Code](https://github.com/anthropic/claude-code) enhanced with GitHub Actions automation via [snail-core](https://github.com/heiervang-technologies/core) integration. This repository enables AI agents to work autonomously on GitHub issues and pull requests through workflow triggers.
+Agent Unleashed is a wrapper around [Claude Code](https://github.com/anthropic/claude-code) enhanced with GitHub Actions automation via [snail-core](https://github.com/heiervang-technologies/core) integration. This repository enables AI agents to work autonomously on GitHub issues and pull requests through workflow triggers.
 
 ## What is Agent Unleashed?
 
@@ -19,14 +19,13 @@ Agent Unleashed is a fork of [Claude Code](https://github.com/anthropic/claude-c
 
 ```
 agent-unleashed/
-├── .github/workflows/     # GitHub Actions for agent automation
-├── claude-code/           # Submodule: Original Claude Code (pristine)
-├── plugins/unleashed/     # Custom plugin extensions
-├── docs/                  # This documentation
-│   ├── extensions/        # Plugin and extension guides
-│   └── sync-process.md    # Upstream sync documentation
-├── CLAUDE.md              # Agent instructions
-└── README.md              # Repository overview
+├── src/                       # Rust TUI & CLI source
+├── .github/workflows/         # GitHub Actions for agent automation
+├── plugins/unleashed/         # Custom plugin extensions
+├── docs/                      # This documentation
+│   └── extensions/            # Plugin and extension guides
+├── CLAUDE.md                  # Agent instructions
+└── README.md                  # Repository overview
 ```
 
 ## Documentation Structure
@@ -62,35 +61,20 @@ Located in `docs/extensions/`:
    - MCP configuration change detection
    - Preserving session state across restarts
 
-5. **[Core Patches Guide](./extensions/core-patches.md)**
-   - When and how to patch Claude Code core
-   - Policy: Plugin-first approach (patches are rare)
-   - Documentation requirements
-   - Conflict risk assessment
-   - Migration from patches to plugins
-
-6. **[Snail Integration Guide](./extensions/snail-integration.md)**
+5. **[Snail Integration Guide](./extensions/snail-integration.md)**
    - GitHub Actions workflow integration
    - Agent automation via issue/PR triggers
    - MCP server configuration
    - Example commands and agents for GitHub workflows
    - Secrets and configuration management
 
-7. **[Testing Guide](./extensions/testing-guide.md)**
+6. **[Testing Guide](./extensions/testing-guide.md)**
    - Local plugin testing with `--plugin-dir`
    - GitHub workflow testing
    - Integration testing strategies
    - Debugging tips and common issues
    - Test automation
 
-### Maintenance
-
-5. **[Sync Process Documentation](./sync-process.md)**
-   - Daily upstream synchronization
-   - Conflict resolution (automated and manual)
-   - AI agent conflict resolution
-   - Rollback procedures
-   - Sync health monitoring
 
 ## Quick Navigation
 
@@ -129,28 +113,6 @@ Covers:
 - Debugging techniques
 - Common issues and solutions
 
-#### Modify Core Code
-
-→ **[Core Patches Guide](./extensions/core-patches.md)**
-
-**Warning**: Only for rare cases when plugins are insufficient.
-
-Documents:
-- When to use patches (almost never)
-- Plugin-first policy
-- Documentation requirements
-- Conflict mitigation
-
-#### Sync with Upstream
-
-→ **[Sync Process Documentation](./sync-process.md)**
-
-Explains:
-- Automated daily sync
-- Conflict handling
-- AI-assisted resolution
-- Manual resolution steps
-- Rollback procedures
 
 ## Key Concepts
 
@@ -210,23 +172,6 @@ Posts results as GitHub comment
 
 See [Snail Integration Guide](./extensions/snail-integration.md) for details.
 
-### Upstream Synchronization
-
-Daily automated sync with upstream Claude Code:
-
-```
-Fetch upstream changes
-           ↓
-Auto-merge if possible
-           ↓
-AI agent resolves conflicts
-           ↓
-Manual resolution if needed
-           ↓
-Update submodule pointer
-```
-
-See [Sync Process](./sync-process.md) for details.
 
 ## Development Workflow
 
@@ -457,20 +402,6 @@ See plugin README files for usage details.
 - Leave workflows untested
 - Commit secrets to repository
 
-### Upstream Synchronization
-
-✅ **Do**:
-- Sync regularly (daily automated)
-- Document all patches thoroughly
-- Test after merging
-- Convert patches to plugins when possible
-- Monitor sync health
-
-❌ **Don't**:
-- Ignore sync conflicts
-- Skip patch documentation
-- Merge without testing
-- Create unnecessary patches
 
 ## Troubleshooting
 
@@ -492,14 +423,6 @@ See: [Testing Guide - Common Issues](./extensions/testing-guide.md#common-issues
 
 See: [Snail Integration - Troubleshooting](./extensions/snail-integration.md#troubleshooting)
 
-### Merge Conflicts on Sync
-
-1. Check `.unleashed/patches/` for documentation
-2. Review conflicting files
-3. Follow manual resolution steps
-4. Update patch documentation
-
-See: [Sync Process - Manual Resolution](./sync-process.md#manual-resolution-steps)
 
 ## Contributing
 
@@ -514,9 +437,9 @@ See: [Sync Process - Manual Resolution](./sync-process.md#manual-resolution-step
 ### For Core Contributors
 
 1. Check if functionality can be a plugin (usually yes)
-2. Read [Core Patches Guide](./extensions/core-patches.md) if patch needed
+2. Modify Rust source in `src/` for TUI/CLI changes
 3. Document extensively
-4. Test sync compatibility
+4. Run `cargo test` to verify
 5. Create detailed PR
 
 ### For Documentation
@@ -537,10 +460,8 @@ See: [Sync Process - Manual Resolution](./sync-process.md#manual-resolution-step
 
 **Extension Development:**
 - [Plugin Development Guide](./extensions/plugin-development.md) - Comprehensive plugin creation
-- [Core Patches Guide](./extensions/core-patches.md) - Core modification policy
 - [Snail Integration Guide](./extensions/snail-integration.md) - GitHub Actions integration
 - [Testing Guide](./extensions/testing-guide.md) - Testing strategies
-- [Sync Process](./sync-process.md) - Upstream synchronization
 
 ### External Resources
 
@@ -586,12 +507,6 @@ A: Use `cc --plugin-dir /path/to/plugin` to load your plugin in isolation.
 
 **Q: Can plugins modify Claude Code behavior?**
 A: Yes, via hooks (PreToolUse, Stop, etc.) and agents. But modifications should be configurable and documented.
-
-**Q: How often does upstream sync occur?**
-A: Automatically daily at 2 AM UTC. Can also be triggered manually.
-
-**Q: What happens if sync conflicts occur?**
-A: AI agent attempts resolution first. If too complex, creates issue for manual resolution.
 
 **Q: Can I use multiple plugins together?**
 A: Yes! Plugins are designed to work together. Use multiple `--plugin-dir` flags.

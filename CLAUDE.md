@@ -50,60 +50,52 @@ restart-claude "Continue working on the feature"
 
 ## Repository Overview
 
-**Claude Unleashed** is a fork of Anthropic's official Claude Code CLI that extends functionality through a plugin-first architecture while maintaining zero-conflict upstream synchronization.
+**Claude Unleashed** is a wrapper around Anthropic's official Claude Code CLI that adds auto-mode, version management, and a plugin system — without modifying Claude Code itself.
 
 ### Key Principles
 
-1. **Never modify the `claude-code/` submodule** - It contains the upstream Anthropic code and must remain pristine
+1. **Claude Code is external** - Installed separately via native binary (GCS) or npm; never bundled or modified
 2. **All extensions are plugins** - Custom functionality goes in `plugins/` directory
 3. **Configuration over code** - Use `.claude/settings.json` for preferences
-4. **Daily upstream sync** - Changes from Anthropic flow in automatically
+4. **Auto-mode via hooks** - Stop hook + flag file system, not cli.js patching
 5. **Plugin isolation** - Each plugin is self-contained and independently testable
 
 ## Repository Structure
 
 ```
 claude-unleashed/
-├── src/                         # Rust TUI source (main entry point)
+├── src/                         # Rust TUI & CLI source (main entry point)
 │   └── main.rs
-├── Cargo.toml                   # TUI build configuration
+├── Cargo.toml                   # Build configuration + version lists
 ├── scripts/                     # All shell scripts consolidated here
 │   ├── install.sh              # Installation script
+│   ├── install-remote.sh       # Remote one-line installer
 │   ├── wrapper.sh              # Bash wrapper for self-restart
 │   ├── restart-claude          # Restart command
-│   ├── exit-claude             # Exit command
-│   ├── patch-claude.sh         # Apply Claude Code patches
-│   ├── unpatch-claude.sh       # Remove patches
-│   └── check-and-patch.sh      # Auto-patch on version change
+│   └── exit-claude             # Exit command
 ├── plugins/unleashed/           # Plugin extensions
 │   ├── auto-mode/              # Autonomous operation mode
 │   ├── mcp-refresh/            # MCP config change detection
 │   ├── process-restart/        # Self-restart hooks and commands
 │   └── voice-output/           # Text-to-speech output
-├── claude-code/                 # Git submodule (DO NOT MODIFY)
 ├── docs/                        # Documentation
 ├── tests/                       # Test scripts
 ├── .github/workflows/           # CI/CD workflows
 └── CLAUDE.md                    # This file - agent instructions
 ```
 
-## Understanding the Fork Structure
+## Understanding the Architecture
 
-### Three-Layer Architecture
+### Two-Layer Design
 
-1. **Upstream Layer** (`claude-code/` submodule)
-   - Official Anthropic repository
-   - Never modify directly
-   - Updated via `git submodule update --remote`
-   - Commit hash tracked in parent repository
+1. **Wrapper Layer** (this repository)
+   - Rust TUI for profile and version management
+   - Launches Claude Code with `--dangerously-skip-permissions`
+   - Auto-mode via Stop hook + flag file system
+   - Plugin loading via `--plugin-dir`
+   - Version management (install, switch, whitelist/blacklist)
 
-2. **Fork Layer** (this repository)
-   - Manages submodule reference
-   - Hosts plugin infrastructure
-   - Organizational configuration
-   - GitHub Actions workflows
-
-3. **Extension Layer** (`plugins/`)
+2. **Extension Layer** (`plugins/`)
    - Custom functionality
    - Team-specific integrations
    - Workflow automations
@@ -113,13 +105,13 @@ claude-unleashed/
 
 When working on this repository:
 
-- **Reading upstream code**: Navigate to `claude-code/` to understand base functionality
 - **Adding features**: Create or modify plugins in `plugins/`
+- **TUI/CLI changes**: Modify Rust source in `src/`
 - **Configuration changes**: Edit `.claude/settings.json`
-- **Workflow changes**: Modify files in `.github/workflows/`
+- **Version lists**: Edit `Cargo.toml` (whitelist/blacklist sections)
 - **Documentation**: Update `README.md` or `docs/extensions/`
 
-**CRITICAL**: If you find yourself about to modify a file inside `claude-code/`, STOP. The correct approach is to create or extend a plugin instead.
+**NOTE**: Claude Code is installed separately (via native binary or npm). This repo does not contain or modify Claude Code source.
 
 ## Plugin Development Workflow
 
@@ -173,7 +165,7 @@ When working on this repository:
 - Follow existing plugin patterns
 
 **DON'T:**
-- Modify files in `claude-code/` submodule
+- Modify Claude Code source files (it's installed externally)
 - Create plugins that depend on specific upstream versions
 - Hardcode organization-specific values (use config)
 - Create circular dependencies between plugins
@@ -229,47 +221,6 @@ Add to `.claude/settings.json`:
 ## Usage
 
 Describe how to use the plugin.
-```
-
-## Sync Process Awareness
-
-### Daily Upstream Sync
-
-The repository has (or will have) automated daily syncs with upstream:
-
-```
-.github/workflows/sync-upstream.yml runs daily:
-1. Fetch anthropics/claude-code latest
-2. Update submodule reference
-3. Run compatibility tests
-4. Create PR if changes detected
-5. Auto-merge if tests pass
-```
-
-### What This Means for Agents
-
-- **Check for sync PRs**: Look for automated PRs titled "chore: sync with upstream"
-- **Review compatibility**: Ensure plugins still work after upstream changes
-- **Update documentation**: If upstream adds features, document in README.md
-- **Handle conflicts**: If sync fails, investigate plugin incompatibilities
-
-### Manual Sync
-
-If a user requests manual sync:
-
-```bash
-# Update submodule to latest
-git submodule update --remote claude-code
-
-# Verify no local changes in submodule
-cd claude-code
-git status  # Should be clean
-
-# Commit the update
-cd ..
-git add claude-code
-git commit -m "chore: sync with upstream claude-code"
-git push
 ```
 
 ## Working with Snail Integration
@@ -370,7 +321,7 @@ describe('MyPlugin', () => {
 
 ### Investigating Upstream Changes
 
-1. Check submodule: `cd claude-code && git log`
+1. Check Claude Code changelog: `claude --version`
 2. Review changes: `git diff HEAD~1`
 3. Test compatibility: Run plugin tests
 4. Update plugins: Adapt if needed
@@ -404,43 +355,10 @@ cat .claude/settings.json
 npm start --verbose  # or bun start
 ```
 
-### Submodule Issues
-
-**Check:**
-1. Is submodule initialized? `git submodule status`
-2. Are there local modifications? `cd claude-code && git status`
-3. Is it on correct commit? `git submodule`
-
-**Solution:**
-```bash
-# Reinitialize submodule
-git submodule update --init --recursive
-
-# Reset to tracked commit
-git submodule update --force
-
-# Sync with upstream
-git submodule update --remote claude-code
-```
-
-### Upstream Sync Failures
-
-**Check:**
-1. Are tests failing?
-2. Plugin incompatibilities?
-3. Configuration conflicts?
-
-**Solution:**
-1. Review test output
-2. Update plugins for compatibility
-3. Adjust `.claude/settings.json` if needed
-4. Create issue if upstream breaking change
-
 ## Links to Documentation
 
 ### Internal Documentation
 - **Plugin Development**: `docs/extensions/plugin-development.md`
-- **Upstream Sync**: `docs/sync-process.md`
 - **GitHub Integration**: `docs/extensions/snail-integration.md`
 
 ### External Resources
@@ -451,26 +369,15 @@ git submodule update --remote claude-code
 ## Quick Reference Commands
 
 ```bash
-# Initialize submodules
-git submodule update --init --recursive
-
-# Update to latest upstream
-git submodule update --remote claude-code
-
 # Create new plugin
 mkdir -p plugins/my-plugin && cd plugins/my-plugin
 
-# Run Claude Code
-cd claude-code && npm start
-
-# Run tests
-npm test
+# Build and test
+cargo build --release
+cargo test
 
 # View enabled plugins
 cat .claude/settings.json | grep -A 10 "plugins"
-
-# Check submodule status
-git submodule status
 ```
 
 ## Agent Response Templates
@@ -491,19 +398,6 @@ This approach ensures:
 - Isolated and testable
 ```
 
-### When Asked to Modify Upstream Code
-
-```markdown
-I notice you're asking me to modify code in the `claude-code/` submodule. This directory contains the upstream Anthropic code and should not be modified directly.
-
-Instead, I recommend:
-1. If this is a bug fix or general improvement: Contribute to [anthropics/claude-code](https://github.com/anthropics/claude-code)
-2. If this is organization-specific: Create a plugin in `plugins/` directory
-3. If this is configuration: Update `.claude/settings.json`
-
-Which approach would you prefer?
-```
-
 ### When Investigating Issues
 
 ```markdown
@@ -511,9 +405,8 @@ I'll investigate this issue systematically:
 
 1. Checking plugin configuration in `.claude/settings.json`
 2. Reviewing relevant plugin code in `plugins/`
-3. Examining upstream submodule if needed (read-only)
-4. Testing the scenario
-5. Proposing a solution (plugin update or new plugin)
+3. Testing the scenario
+4. Proposing a solution (plugin update or new plugin)
 
 Let me start by examining...
 ```
@@ -521,12 +414,11 @@ Let me start by examining...
 ## Final Notes
 
 - **Think plugin-first**: Always consider if a plugin is the right solution
-- **Respect the architecture**: The three-layer design is intentional
+- **Respect the architecture**: The wrapper + plugin design is intentional
 - **Document everything**: Future agents and users will thank you
 - **Test thoroughly**: Plugins should be reliable and well-tested
-- **Keep it clean**: Don't modify the submodule, ever
 
-When in doubt, create a plugin. It's easier to merge plugins later than to untangle modifications from the upstream codebase.
+When in doubt, create a plugin.
 
 ---
 

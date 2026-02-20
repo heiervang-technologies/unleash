@@ -2,7 +2,7 @@
 
 ## Overview
 
-This guide covers developing custom plugins for the agent-unleashed repository, which is a fork of Claude Code enhanced with AI agent automation capabilities via GitHub Actions and snail-core integration.
+This guide covers developing custom plugins for the agent-unleashed repository, which is a wrapper around Claude Code enhanced with AI agent automation capabilities via GitHub Actions and snail-core integration.
 
 Plugins extend Claude Code with custom commands, agents, skills, hooks, and MCP (Model Context Protocol) integrations. The plugin-first approach ensures minimal merge conflicts when syncing with upstream Claude Code updates.
 
@@ -1181,10 +1181,8 @@ Version bump guidelines:
 
 ## Additional Resources
 
-- [Core Patches Guide](./core-patches.md) - When core modifications are unavoidable
 - [Snail Integration Guide](./snail-integration.md) - GitHub Actions integration
 - [Testing Guide](./testing-guide.md) - Comprehensive testing strategies
-- [Sync Process](../sync-process.md) - Upstream synchronization
 
 ## Getting Help
 

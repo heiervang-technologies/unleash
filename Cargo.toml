@@ -53,7 +53,7 @@ codegen-units = 16
 # default_mode: "whitelist" (only allow listed) or "blacklist" (block listed)
 # Users can override mode in ~/.config/agent-unleashed/config.toml with version_filter_mode
 [package.metadata.claude-code-versions]
-default_mode = "whitelist"
+default_mode = "blacklist"
 
 # Whitelist - verified working versions (used when mode = "whitelist")
 # Only these versions will be installed when using "latest"

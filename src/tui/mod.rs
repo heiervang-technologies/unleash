@@ -28,7 +28,7 @@ pub fn run() -> io::Result<()> {
         return Err(io::Error::new(
             io::ErrorKind::Unsupported,
             "TUI requires a terminal (TTY). This command cannot run in headless environments.\n\
-             Use non-TUI commands instead: au auth, au version, au patch, au go",
+             Use non-TUI commands instead: au auth, au version, au go",
         ));
     }
 
@@ -58,11 +58,6 @@ pub fn run() -> io::Result<()> {
     match result {
         Ok(Some(action)) => match action {
             AppAction::Launch(launch_request) => {
-                // Ensure patches are applied before launching
-                if let Err(e) = crate::patcher::check_and_patch() {
-                    eprintln!("Warning: Failed to check/apply patches: {}", e);
-                }
-
                 // Launch Claude directly - no transition messages for seamless flow
                 match launch_request.execute() {
                     Ok(status) => {

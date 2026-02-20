@@ -30,7 +30,3 @@ build/
 *.egg-info/
 target/
 scripts/cu
-
-# Codex submodule artifacts
-codex-unleashed/package.json
-codex-unleashed/package-lock.json

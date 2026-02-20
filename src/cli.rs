@@ -50,7 +50,6 @@ pub fn get_full_version() -> String {
 A wrapper for AI code agents (Claude, Codex, etc.) with extended features:
   - Self-restart capability for MCP server reloading
   - Plugin system integration (loads from plugins/unleashed/)
-  - Auto-patching for unleashed features
   - Automatic onboarding bypass
   - TUI for profile and version management
   - Headless tmux mode for automation
@@ -104,13 +103,6 @@ pub enum Commands {
         /// Arguments for tmux subcommand (start, send, read, wait, attach, stop, status)
         #[arg(trailing_var_arg = true)]
         args: Vec<String>,
-    },
-
-    /// Patch Claude Code for auto mode
-    Patch {
-        /// Just check if patching is needed (don't apply)
-        #[arg(short, long)]
-        check: bool,
     },
 
     /// Manage Claude Code versions

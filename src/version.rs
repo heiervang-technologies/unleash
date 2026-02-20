@@ -4,8 +4,8 @@
 //! and switching between versions for multiple agents.
 //!
 //! Supports two filtering modes per agent:
-//! - **Whitelist mode** (default): Only whitelisted versions are allowed
-//! - **Blacklist mode**: All versions except blacklisted ones are allowed
+//! - **Blacklist mode** (default for Claude): All versions except blacklisted ones are allowed
+//! - **Whitelist mode** (default for Codex): Only whitelisted versions are allowed
 
 use crate::agents::AgentType;
 use crate::json_output::{self, VersionListItem, VersionListOutput, VersionOutput};
@@ -23,7 +23,7 @@ include!(concat!(env!("OUT_DIR"), "/version_lists.rs"));
 /// Version filter mode
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum VersionFilterMode {
-    /// Only whitelisted versions are allowed (default)
+    /// Only whitelisted versions are allowed
     Whitelist,
     /// All versions except blacklisted ones are allowed
     Blacklist,
@@ -217,7 +217,6 @@ pub fn is_version_allowed(version: &str) -> bool {
 pub struct VersionInfo {
     pub version: String,
     pub is_installed: bool,
-    pub has_patch: bool,
     pub is_whitelisted: bool,
     pub is_blacklisted: bool,
 }
@@ -233,45 +232,11 @@ pub struct InstallResult {
 }
 
 /// Version manager for code agents
-pub struct VersionManager {
-    /// Path to patches directory (for checking supported Claude versions)
-    patches_dir: Option<PathBuf>,
-}
+pub struct VersionManager;
 
 impl VersionManager {
     pub fn new() -> Self {
-        // Try to find patches directory relative to exe or in common locations
-        let patches_dir = Self::find_patches_dir();
-        Self { patches_dir }
-    }
-
-    fn find_patches_dir() -> Option<PathBuf> {
-        // Try relative to executable
-        if let Ok(exe_path) = std::env::current_exe() {
-            // Check ~/.local/bin/patches
-            if let Some(bin_dir) = exe_path.parent() {
-                let patches = bin_dir.join("patches/versions");
-                if patches.exists() {
-                    return Some(patches);
-                }
-            }
-        }
-
-        // Try ~/.local/bin/patches
-        if let Some(home) = dirs::home_dir() {
-            let patches = home.join(".local/bin/patches/versions");
-            if patches.exists() {
-                return Some(patches);
-            }
-        }
-
-        // Try repo location (for development)
-        let repo_patches = PathBuf::from("scripts/patches/versions");
-        if repo_patches.exists() {
-            return Some(repo_patches);
-        }
-
-        None
+        Self
     }
 
     // ── Claude Code ──────────────────────────────────────────────
@@ -295,29 +260,6 @@ impl VersionManager {
         } else {
             None
         }
-    }
-
-    /// Get list of Claude versions that have patch configs
-    pub fn get_supported_versions(&self) -> Vec<String> {
-        let mut versions = Vec::new();
-
-        if let Some(ref patches_dir) = self.patches_dir {
-            if let Ok(entries) = std::fs::read_dir(patches_dir) {
-                for entry in entries.flatten() {
-                    let path = entry.path();
-                    if path.extension().is_some_and(|ext| ext == "conf") {
-                        if let Some(stem) = path.file_stem() {
-                            versions.push(stem.to_string_lossy().to_string());
-                        }
-                    }
-                }
-            }
-        }
-
-        // Sort versions
-        versions.sort_by(|a, b| version_compare(a, b));
-        versions.reverse(); // Newest first
-        versions
     }
 
     /// Get the latest Claude Code version from GCS
@@ -472,38 +414,17 @@ impl VersionManager {
     /// Get combined Claude Code version list with status
     pub fn get_version_list(&self) -> Vec<VersionInfo> {
         let installed = self.get_installed_version();
-        let supported = self.get_supported_versions();
         let available = self.get_available_versions().unwrap_or_default();
 
-        // Combine supported and available, removing duplicates
-        let mut seen = std::collections::HashSet::new();
-        let mut versions = Vec::new();
-
-        // Add supported versions first (they have patches)
-        for v in &supported {
-            if seen.insert(v.clone()) {
-                versions.push(VersionInfo {
-                    version: v.clone(),
-                    is_installed: installed.as_ref() == Some(v),
-                    has_patch: true,
-                    is_whitelisted: is_whitelisted_for(v, AgentType::Claude),
-                    is_blacklisted: is_blacklisted_for(v, AgentType::Claude),
-                });
-            }
-        }
-
-        // Add other available versions
-        for v in &available {
-            if seen.insert(v.clone()) {
-                versions.push(VersionInfo {
-                    version: v.clone(),
-                    is_installed: installed.as_ref() == Some(v),
-                    has_patch: supported.contains(v),
-                    is_whitelisted: is_whitelisted_for(v, AgentType::Claude),
-                    is_blacklisted: is_blacklisted_for(v, AgentType::Claude),
-                });
-            }
-        }
+        let mut versions: Vec<VersionInfo> = available
+            .into_iter()
+            .map(|v| VersionInfo {
+                is_installed: installed.as_ref() == Some(&v),
+                is_whitelisted: is_whitelisted_for(&v, AgentType::Claude),
+                is_blacklisted: is_blacklisted_for(&v, AgentType::Claude),
+                version: v,
+            })
+            .collect();
 
         // Sort by version (newest first)
         versions.sort_by(|a, b| version_compare(&b.version, &a.version));
@@ -512,9 +433,15 @@ impl VersionManager {
     }
 
     /// Install a specific version of Claude Code
-    /// Tries npm first (produces patchable cli.js), falls back to native binary from GCS
+    /// Tries native binary from GCS first, falls back to npm
     pub fn install_version(&self, version: &str) -> io::Result<InstallResult> {
-        // Try npm first (preserves patchable cli.js for auto-mode support)
+        // Try native (GCS) first
+        let native_result = self.install_version_native(version)?;
+        if native_result.success {
+            return Ok(native_result);
+        }
+
+        // Fallback: try npm
         if Self::has_npm() {
             let output = Command::new("npm")
                 .args(["install", "-g", "--force", &format!("@anthropic-ai/claude-code@{}", version)])
@@ -547,11 +474,10 @@ impl VersionManager {
                     error: None,
                 });
             }
-            // npm install failed, fall through to native
         }
 
-        // Fallback: install via native binary from GCS
-        self.install_version_native(version)
+        // Both methods failed - return the native error
+        Ok(native_result)
     }
 
     /// Install Claude Code using the native installer (GCS binary download)
@@ -648,65 +574,6 @@ impl VersionManager {
         })
     }
 
-    /// Run the patch script for the installed Claude version
-    pub fn run_patch(&self) -> io::Result<InstallResult> {
-        let patch_script = self.find_patch_script()?;
-
-        let output = Command::new("bash")
-            .arg(&patch_script)
-            .output()?;
-
-        let stdout = String::from_utf8_lossy(&output.stdout).to_string();
-        let stderr = String::from_utf8_lossy(&output.stderr).to_string();
-
-        if output.status.success() {
-            Ok(InstallResult {
-                success: true,
-                stdout,
-                stderr,
-                error: None,
-            })
-        } else {
-            Ok(InstallResult {
-                success: false,
-                stdout,
-                stderr,
-                error: Some("Patch script failed".to_string()),
-            })
-        }
-    }
-
-    fn find_patch_script(&self) -> io::Result<PathBuf> {
-        // Try relative to patches dir
-        if let Some(ref patches_dir) = self.patches_dir {
-            let script = patches_dir.parent().and_then(|p| p.parent()).map(|p| p.join("patch-claude.sh"));
-            if let Some(s) = script {
-                if s.exists() {
-                    return Ok(s);
-                }
-            }
-        }
-
-        // Try ~/.local/bin
-        if let Some(home) = dirs::home_dir() {
-            let script = home.join(".local/bin/patch-claude.sh");
-            if script.exists() {
-                return Ok(script);
-            }
-        }
-
-        // Try current directory (development)
-        let script = PathBuf::from("scripts/patch-claude.sh");
-        if script.exists() {
-            return Ok(script);
-        }
-
-        Err(io::Error::new(
-            io::ErrorKind::NotFound,
-            "patch-claude.sh not found",
-        ))
-    }
-
     // ── Codex ────────────────────────────────────────────────────
 
     /// Get available Codex versions from GitHub releases (tags matching rust-v*)
@@ -749,7 +616,6 @@ impl VersionManager {
             versions.push(VersionInfo {
                 version: v.clone(),
                 is_installed: installed == Some(v.as_str()),
-                has_patch: false,
                 is_whitelisted: is_whitelisted_for(v, AgentType::Codex),
                 is_blacklisted: is_blacklisted_for(v, AgentType::Codex),
             });
@@ -871,7 +737,7 @@ impl VersionManager {
 
 impl Default for VersionManager {
     fn default() -> Self {
-        Self::new()
+        Self
     }
 }
 
@@ -914,7 +780,6 @@ pub fn list_versions(json: bool) -> io::Result<()> {
                 .map(|info| VersionListItem {
                     version: info.version,
                     is_installed: info.is_installed,
-                    has_patch: info.has_patch,
                     is_whitelisted: info.is_whitelisted,
                     is_blacklisted: info.is_blacklisted,
                 })
@@ -927,14 +792,12 @@ pub fn list_versions(json: bool) -> io::Result<()> {
 
         for info in versions {
             let installed = if info.is_installed { " [installed]" } else { "" };
-            let patch = if info.has_patch { " *" } else { "" };
             let whitelisted = if info.is_whitelisted { " ✓" } else { "" };
             let blacklisted = if info.is_blacklisted { " ⛔" } else { "" };
-            println!("  v{}{}{}{}{}", info.version, installed, patch, whitelisted, blacklisted);
+            println!("  v{}{}{}{}", info.version, installed, whitelisted, blacklisted);
         }
 
         println!();
-        println!("  * = has auto-mode patch available");
         println!("  ✓ = whitelisted (verified working)");
         println!("  ⛔ = blacklisted (known issues)");
         if let Some(v) = current {
@@ -968,27 +831,9 @@ pub fn install_version(version: &str, json: bool) -> io::Result<()> {
     }
 
     if !json {
-        println!("Running patch...");
-    }
-
-    let patch_result = vm.run_patch();
-    let patch_warning = patch_result.is_err() || patch_result.as_ref().is_ok_and(|r| !r.success);
-
-    if !json {
-        if patch_warning {
-            println!("Warning: Patch failed (may not be available for this version)");
-        }
         println!("Done!");
     } else {
-        let message = if patch_warning {
-            format!(
-                "Successfully installed Claude Code v{} (patch not available)",
-                version
-            )
-        } else {
-            format!("Successfully installed Claude Code v{}", version)
-        };
-        json_output::print_success_json(&message);
+        json_output::print_success_json(&format!("Successfully installed Claude Code v{}", version));
     }
 
     Ok(())
@@ -1037,9 +882,8 @@ mod tests {
 
     #[test]
     fn test_version_manager_creation() {
-        let vm = VersionManager::new();
+        let _vm = VersionManager::new();
         // Should not panic
-        let _ = vm.get_supported_versions();
     }
 
     /// Create a mock "claude" binary that sleeps before outputting version.
@@ -1208,9 +1052,10 @@ mod tests {
 
     #[test]
     fn test_is_version_allowed_for() {
-        // Claude uses whitelist mode by default
+        // Claude uses blacklist mode by default
         assert!(is_version_allowed_for("2.1.12", AgentType::Claude));
-        assert!(!is_version_allowed_for("9.9.9", AgentType::Claude));
+        assert!(is_version_allowed_for("9.9.9", AgentType::Claude)); // not blacklisted = allowed
+        assert!(!is_version_allowed_for("2.1.5", AgentType::Claude)); // blacklisted
 
         // Codex uses whitelist mode by default
         assert!(is_version_allowed_for("0.93.0", AgentType::Codex));
@@ -1219,11 +1064,12 @@ mod tests {
 
     #[test]
     fn test_default_filter_mode() {
-        assert_eq!(DEFAULT_VERSION_FILTER_MODE, "whitelist");
+        assert_eq!(DEFAULT_VERSION_FILTER_MODE, "blacklist");
         assert_eq!(DEFAULT_CODEX_VERSION_FILTER_MODE, "whitelist");
     }
 
-    /// Create a mock "npm" binary that captures arguments to a file.
+    /// Create a mock "npm" binary that captures arguments to a file,
+    /// and a mock "curl" that always fails (so native install falls through to npm).
     fn create_mock_npm() -> (TempDir, PathBuf, PathBuf) {
         let temp = TempDir::new().unwrap();
         let mock_path = temp.path().to_path_buf();
@@ -1236,12 +1082,18 @@ mod tests {
         );
         std::fs::write(&mock_npm, script).unwrap();
 
+        // Mock curl to always fail so native GCS install falls through to npm
+        let mock_curl = mock_path.join("curl");
+        std::fs::write(&mock_curl, "#!/bin/bash\nexit 1\n").unwrap();
+
         #[cfg(unix)]
         {
             use std::os::unix::fs::PermissionsExt;
-            let mut perms = std::fs::metadata(&mock_npm).unwrap().permissions();
-            perms.set_mode(0o755);
-            std::fs::set_permissions(&mock_npm, perms).unwrap();
+            for bin in [&mock_npm, &mock_curl] {
+                let mut perms = std::fs::metadata(bin).unwrap().permissions();
+                perms.set_mode(0o755);
+                std::fs::set_permissions(bin, perms).unwrap();
+            }
         }
 
         (temp, mock_path, args_file)

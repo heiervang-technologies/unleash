@@ -945,5 +945,4 @@ autx start
 ## Related Documentation
 
 - [Restart and Refresh](./restart-refresh.md) - Auto mode and session management
-- [Core Patches](./core-patches.md) - Claude Code modifications
 - [Plugin Development](./plugin-development.md) - Extending Agent Unleashed

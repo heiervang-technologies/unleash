@@ -121,7 +121,7 @@ fn default_theme() -> String {
 
 fn default_agent_cli_path() -> String {
     // Default to aug (au go) for full unleashed features:
-    // - Auto-patching for auto mode
+    // - Auto-mode via Stop hook enforcement
     // - Restart/resurrection support
     // - Plugin loading
     // - Extended timeouts

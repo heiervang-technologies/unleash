@@ -16,11 +16,10 @@
 #   BUILD_FROM_SOURCE        - Set to "1" to build from source instead of downloading binary
 #
 # This script:
-# 1. Checks prerequisites (npm, optionally cargo)
-# 2. Installs Claude Code via npm if not present
+# 1. Checks prerequisites (curl/wget, optionally cargo)
+# 2. Installs Claude Code (native binary preferred, npm fallback)
 # 3. Downloads pre-built binary or builds from source
 # 4. Sets up au/aui/aug/autx commands
-# 5. Runs initial patch
 
 set -euo pipefail
 
@@ -116,10 +115,9 @@ check_prerequisites() {
         missing+=("curl or wget")
     fi
 
-    # npm is preferred but not required (native binary fallback available)
+    # npm is optional (native binary is preferred, npm is fallback)
     if ! command -v npm &> /dev/null; then
         warn "npm not found - Claude Code will be installed via native binary"
-        warn "Install Node.js (https://nodejs.org/) for npm-based install (preferred for auto-mode patching)"
     fi
 
     # If building from source, check for cargo
@@ -238,8 +236,8 @@ get_default_mode() {
         fi
     fi
 
-    # Default to whitelist mode
-    echo "whitelist"
+    # Default to blacklist mode
+    echo "blacklist"
 }
 
 # Check if a version is whitelisted
@@ -463,7 +461,7 @@ install_native_claude_code() {
 }
 
 # Install or update Claude Code
-# Prefers npm (produces patchable cli.js), falls back to native binary from GCS
+# Prefers native binary from GCS, falls back to npm
 install_claude_code() {
     local current_version=""
     local target_version="$CLAUDE_CODE_VERSION"
@@ -516,13 +514,16 @@ install_claude_code() {
         info "Installing Claude Code v${target_version}..."
     fi
 
-    if command -v npm &> /dev/null; then
-        # Prefer npm install (produces patchable cli.js for auto-mode)
+    # Prefer native binary from GCS (no Node.js dependency)
+    if install_native_claude_code "$target_version" 2>/dev/null; then
+        : # install_native_claude_code already prints success
+    elif command -v npm &> /dev/null; then
+        # Fallback: npm install
+        warn "Native binary install failed, falling back to npm"
         npm install -g "@anthropic-ai/claude-code@${target_version}"
     else
-        # Fallback: native install from GCS (no Node.js dependency)
-        warn "npm not found, using native binary installer"
-        install_native_claude_code "$target_version"
+        error "Neither native binary nor npm install succeeded"
+        return 1
     fi
 
     local new_version
@@ -657,16 +658,6 @@ build_from_source() {
 install_support_files() {
     info "Installing support files..."
 
-    # Download patches directory (for auto-mode patching)
-    mkdir -p "${INSTALL_DIR}/patches/versions"
-
-    # Get list of patch configs from repo
-    for version in "2.1.0" "2.1.2" "2.1.3" "2.1.4" "2.1.5" "2.1.12"; do
-        if download "${RAW_URL}/scripts/patches/versions/${version}.conf" "${INSTALL_DIR}/patches/versions/${version}.conf" 2>/dev/null; then
-            :
-        fi
-    done
-
     # Download restart/exit helper scripts (for MCP tools)
     for script in "restart-claude" "exit-claude"; do
         if download "${RAW_URL}/scripts/${script}" "${INSTALL_DIR}/${script}" 2>/dev/null; then
@@ -745,20 +736,6 @@ EOF
     success "Onboarding bypass configured"
 }
 
-# Run initial patch
-run_patch() {
-    if command -v claude &> /dev/null; then
-        info "Patching Claude Code for auto mode..."
-
-        # Use the au binary's built-in patch command
-        if "${INSTALL_DIR}/au" patch 2>/dev/null; then
-            success "Claude Code patched"
-        else
-            warn "Patch failed (may need to run manually after updating PATH)"
-        fi
-    fi
-}
-
 # Main installation
 main() {
     echo ""
@@ -801,11 +778,8 @@ main() {
         fi
     fi
 
-    # Install support files (patches, helper scripts)
+    # Install support files (helper scripts)
     install_support_files
-
-    # Run patch
-    run_patch
 
     # Configure onboarding bypass
     ensure_onboarding_complete

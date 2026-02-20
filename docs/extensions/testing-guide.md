@@ -1367,6 +1367,5 @@ jobs:
 
 - [Plugin Development Guide](./plugin-development.md)
 - [Snail Integration Guide](./snail-integration.md)
-- [Core Patches Guide](./core-patches.md)
 - Claude Code Documentation
 - GitHub Actions Documentation

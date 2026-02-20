@@ -1,9 +1,0 @@
-[submodule "claude-code"]
-	path = claude-code
-	url = https://github.com/anthropics/claude-code.git
-	branch = main
-	ignore = dirty
-[submodule "codex-unleashed/codex"]
-	path = codex-unleashed/codex
-	url = https://github.com/openai/codex.git
-	branch = main

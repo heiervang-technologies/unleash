@@ -152,21 +152,18 @@ pub struct InstallState {
     pub start_time: Instant,
     pub current_step: InstallStep,
     pub install_result: Option<InstallResult>,
-    pub patch_result: Option<InstallResult>,
 }
 
 /// Current step in the installation process
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum InstallStep {
     Installing,
-    Patching,
     Done,
 }
 
 /// Result from a single installation step
 pub enum InstallStepResult {
     InstallComplete(InstallResult),
-    PatchComplete(InstallResult),
 }
 
 /// Spinner animation frames
@@ -472,20 +469,7 @@ impl App {
             while let Ok(result) = state.receiver.try_recv() {
                 match result {
                     InstallStepResult::InstallComplete(install_result) => {
-                        state.install_result = Some(install_result.clone());
-                        if install_result.success {
-                            // Only Claude Code has a patching step
-                            if state.agent_type == AgentType::Claude {
-                                state.current_step = InstallStep::Patching;
-                            } else {
-                                state.current_step = InstallStep::Done;
-                            }
-                        } else {
-                            state.current_step = InstallStep::Done;
-                        }
-                    }
-                    InstallStepResult::PatchComplete(patch_result) => {
-                        state.patch_result = Some(patch_result);
+                        state.install_result = Some(install_result);
                         state.current_step = InstallStep::Done;
                     }
                 }
@@ -498,7 +482,6 @@ impl App {
                 let agent_name = agent_type.display_name();
                 let is_allowed = state.is_allowed;
                 let install_ok = state.install_result.as_ref().is_some_and(|r| r.success);
-                let patch_ok = state.patch_result.as_ref().is_some_and(|r| r.success);
 
                 self.status_message = Some(if !install_ok {
                     let err = state
@@ -507,19 +490,8 @@ impl App {
                         .and_then(|r| r.error.clone())
                         .unwrap_or_else(|| "unknown error".to_string());
                     format!("{} install failed: {}", agent_name, err)
-                } else if agent_type == AgentType::Claude {
-                    // Claude-specific messages include patch status
-                    if patch_ok {
-                        if !is_allowed {
-                            format!("Installed and patched v{} (not recommended)", version)
-                        } else {
-                            format!("Installed and patched v{}", version)
-                        }
-                    } else if !is_allowed {
-                        format!("Installed v{} (not recommended, patch unavailable)", version)
-                    } else {
-                        format!("Installed v{} (patch unavailable)", version)
-                    }
+                } else if !is_allowed {
+                    format!("{} v{} installed (not recommended)", agent_name, version)
                 } else {
                     format!("{} v{} installed", agent_name, version)
                 });
@@ -698,7 +670,6 @@ impl App {
             versions.push(VersionInfo {
                 version: v.clone(),
                 is_installed: true,
-                has_patch: false,
                 is_whitelisted: is_whitelisted_for(&v, AgentType::Codex),
                 is_blacklisted: is_blacklisted_for(&v, AgentType::Codex),
             });
@@ -1102,7 +1073,7 @@ impl App {
         }
     }
 
-    /// Install a selected Claude Code version (npm + patch)
+    /// Install a selected Claude Code version via npm
     fn install_claude_version(&mut self) {
         if let Some(version_info) = self.versions.get(self.version_menu.selected) {
             let version = version_info.version.clone();
@@ -1130,7 +1101,6 @@ impl App {
             let handle = thread::spawn(move || {
                 let vm = VersionManager::new();
 
-                // Step 1: Install
                 let install_result =
                     vm.install_version(&version_clone).unwrap_or_else(|e| InstallResult {
                         success: false,
@@ -1138,19 +1108,7 @@ impl App {
                         stderr: String::new(),
                         error: Some(e.to_string()),
                     });
-                let install_ok = install_result.success;
                 let _ = tx.send(InstallStepResult::InstallComplete(install_result));
-
-                // Step 2: Patch (only if install succeeded)
-                if install_ok {
-                    let patch_result = vm.run_patch().unwrap_or_else(|e| InstallResult {
-                        success: false,
-                        stdout: String::new(),
-                        stderr: String::new(),
-                        error: Some(e.to_string()),
-                    });
-                    let _ = tx.send(InstallStepResult::PatchComplete(patch_result));
-                }
             });
 
             self.install_state = Some(InstallState {
@@ -1162,7 +1120,6 @@ impl App {
                 start_time: Instant::now(),
                 current_step: InstallStep::Installing,
                 install_result: None,
-                patch_result: None,
             });
         }
     }
@@ -1208,7 +1165,6 @@ impl App {
                 start_time: Instant::now(),
                 current_step: InstallStep::Installing,
                 install_result: None,
-                patch_result: None,
             });
         }
     }
@@ -2338,8 +2294,6 @@ impl App {
 
     /// Render the version list for the currently selected agent
     fn render_version_list(&mut self, frame: &mut Frame, area: Rect) {
-        let is_claude = self.version_agent == AgentType::Claude;
-
         // Calculate visible height (area minus legend lines)
         let legend_lines: u16 = 3;
         let visible_height = area.height.saturating_sub(legend_lines) as usize;
@@ -2386,7 +2340,6 @@ impl App {
                     let prefix = if is_selected { "> " } else { "  " };
                     let installed_marker =
                         if version_info.is_installed { " [installed]" } else { "" };
-                    let patch_marker = if version_info.has_patch { " *" } else { "" };
                     let whitelist_marker = if version_info.is_whitelisted { " ✓" } else { "" };
                     let blacklist_marker = if version_info.is_blacklisted { " ⛔" } else { "" };
 
@@ -2394,7 +2347,6 @@ impl App {
                         Span::styled(prefix, style),
                         Span::styled(format!("v{}", version_info.version), style),
                         Span::styled(installed_marker, Style::default().fg(Color::Green)),
-                        Span::styled(patch_marker, Style::default().fg(Color::Yellow)),
                         Span::styled(whitelist_marker, Style::default().fg(Color::Green)),
                         Span::styled(blacklist_marker, Style::default().fg(Color::Red)),
                     ])])
@@ -2407,11 +2359,7 @@ impl App {
         // Add legend at the bottom
         if !self.versions.is_empty() {
             list_items.push(ListItem::new(Line::from("")));
-            let legend = if is_claude {
-                "  * = has auto-mode patch  ✓ = whitelisted  ⛔ = blacklisted"
-            } else {
-                "  ✓ = whitelisted  ⛔ = blacklisted"
-            };
+            let legend = "  ✓ = whitelisted  ⛔ = blacklisted";
             list_items.push(ListItem::new(Line::from(Span::styled(
                 legend,
                 Style::default().fg(Color::DarkGray),
@@ -2454,10 +2402,6 @@ impl App {
                 InstallStep::Installing => (
                     format!("{} Installing {} {}...", spinner, agent_name, version),
                     install_cmd,
-                ),
-                InstallStep::Patching => (
-                    format!("{} Applying patches for {}...", spinner, version),
-                    "patch-claude.sh".to_string(),
                 ),
                 InstallStep::Done => (
                     format!("✓ {} {} installation complete", agent_name, version),
@@ -3108,7 +3052,6 @@ mod tests {
         app.versions = vec![VersionInfo {
             version: "0.93.0".to_string(),
             is_installed: false,
-            has_patch: false,
             is_whitelisted: true,
             is_blacklisted: false,
         }];
@@ -3127,7 +3070,7 @@ mod tests {
     }
 
     #[test]
-    fn test_codex_install_skips_patching() {
+    fn test_codex_install_completes_on_success() {
         let (mut app, _temp) = test_app();
 
         // Simulate a successful Codex install completing
@@ -3141,7 +3084,6 @@ mod tests {
             start_time: Instant::now(),
             current_step: InstallStep::Installing,
             install_result: None,
-            patch_result: None,
         });
 
         // Send successful install result
@@ -3155,8 +3097,7 @@ mod tests {
 
         app.tick();
 
-        // Codex should skip Patching and go straight to Done
-        // (tick processes Done and clears install_state)
+        // Install should complete and clear install_state
         assert!(app.install_state.is_none());
         assert_eq!(app.screen, Screen::VersionManagement);
     }

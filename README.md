@@ -22,7 +22,7 @@ curl -fsSL -H "Authorization: token $GH_TOKEN" \
   https://raw.githubusercontent.com/heiervang-technologies/agent-unleashed/main/scripts/install-remote.sh | bash
 ```
 
-This installs/updates both **Claude Code** and **Agent Unleashed**, then applies the auto-mode patch.
+This installs/updates both **Claude Code** and **Agent Unleashed**.
 
 **After install:**
 ```bash
@@ -42,52 +42,48 @@ autx        # Headless mode for automation
 
 ## Overview
 
-**Agent Unleashed** is a fork of Anthropic's official [Claude Code](https://github.com/anthropics/claude-code) CLI that enables extensibility without modifying the core codebase. Instead of patching the upstream code directly, we maintain the original repository as a Git submodule and extend it through a comprehensive plugin system.
+**Agent Unleashed** is a wrapper around Anthropic's official [Claude Code](https://github.com/anthropics/claude-code) CLI that adds auto-mode, version management, and a plugin system — without modifying Claude Code itself.
 
 This approach provides:
-- **Zero upstream conflicts**: Pull updates from Anthropic's repository without merge conflicts
-- **Clean separation**: Core functionality remains untouched in the submodule
+- **Zero upstream conflicts**: Uses Claude Code as-is via native binary or npm install
+- **Auto-mode**: Stop hook + flag file system for autonomous operation (no cli.js patching)
 - **Plugin ecosystem**: Add custom features, integrations, and workflows as plugins
+- **Version management**: Install, switch, and manage Claude Code versions with whitelist/blacklist filtering
 - **Team collaboration**: Share plugins across your organization
-- **Daily sync**: Automated workflows keep you up-to-date with upstream changes
 
 ## Architecture
 
 ```
 agent-unleashed/
-├── src/                          # Rust TUI (main entry point)
+├── src/                          # Rust TUI & CLI (main entry point)
 │   └── main.rs
-├── Cargo.toml                    # TUI build configuration
+├── Cargo.toml                    # Build configuration + version lists
 ├── scripts/                      # Shell scripts
 │   ├── install.sh               # Installation script
+│   ├── install-remote.sh        # Remote one-line installer
 │   ├── restart-claude           # Restart command
 │   ├── exit-claude              # Exit command
-│   ├── patch-claude.sh          # Apply Claude Code patches
-│   ├── unpatch-claude.sh        # Remove patches
-│   └── check-and-patch.sh       # Auto-patch on version change
+│   └── wrapper.sh               # Bash wrapper for self-restart
 ├── plugins/unleashed/            # Plugin extensions
 │   ├── auto-mode/               # Autonomous operation mode
 │   ├── mcp-refresh/             # MCP config change detection
 │   ├── process-restart/         # Self-restart capability
 │   └── voice-output/            # Text-to-speech output
-├── claude-code/                  # Git submodule (upstream, never modify)
 ├── docs/                         # Documentation
 └── tests/                        # Test scripts
 ```
 
-### The Three-Layer Approach
+### How It Works
 
-1. **Upstream Layer** (`claude-code/` submodule)
-   - Official Anthropic claude-code repository
-   - Remains pristine and untouched
-   - Updated daily via automated sync
+Agent Unleashed wraps Claude Code (installed separately via native binary or npm) and extends it through:
 
-2. **Fork Layer** (this repository)
-   - Manages the submodule reference
-   - Hosts plugin infrastructure
-   - Provides organizational configuration
+1. **Wrapper Layer** (this repository)
+   - Rust TUI for profile and version management
+   - Launches Claude Code with `--dangerously-skip-permissions`
+   - Auto-mode via Stop hook + flag file system
+   - Plugin loading via `--plugin-dir`
 
-3. **Extension Layer** (`plugins/`)
+2. **Extension Layer** (`plugins/`)
    - Custom functionality as self-contained plugins
    - Organization-specific integrations
    - Team workflows and automations
@@ -107,36 +103,21 @@ All customizations are implemented as plugins. This keeps the core clean and mak
 - **process-restart**: Restart Claude Code while preserving session state and conversation history
 - **voice-output**: Multi-provider text-to-speech for Claude's responses (VibeVoice, OpenAI, ElevenLabs)
 
-## Daily Sync Workflow
+## Version Management
 
-Agent Unleashed automatically stays in sync with upstream changes:
+Agent Unleashed manages Claude Code versions with configurable filtering:
 
-```
-Every day at 2 AM UTC:
-┌──────────────────────────────────────────────────────┐
-│ 1. Fetch latest from anthropics/claude-code         │
-│ 2. Update submodule reference                       │
-│ 3. Run compatibility tests                          │
-│ 4. Create PR if changes detected                    │
-│ 5. Auto-merge if tests pass                         │
-└──────────────────────────────────────────────────────┘
-```
-
-This ensures you benefit from:
-- Latest bug fixes from Anthropic
-- New Claude Code features
-- Security patches
-- Performance improvements
-
-All while maintaining your custom plugins and configurations.
+- **Blacklist mode** (default for Claude): All versions allowed except known-bad ones
+- **Whitelist mode** (default for Codex): Only verified versions allowed
+- Version lists are maintained in `Cargo.toml` and compiled into the binary
 
 ## Quick Start
 
 ### Prerequisites
 
-- Node.js/npm (for Claude Code)
+- curl (for native Claude Code binary download) or Node.js/npm (fallback)
 - Git
-- Rust/Cargo (optional, for TUI)
+- Rust/Cargo (optional, for building TUI from source)
 - Claude Pro or Max subscription (required for authentication)
 
 ### Headless Environments
@@ -147,7 +128,7 @@ If you're running in a headless environment (Docker containers, Kubernetes pods,
 cargo build --release --no-default-features
 ```
 
-This creates a minimal binary without crossterm/ratatui dependencies that works perfectly in non-interactive environments. All commands (`auth`, `patch`, `version`, `go`) work normally - only the `tui` command is disabled.
+This creates a minimal binary without crossterm/ratatui dependencies that works perfectly in non-interactive environments. All commands (`auth`, `version`, `go`) work normally - only the `tui` command is disabled.
 
 ### One-Line Installation (Recommended)
 
@@ -158,10 +139,9 @@ curl -fsSL https://raw.githubusercontent.com/heiervang-technologies/agent-unleas
 ```
 
 This will:
-- Install Claude Code via npm (if not already installed)
+- Install Claude Code (native binary preferred, npm fallback)
 - Download the pre-built TUI binary
 - Set up `au`, `aug`, `autx`, and `aui` commands
-- Apply the auto-mode patch
 
 ### Installation Options
 
@@ -306,7 +286,6 @@ au auth               # Check authentication status
 au auth -v            # Check with detailed information
 au auth -q            # Check quietly (only exit code)
 au auth --json        # Output as JSON for scripting
-au patch              # Apply Claude Code patches
 au version            # Show installed version
 au version --list     # List available versions
 restart-claude        # Restart Claude (preserves session)
@@ -355,10 +334,9 @@ The TUI (`aui`) provides a graphical interface for managing Agent Unleashed:
 
 ### Claude Code Version Management
 - View currently installed Claude Code version
-- Browse available versions from npm registry
+- Browse available versions from npm registry and GCS
 - **Switch between versions** with a single selection
-- See which versions have auto-mode patches available (marked with `*`)
-- Automatically patches after version switch
+- Whitelist/blacklist filtering to avoid known-bad versions
 
 Navigate with:
 - `j/k` or `↑/↓` - Move selection
@@ -490,14 +468,12 @@ See `docs/extensions/` for detailed plugin development guides.
 
 - **Plugin Development**: `docs/extensions/plugin-development.md`
 - **MCP Refresh & Process Restart**: `docs/extensions/restart-refresh.md`
-- **Upstream Sync**: `docs/sync-process.md`
 - **GitHub Integration**: `docs/extensions/snail-integration.md`
 - **Agent Instructions**: `CLAUDE.md`
-- **Upstream Docs**: `claude-code/README.md`
 
 ## Contributing
 
-We welcome contributions to both the plugin ecosystem and the fork infrastructure!
+We welcome contributions to both the plugin ecosystem and the wrapper infrastructure!
 
 ### Contribution Guidelines
 
@@ -507,15 +483,13 @@ We welcome contributions to both the plugin ecosystem and the fork infrastructur
    - Add tests for your plugin
    - Submit a PR with the plugin
 
-2. **For fork improvements:**
-   - Never modify code in `claude-code/` (it's a submodule)
-   - Focus on plugin infrastructure and tooling
+2. **For wrapper/TUI improvements:**
+   - Focus on the Rust source in `src/`
    - Update documentation
-   - Ensure daily sync workflow still functions
+   - Add tests for new functionality
 
 3. **For upstream improvements:**
    - Contribute directly to [anthropics/claude-code](https://github.com/anthropics/claude-code)
-   - Benefits will flow back through daily sync
 
 ### Development Workflow
 
@@ -523,13 +497,13 @@ We welcome contributions to both the plugin ecosystem and the fork infrastructur
 # 1. Create feature branch
 git checkout -b feature/my-enhancement
 
-# 2. Make changes (outside claude-code/ submodule)
-# - Add plugins
+# 2. Make changes
+# - Add plugins in plugins/unleashed/
+# - Modify Rust source in src/
 # - Update configuration
-# - Improve tooling
 
 # 3. Test your changes
-npm test
+cargo test
 
 # 4. Commit with conventional commits
 git commit -m "feat: add new plugin for X"
@@ -545,54 +519,13 @@ git push origin feature/my-enhancement
 - Help others learn and grow
 - Maintain professional communication
 
-## Sync Process
-
-### Manual Sync
-
-If you need to sync with upstream manually:
-
-```bash
-# Update submodule to latest upstream
-git submodule update --remote claude-code
-
-# Commit the new submodule reference
-git add claude-code
-git commit -m "chore: sync with upstream claude-code"
-git push
-```
-
-### Automated Sync
-
-The `.github/workflows/sync-upstream.yml` workflow handles this automatically:
-- Runs daily at 2 AM UTC
-- Creates PR if updates available
-- Runs test suite
-- Auto-merges if tests pass
-
 ## Troubleshooting
-
-### Submodule is empty or outdated
-
-```bash
-git submodule update --init --recursive
-```
 
 ### Plugin not loading
 
 1. Check `.claude/settings.json` - is it in `enabled` array?
 2. Verify plugin structure - does it have `plugin.json` and `index.js`?
 3. Check plugin logs for errors
-
-### Upstream sync conflicts
-
-This should be rare since we don't modify the submodule. If it happens:
-```bash
-cd claude-code
-git status  # Check for local modifications
-git restore .  # Discard if any
-cd ..
-git submodule update --remote claude-code
-```
 
 ## Organization
 
@@ -603,14 +536,12 @@ This repository is maintained by **Heiervang Technologies**.
 
 ## License
 
-This fork maintains the same license as the upstream project. See `LICENSE.md` for details.
-
-The upstream Claude Code is licensed by Anthropic. See `claude-code/LICENSE.md` for upstream license information.
+This project maintains the same license as the upstream Claude Code project. See `LICENSE.md` for details.
 
 ## Acknowledgments
 
 - **Anthropic** for creating and maintaining Claude Code
-- **Heiervang Technologies** for the plugin architecture and fork infrastructure
+- **Heiervang Technologies** for the plugin architecture and wrapper infrastructure
 - All contributors to the plugin ecosystem
 
 ## Links

@@ -17,7 +17,6 @@ pub struct VersionOutput {
 pub struct VersionListItem {
     pub version: String,
     pub is_installed: bool,
-    pub has_patch: bool,
     pub is_whitelisted: bool,
     pub is_blacklisted: bool,
 }

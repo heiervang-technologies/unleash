@@ -13,13 +13,10 @@ docs/
 ├── extensions/                        # Extension Development Guides
 │   ├── plugin-development.md          # PRIMARY: Creating plugins (1195 lines)
 │   ├── configuration.md               # Configuration options (CLI, TUI, settings)
-│   ├── core-patches.md                # RARE: Core modifications policy (710 lines)
 │   ├── headless-mode.md               # Headless tmux mode (autx) usage
 │   ├── restart-refresh.md             # Process restart and MCP refresh
 │   ├── snail-integration.md           # GitHub Actions workflows (1332 lines)
 │   └── testing-guide.md               # Testing strategies (1372 lines)
-│
-├── sync-process.md                    # Upstream synchronization (1138 lines)
 │
 └── (root)
     ├── JSON_OUTPUT.md                 # CLI: JSON output specification
@@ -32,8 +29,7 @@ docs/
 ┌─ I want to add functionality
 │  └─> START: plugin-development.md
 │      ├─ Commands, agents, skills? → plugin-development.md (Component Types)
-│      ├─ Testing my plugin? → testing-guide.md (Local Plugin Testing)
-│      └─ Cannot be a plugin? → core-patches.md (very rare!)
+│      └─ Testing my plugin? → testing-guide.md (Local Plugin Testing)
 │
 ┌─ I want to use CLI tools
 │  └─> START: auth-check-command.md
@@ -60,12 +56,6 @@ docs/
 │      ├─ Workflow testing? → testing-guide.md (GitHub Workflow Testing)
 │      └─ Debugging? → testing-guide.md (Debugging Tips)
 │
-┌─ I'm syncing with upstream
-│  └─> START: sync-process.md
-│      ├─ Understanding the process? → sync-process.md (Daily Sync Workflow)
-│      ├─ Handling conflicts? → sync-process.md (Conflict Handling)
-│      └─ Manual resolution? → sync-process.md (Manual Resolution Steps)
-│
 └─ I'm new here
    └─> START: docs/README.md
        └─ Then: plugin-development.md (Step-by-Step Plugin Creation)
@@ -91,11 +81,6 @@ docs/
 | Debug issues | testing-guide.md § Debugging Tips | - |
 | Setup GitHub Actions | snail-integration.md § Workflow Integration | - |
 | Configure secrets | snail-integration.md § Configuration and Secrets | - |
-| Modify core | core-patches.md § When to Use Core Patches | plugin-development.md (try plugin first!) |
-| Document patches | core-patches.md § Documentation Requirements | - |
-| Sync upstream | sync-process.md § Daily Sync Workflow | core-patches.md § Conflict Risk |
-| Resolve conflicts | sync-process.md § Manual Resolution Steps | - |
-| Rollback changes | sync-process.md § Rollback Procedures | - |
 
 ## By Expertise Level
 
@@ -111,14 +96,10 @@ docs/
 1. **plugin-development.md** - Deep dive into components
 2. **testing-guide.md** - Advanced testing strategies
 3. **snail-integration.md** - Create workflow-integrated plugins
-4. **sync-process.md** - Understand maintenance
-
 ### Advanced (Core contributor)
 
-1. **core-patches.md** - Core modification policy
-2. **sync-process.md** - Sync automation and conflict resolution
-3. **plugin-development.md** - Complex plugin patterns
-4. **testing-guide.md** - Test automation
+1. **plugin-development.md** - Complex plugin patterns
+2. **testing-guide.md** - Test automation
 
 ## By Component Type
 
@@ -167,19 +148,6 @@ docs/
 2. **plugin-development.md** § Directory Structure (verify structure)
 3. **testing-guide.md** § Debug Mode Testing (detailed debugging)
 
-### Scenario: "I need to sync with upstream and have conflicts"
-
-1. **sync-process.md** § Daily Sync Workflow (understand process)
-2. **sync-process.md** § Manual Resolution Steps (resolve conflicts)
-3. **core-patches.md** § Conflict Risk Assessment (check patch docs)
-4. **testing-guide.md** § Integration Testing (test after resolution)
-
-### Scenario: "Can I modify core Claude Code files?"
-
-1. **core-patches.md** § Policy: Plugin-First Approach (understand policy)
-2. **core-patches.md** § When to Use Core Patches (rare cases only)
-3. **plugin-development.md** § Component Types (explore plugin alternatives)
-
 ## File Sizes (Comprehensiveness)
 
 | File | Lines | Focus Area |
@@ -187,10 +155,8 @@ docs/
 | testing-guide.md | 1372 | Most comprehensive testing guide |
 | snail-integration.md | 1332 | Complete GitHub Actions integration |
 | plugin-development.md | 1195 | Comprehensive plugin creation guide |
-| sync-process.md | 1138 | Detailed sync procedures |
-| core-patches.md | 710 | Patch policy and procedures |
 | README.md | 610 | Overview and navigation |
-| **Total** | **6357** | **Complete documentation suite** |
+| **Total** | **4509** | **Complete documentation suite** |
 
 ## Search Keywords
 
@@ -215,11 +181,6 @@ docs/
 - **Workflow**: snail-integration.md
 - **GitHub Actions**: snail-integration.md
 - **Secrets**: snail-integration.md § Configuration and Secrets
-- **Sync**: sync-process.md
-- **Conflict**: sync-process.md § Conflict Handling
-- **Patch**: core-patches.md
-- **Rollback**: sync-process.md § Rollback Procedures
-
 ## Navigation Tips
 
 1. **Start with docs/README.md** for overview
@@ -241,4 +202,4 @@ If you can't find what you need:
 
 **Documentation Version**: 1.1.0
 **Last Updated**: 2026-01-13
-**Total Coverage**: 6800+ lines across 8 comprehensive guides
+**Total Coverage**: 4800+ lines across 5 comprehensive guides

@@ -325,66 +325,56 @@ impl AgentManager {
         }
     }
 
-    /// Update Codex - build from source
+    /// Update Codex - clone from GitHub and build from source
     fn update_codex(&self) -> io::Result<String> {
-        // Find the codex submodule - check multiple possible locations
-        let possible_paths = [
-            // Relative to current dir (if running from repo)
-            std::env::current_dir()
-                .ok()
-                .map(|p| p.join("codex-unleashed/codex")),
-            // Relative to executable location
-            std::env::current_exe()
-                .ok()
-                .and_then(|p| p.parent().map(|p| p.to_path_buf()))
-                .map(|p| p.join("../codex-unleashed/codex")),
-            // Known locations in home dir
-            dirs::home_dir().map(|p| p.join("ht/agent-unleashed/codex-unleashed/codex")),
-            dirs::home_dir().map(|p| p.join("agent-unleashed/codex-unleashed/codex")),
-        ];
+        let cache_dir = dirs::cache_dir()
+            .unwrap_or_else(|| PathBuf::from("/tmp"))
+            .join("agent-unleashed/codex-source");
 
-        let codex_dir = possible_paths
-            .into_iter()
-            .flatten()
-            .find(|p| p.exists())
-            .ok_or_else(|| {
-                io::Error::new(
-                    io::ErrorKind::NotFound,
-                    "Codex submodule not found. Clone agent-unleashed repo with submodules.",
-                )
-            })?;
+        let mut progress = Vec::new();
 
-        let repo_dir = codex_dir
-            .parent()
-            .and_then(|p| p.parent())
-            .ok_or_else(|| io::Error::new(io::ErrorKind::NotFound, "Could not find repo root"))?;
+        // Clone or update the repo in cache
+        if cache_dir.join(".git").exists() {
+            progress.push(format!("Updating codex source at {}", cache_dir.display()));
+            let output = Command::new("git")
+                .args(["pull", "--ff-only"])
+                .current_dir(&cache_dir)
+                .output()?;
+
+            if !output.status.success() {
+                // If pull fails, remove and re-clone
+                fs::remove_dir_all(&cache_dir)?;
+                progress.push("Pull failed, re-cloning...".to_string());
+            }
+        }
+
+        if !cache_dir.join(".git").exists() {
+            progress.push("Cloning openai/codex from GitHub...".to_string());
+            fs::create_dir_all(cache_dir.parent().unwrap())?;
+            let output = Command::new("git")
+                .args([
+                    "clone",
+                    "--depth",
+                    "1",
+                    "https://github.com/openai/codex.git",
+                    &cache_dir.to_string_lossy(),
+                ])
+                .output()?;
+
+            if !output.status.success() {
+                return Err(io::Error::other(format!(
+                    "Failed to clone codex: {}",
+                    String::from_utf8_lossy(&output.stderr)
+                )));
+            }
+        }
 
         // The Rust code is in codex-rs subdirectory
-        let codex_rs_dir = codex_dir.join("codex-rs");
+        let codex_rs_dir = cache_dir.join("codex-rs");
         if !codex_rs_dir.exists() {
             return Err(io::Error::new(
                 io::ErrorKind::NotFound,
-                "Codex codex-rs directory not found",
-            ));
-        }
-
-        // Collect progress messages instead of printing directly,
-        // so callers (including the TUI) can display them appropriately
-        let mut progress = vec![format!("Found codex at: {}", codex_dir.display())];
-
-        // Update submodule
-        progress.push("Updating submodule...".to_string());
-        let output = Command::new("git")
-            .args(["submodule", "update", "--remote", "codex-unleashed/codex"])
-            .current_dir(repo_dir)
-            .output()?;
-
-        if !output.status.success() {
-            return Err(io::Error::other(
-                format!(
-                    "Failed to update codex submodule: {}",
-                    String::from_utf8_lossy(&output.stderr)
-                ),
+                "Codex codex-rs directory not found in cloned repo",
             ));
         }
 
@@ -405,15 +395,16 @@ impl AgentManager {
             fs::create_dir_all(install_path.parent().unwrap())?;
             fs::copy(&binary_path, &install_path)?;
 
-            progress.push(format!("Codex updated and installed to {}", install_path.display()));
+            progress.push(format!(
+                "Codex updated and installed to {}",
+                install_path.display()
+            ));
             Ok(progress.join("\n"))
         } else {
-            Err(io::Error::other(
-                format!(
-                    "Failed to build Codex: {}",
-                    String::from_utf8_lossy(&output.stderr)
-                ),
-            ))
+            Err(io::Error::other(format!(
+                "Failed to build Codex: {}",
+                String::from_utf8_lossy(&output.stderr)
+            )))
         }
     }
 

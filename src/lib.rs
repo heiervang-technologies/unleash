@@ -21,7 +21,6 @@ mod hyprland;
 mod input;
 mod json_output;
 mod launcher;
-mod patcher;
 mod pixel_art;
 #[cfg(feature = "tui")]
 mod text_input;
@@ -114,13 +113,6 @@ pub fn run() -> io::Result<()> {
         #[cfg(feature = "tui")]
         Some(Commands::Tui) => tui::run(),
         Some(Commands::Tmux { args }) => tmux::run(&args),
-        Some(Commands::Patch { check }) => {
-            if check {
-                patcher::check_and_patch()
-            } else {
-                patcher::patch()
-            }
-        }
         Some(Commands::Version { list, install }) => {
             if list {
                 version::list_versions(cli.json)

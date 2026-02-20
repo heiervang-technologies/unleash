@@ -3,13 +3,12 @@
 //! Implements the wrapper loop that enables:
 //! - Self-restart capability (restart-claude command)
 //! - Plugin system integration
-//! - Auto-patching for unleashed features
+//! - Auto-mode via Stop hook + flag file system
 //! - Process management
 
 use crate::config::ProfileManager;
 use crate::hooks::HookManager;
 use crate::hyprland;
-use crate::patcher;
 use std::collections::HashMap;
 use std::env;
 use std::fs;
@@ -30,11 +29,6 @@ fn cache_dir() -> PathBuf {
 
 /// Run Claude with wrapper features
 pub fn run(auto_mode: bool, prompt: Option<String>, extra_args: Vec<String>) -> io::Result<()> {
-    // Check and apply patches if needed
-    if let Err(e) = patcher::check_and_patch() {
-        eprintln!("Warning: Failed to check/apply patches: {}", e);
-    }
-
     // Install default hooks (NOT plugin hooks - those are loaded by Claude Code via --plugin-dir)
     match HookManager::new() {
         Ok(manager) => {
@@ -280,7 +274,7 @@ fn run_claude(
     if auto_mode {
         cmd.env("AGENT_AUTO_MODE", "1");
 
-        // Create auto-mode marker file
+        // Create auto-mode marker file (activates Stop hook enforcement)
         let auto_dir = dirs::cache_dir()
             .unwrap_or_else(|| PathBuf::from("/tmp"))
             .join("agent-unleashed/auto-mode");
@@ -289,10 +283,6 @@ fn run_claude(
             auto_dir.join(format!("active-{}", wrapper_pid)),
             "auto-start",
         );
-
-        // Tell Claude Code to start in auto mode
-        cmd.arg("--permission-mode");
-        cmd.arg("auto");
 
         println!("Auto mode activated on startup");
     }
@@ -311,11 +301,9 @@ fn run_claude(
     // Add plugin arguments
     cmd.args(plugin_args);
 
-    // Set permission mode: auto mode uses --permission-mode auto (set earlier),
-    // otherwise default to --dangerously-skip-permissions for bypass mode
-    if !auto_mode {
-        cmd.arg("--dangerously-skip-permissions");
-    }
+    // Always use bypass permissions (auto mode is differentiated by the Stop hook,
+    // not by a custom permission mode — native binaries don't support patched modes)
+    cmd.arg("--dangerously-skip-permissions");
 
     // Add user arguments
     cmd.args(args);

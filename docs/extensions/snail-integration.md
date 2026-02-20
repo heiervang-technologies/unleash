@@ -1218,6 +1218,5 @@ agent_type: 'worker'        # Can iterate on feedback
 
 - [Plugin Development Guide](./plugin-development.md)
 - [Testing Guide](./testing-guide.md)
-- [Sync Process](../sync-process.md)
 - GitHub Actions Documentation
 - Claude Code Documentation

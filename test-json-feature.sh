@@ -31,9 +31,9 @@ echo "--------------------------------------"
 $CU version --list --json | jq -r '.currently_installed'
 echo
 
-echo "5. Listing versions with patches available"
+echo "5. Listing non-blacklisted versions"
 echo "--------------------------------------"
-$CU version --list --json | jq -r '.versions[] | select(.has_patch == true) | .version' | head -5
+$CU version --list --json | jq -r '.versions[] | select(.is_blacklisted == false) | .version' | head -5
 echo
 
 echo "6. Counting whitelisted versions"

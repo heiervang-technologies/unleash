@@ -2,17 +2,15 @@
 # install.sh - Install agent-unleashed
 #
 # This script:
-# 1. Installs Claude Code via npm (if not present)
+# 1. Installs Claude Code (native binary preferred, npm fallback)
 # 2. Builds the CLI binaries (if cargo available)
 # 3. Creates symlinks in ~/.local/bin/
 # 4. Installs plugins to ~/.local/share/agent-unleashed/plugins
-# 5. Runs initial Claude Code patch
 #
-# Usage: ./scripts/install.sh [--no-build] [--no-patch] [--no-claude-code]
+# Usage: ./scripts/install.sh [--no-build] [--no-claude-code]
 #
 # Options:
 #   --no-build         Skip building the TUI
-#   --no-patch         Skip patching Claude Code
 #   --no-claude-code   Skip installing Claude Code
 #   --claude-version   Install specific Claude Code version
 #   --bin-dir DIR      Install to DIR instead of ~/.local/bin
@@ -220,7 +218,6 @@ install_native() {
 
 # Parse arguments
 BUILD_TUI=true
-RUN_PATCH=true
 INSTALL_CLAUDE_CODE=true
 CLAUDE_CODE_VERSION="latest"
 BIN_DIR="${HOME}/.local/bin"
@@ -230,10 +227,6 @@ while [[ $# -gt 0 ]]; do
     case $1 in
         --no-build)
             BUILD_TUI=false
-            shift
-            ;;
-        --no-patch)
-            RUN_PATCH=false
             shift
             ;;
         --no-claude-code)
@@ -257,7 +250,6 @@ while [[ $# -gt 0 ]]; do
             echo ""
             echo "Options:"
             echo "  --no-build          Skip building the TUI"
-            echo "  --no-patch          Skip patching Claude Code"
             echo "  --no-claude-code    Skip installing Claude Code"
             echo "  --claude-version V  Install specific Claude Code version"
             echo "  --bin-dir DIR       Install to DIR instead of ~/.local/bin"
@@ -352,8 +344,12 @@ if $INSTALL_CLAUDE_CODE; then
             info "Installing Claude Code v${TARGET_VERSION}..."
         fi
 
-        if command -v npm &> /dev/null; then
-            # Prefer npm install (produces patchable cli.js for auto-mode)
+        # Prefer native binary from GCS (no Node.js dependency)
+        if command -v curl &> /dev/null && install_native "$TARGET_VERSION" 2>/dev/null; then
+            : # install_native already prints success
+        elif command -v npm &> /dev/null; then
+            # Fallback: npm install (for systems without curl/network issues)
+            warn "Native binary install failed, falling back to npm"
             npm install -g --force "@anthropic-ai/claude-code@${TARGET_VERSION}"
 
             # Point symlink to npm-installed cli.js
@@ -364,9 +360,8 @@ if $INSTALL_CLAUDE_CODE; then
                 success "Symlink: $BIN_DIR/claude -> $NPM_CLAUDE"
             fi
         else
-            # Fallback: native install from GCS (no Node.js dependency)
-            warn "npm not found, using native binary installer"
-            install_native "$TARGET_VERSION"
+            error "Neither curl nor npm available - cannot install Claude Code"
+            exit 1
         fi
 
         NEW_VERSION=$(claude --version 2>/dev/null | head -1 | sed 's/ (Claude Code)//' || echo "unknown")
@@ -403,11 +398,6 @@ if $BUILD_TUI; then
                 fi
             done
 
-            # Install patches to BIN_DIR
-            info "Installing patches..."
-            mkdir -p "$BIN_DIR/patches/versions"
-            cp -r "$REPO_ROOT/scripts/patches/versions/"*.conf "$BIN_DIR/patches/versions/"
-            success "Patches installed to $BIN_DIR/patches"
         else
             warn "Build failed, continuing without CLI binaries"
             BUILD_TUI=false
@@ -447,31 +437,7 @@ else
     warn "Plugin directory not found: $REPO_ROOT/plugins/unleashed"
 fi
 
-# Step 4: Patch Claude Code (optional)
-if $RUN_PATCH; then
-    if command -v claude &> /dev/null; then
-        info "Patching Claude Code..."
-        if "$SCRIPT_DIR/patch-claude.sh"; then
-            success "Claude Code patched (auto-mode)"
-        else
-            warn "Auto-mode patch failed (Claude Code may not be installed)"
-        fi
-        # Supercompact EITF patch (replaces LLM compaction with instant EITF)
-        SUPERCOMPACT_PATCH="$PLUGINS_DIR/supercompact/scripts/patch-compaction.sh"
-        if [[ -f "$SUPERCOMPACT_PATCH" ]]; then
-            if "$SUPERCOMPACT_PATCH"; then
-                success "Claude Code patched (EITF compaction)"
-            else
-                warn "EITF compaction patch failed"
-            fi
-        fi
-    else
-        warn "Claude Code not found, skipping patch"
-        warn "Install Claude Code first: npm install -g @anthropic-ai/claude-code"
-    fi
-fi
-
-# Step 5: Print summary
+# Step 4: Print summary
 echo ""
 echo "╭─────────────────────────────────────╮"
 echo "│        Installation Complete        │"
@@ -484,7 +450,6 @@ echo "  au ui / aui    - TUI for profile/version management"
 echo "  au tmux / autx - Headless tmux mode"
 echo "  autx go / autxg - Start tmux session and attach"
 echo "  au auth        - Check authentication status"
-echo "  au patch       - Patch Claude Code for auto mode"
 echo "  au version     - Manage Claude Code versions"
 echo ""
 echo "Helper Commands:"

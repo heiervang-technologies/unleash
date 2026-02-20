@@ -72,10 +72,8 @@
     "agent_instructions": "CLAUDE.md",
     "guides": [
       "docs/extensions/plugin-development.md",
-      "docs/extensions/core-patches.md",
       "docs/extensions/snail-integration.md",
       "docs/extensions/testing-guide.md",
-      "docs/sync-process.md",
       "docs/extensions/restart-refresh.md"
     ]
   }
