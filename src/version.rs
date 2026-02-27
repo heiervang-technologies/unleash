@@ -1,215 +1,40 @@
-//! Version management for code agents (Claude Code, Codex)
+//! Version management for code agents (Claude Code, Codex, Gemini CLI, OpenCode)
 //!
 //! Handles detecting installed version, listing available versions,
 //! and switching between versions for multiple agents.
-//!
-//! Supports two filtering modes per agent:
-//! - **Blacklist mode** (default for Claude): All versions except blacklisted ones are allowed
-//! - **Whitelist mode** (default for Codex): Only whitelisted versions are allowed
 
-use crate::agents::AgentType;
 use crate::json_output::{self, VersionListItem, VersionListOutput, VersionOutput};
+use std::collections::HashMap;
 use std::fs;
-use std::io;
+use std::io::{self, BufRead};
 use std::path::PathBuf;
-use std::process::Command;
+use std::process::{Command, Stdio};
+use std::sync::mpsc;
+use std::thread;
 
 /// GCS bucket base URL for Claude Code native releases
 const CLAUDE_GCS_BUCKET: &str = "https://storage.googleapis.com/claude-code-dist-86c565f3-f756-42ad-8dfa-d59b1c096819/claude-code-releases";
 
-// Include the generated version lists from Cargo.toml
-include!(concat!(env!("OUT_DIR"), "/version_lists.rs"));
+/// Embedded version lists, compiled into the binary for instant display.
+/// Updated periodically and committed to the repo.
+const EMBEDDED_VERSIONS_JSON: &str = include_str!("embedded_versions.json");
 
-/// Version filter mode
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum VersionFilterMode {
-    /// Only whitelisted versions are allowed
-    Whitelist,
-    /// All versions except blacklisted ones are allowed
-    Blacklist,
-}
-
-impl Default for VersionFilterMode {
-    fn default() -> Self {
-        match DEFAULT_VERSION_FILTER_MODE {
-            "blacklist" => VersionFilterMode::Blacklist,
-            _ => VersionFilterMode::Whitelist,
+/// Load embedded version lists from the compiled-in JSON.
+/// Returns a map of agent key -> list of version strings (newest first).
+pub fn load_embedded_versions() -> HashMap<String, Vec<String>> {
+    let parsed: serde_json::Value =
+        serde_json::from_str(EMBEDDED_VERSIONS_JSON).unwrap_or_default();
+    let mut map = HashMap::new();
+    for key in &["claude", "codex", "gemini", "opencode"] {
+        if let Some(arr) = parsed.get(key).and_then(|v| v.as_array()) {
+            let versions: Vec<String> = arr
+                .iter()
+                .filter_map(|v| v.as_str().map(String::from))
+                .collect();
+            map.insert(key.to_string(), versions);
         }
     }
-}
-
-impl std::fmt::Display for VersionFilterMode {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            VersionFilterMode::Whitelist => write!(f, "whitelist"),
-            VersionFilterMode::Blacklist => write!(f, "blacklist"),
-        }
-    }
-}
-
-/// Get the version filter mode for an agent from config or default
-///
-/// User can override in ~/.config/agent-unleashed/config.toml with:
-/// ```toml
-/// version_filter_mode = "blacklist"        # Claude Code (legacy, still works)
-/// codex_version_filter_mode = "blacklist"  # Codex
-/// ```
-pub fn get_version_filter_mode_for(agent: AgentType) -> VersionFilterMode {
-    let config_key = match agent {
-        AgentType::Claude => "version_filter_mode",
-        AgentType::Codex => "codex_version_filter_mode",
-    };
-
-    if let Some(home) = dirs::home_dir() {
-        let config_path = home.join(".config/agent-unleashed/config.toml");
-        if config_path.exists() {
-            if let Ok(content) = fs::read_to_string(&config_path) {
-                for line in content.lines() {
-                    let trimmed = line.trim();
-                    if trimmed.starts_with(config_key) {
-                        if let Some(eq_pos) = trimmed.find('=') {
-                            let value = trimmed[eq_pos + 1..].trim().trim_matches('"').trim_matches('\'');
-                            return match value {
-                                "blacklist" => VersionFilterMode::Blacklist,
-                                _ => VersionFilterMode::Whitelist,
-                            };
-                        }
-                    }
-                }
-            }
-        }
-    }
-
-    // Use compiled default for this agent
-    let default_mode = match agent {
-        AgentType::Claude => DEFAULT_VERSION_FILTER_MODE,
-        AgentType::Codex => DEFAULT_CODEX_VERSION_FILTER_MODE,
-    };
-    match default_mode {
-        "blacklist" => VersionFilterMode::Blacklist,
-        _ => VersionFilterMode::Whitelist,
-    }
-}
-
-/// Get the version filter mode (Claude Code, for backward compat)
-pub fn get_version_filter_mode() -> VersionFilterMode {
-    get_version_filter_mode_for(AgentType::Claude)
-}
-
-/// Get the effective whitelist for an agent (user override or default from Cargo.toml)
-///
-/// User can override by creating:
-/// - Claude: ~/.config/agent-unleashed/whitelist.txt
-/// - Codex:  ~/.config/agent-unleashed/codex-whitelist.txt
-pub fn get_whitelist_for(agent: AgentType) -> Vec<String> {
-    let filename = match agent {
-        AgentType::Claude => "whitelist.txt",
-        AgentType::Codex => "codex-whitelist.txt",
-    };
-
-    // Check for user override
-    if let Some(home) = dirs::home_dir() {
-        let user_whitelist = home.join(".config/agent-unleashed").join(filename);
-        if user_whitelist.exists() {
-            if let Ok(content) = fs::read_to_string(&user_whitelist) {
-                return content
-                    .lines()
-                    .map(|l| l.trim())
-                    .filter(|l| !l.is_empty() && !l.starts_with('#'))
-                    .map(|l| l.to_string())
-                    .collect();
-            }
-        }
-    }
-
-    // Use default from Cargo.toml
-    let defaults: &[&str] = match agent {
-        AgentType::Claude => DEFAULT_WHITELIST,
-        AgentType::Codex => DEFAULT_CODEX_WHITELIST,
-    };
-    defaults.iter().map(|s| s.to_string()).collect()
-}
-
-/// Get the effective whitelist (Claude Code, for backward compat)
-#[allow(dead_code)]
-pub fn get_whitelist() -> Vec<String> {
-    get_whitelist_for(AgentType::Claude)
-}
-
-/// Get the effective blacklist for an agent (user override or default from Cargo.toml)
-///
-/// User can override by creating:
-/// - Claude: ~/.config/agent-unleashed/blacklist.txt
-/// - Codex:  ~/.config/agent-unleashed/codex-blacklist.txt
-pub fn get_blacklist_for(agent: AgentType) -> Vec<String> {
-    let filename = match agent {
-        AgentType::Claude => "blacklist.txt",
-        AgentType::Codex => "codex-blacklist.txt",
-    };
-
-    // Check for user override
-    if let Some(home) = dirs::home_dir() {
-        let user_blacklist = home.join(".config/agent-unleashed").join(filename);
-        if user_blacklist.exists() {
-            if let Ok(content) = fs::read_to_string(&user_blacklist) {
-                return content
-                    .lines()
-                    .map(|l| l.trim())
-                    .filter(|l| !l.is_empty() && !l.starts_with('#'))
-                    .map(|l| l.to_string())
-                    .collect();
-            }
-        }
-    }
-
-    // Use default from Cargo.toml
-    let defaults: &[&str] = match agent {
-        AgentType::Claude => DEFAULT_BLACKLIST,
-        AgentType::Codex => DEFAULT_CODEX_BLACKLIST,
-    };
-    defaults.iter().map(|s| s.to_string()).collect()
-}
-
-/// Get the effective blacklist (Claude Code, for backward compat)
-#[allow(dead_code)]
-pub fn get_blacklist() -> Vec<String> {
-    get_blacklist_for(AgentType::Claude)
-}
-
-/// Check if a version is whitelisted for an agent
-pub fn is_whitelisted_for(version: &str, agent: AgentType) -> bool {
-    get_whitelist_for(agent).iter().any(|v| v == version)
-}
-
-/// Check if a version is whitelisted (Claude Code, for backward compat)
-#[allow(dead_code)]
-pub fn is_whitelisted(version: &str) -> bool {
-    is_whitelisted_for(version, AgentType::Claude)
-}
-
-/// Check if a version is blacklisted for an agent
-pub fn is_blacklisted_for(version: &str, agent: AgentType) -> bool {
-    get_blacklist_for(agent).iter().any(|v| v == version)
-}
-
-/// Check if a version is blacklisted (Claude Code, for backward compat)
-#[allow(dead_code)]
-pub fn is_blacklisted(version: &str) -> bool {
-    is_blacklisted_for(version, AgentType::Claude)
-}
-
-/// Check if a version is allowed for an agent based on the current filter mode
-pub fn is_version_allowed_for(version: &str, agent: AgentType) -> bool {
-    match get_version_filter_mode_for(agent) {
-        VersionFilterMode::Whitelist => is_whitelisted_for(version, agent),
-        VersionFilterMode::Blacklist => !is_blacklisted_for(version, agent),
-    }
-}
-
-/// Check if a version is allowed (Claude Code, for backward compat)
-#[allow(dead_code)]
-pub fn is_version_allowed(version: &str) -> bool {
-    is_version_allowed_for(version, AgentType::Claude)
+    map
 }
 
 /// Information about an agent version
@@ -217,8 +42,6 @@ pub fn is_version_allowed(version: &str) -> bool {
 pub struct VersionInfo {
     pub version: String,
     pub is_installed: bool,
-    pub is_whitelisted: bool,
-    pub is_blacklisted: bool,
 }
 
 /// Result of an installation attempt
@@ -278,17 +101,6 @@ impl VersionManager {
         } else {
             None
         }
-    }
-
-    /// Check if a version exists on GCS (by checking if its manifest exists)
-    fn gcs_version_exists(version: &str) -> bool {
-        Command::new("curl")
-            .args(["-fsSL", "--head", "-o", "/dev/null", "-w", "%{http_code}",
-                   &format!("{}/{}/manifest.json", CLAUDE_GCS_BUCKET, version)])
-            .output()
-            .is_ok_and(|o| {
-                o.status.success() && String::from_utf8_lossy(&o.stdout).trim() == "200"
-            })
     }
 
     /// Detect the current platform for GCS downloads
@@ -364,16 +176,7 @@ impl VersionManager {
             }
         }
 
-        // Check known whitelisted versions on GCS
-        let whitelist = get_whitelist_for(AgentType::Claude);
-        for v in &whitelist {
-            if !seen.contains(v) && Self::gcs_version_exists(v) {
-                seen.insert(v.clone());
-                versions.push(v.clone());
-            }
-        }
-
-        // Fallback: query npm registry for additional versions
+        // Query npm registry for additional versions
         if Self::has_npm() {
             if let Ok(output) = Command::new("npm")
                 .args(["view", "@anthropic-ai/claude-code", "versions", "--json"])
@@ -420,8 +223,6 @@ impl VersionManager {
             .into_iter()
             .map(|v| VersionInfo {
                 is_installed: installed.as_ref() == Some(&v),
-                is_whitelisted: is_whitelisted_for(&v, AgentType::Claude),
-                is_blacklisted: is_blacklisted_for(&v, AgentType::Claude),
                 version: v,
             })
             .collect();
@@ -616,8 +417,6 @@ impl VersionManager {
             versions.push(VersionInfo {
                 version: v.clone(),
                 is_installed: installed == Some(v.as_str()),
-                is_whitelisted: is_whitelisted_for(v, AgentType::Codex),
-                is_blacklisted: is_blacklisted_for(v, AgentType::Codex),
             });
         }
 
@@ -628,6 +427,7 @@ impl VersionManager {
     }
 
     /// Install a specific Codex version by downloading prebuilt binaries from GitHub releases
+    #[allow(dead_code)]
     pub fn install_codex_version(&self, version: &str) -> io::Result<InstallResult> {
         let tag = format!("rust-v{}", version);
         let asset_name = Self::codex_asset_name();
@@ -714,6 +514,539 @@ impl VersionManager {
         })
     }
 
+    // ── Gemini CLI ────────────────────────────────────────────
+
+    /// Get available Gemini CLI versions from npm registry
+    pub fn get_gemini_available_versions(&self) -> io::Result<Vec<String>> {
+        if !Self::has_npm() {
+            return Err(io::Error::other("npm is not available"));
+        }
+
+        let output = Command::new("npm")
+            .args(["view", "@google/gemini-cli", "versions", "--json"])
+            .output()?;
+
+        if output.status.success() {
+            let json_str = String::from_utf8_lossy(&output.stdout);
+            let mut versions: Vec<String> = json_str
+                .trim()
+                .trim_start_matches('[')
+                .trim_end_matches(']')
+                .split(',')
+                .map(|s| s.trim().trim_matches('"').to_string())
+                .filter(|s| !s.is_empty())
+                .collect();
+
+            versions.sort_by(|a, b| version_compare(b, a));
+            versions.truncate(20);
+            Ok(versions)
+        } else {
+            Err(io::Error::other(
+                "Failed to query npm registry for Gemini CLI",
+            ))
+        }
+    }
+
+    /// Get combined Gemini CLI version list with status
+    pub fn get_gemini_version_list(&self, installed: Option<&str>) -> Vec<VersionInfo> {
+        let available = self.get_gemini_available_versions().unwrap_or_default();
+
+        let mut versions: Vec<VersionInfo> = available
+            .into_iter()
+            .map(|v| VersionInfo {
+                is_installed: installed == Some(v.as_str()),
+                version: v,
+            })
+            .collect();
+
+        versions.sort_by(|a, b| version_compare(&b.version, &a.version));
+        versions
+    }
+
+    /// Install a specific Gemini CLI version via npm
+    #[allow(dead_code)]
+    pub fn install_gemini_version(&self, version: &str) -> io::Result<InstallResult> {
+        if !Self::has_npm() {
+            return Ok(InstallResult {
+                success: false,
+                stdout: String::new(),
+                stderr: "npm is not available".to_string(),
+                error: Some("npm is required to install Gemini CLI".to_string()),
+            });
+        }
+
+        let output = Command::new("npm")
+            .args(["install", "-g", "--force", &format!("@google/gemini-cli@{}", version)])
+            .output()?;
+
+        let stdout = String::from_utf8_lossy(&output.stdout).to_string();
+        let stderr = String::from_utf8_lossy(&output.stderr).to_string();
+
+        Ok(InstallResult {
+            success: output.status.success(),
+            stdout,
+            stderr: stderr.clone(),
+            error: if output.status.success() {
+                None
+            } else {
+                Some(format!("Failed to install Gemini CLI v{}: {}", version, stderr))
+            },
+        })
+    }
+
+    // ── OpenCode ────────────────────────────────────────────
+
+    /// Get available OpenCode versions from GitHub releases + npm
+    pub fn get_opencode_available_versions(&self) -> io::Result<Vec<String>> {
+        let mut seen = std::collections::HashSet::new();
+        let mut versions = Vec::new();
+
+        // Try GitHub releases first
+        if let Ok(output) = Command::new("gh")
+            .args([
+                "api", "repos/opencode-ai/opencode/releases",
+                "--jq", ".[].tag_name",
+            ])
+            .output()
+        {
+            if output.status.success() {
+                let tag_output = String::from_utf8_lossy(&output.stdout);
+                for line in tag_output.lines() {
+                    let v = line.trim().trim_start_matches('v').to_string();
+                    if !v.is_empty() && v.starts_with(|c: char| c.is_ascii_digit()) && seen.insert(v.clone()) {
+                        versions.push(v);
+                    }
+                }
+            }
+        }
+
+        // Also query npm for additional versions
+        if Self::has_npm() {
+            if let Ok(output) = Command::new("npm")
+                .args(["view", "opencode-ai", "versions", "--json"])
+                .output()
+            {
+                if output.status.success() {
+                    let json_str = String::from_utf8_lossy(&output.stdout);
+                    let npm_versions: Vec<String> = json_str
+                        .trim()
+                        .trim_start_matches('[')
+                        .trim_end_matches(']')
+                        .split(',')
+                        .map(|s| s.trim().trim_matches('"').to_string())
+                        .filter(|s| !s.is_empty())
+                        .collect();
+
+                    for v in npm_versions.into_iter().rev().take(20) {
+                        if seen.insert(v.clone()) {
+                            versions.push(v);
+                        }
+                    }
+                }
+            }
+        }
+
+        if versions.is_empty() {
+            return Err(io::Error::other(
+                "Failed to query available versions for OpenCode",
+            ));
+        }
+
+        versions.sort_by(|a, b| version_compare(b, a));
+        versions.truncate(20);
+        Ok(versions)
+    }
+
+    /// Get combined OpenCode version list with status
+    pub fn get_opencode_version_list(&self, installed: Option<&str>) -> Vec<VersionInfo> {
+        let available = self.get_opencode_available_versions().unwrap_or_default();
+
+        let mut versions: Vec<VersionInfo> = available
+            .into_iter()
+            .map(|v| VersionInfo {
+                is_installed: installed == Some(v.as_str()),
+                version: v,
+            })
+            .collect();
+
+        versions.sort_by(|a, b| version_compare(&b.version, &a.version));
+        versions
+    }
+
+    /// Install a specific OpenCode version via npm
+    #[allow(dead_code)]
+    pub fn install_opencode_version(&self, version: &str) -> io::Result<InstallResult> {
+        if !Self::has_npm() {
+            return Ok(InstallResult {
+                success: false,
+                stdout: String::new(),
+                stderr: "npm is not available".to_string(),
+                error: Some("npm is required to install OpenCode".to_string()),
+            });
+        }
+
+        let output = Command::new("npm")
+            .args(["install", "-g", "--force", &format!("opencode-ai@{}", version)])
+            .output()?;
+
+        let stdout = String::from_utf8_lossy(&output.stdout).to_string();
+        let stderr = String::from_utf8_lossy(&output.stderr).to_string();
+
+        Ok(InstallResult {
+            success: output.status.success(),
+            stdout,
+            stderr: stderr.clone(),
+            error: if output.status.success() {
+                None
+            } else {
+                Some(format!("Failed to install OpenCode v{}: {}", version, stderr))
+            },
+        })
+    }
+
+    // ── Streaming install methods ──────────────────────────────
+
+    /// Read stdout/stderr from a child process, sending each line via `log_tx`.
+    /// Reads stdout in a spawned thread and stderr in the calling thread to avoid
+    /// pipe buffer deadlock. Returns accumulated (stdout, stderr) strings.
+    fn stream_child_output(
+        child: &mut std::process::Child,
+        log_tx: &mpsc::Sender<String>,
+    ) -> (String, String) {
+        let stdout_pipe = child.stdout.take();
+        let stderr_pipe = child.stderr.take();
+        let tx_clone = log_tx.clone();
+
+        let stdout_thread = thread::spawn(move || {
+            let mut acc = String::new();
+            if let Some(pipe) = stdout_pipe {
+                for line in io::BufReader::new(pipe).lines().flatten() {
+                    let _ = tx_clone.send(line.clone());
+                    acc.push_str(&line);
+                    acc.push('\n');
+                }
+            }
+            acc
+        });
+
+        let mut stderr_acc = String::new();
+        if let Some(pipe) = stderr_pipe {
+            for line in io::BufReader::new(pipe).lines().flatten() {
+                let _ = log_tx.send(line.clone());
+                stderr_acc.push_str(&line);
+                stderr_acc.push('\n');
+            }
+        }
+
+        let stdout_acc = stdout_thread.join().unwrap_or_default();
+        (stdout_acc, stderr_acc)
+    }
+
+    /// Run a command with streaming output, returning (success, stdout, stderr)
+    fn run_streaming(
+        cmd: &mut Command,
+        log_tx: &mpsc::Sender<String>,
+    ) -> io::Result<(bool, String, String)> {
+        let mut child = cmd
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()?;
+        let (stdout, stderr) = Self::stream_child_output(&mut child, log_tx);
+        let status = child.wait()?;
+        Ok((status.success(), stdout, stderr))
+    }
+
+    /// Install Claude Code with streaming log output
+    pub fn install_version_streaming(
+        &self,
+        version: &str,
+        log_tx: mpsc::Sender<String>,
+    ) -> io::Result<InstallResult> {
+        // Try native (GCS) first
+        let _ = log_tx.send(format!("Attempting native install of Claude Code v{}...", version));
+        let native_result = self.install_version_native_streaming(version, &log_tx)?;
+        if native_result.success {
+            return Ok(native_result);
+        }
+
+        // Fallback: try npm
+        if Self::has_npm() {
+            let _ = log_tx.send(format!("Native install failed, trying npm fallback..."));
+            let _ = log_tx.send(format!("Running: npm install -g @anthropic-ai/claude-code@{}", version));
+
+            let (ok, stdout, stderr) = Self::run_streaming(
+                Command::new("npm").args(["install", "-g", "--force", &format!("@anthropic-ai/claude-code@{}", version)]),
+                &log_tx,
+            )?;
+
+            if ok {
+                let _ = log_tx.send("Updating symlink...".to_string());
+                if let Ok(npm_output) = Command::new("npm").args(["root", "-g"]).output() {
+                    if npm_output.status.success() {
+                        let npm_root = String::from_utf8_lossy(&npm_output.stdout).trim().to_string();
+                        let cli_js = PathBuf::from(&npm_root).join("@anthropic-ai/claude-code/cli.js");
+                        if cli_js.exists() {
+                            if let Some(home) = dirs::home_dir() {
+                                let bin_claude = home.join(".local/bin/claude");
+                                let _ = fs::remove_file(&bin_claude);
+                                #[cfg(unix)]
+                                std::os::unix::fs::symlink(&cli_js, &bin_claude).ok();
+                            }
+                        }
+                    }
+                }
+                return Ok(InstallResult { success: true, stdout, stderr, error: None });
+            }
+        }
+
+        Ok(native_result)
+    }
+
+    /// Native (GCS) install with streaming log output
+    fn install_version_native_streaming(
+        &self,
+        version: &str,
+        log_tx: &mpsc::Sender<String>,
+    ) -> io::Result<InstallResult> {
+        let platform = Self::detect_platform();
+        let download_url = format!("{}/{}/{}/claude", CLAUDE_GCS_BUCKET, version, platform);
+        let manifest_url = format!("{}/{}/manifest.json", CLAUDE_GCS_BUCKET, version);
+
+        let version_dir = dirs::home_dir()
+            .ok_or_else(|| io::Error::new(io::ErrorKind::NotFound, "Home dir not found"))?
+            .join(".local/share/claude/versions");
+        fs::create_dir_all(&version_dir)?;
+
+        let binary_path = version_dir.join(version);
+        let temp_path = version_dir.join(format!("{}.tmp", version));
+
+        // Download binary
+        let _ = log_tx.send(format!("Downloading Claude Code v{} from GCS...", version));
+        let (ok, _stdout, stderr) = Self::run_streaming(
+            Command::new("curl").args(["-fSL", "-o", temp_path.to_str().unwrap_or("/tmp/claude-download"), &download_url]),
+            log_tx,
+        )?;
+
+        if !ok {
+            let _ = fs::remove_file(&temp_path);
+            return Ok(InstallResult {
+                success: false,
+                stdout: String::new(),
+                stderr,
+                error: Some(format!("Failed to download Claude Code {} from GCS", version)),
+            });
+        }
+
+        // Verify checksum
+        let _ = log_tx.send("Downloading manifest for checksum verification...".to_string());
+        if let Ok(manifest_output) = Command::new("curl").args(["-fsSL", &manifest_url]).output() {
+            if manifest_output.status.success() {
+                let manifest = String::from_utf8_lossy(&manifest_output.stdout);
+                if let Some(expected) = Self::extract_checksum_from_manifest(&manifest, &platform) {
+                    let _ = log_tx.send("Verifying checksum...".to_string());
+                    let checksum_cmd = if cfg!(target_os = "macos") { "shasum" } else { "sha256sum" };
+                    let mut cmd = Command::new(checksum_cmd);
+                    if cfg!(target_os = "macos") {
+                        cmd.args(["-a", "256"]);
+                    }
+                    cmd.arg(temp_path.to_str().unwrap_or(""));
+
+                    if let Ok(checksum_output) = cmd.output() {
+                        if checksum_output.status.success() {
+                            let actual = String::from_utf8_lossy(&checksum_output.stdout);
+                            let actual_checksum = actual.split_whitespace().next().unwrap_or("");
+                            if actual_checksum != expected {
+                                let _ = fs::remove_file(&temp_path);
+                                let _ = log_tx.send(format!("Checksum mismatch: expected {}, got {}", expected, actual_checksum));
+                                return Ok(InstallResult {
+                                    success: false,
+                                    stdout: String::new(),
+                                    stderr: format!("Checksum mismatch: expected {}, got {}", expected, actual_checksum),
+                                    error: Some("Checksum verification failed".to_string()),
+                                });
+                            }
+                            let _ = log_tx.send("Checksum verified.".to_string());
+                        }
+                    }
+                }
+            }
+        }
+
+        // Make executable and move into place
+        let _ = log_tx.send("Setting executable permissions...".to_string());
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let mut perms = fs::metadata(&temp_path)?.permissions();
+            perms.set_mode(0o755);
+            fs::set_permissions(&temp_path, perms)?;
+        }
+
+        fs::rename(&temp_path, &binary_path)?;
+
+        let _ = log_tx.send("Updating symlink...".to_string());
+        if let Some(home) = dirs::home_dir() {
+            let bin_dir = home.join(".local/bin");
+            fs::create_dir_all(&bin_dir)?;
+            let bin_claude = bin_dir.join("claude");
+            let _ = fs::remove_file(&bin_claude);
+            #[cfg(unix)]
+            std::os::unix::fs::symlink(&binary_path, &bin_claude).ok();
+        }
+
+        Ok(InstallResult {
+            success: true,
+            stdout: format!("Claude Code v{} installed natively to {}", version, binary_path.display()),
+            stderr: String::new(),
+            error: None,
+        })
+    }
+
+    /// Install Codex with streaming log output
+    pub fn install_codex_version_streaming(
+        &self,
+        version: &str,
+        log_tx: mpsc::Sender<String>,
+    ) -> io::Result<InstallResult> {
+        let tag = format!("rust-v{}", version);
+        let asset_name = Self::codex_asset_name();
+
+        let install_dir = dirs::home_dir()
+            .ok_or_else(|| io::Error::new(io::ErrorKind::NotFound, "Home dir not found"))?
+            .join(".local/bin");
+        fs::create_dir_all(&install_dir)?;
+
+        let tmp_dir = std::env::temp_dir().join(format!("codex-install-{}", version));
+        let _ = fs::remove_dir_all(&tmp_dir);
+        fs::create_dir_all(&tmp_dir)?;
+
+        // Download
+        let _ = log_tx.send(format!("Downloading Codex {} from GitHub release {}...", asset_name, tag));
+        let (ok, stdout, stderr) = Self::run_streaming(
+            Command::new("gh").args([
+                "release", "download", &tag,
+                "--repo", "openai/codex",
+                "--pattern", &format!("{}.tar.gz", asset_name),
+                "--dir", tmp_dir.to_str().unwrap_or("/tmp"),
+            ]),
+            &log_tx,
+        )?;
+
+        if !ok {
+            let _ = fs::remove_dir_all(&tmp_dir);
+            return Ok(InstallResult {
+                success: false, stdout, stderr,
+                error: Some(format!("Failed to download {} from release {}", asset_name, tag)),
+            });
+        }
+
+        // Extract
+        let _ = log_tx.send("Extracting tarball...".to_string());
+        let (ok, stdout, stderr) = Self::run_streaming(
+            Command::new("tar").args(["xzf", &format!("{}.tar.gz", asset_name)]).current_dir(&tmp_dir),
+            &log_tx,
+        )?;
+
+        if !ok {
+            let _ = fs::remove_dir_all(&tmp_dir);
+            return Ok(InstallResult {
+                success: false, stdout, stderr,
+                error: Some("Failed to extract tarball".to_string()),
+            });
+        }
+
+        // Install binary
+        let extracted_binary = tmp_dir.join(&asset_name);
+        let install_path = install_dir.join("codex");
+
+        if !extracted_binary.exists() {
+            let _ = fs::remove_dir_all(&tmp_dir);
+            return Ok(InstallResult {
+                success: false,
+                stdout: String::new(),
+                stderr: format!("Expected binary {} not found in archive", asset_name),
+                error: Some(format!("Binary {} not found after extraction", asset_name)),
+            });
+        }
+
+        let _ = log_tx.send(format!("Installing binary to {}...", install_path.display()));
+        fs::copy(&extracted_binary, &install_path)?;
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let mut perms = fs::metadata(&install_path)?.permissions();
+            perms.set_mode(0o755);
+            fs::set_permissions(&install_path, perms)?;
+        }
+
+        let _ = fs::remove_dir_all(&tmp_dir);
+
+        Ok(InstallResult {
+            success: true,
+            stdout: format!("Codex v{} installed to {}", version, install_path.display()),
+            stderr: String::new(),
+            error: None,
+        })
+    }
+
+    /// Install Gemini CLI with streaming log output
+    pub fn install_gemini_version_streaming(
+        &self,
+        version: &str,
+        log_tx: mpsc::Sender<String>,
+    ) -> io::Result<InstallResult> {
+        if !Self::has_npm() {
+            return Ok(InstallResult {
+                success: false,
+                stdout: String::new(),
+                stderr: "npm is not available".to_string(),
+                error: Some("npm is required to install Gemini CLI".to_string()),
+            });
+        }
+
+        let _ = log_tx.send(format!("Running: npm install -g @google/gemini-cli@{}", version));
+        let (ok, stdout, stderr) = Self::run_streaming(
+            Command::new("npm").args(["install", "-g", "--force", &format!("@google/gemini-cli@{}", version)]),
+            &log_tx,
+        )?;
+
+        Ok(InstallResult {
+            success: ok,
+            stdout,
+            stderr: stderr.clone(),
+            error: if ok { None } else { Some(format!("Failed to install Gemini CLI v{}: {}", version, stderr)) },
+        })
+    }
+
+    /// Install OpenCode with streaming log output
+    pub fn install_opencode_version_streaming(
+        &self,
+        version: &str,
+        log_tx: mpsc::Sender<String>,
+    ) -> io::Result<InstallResult> {
+        if !Self::has_npm() {
+            return Ok(InstallResult {
+                success: false,
+                stdout: String::new(),
+                stderr: "npm is not available".to_string(),
+                error: Some("npm is required to install OpenCode".to_string()),
+            });
+        }
+
+        let _ = log_tx.send(format!("Running: npm install -g opencode-ai@{}", version));
+        let (ok, stdout, stderr) = Self::run_streaming(
+            Command::new("npm").args(["install", "-g", "--force", &format!("opencode-ai@{}", version)]),
+            &log_tx,
+        )?;
+
+        Ok(InstallResult {
+            success: ok,
+            stdout,
+            stderr: stderr.clone(),
+            error: if ok { None } else { Some(format!("Failed to install OpenCode v{}: {}", version, stderr)) },
+        })
+    }
+
     /// Determine the correct GitHub release asset name for this platform
     fn codex_asset_name() -> String {
         let arch = std::env::consts::ARCH;
@@ -769,37 +1102,28 @@ pub fn list_versions(json: bool) -> io::Result<()> {
     let vm = VersionManager::new();
     let versions = vm.get_version_list();
     let current = vm.get_installed_version();
-    let mode = get_version_filter_mode();
 
     if json {
         let output = VersionListOutput {
             currently_installed: current,
-            filter_mode: mode.to_string(),
             versions: versions
                 .into_iter()
                 .map(|info| VersionListItem {
                     version: info.version,
                     is_installed: info.is_installed,
-                    is_whitelisted: info.is_whitelisted,
-                    is_blacklisted: info.is_blacklisted,
                 })
                 .collect(),
         };
         json_output::print_json(&output);
     } else {
-        println!("Claude Code Versions (mode: {}):", mode);
+        println!("Claude Code Versions:");
         println!();
 
         for info in versions {
             let installed = if info.is_installed { " [installed]" } else { "" };
-            let whitelisted = if info.is_whitelisted { " ✓" } else { "" };
-            let blacklisted = if info.is_blacklisted { " ⛔" } else { "" };
-            println!("  v{}{}{}{}", info.version, installed, whitelisted, blacklisted);
+            println!("  v{}{}", info.version, installed);
         }
 
-        println!();
-        println!("  ✓ = whitelisted (verified working)");
-        println!("  ⛔ = blacklisted (known issues)");
         if let Some(v) = current {
             println!();
             println!("Currently installed: v{}", v);
@@ -983,90 +1307,6 @@ mod tests {
         );
     }
 
-    #[test]
-    fn test_default_whitelist() {
-        assert!(!DEFAULT_WHITELIST.is_empty(), "Default whitelist should not be empty");
-        assert!(DEFAULT_WHITELIST.contains(&"2.1.12"), "2.1.12 should be whitelisted");
-        assert!(DEFAULT_WHITELIST.contains(&"2.1.4"), "2.1.4 should be whitelisted");
-        assert!(DEFAULT_WHITELIST.contains(&"2.1.3"), "2.1.3 should be whitelisted");
-        assert!(DEFAULT_WHITELIST.contains(&"2.1.2"), "2.1.2 should be whitelisted");
-        assert!(DEFAULT_WHITELIST.contains(&"2.0.77"), "2.0.77 should be whitelisted");
-    }
-
-    #[test]
-    fn test_default_blacklist() {
-        assert!(!DEFAULT_BLACKLIST.is_empty(), "Default blacklist should not be empty");
-        assert!(DEFAULT_BLACKLIST.contains(&"2.1.5"), "2.1.5 should be blacklisted");
-        assert!(DEFAULT_BLACKLIST.contains(&"2.1.1"), "2.1.1 should be blacklisted");
-        assert!(DEFAULT_BLACKLIST.contains(&"2.1.0"), "2.1.0 should be blacklisted");
-    }
-
-    #[test]
-    fn test_default_codex_whitelist() {
-        assert!(!DEFAULT_CODEX_WHITELIST.is_empty(), "Codex whitelist should not be empty");
-        assert!(DEFAULT_CODEX_WHITELIST.contains(&"0.98.0"), "0.98.0 should be in Codex whitelist");
-        assert!(DEFAULT_CODEX_WHITELIST.contains(&"0.93.0"), "0.93.0 should be in Codex whitelist");
-        assert!(DEFAULT_CODEX_WHITELIST.contains(&"0.92.0"), "0.92.0 should be in Codex whitelist");
-    }
-
-    #[test]
-    fn test_default_codex_blacklist() {
-        // Codex blacklist is currently empty
-        assert!(DEFAULT_CODEX_BLACKLIST.is_empty(), "Codex blacklist should be empty initially");
-    }
-
-    #[test]
-    fn test_is_whitelisted() {
-        assert!(is_whitelisted("2.1.12"), "2.1.12 should be whitelisted");
-        assert!(is_whitelisted("2.1.4"), "2.1.4 should be whitelisted");
-        assert!(is_whitelisted("2.1.3"), "2.1.3 should be whitelisted");
-        assert!(is_whitelisted("2.1.2"), "2.1.2 should be whitelisted");
-        assert!(is_whitelisted("2.0.77"), "2.0.77 should be whitelisted");
-
-        assert!(!is_whitelisted("2.1.14"), "2.1.14 should not be whitelisted");
-        assert!(!is_whitelisted("2.1.5"), "2.1.5 should not be whitelisted");
-        assert!(!is_whitelisted("2.1.1"), "2.1.1 should not be whitelisted");
-        assert!(!is_whitelisted("2.1.0"), "2.1.0 should not be whitelisted");
-        assert!(!is_whitelisted("9.9.9"), "9.9.9 should not be whitelisted");
-    }
-
-    #[test]
-    fn test_is_blacklisted() {
-        assert!(is_blacklisted("2.1.5"), "2.1.5 should be blacklisted");
-        assert!(is_blacklisted("2.1.1"), "2.1.1 should be blacklisted");
-        assert!(is_blacklisted("2.1.0"), "2.1.0 should be blacklisted");
-
-        assert!(!is_blacklisted("2.1.4"), "2.1.4 should not be blacklisted");
-        assert!(!is_blacklisted("2.1.3"), "2.1.3 should not be blacklisted");
-        assert!(!is_blacklisted("2.0.77"), "2.0.77 should not be blacklisted");
-        assert!(!is_blacklisted("9.9.9"), "9.9.9 should not be blacklisted");
-    }
-
-    #[test]
-    fn test_is_whitelisted_for_codex() {
-        assert!(is_whitelisted_for("0.98.0", AgentType::Codex), "0.98.0 should be Codex whitelisted");
-        assert!(is_whitelisted_for("0.93.0", AgentType::Codex), "0.93.0 should be Codex whitelisted");
-        assert!(is_whitelisted_for("0.92.0", AgentType::Codex), "0.92.0 should be Codex whitelisted");
-        assert!(!is_whitelisted_for("0.50.0", AgentType::Codex), "0.50.0 should not be Codex whitelisted");
-    }
-
-    #[test]
-    fn test_is_version_allowed_for() {
-        // Claude uses blacklist mode by default
-        assert!(is_version_allowed_for("2.1.12", AgentType::Claude));
-        assert!(is_version_allowed_for("9.9.9", AgentType::Claude)); // not blacklisted = allowed
-        assert!(!is_version_allowed_for("2.1.5", AgentType::Claude)); // blacklisted
-
-        // Codex uses whitelist mode by default
-        assert!(is_version_allowed_for("0.93.0", AgentType::Codex));
-        assert!(!is_version_allowed_for("9.9.9", AgentType::Codex));
-    }
-
-    #[test]
-    fn test_default_filter_mode() {
-        assert_eq!(DEFAULT_VERSION_FILTER_MODE, "blacklist");
-        assert_eq!(DEFAULT_CODEX_VERSION_FILTER_MODE, "whitelist");
-    }
 
     /// Create a mock "npm" binary that captures arguments to a file,
     /// and a mock "curl" that always fails (so native install falls through to npm).
@@ -1145,6 +1385,60 @@ mod tests {
             captured_args.contains("@anthropic-ai/claude-code@2.1.4"),
             "Should contain package@version. Got: {}",
             captured_args.trim()
+        );
+    }
+
+
+    /// Network-dependent benchmark: measures version fetch latency for all agents
+    #[test]
+    #[ignore]
+    fn bench_parallel_vs_sequential_version_fetch() {
+        use std::sync::mpsc as bench_mpsc;
+
+        let vm = VersionManager::new();
+
+        // Sequential fetch
+        let start = Instant::now();
+        let _ = vm.get_available_versions();
+        let _ = vm.get_codex_available_versions();
+        let _ = vm.get_gemini_available_versions();
+        let _ = vm.get_opencode_available_versions();
+        let sequential_time = start.elapsed();
+
+        // Parallel fetch
+        let start = Instant::now();
+        let (tx, rx) = bench_mpsc::channel::<()>();
+        let tx1 = tx.clone();
+        let tx2 = tx.clone();
+        let tx3 = tx.clone();
+        std::thread::spawn(move || {
+            let vm = VersionManager::new();
+            let _ = vm.get_available_versions();
+            let _ = tx.send(());
+        });
+        std::thread::spawn(move || {
+            let vm = VersionManager::new();
+            let _ = vm.get_codex_available_versions();
+            let _ = tx1.send(());
+        });
+        std::thread::spawn(move || {
+            let vm = VersionManager::new();
+            let _ = vm.get_gemini_available_versions();
+            let _ = tx2.send(());
+        });
+        std::thread::spawn(move || {
+            let vm = VersionManager::new();
+            let _ = vm.get_opencode_available_versions();
+            let _ = tx3.send(());
+        });
+        for _ in 0..4 { let _ = rx.recv(); }
+        let parallel_time = start.elapsed();
+
+        println!(
+            "Sequential fetch (4 agents): {:?}\nParallel fetch (4 agents): {:?}\nSpeedup: {:.1}x",
+            sequential_time,
+            parallel_time,
+            sequential_time.as_secs_f64() / parallel_time.as_secs_f64().max(0.001)
         );
     }
 }

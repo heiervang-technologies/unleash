@@ -35,109 +35,26 @@ success() { echo -e "${GREEN}==>${NC} $1"; }
 warn() { echo -e "${YELLOW}==>${NC} $1"; }
 error() { echo -e "${RED}==>${NC} $1"; }
 
-# --- Version filtering (mirrors Rust logic in src/version.rs) ---
-
-# Parse the version filter mode from user config or Cargo.toml default
-get_filter_mode() {
-    local user_config="$HOME/.config/agent-unleashed/config.toml"
-    if [[ -f "$user_config" ]]; then
-        local mode
-        mode=$(grep -m1 'version_filter_mode' "$user_config" 2>/dev/null | sed 's/.*=//;s/[" '\'']*//g;s/[[:space:]]//g')
-        if [[ -n "$mode" ]]; then
-            echo "$mode"
-            return
-        fi
-    fi
-    # Parse default from Cargo.toml
-    sed -n '/\[package\.metadata\.claude-code-versions\]/,/^\[/p' "$REPO_ROOT/Cargo.toml" | \
-        grep -m1 'default_mode' | sed 's/.*=//;s/[" '\'']*//g;s/[[:space:]]//g'
-}
-
-# Get whitelist versions (user override or Cargo.toml default), one per line
-get_whitelist() {
-    local user_file="$HOME/.config/agent-unleashed/whitelist.txt"
-    if [[ -f "$user_file" ]]; then
-        grep -v '^\s*#' "$user_file" | grep -v '^\s*$' | sed 's/[[:space:]]//g'
-        return
-    fi
-    sed -n '/\[package\.metadata\.claude-code-whitelist\]/,/^\[/p' "$REPO_ROOT/Cargo.toml" | \
-        grep '^versions\s*=' | sed 's/.*\[//;s/\].*//;s/"//g;s/,/\n/g' | sed 's/[[:space:]]//g' | grep -v '^$'
-}
-
-# Get blacklist versions (user override or Cargo.toml default), one per line
-get_blacklist() {
-    local user_file="$HOME/.config/agent-unleashed/blacklist.txt"
-    if [[ -f "$user_file" ]]; then
-        grep -v '^\s*#' "$user_file" | grep -v '^\s*$' | sed 's/[[:space:]]//g'
-        return
-    fi
-    sed -n '/\[package\.metadata\.claude-code-blacklist\]/,/^\[/p' "$REPO_ROOT/Cargo.toml" | \
-        grep '^versions\s*=' | sed 's/.*\[//;s/\].*//;s/"//g;s/,/\n/g' | sed 's/[[:space:]]//g' | grep -v '^$'
-}
-
-# Resolve "latest" to the newest allowed version
+# Resolve the latest available version
 # Tries GCS first for version discovery, falls back to npm
 # Returns the version string, or empty if none found
-resolve_latest_allowed() {
-    local mode
-    mode=$(get_filter_mode)
-
-    # Try GCS-based version discovery first
+resolve_latest() {
+    # Try GCS-based version discovery first (fastest)
     local gcs_latest
     gcs_latest=$(curl -fsSL "$GCS_BUCKET/latest" 2>/dev/null || echo "")
-
     if [[ -n "$gcs_latest" ]]; then
-        # Check if GCS latest is allowed by our filter
-        if [[ "$mode" == "blacklist" ]]; then
-            local blacklist
-            blacklist=$(get_blacklist)
-            if ! echo "$blacklist" | grep -qx "$gcs_latest"; then
-                echo "$gcs_latest"
-                return
-            fi
-        else
-            local whitelist
-            whitelist=$(get_whitelist)
-            if echo "$whitelist" | grep -qx "$gcs_latest"; then
-                echo "$gcs_latest"
-                return
-            fi
-        fi
-        # GCS latest not allowed, fall through to npm for full version list
+        echo "$gcs_latest"
+        return
     fi
 
-    # Fallback: get all npm versions (newest first)
-    local npm_versions=""
+    # Fallback: get latest from npm
     if command -v npm &> /dev/null; then
-        npm_versions=$(npm view @anthropic-ai/claude-code versions --json 2>/dev/null | \
-            grep -o '"[^"]*"' | tr -d '"' | tac)
-    fi
-
-    if [[ -z "$npm_versions" ]]; then
-        return 1
-    fi
-
-    if [[ "$mode" == "blacklist" ]]; then
-        local blacklist
-        blacklist=$(get_blacklist)
-        while IFS= read -r ver; do
-            [[ -z "$ver" ]] && continue
-            if ! echo "$blacklist" | grep -qx "$ver"; then
-                echo "$ver"
-                return
-            fi
-        done <<< "$npm_versions"
-    else
-        # whitelist mode (default)
-        local whitelist
-        whitelist=$(get_whitelist)
-        while IFS= read -r ver; do
-            [[ -z "$ver" ]] && continue
-            if echo "$whitelist" | grep -qx "$ver"; then
-                echo "$ver"
-                return
-            fi
-        done <<< "$npm_versions"
+        local npm_latest
+        npm_latest=$(npm view @anthropic-ai/claude-code version 2>/dev/null || echo "")
+        if [[ -n "$npm_latest" ]]; then
+            echo "$npm_latest"
+            return
+        fi
     fi
 
     return 1
@@ -319,15 +236,12 @@ if $INSTALL_CLAUDE_CODE; then
     # Determine target version
     TARGET_VERSION="$CLAUDE_CODE_VERSION"
     if [[ "$TARGET_VERSION" == "latest" ]]; then
-        FILTER_MODE=$(get_filter_mode)
-        info "Version filter mode: ${FILTER_MODE}"
-        RESOLVED=$(resolve_latest_allowed)
+        RESOLVED=$(resolve_latest)
         if [[ -n "$RESOLVED" ]]; then
             TARGET_VERSION="$RESOLVED"
-            info "Latest allowed version: v${TARGET_VERSION}"
+            info "Latest version: v${TARGET_VERSION}"
         else
-            warn "No allowed version found"
-            warn "Check your whitelist in Cargo.toml or ~/.config/agent-unleashed/whitelist.txt"
+            warn "Could not determine latest version"
             TARGET_VERSION=""
         fi
     fi

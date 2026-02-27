@@ -18,12 +18,14 @@ use std::process::Command;
 pub enum AgentType {
     Claude,
     Codex,
+    Gemini,
+    OpenCode,
 }
 
 impl AgentType {
     /// All agent types in stable order (used for TUI cycling)
     pub fn all() -> &'static [AgentType] {
-        &[AgentType::Claude, AgentType::Codex]
+        &[AgentType::Claude, AgentType::Codex, AgentType::Gemini, AgentType::OpenCode]
     }
 
 
@@ -31,6 +33,8 @@ impl AgentType {
         match self {
             AgentType::Claude => "Claude Code",
             AgentType::Codex => "Codex",
+            AgentType::Gemini => "Gemini CLI",
+            AgentType::OpenCode => "OpenCode",
         }
     }
 
@@ -38,6 +42,8 @@ impl AgentType {
         match s.to_lowercase().as_str() {
             "claude" | "claude-code" => Some(AgentType::Claude),
             "codex" => Some(AgentType::Codex),
+            "gemini" | "gemini-cli" => Some(AgentType::Gemini),
+            "opencode" | "open-code" => Some(AgentType::OpenCode),
             _ => None,
         }
     }
@@ -96,6 +102,32 @@ impl AgentDefinition {
         }
     }
 
+    /// Create Gemini CLI agent definition
+    pub fn gemini() -> Self {
+        Self {
+            agent_type: AgentType::Gemini,
+            name: "Gemini CLI".to_string(),
+            binary: "gemini".to_string(),
+            description: "Google's Gemini CLI".to_string(),
+            github_repo: Some("google-gemini/gemini-cli".to_string()),
+            npm_package: Some("@anthropic-ai/gemini-cli".to_string()),
+            enabled: true,
+        }
+    }
+
+    /// Create OpenCode agent definition
+    pub fn opencode() -> Self {
+        Self {
+            agent_type: AgentType::OpenCode,
+            name: "OpenCode".to_string(),
+            binary: "opencode".to_string(),
+            description: "AI coding agent for the terminal".to_string(),
+            github_repo: Some("opencode-ai/opencode".to_string()),
+            npm_package: Some("opencode-ai".to_string()),
+            enabled: true,
+        }
+    }
+
 }
 
 /// Version information for an agent
@@ -141,6 +173,8 @@ impl AgentManager {
         // Register default agents
         manager.register_agent(AgentDefinition::claude());
         manager.register_agent(AgentDefinition::codex());
+        manager.register_agent(AgentDefinition::gemini());
+        manager.register_agent(AgentDefinition::opencode());
 
         // Load cached versions
         manager.load_version_cache()?;
@@ -304,6 +338,8 @@ impl AgentManager {
         match agent_type {
             AgentType::Claude => self.update_claude(),
             AgentType::Codex => self.update_codex(),
+            AgentType::Gemini => self.update_npm_agent("@google/gemini-cli", "Gemini CLI"),
+            AgentType::OpenCode => self.update_npm_agent("opencode-ai", "OpenCode"),
         }
     }
 
@@ -405,6 +441,25 @@ impl AgentManager {
                 "Failed to build Codex: {}",
                 String::from_utf8_lossy(&output.stderr)
             )))
+        }
+    }
+
+    /// Update an npm-based agent to latest version
+    fn update_npm_agent(&self, package: &str, name: &str) -> io::Result<String> {
+        let output = Command::new("npm")
+            .args(["install", "-g", &format!("{}@latest", package)])
+            .output()?;
+
+        if output.status.success() {
+            Ok(format!("{} updated successfully", name))
+        } else {
+            Err(io::Error::other(
+                format!(
+                    "Failed to update {}: {}",
+                    name,
+                    String::from_utf8_lossy(&output.stderr)
+                ),
+            ))
         }
     }
 

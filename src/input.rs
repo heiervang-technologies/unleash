@@ -16,6 +16,8 @@ pub enum NavAction {
     Edit,
     New,
     Help,
+    Tab,
+    BackTab,
     #[allow(dead_code)]
     ExternalEdit,
     None,
@@ -48,6 +50,16 @@ pub fn key_to_action(key: KeyEvent) -> NavAction {
         KeyCode::Char('q') => NavAction::Quit,
         KeyCode::Char('c') if key.modifiers.contains(KeyModifiers::CONTROL) => NavAction::Quit,
 
+        // Tab / Shift+Tab
+        KeyCode::Tab => {
+            if key.modifiers.contains(KeyModifiers::SHIFT) {
+                NavAction::BackTab
+            } else {
+                NavAction::Tab
+            }
+        }
+        KeyCode::BackTab => NavAction::BackTab,
+
         // Actions
         KeyCode::Char('d') => NavAction::Delete,
         KeyCode::Char('e') => NavAction::Edit,
@@ -78,22 +90,18 @@ impl MenuState {
 
     pub fn select_next(&mut self) {
         if self.items_count > 0 {
-            self.selected = (self.selected + 1) % self.items_count;
+            self.selected = (self.selected + 1).min(self.items_count - 1);
         }
     }
 
     pub fn select_prev(&mut self) {
-        if self.items_count > 0 {
-            self.selected = self.selected.checked_sub(1).unwrap_or(self.items_count - 1);
-        }
+        self.selected = self.selected.saturating_sub(1);
     }
 
-    #[allow(dead_code)]
     pub fn select_first(&mut self) {
         self.selected = 0;
     }
 
-    #[allow(dead_code)]
     pub fn select_last(&mut self) {
         if self.items_count > 0 {
             self.selected = self.items_count - 1;
@@ -170,13 +178,18 @@ mod tests {
         menu.select_next();
         assert_eq!(menu.selected, 2);
 
-        // Wrap around
+        // Clamp at bottom (no wrap)
         menu.select_next();
-        assert_eq!(menu.selected, 0);
-
-        // Go back (wrap to end)
-        menu.select_prev();
         assert_eq!(menu.selected, 2);
+
+        // Go back
+        menu.select_prev();
+        assert_eq!(menu.selected, 1);
+
+        // Clamp at top (no wrap)
+        menu.selected = 0;
+        menu.select_prev();
+        assert_eq!(menu.selected, 0);
     }
 
     #[test]
@@ -248,6 +261,18 @@ mod tests {
         menu.select_next(); // Should not panic
         menu.select_prev(); // Should not panic
         assert_eq!(menu.selected, 0);
+    }
+
+    #[test]
+    fn test_select_first_and_last() {
+        let mut menu = MenuState::new(5);
+        menu.selected = 3;
+
+        menu.select_first();
+        assert_eq!(menu.selected, 0);
+
+        menu.select_last();
+        assert_eq!(menu.selected, 4);
     }
 
     #[test]

@@ -48,37 +48,3 @@ strip = true
 inherits = "release"
 lto = false
 codegen-units = 16
-
-# Claude Code version management
-# default_mode: "whitelist" (only allow listed) or "blacklist" (block listed)
-# Users can override mode in ~/.config/agent-unleashed/config.toml with version_filter_mode
-[package.metadata.claude-code-versions]
-default_mode = "blacklist"
-
-# Whitelist - verified working versions (used when mode = "whitelist")
-# Only these versions will be installed when using "latest"
-# Users can override by creating ~/.config/agent-unleashed/whitelist.txt
-[package.metadata.claude-code-whitelist]
-versions = ["2.1.37", "2.1.32", "2.1.29", "2.1.22", "2.1.12", "2.1.4", "2.1.3", "2.1.2", "2.0.77"]
-
-# Blacklist - versions with known critical issues (used when mode = "blacklist")
-# These versions are skipped when installing "latest"
-# Users can override by creating ~/.config/agent-unleashed/blacklist.txt
-[package.metadata.claude-code-blacklist]
-versions = ["2.1.5", "2.1.1", "2.1.0"]
-
-# Codex CLI version management
-# Same filtering mechanism as Claude Code (whitelist/blacklist)
-# Versions fetched from GitHub releases (tags matching rust-v*)
-[package.metadata.codex-versions]
-default_mode = "whitelist"
-
-# Whitelist - verified working Codex versions
-# Users can override by creating ~/.config/agent-unleashed/codex-whitelist.txt
-[package.metadata.codex-whitelist]
-versions = ["0.98.0", "0.93.0", "0.92.0", "0.91.0", "0.90.0"]
-
-# Blacklist - Codex versions with known issues
-# Users can override by creating ~/.config/agent-unleashed/codex-blacklist.txt
-[package.metadata.codex-blacklist]
-versions = []

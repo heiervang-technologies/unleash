@@ -17,15 +17,12 @@ pub struct VersionOutput {
 pub struct VersionListItem {
     pub version: String,
     pub is_installed: bool,
-    pub is_whitelisted: bool,
-    pub is_blacklisted: bool,
 }
 
 /// Version list output
 #[derive(Debug, Serialize, Deserialize)]
 pub struct VersionListOutput {
     pub currently_installed: Option<String>,
-    pub filter_mode: String,
     pub versions: Vec<VersionListItem>,
 }
 

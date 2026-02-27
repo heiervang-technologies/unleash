@@ -6,9 +6,7 @@ use crate::input::{key_to_action, MenuState, NavAction};
 use crate::pixel_art::mascots;
 use crate::text_input::{censor_sensitive, is_sensitive_key, TextInput};
 use crate::theme::{ThemeColor, ThemePreset};
-use crate::version::{get_version_filter_mode_for, is_version_allowed_for, InstallResult, VersionFilterMode, VersionInfo, VersionManager};
-#[cfg(test)]
-use crate::version::{is_whitelisted_for, is_blacklisted_for};
+use crate::version::{InstallResult, VersionInfo, VersionManager};
 
 use crossterm::event::{Event, KeyCode, KeyEvent, KeyModifiers};
 use ratatui::{
@@ -124,7 +122,6 @@ pub enum Screen {
     ConfirmDelete,
     Updating,
     VersionManagement,
-    VersionInstalling,
 }
 
 /// What we're currently editing
@@ -146,7 +143,6 @@ pub enum EditField {
 pub struct InstallState {
     pub agent_type: AgentType,
     pub version: String,
-    pub is_allowed: bool,
     pub receiver: Receiver<InstallStepResult>,
     pub _handle: JoinHandle<()>,
     pub start_time: Instant,
@@ -163,6 +159,9 @@ pub enum InstallStep {
 
 /// Result from a single installation step
 pub enum InstallStepResult {
+    /// A line of log output from the install process
+    LogLine(String),
+    /// Installation has completed
     InstallComplete(InstallResult),
 }
 
@@ -239,6 +238,20 @@ pub struct App {
     /// Scroll offset for help screen content
     pub help_scroll_offset: u16,
 
+    // Drum picker for agent selection
+    /// Whether focus is on the agent picker (true) or version list (false)
+    pub focus_agent_picker: bool,
+    /// Menu state for agent picker
+    pub agent_picker_menu: MenuState,
+    /// Index of version currently being installed (for inline spinner)
+    pub installing_version_index: Option<usize>,
+    /// Accumulated install log lines for the log panel
+    pub install_log_lines: Vec<String>,
+    /// Whether the install log panel is visible
+    pub show_install_log: bool,
+    /// Whether 'g' was pressed (waiting for second 'g' for gg jump-to-top)
+    pub g_pending: bool,
+
     // Easter egg: Konami code triggers lava lamp mode (idea by cac taurus)
     /// Whether lava lamp color cycling is active
     pub lava_mode: bool,
@@ -266,6 +279,31 @@ impl App {
 
         let version_manager = VersionManager::new();
 
+        // Pre-populate version caches from embedded (compiled-in) version lists.
+        // This makes version lists appear instantly — no network fetch needed.
+        let embedded = crate::version::load_embedded_versions();
+        let mut cached_version_lists: HashMap<AgentType, Vec<VersionInfo>> = HashMap::new();
+        let agent_keys: &[(&str, AgentType)] = &[
+            ("claude", AgentType::Claude),
+            ("codex", AgentType::Codex),
+            ("gemini", AgentType::Gemini),
+            ("opencode", AgentType::OpenCode),
+        ];
+        for (key, agent_type) in agent_keys {
+            if let Some(versions) = embedded.get(*key) {
+                cached_version_lists.insert(
+                    *agent_type,
+                    versions
+                        .iter()
+                        .map(|v| VersionInfo {
+                            version: v.clone(),
+                            is_installed: false, // updated once async version check completes
+                        })
+                        .collect(),
+                );
+            }
+        }
+
         // Spawn a background thread to fetch installed versions for all agents
         // This prevents blocking the TUI startup
         let (version_tx, version_rx) = mpsc::channel();
@@ -274,11 +312,13 @@ impl App {
             let claude_version = VersionManager::new().get_installed_version();
             let _ = version_tx.send((AgentType::Claude, claude_version));
 
-            // Codex version
-            let codex_version = AgentManager::new()
-                .ok()
-                .and_then(|mut m| m.get_installed_version(AgentType::Codex).ok().flatten());
-            let _ = version_tx.send((AgentType::Codex, codex_version));
+            // All other agents via AgentManager
+            if let Ok(mut mgr) = AgentManager::new() {
+                for agent_type in &[AgentType::Codex, AgentType::Gemini, AgentType::OpenCode] {
+                    let v = mgr.get_installed_version(*agent_type).ok().flatten();
+                    let _ = version_tx.send((*agent_type, v));
+                }
+            }
         });
 
         let theme_color = selected_profile.as_ref()
@@ -310,7 +350,7 @@ impl App {
             selected_version: None,
             version_agent: AgentType::Claude,
             cached_agent_versions: HashMap::new(),
-            cached_version_lists: HashMap::new(),
+            cached_version_lists,
             cached_installed_version: None, // Will be populated async
             version_fetch_receiver: Some(version_rx),
             version_list_receiver: None,
@@ -323,6 +363,12 @@ impl App {
             pending_external_edit: None,
             help_return_screen: None,
             help_scroll_offset: 0,
+            focus_agent_picker: true,
+            agent_picker_menu: MenuState::new(AgentType::all().len()),
+            installing_version_index: None,
+            install_log_lines: Vec::new(),
+            show_install_log: false,
+            g_pending: false,
             lava_mode: false,
             konami_progress: 0,
             theme_menu: MenuState::new(ThemePreset::all().len() + 1), // presets + Custom
@@ -338,10 +384,10 @@ impl App {
                 self.cached_installed_version = v.clone();
                 v
             }
-            AgentType::Codex => {
+            _ => {
                 AgentManager::new()
                     .ok()
-                    .and_then(|mut m| m.get_installed_version(AgentType::Codex).ok().flatten())
+                    .and_then(|mut m| m.get_installed_version(agent_type).ok().flatten())
             }
         };
         self.cached_agent_versions.insert(agent_type, version);
@@ -411,7 +457,20 @@ impl App {
                         if agent_type == AgentType::Claude {
                             self.cached_installed_version = version.clone();
                         }
-                        self.cached_agent_versions.insert(agent_type, version);
+                        self.cached_agent_versions.insert(agent_type, version.clone());
+
+                        // Update is_installed flags in cached version lists (embedded or fetched)
+                        if let Some(list) = self.cached_version_lists.get_mut(&agent_type) {
+                            for vi in list.iter_mut() {
+                                vi.is_installed = version.as_deref() == Some(vi.version.as_str());
+                            }
+                        }
+                        // Also update the currently displayed list if viewing this agent
+                        if self.version_agent == agent_type {
+                            for vi in self.versions.iter_mut() {
+                                vi.is_installed = version.as_deref() == Some(vi.version.as_str());
+                            }
+                        }
                     }
                     Err(mpsc::TryRecvError::Empty) => break,
                     Err(mpsc::TryRecvError::Disconnected) => {
@@ -468,6 +527,9 @@ impl App {
             // Try to receive results without blocking
             while let Ok(result) = state.receiver.try_recv() {
                 match result {
+                    InstallStepResult::LogLine(line) => {
+                        self.install_log_lines.push(line);
+                    }
                     InstallStepResult::InstallComplete(install_result) => {
                         state.install_result = Some(install_result);
                         state.current_step = InstallStep::Done;
@@ -480,8 +542,22 @@ impl App {
                 let version = state.version.clone();
                 let agent_type = state.agent_type;
                 let agent_name = agent_type.display_name();
-                let is_allowed = state.is_allowed;
                 let install_ok = state.install_result.as_ref().is_some_and(|r| r.success);
+
+                if install_ok {
+                    self.install_log_lines.push(format!(
+                        "--- {} v{} installed successfully ---", agent_name, version
+                    ));
+                } else {
+                    let err = state
+                        .install_result
+                        .as_ref()
+                        .and_then(|r| r.error.clone())
+                        .unwrap_or_else(|| "unknown error".to_string());
+                    self.install_log_lines.push(format!(
+                        "--- Install failed: {} ---", err
+                    ));
+                }
 
                 self.status_message = Some(if !install_ok {
                     let err = state
@@ -490,16 +566,14 @@ impl App {
                         .and_then(|r| r.error.clone())
                         .unwrap_or_else(|| "unknown error".to_string());
                     format!("{} install failed: {}", agent_name, err)
-                } else if !is_allowed {
-                    format!("{} v{} installed (not recommended)", agent_name, version)
                 } else {
                     format!("{} v{} installed", agent_name, version)
                 });
 
                 self.install_state = None;
+                self.installing_version_index = None;
                 self.refresh_versions();
                 self.refresh_cached_version_for(agent_type);
-                self.screen = Screen::VersionManagement;
             }
         }
     }
@@ -553,6 +627,7 @@ impl App {
         match self.screen {
             Screen::Profiles => self.refresh_profiles(),
             Screen::VersionManagement => {
+                self.focus_agent_picker = true;
                 self.refresh_versions();
                 if self.versions.is_empty() {
                     self.status_message = Some("Loading versions...".to_string());
@@ -568,8 +643,7 @@ impl App {
             | Screen::EnvVarEdit
             | Screen::Theme
             | Screen::Help
-            | Screen::ConfirmDelete
-            | Screen::VersionInstalling => {}
+            | Screen::ConfirmDelete => {}
         }
     }
 
@@ -617,21 +691,44 @@ impl App {
 
     /// Show cached version list immediately, then fetch fresh data async.
     pub fn refresh_versions(&mut self) {
+        self.clear_and_refresh_versions();
+    }
+
+    /// Clear version list and show loading state, then fetch fresh data.
+    /// Prevents stale data from a previous agent being shown after switching.
+    fn clear_and_refresh_versions(&mut self) {
         let agent = self.version_agent;
 
-        // Show cached list instantly (may be empty on first load)
-        if let Some(cached) = self.cached_version_lists.get(&agent) {
-            self.versions = cached.clone();
-        }
-        self.version_menu.set_items_count(self.versions.len());
+        // Clear displayed list immediately to prevent stale data
+        self.versions.clear();
+        self.version_menu.set_items_count(0);
+        self.version_menu.selected = 0;
+        self.version_menu.scroll_offset = 0;
 
-        // Kick off async refresh (both Claude and Codex fetch from network)
+        // Show loading indicator
+        self.status_message = Some(format!("Loading {} versions...", agent.display_name()));
+
+        // Check cache for the CORRECT agent only
+        if let Some(cached) = self.cached_version_lists.get(&agent) {
+            if !cached.is_empty() {
+                self.versions = cached.clone();
+                self.version_menu.set_items_count(self.versions.len());
+                self.status_message =
+                    Some(format!("{} (cached, refreshing...)", agent.display_name()));
+            }
+        }
+
+        // Always kick off async refresh
         self.start_async_version_fetch(agent);
     }
 
     /// Spawn a background thread to fetch the version list for an agent
     fn start_async_version_fetch(&mut self, agent: AgentType) {
         let (tx, rx) = mpsc::channel();
+        let installed = self
+            .cached_agent_versions
+            .get(&agent)
+            .and_then(|v| v.clone());
         match agent {
             AgentType::Claude => {
                 thread::spawn(move || {
@@ -641,14 +738,24 @@ impl App {
                 });
             }
             AgentType::Codex => {
-                let installed = self
-                    .cached_agent_versions
-                    .get(&AgentType::Codex)
-                    .and_then(|v| v.clone());
                 thread::spawn(move || {
                     let vm = VersionManager::new();
                     let versions = vm.get_codex_version_list(installed.as_deref());
                     let _ = tx.send((AgentType::Codex, versions));
+                });
+            }
+            AgentType::Gemini => {
+                thread::spawn(move || {
+                    let vm = VersionManager::new();
+                    let versions = vm.get_gemini_version_list(installed.as_deref());
+                    let _ = tx.send((AgentType::Gemini, versions));
+                });
+            }
+            AgentType::OpenCode => {
+                thread::spawn(move || {
+                    let vm = VersionManager::new();
+                    let versions = vm.get_opencode_version_list(installed.as_deref());
+                    let _ = tx.send((AgentType::OpenCode, versions));
                 });
             }
         }
@@ -670,8 +777,6 @@ impl App {
             versions.push(VersionInfo {
                 version: v.clone(),
                 is_installed: true,
-                is_whitelisted: is_whitelisted_for(&v, AgentType::Codex),
-                is_blacklisted: is_blacklisted_for(&v, AgentType::Codex),
             });
         }
 
@@ -740,7 +845,7 @@ impl App {
             let action = key_to_action(key);
 
             // Global help: '?' opens help from any navigable screen
-            if action == NavAction::Help && self.screen != Screen::Help && self.screen != Screen::VersionInstalling {
+            if action == NavAction::Help && self.screen != Screen::Help {
                 // Only animate when transitioning from Main (mascot changes sides)
                 if self.screen == Screen::Main {
                     self.trigger_screen_animation(true, Screen::Help);
@@ -764,8 +869,7 @@ impl App {
                 Screen::Help => self.handle_help_input(action),
                 Screen::ConfirmDelete => self.handle_confirm_delete_input(action),
                 Screen::Updating => return self.handle_updating_input(action),
-                Screen::VersionManagement => self.handle_version_input(action),
-                Screen::VersionInstalling => {} // Non-interactive while installing
+                Screen::VersionManagement => self.handle_version_input(action, key),
             }
         }
         Ok(None)
@@ -1033,67 +1137,135 @@ impl App {
         Ok(None)
     }
 
-    fn handle_version_input(&mut self, action: NavAction) {
+    fn handle_version_input(&mut self, action: NavAction, key: KeyEvent) {
+        // Handle 'gg' two-key sequence for jump-to-top
+        if self.g_pending {
+            self.g_pending = false;
+            if key.code == KeyCode::Char('g') {
+                // gg: jump to top of whichever panel is focused
+                if self.focus_agent_picker {
+                    self.switch_to_agent_index(0);
+                } else {
+                    self.version_menu.select_first();
+                }
+                return;
+            }
+            // Not 'g' — fall through to handle the key normally
+        }
+
+        // Handle raw key shortcuts that don't map to NavAction
+        match key.code {
+            KeyCode::Char('s') => {
+                // Rescan versions for current agent
+                self.refresh_versions();
+                return;
+            }
+            KeyCode::Char('G') => {
+                // Jump to bottom of focused panel
+                if self.focus_agent_picker {
+                    let last = AgentType::all().len().saturating_sub(1);
+                    self.switch_to_agent_index(last);
+                } else {
+                    self.version_menu.select_last();
+                }
+                return;
+            }
+            KeyCode::Char('g') => {
+                self.g_pending = true;
+                return;
+            }
+            _ => {}
+        }
+
         match action {
             NavAction::Up | NavAction::Down => {
-                self.version_menu.handle_action(action);
-            }
-            NavAction::Left | NavAction::Right => {
-                // Cycle between agent CLIs
-                let agents = AgentType::all();
-                let current_idx = agents
-                    .iter()
-                    .position(|a| *a == self.version_agent)
-                    .unwrap_or(0);
-                let new_idx = match action {
-                    NavAction::Right => (current_idx + 1) % agents.len(),
-                    NavAction::Left => {
-                        current_idx.checked_sub(1).unwrap_or(agents.len() - 1)
+                if self.focus_agent_picker {
+                    let agents = AgentType::all();
+                    let current_idx = agents
+                        .iter()
+                        .position(|a| *a == self.version_agent)
+                        .unwrap_or(0);
+                    let new_idx = match action {
+                        NavAction::Down => (current_idx + 1).min(agents.len() - 1),
+                        NavAction::Up => current_idx.saturating_sub(1),
+                        _ => unreachable!(),
+                    };
+                    if new_idx != current_idx {
+                        self.switch_to_agent_index(new_idx);
                     }
-                    _ => unreachable!(),
-                };
-                self.version_agent = agents[new_idx];
-                self.version_menu.selected = 0;
-                self.version_menu.scroll_offset = 0;
-                self.refresh_versions();
-                self.status_message =
-                    Some(format!("Switched to {}", self.version_agent.display_name()));
+                } else {
+                    self.version_menu.handle_action(action);
+                }
+            }
+            NavAction::Tab => {
+                if self.focus_agent_picker {
+                    self.focus_agent_picker = false;
+                }
+            }
+            NavAction::BackTab => {
+                if !self.focus_agent_picker {
+                    self.focus_agent_picker = true;
+                }
             }
             NavAction::Select => {
-                match self.version_agent {
-                    AgentType::Claude => self.install_claude_version(),
-                    AgentType::Codex => self.install_codex_version(),
+                if self.focus_agent_picker {
+                    self.focus_agent_picker = false;
+                } else {
+                    self.install_version_for_agent();
                 }
             }
             NavAction::Back | NavAction::Quit => {
-                self.trigger_screen_animation(false, Screen::Main);
-                self.pending_screen = Some(Screen::Main);
+                // Dismiss install log panel first if visible and install is done
+                if self.show_install_log && self.install_state.is_none() {
+                    self.show_install_log = false;
+                    self.install_log_lines.clear();
+                } else if !self.focus_agent_picker {
+                    self.focus_agent_picker = true;
+                } else {
+                    self.trigger_screen_animation(false, Screen::Main);
+                    self.pending_screen = Some(Screen::Main);
+                }
             }
             _ => {}
         }
     }
 
-    /// Install a selected Claude Code version via npm
-    fn install_claude_version(&mut self) {
+    /// Switch to the agent at the given index, refreshing versions
+    fn switch_to_agent_index(&mut self, idx: usize) {
+        let agents = AgentType::all();
+        if idx >= agents.len() {
+            return;
+        }
+        self.version_agent = agents[idx];
+        self.agent_picker_menu.selected = idx;
+        self.version_menu.selected = 0;
+        self.version_menu.scroll_offset = 0;
+        self.refresh_versions();
+        self.status_message = Some(format!("Switched to {}", self.version_agent.display_name()));
+    }
+
+    /// Install the selected version for the current agent with streaming log output
+    fn install_version_for_agent(&mut self) {
+        if self.install_state.is_some() {
+            return;
+        }
         if let Some(version_info) = self.versions.get(self.version_menu.selected) {
             let version = version_info.version.clone();
-            let is_allowed = is_version_allowed_for(&version, AgentType::Claude);
+            let agent = self.version_agent;
             let is_reinstall = version_info.is_installed;
 
             self.selected_version = Some(version.clone());
-            self.screen = Screen::VersionInstalling;
+            self.installing_version_index = Some(self.version_menu.selected);
+            self.install_log_lines.clear();
+            self.show_install_log = true;
 
-            let action = if is_reinstall {
-                "Reinstalling"
-            } else {
-                "Installing"
-            };
-            let warning = if !is_allowed {
-                " (WARNING: not recommended)"
-            } else {
-                ""
-            };
-            self.status_message = Some(format!("{} v{}{}...", action, version, warning));
+            let action = if is_reinstall { "Reinstalling" } else { "Installing" };
+            self.status_message = Some(format!(
+                "{} {} v{}...",
+                action,
+                agent.display_name(),
+                version
+            ));
 
             let (tx, rx) = mpsc::channel();
 
@@ -1101,65 +1273,37 @@ impl App {
             let handle = thread::spawn(move || {
                 let vm = VersionManager::new();
 
-                let install_result =
-                    vm.install_version(&version_clone).unwrap_or_else(|e| InstallResult {
-                        success: false,
-                        stdout: String::new(),
-                        stderr: String::new(),
-                        error: Some(e.to_string()),
-                    });
-                let _ = tx.send(InstallStepResult::InstallComplete(install_result));
-            });
+                // Bridge channel: forward String log lines as InstallStepResult::LogLine
+                let (log_tx, log_rx) = mpsc::channel::<String>();
+                let tx_bridge = tx.clone();
+                let bridge = thread::spawn(move || {
+                    for line in log_rx {
+                        let _ = tx_bridge.send(InstallStepResult::LogLine(line));
+                    }
+                });
 
-            self.install_state = Some(InstallState {
-                agent_type: AgentType::Claude,
-                version,
-                is_allowed,
-                receiver: rx,
-                _handle: handle,
-                start_time: Instant::now(),
-                current_step: InstallStep::Installing,
-                install_result: None,
-            });
-        }
-    }
+                let result = match agent {
+                    AgentType::Claude => vm.install_version_streaming(&version_clone, log_tx),
+                    AgentType::Codex => vm.install_codex_version_streaming(&version_clone, log_tx),
+                    AgentType::Gemini => vm.install_gemini_version_streaming(&version_clone, log_tx),
+                    AgentType::OpenCode => vm.install_opencode_version_streaming(&version_clone, log_tx),
+                };
 
-    /// Install a specific Codex version (build from source at tag)
-    fn install_codex_version(&mut self) {
-        if let Some(version_info) = self.versions.get(self.version_menu.selected) {
-            let version = version_info.version.clone();
-            let is_allowed = is_version_allowed_for(&version, AgentType::Codex);
-            let is_rebuild = version_info.is_installed;
+                // Wait for bridge to flush all log lines before sending completion
+                let _ = bridge.join();
 
-            self.selected_version = Some(version.clone());
-            self.screen = Screen::VersionInstalling;
-
-            let action = if is_rebuild { "Rebuilding" } else { "Building" };
-            let warning = if !is_allowed {
-                " (WARNING: not recommended)"
-            } else {
-                ""
-            };
-            self.status_message = Some(format!("{} Codex v{}{}...", action, version, warning));
-
-            let (tx, rx) = mpsc::channel();
-
-            let version_clone = version.clone();
-            let handle = thread::spawn(move || {
-                let vm = VersionManager::new();
-                let result = vm.install_codex_version(&version_clone).unwrap_or_else(|e| InstallResult {
+                let install_result = result.unwrap_or_else(|e| InstallResult {
                     success: false,
                     stdout: String::new(),
                     stderr: e.to_string(),
                     error: Some(e.to_string()),
                 });
-                let _ = tx.send(InstallStepResult::InstallComplete(result));
+                let _ = tx.send(InstallStepResult::InstallComplete(install_result));
             });
 
             self.install_state = Some(InstallState {
-                agent_type: AgentType::Codex,
+                agent_type: agent,
                 version,
-                is_allowed,
                 receiver: rx,
                 _handle: handle,
                 start_time: Instant::now(),
@@ -1517,8 +1661,8 @@ impl App {
                 // Update status messages
                 35
             }
-            Screen::VersionManagement | Screen::VersionInstalling => {
-                // Version list: "1.0.xxx [installed]"
+            Screen::VersionManagement => {
+                // Version entries: "> v2.1.37 [installed] ✓" ~30 chars + padding
                 45
             }
             Screen::ProfileEdit | Screen::EnvVarEdit => {
@@ -1651,7 +1795,6 @@ impl App {
                 self.render_confirm_delete_dialog(frame, frame.area());
             }
             Screen::VersionManagement => self.render_version_management(frame, area),
-            Screen::VersionInstalling => self.render_version_installing(frame, area),
             Screen::Updating => self.render_updating(frame, area),
         }
     }
@@ -2237,215 +2380,239 @@ impl App {
     }
 
     fn render_version_management(&mut self, frame: &mut Frame, area: Rect) {
-        // Split: agent tab bar + version list
-        let chunks = Layout::default()
-            .direction(Direction::Vertical)
-            .constraints([
-                Constraint::Length(2), // Agent tab bar
-                Constraint::Min(5),   // Version list
-            ])
-            .split(area);
+        let agents = AgentType::all();
+        let agent_height = (agents.len() as u16) + 2; // agents + borders
 
-        self.render_agent_tabs(frame, chunks[0]);
-        self.render_version_list(frame, chunks[1]);
+        if self.show_install_log {
+            // 3-panel layout: agent picker, version list (shrunk), install log
+            let chunks = Layout::default()
+                .direction(Direction::Vertical)
+                .constraints([
+                    Constraint::Length(agent_height),
+                    Constraint::Min(3),
+                    Constraint::Length(10),
+                ])
+                .split(area);
+
+            self.render_agent_picker(frame, chunks[0]);
+            self.render_version_panel(frame, chunks[1]);
+            self.render_install_log_panel(frame, chunks[2]);
+        } else {
+            // Normal 2-panel layout
+            let chunks = Layout::default()
+                .direction(Direction::Vertical)
+                .constraints([
+                    Constraint::Length(agent_height),
+                    Constraint::Min(5),
+                ])
+                .split(area);
+
+            self.render_agent_picker(frame, chunks[0]);
+            self.render_version_panel(frame, chunks[1]);
+        }
     }
 
-    /// Render the agent CLI tab bar (Claude Code | Codex)
-    fn render_agent_tabs(&self, frame: &mut Frame, area: Rect) {
+    /// Render the agent picker as a compact list with the selected agent highlighted
+    fn render_agent_picker(&self, frame: &mut Frame, area: Rect) {
+        let border_color = if self.focus_agent_picker {
+            self.accent_color()
+        } else {
+            Color::DarkGray
+        };
+
+        let block = Block::default()
+            .borders(Borders::ALL)
+            .border_style(Style::default().fg(border_color))
+            .title(" Agent CLI ");
+
+        let inner = block.inner(area);
+        frame.render_widget(block, area);
+
         let agents = AgentType::all();
-        let mut spans = Vec::new();
+        let mut lines: Vec<Line> = Vec::new();
 
-        spans.push(Span::raw("  "));
+        for agent in agents.iter() {
+            let is_selected = *agent == self.version_agent;
 
-        for (i, agent) in agents.iter().enumerate() {
-            if i > 0 {
-                spans.push(Span::styled(" | ", Style::default().fg(Color::DarkGray)));
-            }
+            let (prefix, style) = if is_selected {
+                (
+                    "> ",
+                    Style::default()
+                        .fg(self.accent_color())
+                        .add_modifier(Modifier::BOLD),
+                )
+            } else {
+                ("  ", Style::default().fg(Color::DarkGray))
+            };
 
-            let style = if *agent == self.version_agent {
+            lines.push(Line::from(vec![
+                Span::styled(prefix, style),
+                Span::styled(agent.display_name(), style),
+            ]));
+        }
+
+        let content = Paragraph::new(lines);
+        frame.render_widget(content, inner);
+    }
+
+    /// Render the version list inside a bordered panel
+    fn render_version_panel(&mut self, frame: &mut Frame, area: Rect) {
+        let agent_name = self.version_agent.display_name();
+        let border_color = if !self.focus_agent_picker {
+            self.accent_color()
+        } else {
+            Color::DarkGray
+        };
+
+        let block = Block::default()
+            .borders(Borders::ALL)
+            .border_style(Style::default().fg(border_color))
+            .title(format!(" {} Versions ", agent_name));
+
+        let inner = block.inner(area);
+        frame.render_widget(block, area);
+
+        self.render_version_list(frame, inner);
+    }
+
+    /// Render the version list as a scrollable drum picker, responsive to available height
+    fn render_version_list(&mut self, frame: &mut Frame, area: Rect) {
+        // Show loading spinner when no versions are available
+        if self.versions.is_empty() {
+            let spinner = self.spinner_frame();
+            let loading = Paragraph::new(Line::from(vec![
+                Span::raw("  "),
+                Span::styled(
+                    format!("{} Loading versions...", spinner),
+                    Style::default().fg(Color::DarkGray),
+                ),
+            ]));
+            frame.render_widget(loading, area);
+            return;
+        }
+
+        let total = self.versions.len();
+        // Reserve 1 line each for scroll indicators when needed
+        let max_visible = (area.height as usize).saturating_sub(2).max(1);
+        let selected = self.version_menu.selected;
+
+        // Calculate window start to center the selection
+        let half = max_visible / 2;
+        let start = if total <= max_visible {
+            0
+        } else if selected <= half {
+            0
+        } else if selected >= total - half {
+            total.saturating_sub(max_visible)
+        } else {
+            selected - half
+        };
+        let end = (start + max_visible).min(total);
+
+        // Show scroll indicators
+        let has_above = start > 0;
+        let has_below = end < total;
+
+        let mut lines: Vec<Line> = Vec::new();
+
+        if has_above {
+            lines.push(Line::from(Span::styled(
+                "  ▲ more",
+                Style::default().fg(Color::DarkGray),
+            )));
+        }
+
+        for i in start..end {
+            let version_info = &self.versions[i];
+            let is_selected = i == selected;
+
+            let style = if is_selected {
                 Style::default()
                     .fg(self.accent_color())
                     .add_modifier(Modifier::BOLD)
+            } else if version_info.is_installed {
+                Style::default().fg(Color::Green)
             } else {
-                Style::default().fg(Color::DarkGray)
+                Style::default()
             };
 
-            let installed = self
-                .cached_agent_versions
-                .get(agent)
-                .and_then(|v| v.clone())
-                .map(|v| format!(" (v{})", v))
-                .unwrap_or_default();
+            let is_installing = self.installing_version_index == Some(i);
+            let prefix = if is_selected { "> " } else { "  " };
+            let installed_marker = if version_info.is_installed { " [installed]" } else { "" };
 
-            spans.push(Span::styled(
-                format!("{}{}", agent.display_name(), installed),
-                style,
-            ));
+            let mut spans = vec![
+                Span::styled(prefix, style),
+                Span::styled(format!("v{}", version_info.version), style),
+                Span::styled(installed_marker, Style::default().fg(Color::Green)),
+            ];
+
+            if is_installing {
+                let spinner = self.spinner_frame();
+                spans.push(Span::styled(
+                    format!(" {} installing...", spinner),
+                    Style::default().fg(Color::Yellow),
+                ));
+            }
+
+            lines.push(Line::from(spans));
         }
 
-        spans.push(Span::styled(
-            "  [←/→: switch agent]",
-            Style::default().fg(Color::DarkGray),
-        ));
+        if has_below {
+            lines.push(Line::from(Span::styled(
+                "  ▼ more",
+                Style::default().fg(Color::DarkGray),
+            )));
+        }
 
-        let tabs = Paragraph::new(Line::from(spans));
-        frame.render_widget(tabs, area);
+        let content = Paragraph::new(lines);
+        frame.render_widget(content, area);
     }
 
-    /// Render the version list for the currently selected agent
-    fn render_version_list(&mut self, frame: &mut Frame, area: Rect) {
-        // Calculate visible height (area minus legend lines)
-        let legend_lines: u16 = 3;
-        let visible_height = area.height.saturating_sub(legend_lines) as usize;
+    /// Render the install log panel showing live subprocess output
+    fn render_install_log_panel(&self, frame: &mut Frame, area: Rect) {
+        let is_active = self.install_state.is_some();
+        let border_color = if is_active { Color::Yellow } else { Color::DarkGray };
 
-        // Ensure selected item is visible
-        self.version_menu.ensure_visible(visible_height);
-        let scroll_offset = self.version_menu.scroll_offset;
+        let title = if let Some(ref state) = self.install_state {
+            let elapsed = state.start_time.elapsed().as_secs();
+            format!(" {} Install Log ({}s) ", self.spinner_frame(), elapsed)
+        } else {
+            " Install Log (Esc to dismiss) ".to_string()
+        };
 
-        // Build items with scroll awareness
-        let items: Vec<ListItem> = self
-            .versions
+        let block = Block::default()
+            .borders(Borders::ALL)
+            .border_style(Style::default().fg(border_color))
+            .title(title);
+
+        let inner = block.inner(area);
+        frame.render_widget(block, area);
+
+        let visible_height = inner.height as usize;
+        let total = self.install_log_lines.len();
+
+        // Auto-scroll: show the last N lines that fit
+        let start = total.saturating_sub(visible_height);
+        let visible_lines: Vec<Line> = self.install_log_lines[start..]
             .iter()
-            .enumerate()
-            .skip(scroll_offset)
-            .take(visible_height)
-            .map(|(i, version_info)| {
-                let is_selected = i == self.version_menu.selected;
-
-                {
-                    // Show whitelist/blacklist markers for all agents
-                    let agent = self.version_agent;
-                    let is_allowed = is_version_allowed_for(&version_info.version, agent);
-
-                    let style = if is_selected {
-                        if !is_allowed {
-                            Style::default()
-                                .fg(Color::Yellow)
-                                .add_modifier(Modifier::BOLD | Modifier::CROSSED_OUT)
-                        } else {
-                            Style::default()
-                                .fg(self.accent_color())
-                                .add_modifier(Modifier::BOLD)
-                        }
-                    } else if !is_allowed {
-                        Style::default()
-                            .fg(Color::DarkGray)
-                            .add_modifier(Modifier::CROSSED_OUT)
-                    } else if version_info.is_installed {
+            .map(|line| {
+                let style = if line.starts_with("---") {
+                    if line.contains("successfully") {
                         Style::default().fg(Color::Green)
+                    } else if line.contains("failed") || line.contains("Failed") {
+                        Style::default().fg(Color::Red)
                     } else {
-                        Style::default()
-                    };
-
-                    let prefix = if is_selected { "> " } else { "  " };
-                    let installed_marker =
-                        if version_info.is_installed { " [installed]" } else { "" };
-                    let whitelist_marker = if version_info.is_whitelisted { " ✓" } else { "" };
-                    let blacklist_marker = if version_info.is_blacklisted { " ⛔" } else { "" };
-
-                    ListItem::new(vec![Line::from(vec![
-                        Span::styled(prefix, style),
-                        Span::styled(format!("v{}", version_info.version), style),
-                        Span::styled(installed_marker, Style::default().fg(Color::Green)),
-                        Span::styled(whitelist_marker, Style::default().fg(Color::Green)),
-                        Span::styled(blacklist_marker, Style::default().fg(Color::Red)),
-                    ])])
-                }
+                        Style::default().fg(Color::DarkGray)
+                    }
+                } else {
+                    Style::default().fg(Color::DarkGray)
+                };
+                Line::from(Span::styled(format!(" {}", line), style))
             })
             .collect();
 
-        let mut list_items = items;
-
-        // Add legend at the bottom
-        if !self.versions.is_empty() {
-            list_items.push(ListItem::new(Line::from("")));
-            let legend = "  ✓ = whitelisted  ⛔ = blacklisted";
-            list_items.push(ListItem::new(Line::from(Span::styled(
-                legend,
-                Style::default().fg(Color::DarkGray),
-            ))));
-            let filter_mode = get_version_filter_mode_for(self.version_agent);
-            let mode_hint = match filter_mode {
-                VersionFilterMode::Whitelist => {
-                    "  Mode: whitelist (only ✓ versions allowed)"
-                }
-                VersionFilterMode::Blacklist => {
-                    "  Mode: blacklist (all except ⛔ allowed)"
-                }
-            };
-            list_items.push(ListItem::new(Line::from(Span::styled(
-                mode_hint,
-                Style::default().fg(Color::DarkGray),
-            ))));
-        }
-
-        let menu = List::new(list_items);
-        frame.render_widget(menu, area);
-    }
-
-    fn render_version_installing(&self, frame: &mut Frame, area: Rect) {
-        let version = self.selected_version.as_deref().unwrap_or("?");
-        let spinner = self.spinner_frame();
-        let agent_name = self
-            .install_state
-            .as_ref()
-            .map(|s| s.agent_type.display_name())
-            .unwrap_or(self.version_agent.display_name());
-
-        // Determine current step info based on agent type
-        let (step_text, command_text) = if let Some(ref state) = self.install_state {
-            let install_cmd = match state.agent_type {
-                AgentType::Claude => "npm install -g @anthropic-ai/claude-code@...".to_string(),
-                AgentType::Codex => "cargo build --release -p codex-cli".to_string(),
-            };
-            match state.current_step {
-                InstallStep::Installing => (
-                    format!("{} Installing {} {}...", spinner, agent_name, version),
-                    install_cmd,
-                ),
-                InstallStep::Done => (
-                    format!("✓ {} {} installation complete", agent_name, version),
-                    "Done!".to_string(),
-                ),
-            }
-        } else {
-            (
-                format!("{} Installing {} {}...", spinner, agent_name, version),
-                "...".to_string(),
-            )
-        };
-
-        // Calculate elapsed time
-        let elapsed = self
-            .install_state
-            .as_ref()
-            .map(|s| s.start_time.elapsed().as_secs())
-            .unwrap_or(0);
-        let elapsed_text = if elapsed > 0 {
-            format!("  Elapsed: {}s", elapsed)
-        } else {
-            String::new()
-        };
-
-        let lines = vec![
-            Line::from(""),
-            Line::from(Span::styled(
-                format!("  {}", step_text),
-                Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD),
-            )),
-            Line::from(""),
-            Line::from("  This may take a moment."),
-            Line::from(Span::styled(elapsed_text, Style::default().fg(Color::DarkGray))),
-            Line::from(""),
-            Line::from(Span::styled(
-                format!("  Running: {}", command_text),
-                Style::default().fg(Color::DarkGray),
-            )),
-        ];
-
-        let content = Paragraph::new(lines)
-            .wrap(Wrap { trim: false });
-        frame.render_widget(content, area);
+        let content = Paragraph::new(visible_lines);
+        frame.render_widget(content, inner);
     }
 
     fn render_status_bar(&self, frame: &mut Frame, area: Rect) {
@@ -2619,6 +2786,12 @@ mod tests {
             pending_external_edit: None,
             help_return_screen: None,
             help_scroll_offset: 0,
+            focus_agent_picker: true,
+            agent_picker_menu: MenuState::new(AgentType::all().len()),
+            installing_version_index: None,
+            install_log_lines: Vec::new(),
+            show_install_log: false,
+            g_pending: false,
             lava_mode: false,
             konami_progress: 0,
             theme_menu: MenuState::new(ThemePreset::all().len() + 1),
@@ -2626,6 +2799,20 @@ mod tests {
         };
 
         (app, temp)
+    }
+
+    /// Create a KeyEvent from a NavAction for testing handle_version_input
+    fn key_for(action: NavAction) -> KeyEvent {
+        match action {
+            NavAction::Up => KeyEvent::new(KeyCode::Up, KeyModifiers::NONE),
+            NavAction::Down => KeyEvent::new(KeyCode::Down, KeyModifiers::NONE),
+            NavAction::Select => KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE),
+            NavAction::Back => KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE),
+            NavAction::Tab => KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE),
+            NavAction::BackTab => KeyEvent::new(KeyCode::BackTab, KeyModifiers::NONE),
+            NavAction::Quit => KeyEvent::new(KeyCode::Char('q'), KeyModifiers::NONE),
+            _ => KeyEvent::new(KeyCode::Null, KeyModifiers::NONE),
+        }
     }
 
     #[test]
@@ -2967,37 +3154,53 @@ mod tests {
     }
 
     #[test]
-    fn test_agent_cycle_right() {
+    fn test_agent_navigate_down() {
         let (mut app, _temp) = test_app();
         app.animations_enabled = false;
 
-        // Navigate to version management screen
         app.screen = Screen::VersionManagement;
+        app.focus_agent_picker = true;
         assert_eq!(app.version_agent, AgentType::Claude);
 
-        // Cycle right: Claude -> Codex
-        app.handle_version_input(NavAction::Right);
+        // Navigate down: Claude -> Codex -> Gemini -> OpenCode
+        app.handle_version_input(NavAction::Down, key_for(NavAction::Down));
         assert_eq!(app.version_agent, AgentType::Codex);
 
-        // Cycle right wraps: Codex -> Claude
-        app.handle_version_input(NavAction::Right);
-        assert_eq!(app.version_agent, AgentType::Claude);
+        app.handle_version_input(NavAction::Down, key_for(NavAction::Down));
+        assert_eq!(app.version_agent, AgentType::Gemini);
+
+        app.handle_version_input(NavAction::Down, key_for(NavAction::Down));
+        assert_eq!(app.version_agent, AgentType::OpenCode);
+
+        // Clamp at bottom (no wrap)
+        app.handle_version_input(NavAction::Down, key_for(NavAction::Down));
+        assert_eq!(app.version_agent, AgentType::OpenCode);
     }
 
     #[test]
-    fn test_agent_cycle_left() {
+    fn test_agent_navigate_up() {
         let (mut app, _temp) = test_app();
         app.animations_enabled = false;
 
         app.screen = Screen::VersionManagement;
-        assert_eq!(app.version_agent, AgentType::Claude);
+        app.focus_agent_picker = true;
 
-        // Cycle left wraps: Claude -> Codex
-        app.handle_version_input(NavAction::Left);
+        // Start at OpenCode
+        app.switch_to_agent_index(3);
+        assert_eq!(app.version_agent, AgentType::OpenCode);
+
+        // Navigate up: OpenCode -> Gemini -> Codex -> Claude
+        app.handle_version_input(NavAction::Up, key_for(NavAction::Up));
+        assert_eq!(app.version_agent, AgentType::Gemini);
+
+        app.handle_version_input(NavAction::Up, key_for(NavAction::Up));
         assert_eq!(app.version_agent, AgentType::Codex);
 
-        // Cycle left: Codex -> Claude
-        app.handle_version_input(NavAction::Left);
+        app.handle_version_input(NavAction::Up, key_for(NavAction::Up));
+        assert_eq!(app.version_agent, AgentType::Claude);
+
+        // Clamp at top (no wrap)
+        app.handle_version_input(NavAction::Up, key_for(NavAction::Up));
         assert_eq!(app.version_agent, AgentType::Claude);
     }
 
@@ -3007,11 +3210,12 @@ mod tests {
         app.animations_enabled = false;
 
         app.screen = Screen::VersionManagement;
+        app.focus_agent_picker = true; // Focus on drum picker
         app.version_menu.selected = 3;
         app.version_menu.scroll_offset = 2;
 
         // Switching agent resets selection and scroll
-        app.handle_version_input(NavAction::Right);
+        app.handle_version_input(NavAction::Down, key_for(NavAction::Down));
         assert_eq!(app.version_menu.selected, 0);
         assert_eq!(app.version_menu.scroll_offset, 0);
     }
@@ -3037,8 +3241,6 @@ mod tests {
         assert_eq!(versions.len(), 1);
         assert_eq!(versions[0].version, "0.93.0");
         assert!(versions[0].is_installed);
-        // Whitelisted version should show marker
-        assert!(versions[0].is_whitelisted);
     }
 
     #[test]
@@ -3048,37 +3250,36 @@ mod tests {
         app.screen = Screen::VersionManagement;
         app.version_agent = AgentType::Codex;
 
-        // Populate Codex version list with a whitelisted version
+        // Populate Codex version list
         app.versions = vec![VersionInfo {
             version: "0.93.0".to_string(),
             is_installed: false,
-            is_whitelisted: true,
-            is_blacklisted: false,
         }];
         app.version_menu.set_items_count(app.versions.len());
 
         // Select and install
-        app.install_codex_version();
+        app.install_version_for_agent();
 
-        assert_eq!(app.screen, Screen::VersionInstalling);
+        assert_eq!(app.screen, Screen::VersionManagement);
+        assert_eq!(app.installing_version_index, Some(0));
         assert_eq!(app.selected_version, Some("0.93.0".to_string()));
         let state = app.install_state.as_ref().unwrap();
         assert_eq!(state.agent_type, AgentType::Codex);
         assert_eq!(state.version, "0.93.0");
-        assert!(state.is_allowed);
         assert_eq!(state.current_step, InstallStep::Installing);
     }
 
     #[test]
     fn test_codex_install_completes_on_success() {
         let (mut app, _temp) = test_app();
+        app.screen = Screen::VersionManagement;
+        app.installing_version_index = Some(0);
 
         // Simulate a successful Codex install completing
         let (tx, rx) = mpsc::channel();
         app.install_state = Some(InstallState {
             agent_type: AgentType::Codex,
             version: "latest".to_string(),
-            is_allowed: true,
             receiver: rx,
             _handle: thread::spawn(|| {}),
             start_time: Instant::now(),
@@ -3112,5 +3313,278 @@ mod tests {
         let _ = app.handle_main_input(NavAction::Select);
         app.tick();
         assert_eq!(app.screen, Screen::VersionManagement);
+    }
+
+    #[test]
+    fn test_agent_switch_clears_stale_versions() {
+        let (mut app, _temp) = test_app();
+        app.animations_enabled = false;
+        app.screen = Screen::VersionManagement;
+        app.focus_agent_picker = true;
+
+        // Pre-populate Claude versions
+        app.versions = vec![VersionInfo {
+            version: "2.1.12".to_string(),
+            is_installed: true,
+        }];
+        app.version_menu.set_items_count(1);
+        assert_eq!(app.version_agent, AgentType::Claude);
+
+        // Switch to Codex (no cache exists for Codex)
+        app.handle_version_input(NavAction::Down, key_for(NavAction::Down));
+        assert_eq!(app.version_agent, AgentType::Codex);
+
+        // After the fix, versions should be cleared (no stale Claude data)
+        assert!(
+            !app.versions.iter().any(|v| v.version == "2.1.12"),
+            "Claude version 2.1.12 should not be visible after switching to Codex"
+        );
+        assert_eq!(app.version_menu.selected, 0);
+        assert_eq!(app.version_menu.scroll_offset, 0);
+    }
+
+    #[test]
+    fn test_agent_switch_shows_cached_data_for_correct_agent() {
+        let (mut app, _temp) = test_app();
+        app.animations_enabled = false;
+        app.screen = Screen::VersionManagement;
+        app.focus_agent_picker = true;
+
+        // Pre-cache Codex versions
+        let codex_versions = vec![VersionInfo {
+            version: "0.98.0".to_string(),
+            is_installed: true,
+        }];
+        app.cached_version_lists.insert(AgentType::Codex, codex_versions);
+
+        // Switch to Codex
+        app.handle_version_input(NavAction::Down, key_for(NavAction::Down));
+        assert_eq!(app.version_agent, AgentType::Codex);
+
+        // Should show cached Codex version immediately
+        assert_eq!(app.versions.len(), 1);
+        assert_eq!(app.versions[0].version, "0.98.0");
+    }
+
+    #[test]
+    fn test_rapid_agent_switch_replaces_receiver() {
+        let (mut app, _temp) = test_app();
+        app.animations_enabled = false;
+        app.screen = Screen::VersionManagement;
+        app.focus_agent_picker = true;
+
+        // Switch to Codex (starts async fetch)
+        app.handle_version_input(NavAction::Down, key_for(NavAction::Down));
+        assert!(app.version_list_receiver.is_some());
+        assert_eq!(app.version_agent, AgentType::Codex);
+
+        // Immediately switch to Gemini (should replace receiver)
+        app.handle_version_input(NavAction::Down, key_for(NavAction::Down));
+        assert!(app.version_list_receiver.is_some());
+        assert_eq!(app.version_agent, AgentType::Gemini);
+
+        // Switch again to OpenCode
+        app.handle_version_input(NavAction::Down, key_for(NavAction::Down));
+        assert!(app.version_list_receiver.is_some());
+        assert_eq!(app.version_agent, AgentType::OpenCode);
+    }
+
+    #[test]
+    fn test_gemini_install_sets_install_state() {
+        let (mut app, _temp) = test_app();
+        app.animations_enabled = false;
+        app.screen = Screen::VersionManagement;
+        app.version_agent = AgentType::Gemini;
+
+        app.versions = vec![VersionInfo {
+            version: "1.0.0".to_string(),
+            is_installed: false,
+        }];
+        app.version_menu.set_items_count(1);
+
+        app.install_version_for_agent();
+
+        assert_eq!(app.screen, Screen::VersionManagement);
+        assert_eq!(app.installing_version_index, Some(0));
+        assert_eq!(app.selected_version, Some("1.0.0".to_string()));
+        let state = app.install_state.as_ref().unwrap();
+        assert_eq!(state.agent_type, AgentType::Gemini);
+        assert_eq!(state.version, "1.0.0");
+    }
+
+    #[test]
+    fn test_opencode_install_sets_install_state() {
+        let (mut app, _temp) = test_app();
+        app.animations_enabled = false;
+        app.screen = Screen::VersionManagement;
+        app.version_agent = AgentType::OpenCode;
+
+        app.versions = vec![VersionInfo {
+            version: "0.5.0".to_string(),
+            is_installed: false,
+        }];
+        app.version_menu.set_items_count(1);
+
+        app.install_version_for_agent();
+
+        assert_eq!(app.screen, Screen::VersionManagement);
+        assert_eq!(app.installing_version_index, Some(0));
+        assert_eq!(app.selected_version, Some("0.5.0".to_string()));
+        let state = app.install_state.as_ref().unwrap();
+        assert_eq!(state.agent_type, AgentType::OpenCode);
+        assert_eq!(state.version, "0.5.0");
+    }
+
+    #[test]
+    fn test_all_agent_types_in_cycle() {
+        let agents = AgentType::all();
+        assert_eq!(agents.len(), 4);
+        assert_eq!(agents[0], AgentType::Claude);
+        assert_eq!(agents[1], AgentType::Codex);
+        assert_eq!(agents[2], AgentType::Gemini);
+        assert_eq!(agents[3], AgentType::OpenCode);
+    }
+
+    #[test]
+    fn test_agent_display_names() {
+        assert_eq!(AgentType::Claude.display_name(), "Claude Code");
+        assert_eq!(AgentType::Codex.display_name(), "Codex");
+        assert_eq!(AgentType::Gemini.display_name(), "Gemini CLI");
+        assert_eq!(AgentType::OpenCode.display_name(), "OpenCode");
+    }
+
+    #[test]
+    fn test_agent_from_str() {
+        assert_eq!(AgentType::from_str("claude"), Some(AgentType::Claude));
+        assert_eq!(AgentType::from_str("codex"), Some(AgentType::Codex));
+        assert_eq!(AgentType::from_str("gemini"), Some(AgentType::Gemini));
+        assert_eq!(AgentType::from_str("gemini-cli"), Some(AgentType::Gemini));
+        assert_eq!(AgentType::from_str("opencode"), Some(AgentType::OpenCode));
+        assert_eq!(AgentType::from_str("open-code"), Some(AgentType::OpenCode));
+        assert_eq!(AgentType::from_str("unknown"), None);
+    }
+
+    #[test]
+    fn test_focus_toggle_between_picker_and_list() {
+        let (mut app, _temp) = test_app();
+        app.animations_enabled = false;
+        app.screen = Screen::VersionManagement;
+        app.focus_agent_picker = true;
+
+        // Tab moves from picker to version list
+        app.handle_version_input(NavAction::Tab, key_for(NavAction::Tab));
+        assert!(!app.focus_agent_picker);
+
+        // Back goes from version list to picker
+        app.handle_version_input(NavAction::Back, key_for(NavAction::Back));
+        assert!(app.focus_agent_picker);
+    }
+
+    #[test]
+    fn test_select_in_picker_moves_focus_to_list() {
+        let (mut app, _temp) = test_app();
+        app.animations_enabled = false;
+        app.screen = Screen::VersionManagement;
+        app.focus_agent_picker = true;
+
+        // Select in picker should move focus to version list
+        app.handle_version_input(NavAction::Select, key_for(NavAction::Select));
+        assert!(!app.focus_agent_picker);
+    }
+
+    #[test]
+    fn test_back_from_list_goes_to_picker() {
+        let (mut app, _temp) = test_app();
+        app.animations_enabled = false;
+        app.screen = Screen::VersionManagement;
+        app.focus_agent_picker = false;
+
+        // Back from version list goes to picker
+        app.handle_version_input(NavAction::Back, key_for(NavAction::Back));
+        assert!(app.focus_agent_picker);
+        assert_eq!(app.screen, Screen::VersionManagement);
+
+        // Back from picker goes to main screen
+        app.handle_version_input(NavAction::Back, key_for(NavAction::Back));
+        app.tick();
+        assert_eq!(app.screen, Screen::Main);
+    }
+
+    #[test]
+    fn test_version_screen_starts_with_agent_picker_focused() {
+        let (mut app, _temp) = test_app();
+        app.animations_enabled = false;
+        app.focus_agent_picker = false; // Simulate leftover state
+
+        // Enter version management screen
+        app.screen = Screen::VersionManagement;
+        app.refresh_screen_data();
+
+        assert!(app.focus_agent_picker);
+    }
+
+    #[test]
+    fn test_g_g_jumps_to_top() {
+        let (mut app, _temp) = test_app();
+        app.animations_enabled = false;
+        app.screen = Screen::VersionManagement;
+        app.focus_agent_picker = true;
+
+        // Navigate to OpenCode (bottom)
+        app.switch_to_agent_index(3);
+        assert_eq!(app.version_agent, AgentType::OpenCode);
+
+        // Press 'g' then 'g' to jump to top
+        let g_key = KeyEvent::new(KeyCode::Char('g'), KeyModifiers::NONE);
+        app.handle_version_input(NavAction::None, g_key);
+        assert!(app.g_pending);
+        app.handle_version_input(NavAction::None, g_key);
+        assert!(!app.g_pending);
+        assert_eq!(app.version_agent, AgentType::Claude);
+    }
+
+    #[test]
+    fn test_shift_g_jumps_to_bottom() {
+        let (mut app, _temp) = test_app();
+        app.animations_enabled = false;
+        app.screen = Screen::VersionManagement;
+        app.focus_agent_picker = true;
+
+        assert_eq!(app.version_agent, AgentType::Claude);
+
+        // Press 'G' to jump to bottom
+        let big_g_key = KeyEvent::new(KeyCode::Char('G'), KeyModifiers::SHIFT);
+        app.handle_version_input(NavAction::None, big_g_key);
+        assert_eq!(app.version_agent, AgentType::OpenCode);
+    }
+
+    #[test]
+    fn test_s_rescans_versions() {
+        let (mut app, _temp) = test_app();
+        app.animations_enabled = false;
+        app.screen = Screen::VersionManagement;
+        app.focus_agent_picker = false;
+
+        // Press 's' triggers a rescan (version_list_receiver gets set)
+        let s_key = KeyEvent::new(KeyCode::Char('s'), KeyModifiers::NONE);
+        app.handle_version_input(NavAction::None, s_key);
+        assert!(app.version_list_receiver.is_some());
+    }
+
+    #[test]
+    fn test_g_pending_clears_on_non_g_key() {
+        let (mut app, _temp) = test_app();
+        app.animations_enabled = false;
+        app.screen = Screen::VersionManagement;
+        app.focus_agent_picker = true;
+
+        // Press 'g' — should set pending
+        let g_key = KeyEvent::new(KeyCode::Char('g'), KeyModifiers::NONE);
+        app.handle_version_input(NavAction::None, g_key);
+        assert!(app.g_pending);
+
+        // Press something else — should clear pending and handle normally
+        app.handle_version_input(NavAction::Down, key_for(NavAction::Down));
+        assert!(!app.g_pending);
     }
 }
