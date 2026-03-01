@@ -1,5 +1,12 @@
 # Changelog
 
+## [8.1.1](https://github.com/heiervang-technologies/unleash/compare/v8.1.0...v8.1.1) (2026-03-01)
+
+
+### Bug Fixes
+
+* remove stale CI job and update docs for unleash rebrand ([#174](https://github.com/heiervang-technologies/unleash/issues/174)) ([080e4fc](https://github.com/heiervang-technologies/unleash/commit/080e4fc426d689ec0d37a572c9a0550f1d8f5b19))
+
 ## [8.1.0](https://github.com/heiervang-technologies/agent-unleashed/compare/v8.0.0...v8.1.0) (2026-03-01)
 
 
