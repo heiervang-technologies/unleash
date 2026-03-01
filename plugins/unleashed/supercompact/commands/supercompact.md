@@ -64,4 +64,4 @@ The JSONL on disk is now compacted, but the live session still has old context i
 restart-claude "Session compacted with supercompact ($METHOD). Restarting to load compacted context."
 ```
 
-If `restart-claude` is not available (not running under agent-unleashed), tell the user: "Run `/quit` then `claude --resume` to load the compacted context."
+If `restart-claude` is not available (not running under unleash), tell the user: "Run `/quit` then `claude --resume` to load the compacted context."

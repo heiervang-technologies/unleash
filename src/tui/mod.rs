@@ -1,4 +1,4 @@
-//! TUI module for Agent Unleashed
+//! TUI module for Unleash
 //!
 //! Provides profile management, version management, and launcher UI.
 
@@ -28,7 +28,7 @@ pub fn run() -> io::Result<()> {
         return Err(io::Error::new(
             io::ErrorKind::Unsupported,
             "TUI requires a terminal (TTY). This command cannot run in headless environments.\n\
-             Use non-TUI commands instead: au auth, au version, au go",
+             Use non-TUI commands instead: unleash auth, unleash version, unleash go",
         ));
     }
 
@@ -121,7 +121,7 @@ fn run_external_editor(content: &str) -> io::Result<String> {
 
     // Create temp file with content
     let temp_dir = env::temp_dir();
-    let temp_path = temp_dir.join(format!("agent-unleashed-edit-{}.txt", std::process::id()));
+    let temp_path = temp_dir.join(format!("unleash-edit-{}.txt", std::process::id()));
 
     fs::write(&temp_path, content)?;
 

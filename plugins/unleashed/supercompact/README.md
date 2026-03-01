@@ -76,7 +76,7 @@ export PLUGIN_SETTING_FALLBACK_TO_BUILTIN=true
 
 ## Logs
 
-Compaction logs are written to `~/.cache/agent-unleashed/supercompact/hook.log`.
+Compaction logs are written to `~/.cache/unleash/supercompact/hook.log`.
 
 ## Dependencies
 

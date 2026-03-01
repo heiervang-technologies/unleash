@@ -24,60 +24,60 @@ When using Jessica (voice assistant) with Claude Code:
 
 **After (with omnihook):**
 1. User speaks via voice input
-2. Transcription calls `au-queue --notify "transcribed text"`
-3. Claude's `au-wait` unblocks immediately
+2. Transcription calls `unleash-queue --notify "transcribed text"`
+3. Claude's `unleash-wait` unblocks immediately
 4. Message injected via next hook event
 5. Near-instant response
 
 ## Installation
 
-The plugin is automatically available when using agent-unleashed. The hooks register for all event types.
+The plugin is automatically available when using unleash. The hooks register for all event types.
 
 ## CLI Tools
 
-### au-queue
+### unleash-queue
 
 Add messages to the omnihook queue:
 
 ```bash
 # Queue a message for the current session
-au-queue "Please search for files containing auth"
+unleash-queue "Please search for files containing auth"
 
 # From voice transcription pipeline
-echo "$TRANSCRIPTION" | au-queue --stdin --notify
+echo "$TRANSCRIPTION" | unleash-queue --stdin --notify
 
 # Target a specific session
-au-queue --pid 12345 "Message for that session"
+unleash-queue --pid 12345 "Message for that session"
 
 # Send to all active sessions
-au-queue --all "Attention all sessions"
+unleash-queue --all "Attention all sessions"
 
 # List active queues
-au-queue --list
+unleash-queue --list
 
 # Clear the queue
-au-queue --clear
+unleash-queue --clear
 ```
 
-### au-wait
+### unleash-wait
 
 Block until a message arrives:
 
 ```bash
 # Wait with 60 second timeout
-au-wait --timeout 60
+unleash-wait --timeout 60
 
 # Wait indefinitely
-au-wait
+unleash-wait
 
 # Just check if messages exist
-au-wait --check
+unleash-wait --check
 
 # Setup FIFO for this session
-au-wait --setup
+unleash-wait --setup
 
 # Cleanup when done
-au-wait --cleanup
+unleash-wait --cleanup
 ```
 
 ## Slash Commands
@@ -93,14 +93,14 @@ au-wait --cleanup
 External Tool (jessica-listen)
          |
          v
-    au-queue --notify "message"
+    unleash-queue --notify "message"
          |
-         +---> Queue File (~/.cache/agent-unleashed/omnihook/queue-PID)
+         +---> Queue File (~/.cache/unleash/omnihook/queue-PID)
          |
-         +---> FIFO (~/.cache/agent-unleashed/omnihook/fifo-PID)
+         +---> FIFO (~/.cache/unleash/omnihook/fifo-PID)
                     |
                     v
-              au-wait unblocks
+              unleash-wait unblocks
                     |
                     v
          Claude resumes work
@@ -129,9 +129,9 @@ External Tool (jessica-listen)
 
 | Path | Purpose |
 |------|---------|
-| `~/.cache/agent-unleashed/omnihook/queue-PID` | Message queue (JSON lines) |
-| `~/.cache/agent-unleashed/omnihook/fifo-PID` | Named pipe for instant wakeup |
-| `~/.cache/agent-unleashed/omnihook/lock-PID` | Lock file for atomic queue operations |
+| `~/.cache/unleash/omnihook/queue-PID` | Message queue (JSON lines) |
+| `~/.cache/unleash/omnihook/fifo-PID` | Named pipe for instant wakeup |
+| `~/.cache/unleash/omnihook/lock-PID` | Lock file for atomic queue operations |
 
 ## Integration Example
 
@@ -144,7 +144,7 @@ External Tool (jessica-listen)
 # Start listening
 jessica-listen --continuous | while read -r transcription; do
   # Queue the transcription with notification
-  au-queue --notify "${transcription}"
+  unleash-queue --notify "${transcription}"
 done
 ```
 
@@ -155,7 +155,7 @@ done
 sleep 30
 
 # Use:
-au-wait --timeout 60
+unleash-wait --timeout 60
 if [[ $? -eq 0 ]]; then
   echo "Voice message received!"
 fi
@@ -169,7 +169,7 @@ Messages in the queue are JSON objects:
 {
   "text": "The transcribed voice message",
   "timestamp": "2026-01-23T15:30:00Z",
-  "source": "au-queue"
+  "source": "unleash-queue"
 }
 ```
 
@@ -179,26 +179,26 @@ The omnihook handler extracts the `text` field for injection.
 
 ```bash
 # Check what's in the queue
-cat ~/.cache/agent-unleashed/omnihook/queue-*
+cat ~/.cache/unleash/omnihook/queue-*
 
 # Check if FIFO exists
-ls -la ~/.cache/agent-unleashed/omnihook/fifo-*
+ls -la ~/.cache/unleash/omnihook/fifo-*
 
 # Test queue manually
-AGENT_WRAPPER_PID=$$ au-queue "Test message"
-AGENT_WRAPPER_PID=$$ au-wait --check
+AGENT_WRAPPER_PID=$$ unleash-queue "Test message"
+AGENT_WRAPPER_PID=$$ unleash-wait --check
 ```
 
 ## Environment Variables
 
 | Variable | Purpose |
 |----------|---------|
-| `AGENT_WRAPPER_PID` | Session identifier (set by agent-unleashed wrapper) |
+| `AGENT_WRAPPER_PID` | Session identifier (set by unleash wrapper) |
 | `HOOK_EVENT` | Hook event type (set by hooks.json) |
 
 ## Limitations
 
-- Requires running under agent-unleashed wrapper (AGENT_WRAPPER_PID must be set)
+- Requires running under unleash wrapper (AGENT_WRAPPER_PID must be set)
 - FIFO-based wakeup requires the FIFO to be set up first
 - Messages are processed one at a time on each hook event
 

@@ -72,14 +72,14 @@ pub fn set_window_rule(rule: &str) -> io::Result<()> {
     Ok(())
 }
 
-/// Apply default window rules for agent-unleashed windows using batch mode.
-/// Matches windows with class `agent-unleashed` using 0.53+ regex syntax.
+/// Apply default window rules for unleash windows using batch mode.
+/// Matches windows with class `unleash` using 0.53+ regex syntax.
 pub fn apply_agent_window_rules() -> io::Result<()> {
     let output = Command::new("hyprctl")
         .args([
             "--batch",
-            "keyword windowrule float on, match:class ^(agent-unleashed)$ ; \
-             keyword windowrule opacity 0.95 0.9, match:class ^(agent-unleashed)$",
+            "keyword windowrule float on, match:class ^(unleash)$ ; \
+             keyword windowrule opacity 0.95 0.9, match:class ^(unleash)$",
         ])
         .output()?;
 

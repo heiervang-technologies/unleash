@@ -13,7 +13,7 @@ docs/
 ├── extensions/                        # Extension Development Guides
 │   ├── plugin-development.md          # PRIMARY: Creating plugins (1195 lines)
 │   ├── configuration.md               # Configuration options (CLI, TUI, settings)
-│   ├── headless-mode.md               # Headless tmux mode (autx) usage
+│   ├── headless-mode.md               # Headless tmux mode (unleashtx) usage
 │   ├── restart-refresh.md             # Process restart and MCP refresh
 │   ├── snail-integration.md           # GitHub Actions workflows (1332 lines)
 │   └── testing-guide.md               # Testing strategies (1372 lines)
@@ -84,7 +84,7 @@ docs/
 
 ## By Expertise Level
 
-### Beginner (New to agent-unleashed)
+### Beginner (New to unleash)
 
 1. **docs/README.md** - Start here for overview
 2. **plugin-development.md** - Learn plugin basics

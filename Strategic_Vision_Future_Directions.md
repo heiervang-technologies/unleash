@@ -3,7 +3,7 @@
 ## P5: Future Directions (Extrapolation)
 
 ### 1. Native Headless Mode (No `tmux` dependency)
-**Concept:** Currently, the `autx` command relies heavily on `tmux` for background execution and capturing output. While practical, it introduces a hard dependency on a third-party tool, limits cross-platform compatibility (e.g., Windows), and forces the system to rely on file-polling to determine when the agent has finished responding.
+**Concept:** Currently, the `unleashtx` command relies heavily on `tmux` for background execution and capturing output. While practical, it introduces a hard dependency on a third-party tool, limits cross-platform compatibility (e.g., Windows), and forces the system to rely on file-polling to determine when the agent has finished responding.
 **Proposal:** Move to a pure-Rust PTY (pseudoterminal) implementation using crates like `portable-pty`. The agent can be spawned natively in the background, and standard IPC or WebSockets can be used to stream output, handle completion signals robustly (without file scraping), and interact dynamically.
 
 ### 2. Strict Plugin Sandboxing via WebAssembly
@@ -25,4 +25,4 @@
 
 ### 3. Integrated Rollback / Snapshot Engine
 **Concept:** Unattended auto-mode can occasionally corrupt a project.
-**Proposal:** The wrapper could automatically hook into `git` to perform an ephemeral commit (or use a file system snapshot mechanism) before starting an auto-mode session. If Claude's session goes awry, the user can invoke a built-in `au revert` command to instantly undo all operations from the specific session without untangling complex git histories manually.
+**Proposal:** The wrapper could automatically hook into `git` to perform an ephemeral commit (or use a file system snapshot mechanism) before starting an auto-mode session. If Claude's session goes awry, the user can invoke a built-in `unleash revert` command to instantly undo all operations from the specific session without untangling complex git histories manually.

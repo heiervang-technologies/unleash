@@ -11,7 +11,7 @@ HOOK_INPUT=$(cat)
 
 # Configuration
 PLUGIN_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-CACHE_DIR="${HOME}/.cache/agent-unleashed/voice-output"
+CACHE_DIR="${HOME}/.cache/unleash/voice-output"
 PLUGIN_SETTING_ENABLED="${PLUGIN_SETTING_ENABLED:-false}"
 PLUGIN_SETTING_PROVIDER="${PLUGIN_SETTING_PROVIDER:-vibevoice}"
 

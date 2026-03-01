@@ -1,15 +1,15 @@
-//! Agent Unleashed - Unified CLI for AI Code Agents
+//! Unleash - Unified CLI for AI Code Agents
 //!
 //! Single binary that handles:
-//! - `au` / `agent-unleashed` - Launch agent with wrapper features
-//! - `au tui` / `aui` - TUI for profile/version management
-//! - `au tmux` / `autx` - Headless tmux mode
+//! - `unleash` / `unleash` - Launch agent with wrapper features
+//! - `unleash tui` / `unleashi` - TUI for profile/version management
+//! - `unleash tmux` / `unleashtx` - Headless tmux mode
 //!
 //! Shorthand aliases:
-//! - `aui` - TUI for profile/version management
-//! - `aug` - Launch agent wrapper
-//! - `autx` - Headless tmux mode
-//! - `autxg` - Start and attach tmux session
+//! - `unleashi` - TUI for profile/version management
+//! - `unleashg` - Launch agent wrapper
+//! - `unleashtx` - Headless tmux mode
+//! - `unleashtxg` - Start and attach tmux session
 
 mod agents;
 mod auth;
@@ -65,15 +65,15 @@ pub fn run() -> io::Result<()> {
     // Handle symlink invocations
     match invoked_as.as_str() {
         #[cfg(feature = "tui")]
-        "aui" => return tui::run(),
+        "unleashi" => return tui::run(),
         #[cfg(not(feature = "tui"))]
-        "aui" => {
+        "unleashi" => {
             eprintln!("Error: TUI support is not compiled in this build");
             eprintln!("Rebuild with: cargo build --features tui");
             std::process::exit(1);
         }
-        "aug" => {
-            // Shorthand for `au go` - launch agent wrapper
+        "unleashg" => {
+            // Shorthand for `unleash go` - launch agent wrapper
             let args: Vec<String> = env::args().skip(1).collect();
             // Parse args for --auto and -p flags
             let auto = args.iter().any(|a| a == "--auto" || a == "-a");
@@ -88,13 +88,13 @@ pub fn run() -> io::Result<()> {
                 .collect();
             return launcher::run(auto, prompt, pass_args);
         }
-        "autx" => {
+        "unleashtx" => {
             // Pass remaining args to tmux module
             let args: Vec<String> = env::args().skip(1).collect();
             return tmux::run(&args);
         }
-        "autxg" => {
-            // Shorthand for 'autx go' - start and attach to tmux session
+        "unleashtxg" => {
+            // Shorthand for 'unleashtx go' - start and attach to tmux session
             let mut args: Vec<String> = vec!["go".to_string()];
             args.extend(env::args().skip(1));
             return tmux::run(&args);

@@ -1,7 +1,7 @@
 ---
 name: omnihook-status
 description: Check omnihook queue status and pending messages
-allowed-tools: ["Bash(${CLAUDE_PLUGIN_ROOT}/scripts/au-queue:*)", "Bash(${CLAUDE_PLUGIN_ROOT}/scripts/au-wait:*)"]
+allowed-tools: ["Bash(${CLAUDE_PLUGIN_ROOT}/scripts/unleash-queue:*)", "Bash(${CLAUDE_PLUGIN_ROOT}/scripts/unleash-wait:*)"]
 ---
 
 # Omnihook Status
@@ -11,13 +11,13 @@ Check the current status of the omnihook system.
 ## Queue Status
 
 ```!
-"${CLAUDE_PLUGIN_ROOT}/scripts/au-queue" --list
+"${CLAUDE_PLUGIN_ROOT}/scripts/unleash-queue" --list
 ```
 
 ## Check for Pending Messages
 
 ```!
-"${CLAUDE_PLUGIN_ROOT}/scripts/au-wait" --check
+"${CLAUDE_PLUGIN_ROOT}/scripts/unleash-wait" --check
 ```
 
 ## Understanding the Output
@@ -30,5 +30,5 @@ Check the current status of the omnihook system.
 
 To clear pending messages:
 ```bash
-au-queue --clear  # Clear this session's queue
+unleash-queue --clear  # Clear this session's queue
 ```

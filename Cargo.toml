@@ -1,14 +1,14 @@
 [package]
-name = "agent-unleashed"
+name = "unleash"
 version = "8.0.0"
 edition = "2021"
-description = "Agent Unleashed - Extended CLI for AI Code Agents"
+description = "Unleash - Extended CLI for AI Code Agents"
 authors = ["Heiervang Technologies"]
 license = "MIT"
 
 # Binaries auto-discovered from src/bin/*.rs
-# Each is a thin wrapper calling agent_unleashed::run()
-# Behavior determined by argv[0]: au, aui, aug, autx, autxg
+# Each is a thin wrapper calling unleash::run()
+# Behavior determined by argv[0]: unleash, unleashi, unleashg, unleashtx, unleashtxg
 
 [features]
 default = ["tui"]

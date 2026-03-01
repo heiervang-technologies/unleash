@@ -2,7 +2,7 @@
 
 ## Overview
 
-This guide covers comprehensive testing strategies for agent-unleashed plugins, workflows, and integrations. Proper testing ensures reliability, prevents regressions, and maintains quality standards.
+This guide covers comprehensive testing strategies for unleash plugins, workflows, and integrations. Proper testing ensures reliability, prevents regressions, and maintains quality standards.
 
 ## Table of Contents
 
@@ -529,7 +529,7 @@ curl https://raw.githubusercontent.com/nektos/act/master/install.sh | sudo bash
 #### 2. Simulate Workflow Trigger
 
 ```bash
-cd /home/me/agent-unleashed
+cd /home/me/unleash
 
 # Simulate issue creation event
 act issues -e test-event.json

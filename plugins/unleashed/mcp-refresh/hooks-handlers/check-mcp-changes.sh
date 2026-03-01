@@ -7,7 +7,7 @@
 set -euo pipefail
 
 # Configuration
-CACHE_DIR="${HOME}/.cache/agent-unleashed/mcp-refresh"
+CACHE_DIR="${HOME}/.cache/unleash/mcp-refresh"
 HASH_FILE="${CACHE_DIR}/config-hashes.txt"
 PLUGIN_SETTING_AUTO_DETECT="${PLUGIN_SETTING_AUTO_DETECT:-true}"
 

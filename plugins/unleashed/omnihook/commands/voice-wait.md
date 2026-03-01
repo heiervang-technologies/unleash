@@ -1,7 +1,7 @@
 ---
 name: voice-wait
 description: Wait for voice input with instant wakeup (replaces sleep in auto-mode)
-allowed-tools: ["Bash(${CLAUDE_PLUGIN_ROOT}/scripts/au-wait:*)"]
+allowed-tools: ["Bash(${CLAUDE_PLUGIN_ROOT}/scripts/unleash-wait:*)"]
 ---
 
 # Voice Wait
@@ -11,12 +11,12 @@ Wait for voice input with instant wakeup capability. This replaces fixed sleep i
 ## Wait with Timeout
 
 ```!
-"${CLAUDE_PLUGIN_ROOT}/scripts/au-wait" --timeout 60
+"${CLAUDE_PLUGIN_ROOT}/scripts/unleash-wait" --timeout 60
 ```
 
 This will:
 1. Return immediately if a message is already queued
-2. Block until a message arrives via `au-queue --notify`
+2. Block until a message arrives via `unleash-queue --notify`
 3. Timeout after 60 seconds if no message arrives
 
 ## Exit Codes
@@ -34,10 +34,10 @@ sleep 30  # Old way - slow, unresponsive
 
 Use voice-wait:
 ```bash
-au-wait --timeout 60  # New way - instant response
+unleash-wait --timeout 60  # New way - instant response
 ```
 
-When a voice message arrives via `au-queue --notify`, the wait returns immediately, enabling smooth voice conversations with minimal latency.
+When a voice message arrives via `unleash-queue --notify`, the wait returns immediately, enabling smooth voice conversations with minimal latency.
 
 ## After Receiving a Message
 

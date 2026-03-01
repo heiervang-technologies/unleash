@@ -1,9 +1,9 @@
-# Makeover Report: Agent Unleashed
+# Makeover Report: Unleash
 
 ## Executive Summary
-Agent Unleashed is a powerful, lightweight wrapper around Anthropic's Claude Code, enabling headless execution via tmux, autonomous operation, and plugin-based extensions. The repository is generally well-structured and functional. 
+Unleash is a powerful, lightweight wrapper around Anthropic's Claude Code, enabling headless execution via tmux, autonomous operation, and plugin-based extensions. The repository is generally well-structured and functional. 
 
-However, the audit revealed critical operational and security weaknesses primarily in how shell commands are formulated within the headless (`autx`) mode, which leaves it vulnerable to local command injection. Furthermore, the installation scripts bypass robust artifact verification, and the application silently overrides security boundaries (`--dangerously-skip-permissions`) without explicitly alerting the user.
+However, the audit revealed critical operational and security weaknesses primarily in how shell commands are formulated within the headless (`unleashtx`) mode, which leaves it vulnerable to local command injection. Furthermore, the installation scripts bypass robust artifact verification, and the application silently overrides security boundaries (`--dangerously-skip-permissions`) without explicitly alerting the user.
 
 A phased remediation plan is recommended to harden the application against injection, improve installation safety, and elevate the reliability of the system.
 
@@ -12,9 +12,9 @@ A phased remediation plan is recommended to harden the application against injec
 ## Findings & Categorization
 
 ### P1: High-Impact Bugs & Failures
-* **Command Injection in `autx start` and `autx send`** (Effort: S)
+* **Command Injection in `unleashtx start` and `unleashtx send`** (Effort: S)
   * **File:** `src/tmux.rs`
-  * **Description:** User-provided arguments for launching the background agent (`claude_args`) are joined by a space and passed verbatim into `tmux send-keys`. If an argument contains shell metacharacters (e.g., `autx start "hello; rm -rf /"`), it is executed by the shell inside the tmux session. Furthermore, `autx send` joins arguments and passes them without the `-l` (literal) flag, which can cause `tmux` to incorrectly interpret them as flags if they begin with a hyphen.
+  * **Description:** User-provided arguments for launching the background agent (`claude_args`) are joined by a space and passed verbatim into `tmux send-keys`. If an argument contains shell metacharacters (e.g., `unleashtx start "hello; rm -rf /"`), it is executed by the shell inside the tmux session. Furthermore, `unleashtx send` joins arguments and passes them without the `-l` (literal) flag, which can cause `tmux` to incorrectly interpret them as flags if they begin with a hyphen.
   * **Remediation:** Implement proper shell-escaping for all arguments passed to the shell via `tmux send-keys`, and use `tmux send-keys -l -- <message>` for literal message sending.
 
 ### P2: Bad Practices & Documentation Debt
@@ -44,7 +44,7 @@ A phased remediation plan is recommended to harden the application against injec
 
 ### P4.5: Performance Bottlenecks
 * **Redundant API Rate Limits and Output Stalls** (Effort: L)
-  * **Description:** Not explicitly observed in the codebase, but the `autx` tmux file output tracking may struggle with very large contexts due to reading the entire file on each poll to check its length (`fs::read(config.output_file()).map(|b| b.len())`).
+  * **Description:** Not explicitly observed in the codebase, but the `unleashtx` tmux file output tracking may struggle with very large contexts due to reading the entire file on each poll to check its length (`fs::read(config.output_file()).map(|b| b.len())`).
   * **Remediation:** Use `fs::metadata` to check file length instead of loading the entire file into memory during the polling loop.
 
 ### P5: Future Directions (Extrapolation)
@@ -52,8 +52,8 @@ A phased remediation plan is recommended to harden the application against injec
 * **Plugin Sandboxing:** Currently plugins run with the same permissions as the wrapper. Leveraging WebAssembly (Wasm) for plugins could provide strict, capable sandboxing.
 
 ### P6: Novel & Creative Expansions
-* **Multi-Agent Orchestration:** Extend the `autx` background worker model to allow multiple specialized Claude instances to communicate via shared MCP buffers or designated memory workspaces.
-* **TUI Visualization of Agent Thinking:** Render real-time Mermaid graphs of the agent's plan or structural changes directly within the `aui` interface using ratatui canvas components.
+* **Multi-Agent Orchestration:** Extend the `unleashtx` background worker model to allow multiple specialized Claude instances to communicate via shared MCP buffers or designated memory workspaces.
+* **TUI Visualization of Agent Thinking:** Render real-time Mermaid graphs of the agent's plan or structural changes directly within the `unleashi` interface using ratatui canvas components.
 
 ---
 

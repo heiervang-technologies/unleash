@@ -1,16 +1,16 @@
 #!/usr/bin/env bash
-# au-wait - Block until a message arrives in the omnihook queue
+# unleash-wait - Block until a message arrives in the omnihook queue
 #
 # This tool provides blocking wait functionality for voice integration.
-# Instead of polling with fixed sleep intervals, Claude can call au-wait
+# Instead of polling with fixed sleep intervals, Claude can call unleash-wait
 # which will return immediately when a message arrives via the FIFO.
 #
 # Usage:
-#   au-wait                    # Wait indefinitely
-#   au-wait --timeout 30       # Wait up to 30 seconds
-#   au-wait --check            # Just check if messages exist (no wait)
-#   au-wait --setup            # Create FIFO for this session
-#   au-wait --cleanup          # Remove FIFO for this session
+#   unleash-wait                    # Wait indefinitely
+#   unleash-wait --timeout 30       # Wait up to 30 seconds
+#   unleash-wait --check            # Just check if messages exist (no wait)
+#   unleash-wait --setup            # Create FIFO for this session
+#   unleash-wait --cleanup          # Remove FIFO for this session
 #
 # Returns:
 #   0 - Message available (check queue)
@@ -20,7 +20,7 @@
 set -euo pipefail
 
 # Configuration
-QUEUE_DIR="${HOME}/.cache/agent-unleashed/omnihook"
+QUEUE_DIR="${HOME}/.cache/unleash/omnihook"
 WRAPPER_PID="${AGENT_WRAPPER_PID:-$$}"
 QUEUE_FILE="${QUEUE_DIR}/queue-${WRAPPER_PID}"
 FIFO_FILE="${QUEUE_DIR}/fifo-${WRAPPER_PID}"
@@ -36,10 +36,10 @@ while [[ $# -gt 0 ]]; do
   case "$1" in
     -h|--help)
       cat <<'EOF'
-au-wait - Block until a message arrives in the omnihook queue
+unleash-wait - Block until a message arrives in the omnihook queue
 
 USAGE:
-  au-wait [OPTIONS]
+  unleash-wait [OPTIONS]
 
 OPTIONS:
   -t, --timeout SEC   Maximum seconds to wait (0 = infinite, default)
@@ -55,22 +55,22 @@ EXIT CODES:
 
 EXAMPLES:
   # Wait for voice input (use in auto-mode loop)
-  au-wait --timeout 60 && echo "Message received!"
+  unleash-wait --timeout 60 && echo "Message received!"
 
   # Setup FIFO at session start
-  au-wait --setup
+  unleash-wait --setup
 
   # Quick check without waiting
-  au-wait --check && echo "Messages waiting"
+  unleash-wait --check && echo "Messages waiting"
 
   # Cleanup at session end
-  au-wait --cleanup
+  unleash-wait --cleanup
 
 HOW IT WORKS:
   1. Creates a named pipe (FIFO) for this session
   2. Blocks on read from FIFO
-  3. When au-queue --notify is called, it writes to FIFO
-  4. au-wait unblocks immediately and returns
+  3. When unleash-queue --notify is called, it writes to FIFO
+  4. unleash-wait unblocks immediately and returns
 
   This provides instant wakeup instead of polling with sleep.
 
@@ -79,7 +79,7 @@ INTEGRATION WITH AUTO-MODE:
     sleep 30  # Fixed delay, slow response
 
   Use:
-    au-wait --timeout 60  # Instant wakeup when message arrives
+    unleash-wait --timeout 60  # Instant wakeup when message arrives
 
 ENVIRONMENT:
   AGENT_WRAPPER_PID  - Session identifier for queue/FIFO files

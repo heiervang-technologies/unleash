@@ -1,4 +1,4 @@
-//! Headless tmux mode for Agent Unleashed
+//! Headless tmux mode for Unleash
 //!
 //! Enables programmatic access for automation, scripting, and CI/CD pipelines.
 
@@ -12,7 +12,7 @@ use std::time::Duration;
 use which::which;
 
 /// Default configuration values
-const DEFAULT_SESSION_NAME: &str = "agent-unleashed";
+const DEFAULT_SESSION_NAME: &str = "unleash";
 const DEFAULT_WAIT_TIMEOUT: u64 = 300;
 const DEFAULT_TERM_WIDTH: u32 = 200;
 const DEFAULT_TERM_HEIGHT: u32 = 50;
@@ -35,7 +35,7 @@ impl Config {
         let session_name = env::var("AUTX_SESSION_NAME").unwrap_or_else(|_| DEFAULT_SESSION_NAME.to_string());
         let cache_dir = dirs::cache_dir()
             .unwrap_or_else(|| PathBuf::from("/tmp"))
-            .join("agent-unleashed/autx");
+            .join("unleash/unleashtx");
 
         Self {
             session_name: session_name.clone(),
@@ -101,15 +101,15 @@ fn shell_escape(s: &str) -> String {
 }
 
 fn log_info(msg: &str) {
-    println!("{}[autx]{} {}", GREEN, NC, msg);
+    println!("{}[unleashtx]{} {}", GREEN, NC, msg);
 }
 
 fn log_warn(msg: &str) {
-    println!("{}[autx]{} {}", YELLOW, NC, msg);
+    println!("{}[unleashtx]{} {}", YELLOW, NC, msg);
 }
 
 fn log_error(msg: &str) {
-    eprintln!("{}[autx]{} {}", RED, NC, msg);
+    eprintln!("{}[unleashtx]{} {}", RED, NC, msg);
 }
 
 /// Check if tmux is available
@@ -129,26 +129,26 @@ fn session_exists(session_name: &str) -> bool {
         .unwrap_or(false)
 }
 
-/// Find the au launcher
+/// Find the unleash launcher
 fn find_launcher() -> io::Result<PathBuf> {
     // Try current exe directory
     if let Ok(exe) = env::current_exe() {
         if let Some(dir) = exe.parent() {
-            let au = dir.join("au");
-            if au.exists() {
-                return Ok(au);
+            let unleash = dir.join("unleash");
+            if unleash.exists() {
+                return Ok(unleash);
             }
         }
     }
 
     // Try PATH
-    if let Ok(path) = which("au") {
+    if let Ok(path) = which("unleash") {
         return Ok(path);
     }
 
     // Fall back to claude
     which("claude").map_err(|_| {
-        io::Error::new(io::ErrorKind::NotFound, "Neither au nor claude command found")
+        io::Error::new(io::ErrorKind::NotFound, "Neither unleash nor claude command found")
     })
 }
 
@@ -192,7 +192,7 @@ fn cmd_start(config: &Config, args: &[String]) -> io::Result<()> {
 
     if session_exists(&config.session_name) {
         log_warn(&format!("Session '{}' already exists", config.session_name));
-        log_info("Use 'autx attach' to connect or 'autx stop' to restart");
+        log_info("Use 'unleashtx attach' to connect or 'unleashtx stop' to restart");
         return Ok(());
     }
 
@@ -275,8 +275,8 @@ fn cmd_start(config: &Config, args: &[String]) -> io::Result<()> {
         .args(["send-keys", "-t", &config.session_name, &cmd_str, "Enter"])
         .status()?;
 
-    log_info("Session started. Use 'autx attach' to connect interactively");
-    log_info("Or use 'autx send \"message\"' to send commands");
+    log_info("Session started. Use 'unleashtx attach' to connect interactively");
+    log_info("Or use 'unleashtx send \"message\"' to send commands");
 
     Ok(())
 }
@@ -308,14 +308,14 @@ fn cmd_send(config: &Config, args: &[String]) -> io::Result<()> {
     check_tmux()?;
 
     if !session_exists(&config.session_name) {
-        log_error("No active session. Run 'autx start' first");
+        log_error("No active session. Run 'unleashtx start' first");
         return Err(io::Error::new(io::ErrorKind::NotFound, "No active session"));
     }
 
     let message = args.join(" ");
     if message.is_empty() {
         log_error("No message provided");
-        println!("Usage: autx send \"your message\"");
+        println!("Usage: unleashtx send \"your message\"");
         return Err(io::Error::new(io::ErrorKind::InvalidInput, "No message"));
     }
 
@@ -414,7 +414,7 @@ fn cmd_attach(config: &Config, join_here: bool) -> io::Result<()> {
     check_tmux()?;
 
     if !session_exists(&config.session_name) {
-        log_error("No active session. Run 'autx start' first");
+        log_error("No active session. Run 'unleashtx start' first");
         return Err(io::Error::new(io::ErrorKind::NotFound, "No active session"));
     }
 
@@ -521,23 +521,23 @@ fn cmd_query(config: &Config, args: &[String]) -> io::Result<()> {
 /// Show help
 fn cmd_help() {
     println!(
-        r#"autx - Agent Unleashed (Headless tmux mode)
+        r#"unleashtx - Unleash (Headless tmux mode)
 
 USAGE:
-    autx <command> [args]
-    autx "message"           Send message and wait for response
-    autxg                    Shorthand for 'autx go'
+    unleashtx <command> [args]
+    unleashtx "message"           Send message and wait for response
+    unleashtxg                    Shorthand for 'unleashtx go'
 
 COMMANDS:
     go [args]       Start session and attach (closes when Claude exits)
-                    This is the recommended way to use autx interactively.
-                    Shorthand: autxg
+                    This is the recommended way to use unleashtx interactively.
+                    Shorthand: unleashtxg
 
     start [--auto] [-d] [args]
                     Start a new Claude session in tmux
                     --auto: enable auto mode (Claude won't stop)
                     -d/--daemon: kill session when Claude exits
-                    Additional args are passed to agent-unleashed
+                    Additional args are passed to unleash
 
     send "msg"      Send a message to the running Claude session
 
@@ -557,7 +557,7 @@ COMMANDS:
     help            Show this help message
 
 ENVIRONMENT:
-    AUTX_SESSION_NAME      tmux session name (default: agent-unleashed)
+    AUTX_SESSION_NAME      tmux session name (default: unleash)
     AUTX_WAIT_TIMEOUT      Default wait timeout in seconds (default: 300)
     AUTX_TERM_WIDTH        Terminal width for tmux session (default: 200)
     AUTX_TERM_HEIGHT       Terminal height for tmux session (default: 50)
@@ -566,27 +566,27 @@ ENVIRONMENT:
 
 EXAMPLES:
     # Start and attach interactively (recommended)
-    autx go
+    unleashtx go
     # Or use the shorthand:
-    autxg
+    unleashtxg
 
     # Start a background session and send messages
-    autx start
-    autx send "Hello Claude, how are you?"
-    autx wait
-    autx read
+    unleashtx start
+    unleashtx send "Hello Claude, how are you?"
+    unleashtx wait
+    unleashtx read
 
     # Or use the query shorthand
-    autx "Hello Claude, how are you?"
+    unleashtx "Hello Claude, how are you?"
 
     # Attach to existing session
-    autx attach
+    unleashtx attach
 
     # Start with auto mode
-    autx start --auto
+    unleashtx start --auto
 
     # Check status
-    autx status
+    unleashtx status
 "#
     );
 }

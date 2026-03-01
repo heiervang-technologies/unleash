@@ -4,21 +4,21 @@
 # stdin is /dev/null and stdout is not a terminal (piped).
 #
 # Usage: ./tests/test-headless.sh
-# Override binary: AU_BIN=./target/debug/au ./tests/test-headless.sh
+# Override binary: AU_BIN=./target/debug/unleash ./tests/test-headless.sh
 
 set -euo pipefail
 
 # Find binary - prefer fast profile, then release, then debug
 if [[ -n "${AU_BIN:-}" ]]; then
     BIN="$AU_BIN"
-elif [[ -x "./target/fast/au" ]]; then
-    BIN="./target/fast/au"
-elif [[ -x "./target/release/au" ]]; then
-    BIN="./target/release/au"
-elif [[ -x "./target/debug/au" ]]; then
-    BIN="./target/debug/au"
+elif [[ -x "./target/fast/unleash" ]]; then
+    BIN="./target/fast/unleash"
+elif [[ -x "./target/release/unleash" ]]; then
+    BIN="./target/release/unleash"
+elif [[ -x "./target/debug/unleash" ]]; then
+    BIN="./target/debug/unleash"
 else
-    echo "ERROR: No au binary found. Run: cargo build"
+    echo "ERROR: No unleash binary found. Run: cargo build"
     exit 1
 fi
 
@@ -34,31 +34,31 @@ skip() { SKIP=$((SKIP + 1)); echo "  SKIP: $1 — $2"; }
 # Returns the exit code; sets OUT and ERR globals
 run_headless() {
     local rc=0
-    OUT=$("$@" </dev/null 2>/tmp/au-test-stderr) || rc=$?
-    ERR=$(cat /tmp/au-test-stderr 2>/dev/null || true)
+    OUT=$("$@" </dev/null 2>/tmp/unleash-test-stderr) || rc=$?
+    ERR=$(cat /tmp/unleash-test-stderr 2>/dev/null || true)
     return $rc
 }
 
-echo "=== Agent Unleashed Headless Tests ==="
+echo "=== Unleash Headless Tests ==="
 echo "Binary: $BIN"
 echo
 
 # ─── 1. --version ───────────────────────────────────────────────
-echo "[1] au --version"
+echo "[1] unleash --version"
 if run_headless "$BIN" --version; then
-    if echo "$OUT" | grep -q "Agent Unleashed: v"; then
+    if echo "$OUT" | grep -q "Unleash: v"; then
         pass "--version prints version string"
     else
-        fail "--version output" "missing 'Agent Unleashed: v' prefix"
+        fail "--version output" "missing 'Unleash: v' prefix"
     fi
 else
     fail "--version" "non-zero exit code: $?"
 fi
 
 # ─── 2. --help ──────────────────────────────────────────────────
-echo "[2] au --help"
+echo "[2] unleash --help"
 if run_headless "$BIN" --help; then
-    if echo "$OUT" | grep -q "Agent Unleashed"; then
+    if echo "$OUT" | grep -q "Unleash"; then
         pass "--help prints usage"
     else
         fail "--help output" "missing expected text"
@@ -67,10 +67,10 @@ else
     fail "--help" "non-zero exit code"
 fi
 
-# ─── 3. au (no args) ────────────────────────────────────────────
-echo "[3] au (no args — should show help)"
+# ─── 3. unleash (no args) ────────────────────────────────────────────
+echo "[3] unleash (no args — should show help)"
 if run_headless "$BIN"; then
-    if echo "$OUT" | grep -q "Agent Unleashed"; then
+    if echo "$OUT" | grep -q "Unleash"; then
         pass "no-args shows help"
     else
         fail "no-args output" "missing help text"
@@ -79,8 +79,8 @@ else
     fail "no-args" "non-zero exit code"
 fi
 
-# ─── 4. au version ──────────────────────────────────────────────
-echo "[4] au version"
+# ─── 4. unleash version ──────────────────────────────────────────────
+echo "[4] unleash version"
 if run_headless "$BIN" version; then
     if [[ -n "$OUT" ]]; then
         pass "version subcommand produces output"
@@ -91,8 +91,8 @@ else
     fail "version" "non-zero exit code"
 fi
 
-# ─── 5. au version --json ───────────────────────────────────────
-echo "[5] au version --json"
+# ─── 5. unleash version --json ───────────────────────────────────────
+echo "[5] unleash version --json"
 if run_headless "$BIN" version --json; then
     if echo "$OUT" | jq . >/dev/null 2>&1; then
         pass "version --json produces valid JSON"
@@ -103,8 +103,8 @@ else
     fail "version --json" "non-zero exit code"
 fi
 
-# ─── 6. au auth ─────────────────────────────────────────────────
-echo "[6] au auth"
+# ─── 6. unleash auth ─────────────────────────────────────────────────
+echo "[6] unleash auth"
 # auth may return 0 or 1 depending on whether user is authenticated
 run_headless "$BIN" auth || true
 if [[ -n "$OUT" || -n "$ERR" ]]; then
@@ -113,8 +113,8 @@ else
     fail "auth" "no output at all"
 fi
 
-# ─── 7. au auth --json ──────────────────────────────────────────
-echo "[7] au auth --json"
+# ─── 7. unleash auth --json ──────────────────────────────────────────
+echo "[7] unleash auth --json"
 run_headless "$BIN" auth --json || true
 if echo "$OUT" | jq . >/dev/null 2>&1; then
     pass "auth --json produces valid JSON"
@@ -127,8 +127,8 @@ else
     fi
 fi
 
-# ─── 8. au auth --quiet ─────────────────────────────────────────
-echo "[8] au auth --quiet"
+# ─── 8. unleash auth --quiet ─────────────────────────────────────────
+echo "[8] unleash auth --quiet"
 run_headless "$BIN" auth --quiet || true
 if [[ -z "$OUT" ]]; then
     pass "auth --quiet produces no stdout"
@@ -136,8 +136,8 @@ else
     fail "auth --quiet" "unexpected stdout: $OUT"
 fi
 
-# ─── 9. au patch --check ────────────────────────────────────────
-echo "[9] au patch --check"
+# ─── 9. unleash patch --check ────────────────────────────────────────
+echo "[9] unleash patch --check"
 if run_headless "$BIN" patch --check; then
     pass "patch --check exits 0"
 else
@@ -147,8 +147,8 @@ fi
 # patch --check may produce no output when patches are already applied
 pass "patch --check ran without crash"
 
-# ─── 10. au hooks ───────────────────────────────────────────────
-echo "[10] au hooks"
+# ─── 10. unleash hooks ───────────────────────────────────────────────
+echo "[10] unleash hooks"
 # hooks may fail if Claude Code settings.json doesn't exist (e.g. CI)
 run_headless "$BIN" hooks || true
 if [[ -n "$OUT" || -n "$ERR" ]]; then
@@ -157,8 +157,8 @@ else
     pass "hooks subcommand ran (no Claude Code installed)"
 fi
 
-# ─── 11. au hooks list ──────────────────────────────────────────
-echo "[11] au hooks list"
+# ─── 11. unleash hooks list ──────────────────────────────────────────
+echo "[11] unleash hooks list"
 run_headless "$BIN" hooks list || true
 if [[ -n "$OUT" || -n "$ERR" ]]; then
     pass "hooks list produces output"
@@ -166,8 +166,8 @@ else
     pass "hooks list ran (no Claude Code installed)"
 fi
 
-# ─── 12. au agents ──────────────────────────────────────────────
-echo "[12] au agents"
+# ─── 12. unleash agents ──────────────────────────────────────────────
+echo "[12] unleash agents"
 if run_headless "$BIN" agents; then
     if echo "$OUT" | grep -qi "claude\|codex\|agent"; then
         pass "agents shows agent info"
@@ -178,8 +178,8 @@ else
     fail "agents" "non-zero exit code"
 fi
 
-# ─── 13. au agents list ─────────────────────────────────────────
-echo "[13] au agents list"
+# ─── 13. unleash agents list ─────────────────────────────────────────
+echo "[13] unleash agents list"
 if run_headless "$BIN" agents list; then
     if echo "$OUT" | grep -qi "claude\|codex"; then
         pass "agents list shows agents"
@@ -190,8 +190,8 @@ else
     fail "agents list" "non-zero exit code"
 fi
 
-# ─── 14. au agents info claude ──────────────────────────────────
-echo "[14] au agents info claude"
+# ─── 14. unleash agents info claude ──────────────────────────────────
+echo "[14] unleash agents info claude"
 if run_headless "$BIN" agents info claude; then
     if echo "$OUT" | grep -qi "claude"; then
         pass "agents info claude shows details"
@@ -202,8 +202,8 @@ else
     fail "agents info claude" "non-zero exit code"
 fi
 
-# ─── 15. au agents info codex ──────────────────────────────────
-echo "[15] au agents info codex"
+# ─── 15. unleash agents info codex ──────────────────────────────────
+echo "[15] unleash agents info codex"
 if run_headless "$BIN" agents info codex; then
     if echo "$OUT" | grep -qi "codex"; then
         pass "agents info codex shows details"
@@ -217,7 +217,7 @@ fi
 # ─── 16. Binary aliases exist ───────────────────────────────────
 echo "[16] Binary aliases exist"
 BIN_DIR=$(dirname "$BIN")
-for alias in aui aug autx autxg; do
+for alias in unleashi unleashg unleashtx unleashtxg; do
     if [[ -x "$BIN_DIR/$alias" ]]; then
         pass "$alias binary exists"
     else
@@ -225,44 +225,44 @@ for alias in aui aug autx autxg; do
     fi
 done
 
-# ─── 17. aui --version ─────────────────────────────────────────
-echo "[17] aui --version"
-if run_headless "$BIN_DIR/aui" --version; then
-    if echo "$OUT" | grep -q "Agent Unleashed: v"; then
-        pass "aui --version works"
+# ─── 17. unleashi --version ─────────────────────────────────────────
+echo "[17] unleashi --version"
+if run_headless "$BIN_DIR/unleashi" --version; then
+    if echo "$OUT" | grep -q "Unleash: v"; then
+        pass "unleashi --version works"
     else
-        fail "aui --version" "unexpected output"
+        fail "unleashi --version" "unexpected output"
     fi
 else
-    fail "aui --version" "non-zero exit code"
+    fail "unleashi --version" "non-zero exit code"
 fi
 
-# ─── 18. aug --version ─────────────────────────────────────────
-echo "[18] aug --version"
-if run_headless "$BIN_DIR/aug" --version; then
-    if echo "$OUT" | grep -q "Agent Unleashed: v"; then
-        pass "aug --version works"
+# ─── 18. unleashg --version ─────────────────────────────────────────
+echo "[18] unleashg --version"
+if run_headless "$BIN_DIR/unleashg" --version; then
+    if echo "$OUT" | grep -q "Unleash: v"; then
+        pass "unleashg --version works"
     else
-        fail "aug --version" "unexpected output"
+        fail "unleashg --version" "unexpected output"
     fi
 else
-    fail "aug --version" "non-zero exit code"
+    fail "unleashg --version" "non-zero exit code"
 fi
 
-# ─── 19. autx --version ────────────────────────────────────────
-echo "[19] autx --version"
-if run_headless "$BIN_DIR/autx" --version; then
-    if echo "$OUT" | grep -q "Agent Unleashed: v"; then
-        pass "autx --version works"
+# ─── 19. unleashtx --version ────────────────────────────────────────
+echo "[19] unleashtx --version"
+if run_headless "$BIN_DIR/unleashtx" --version; then
+    if echo "$OUT" | grep -q "Unleash: v"; then
+        pass "unleashtx --version works"
     else
-        fail "autx --version" "unexpected output"
+        fail "unleashtx --version" "unexpected output"
     fi
 else
-    fail "autx --version" "non-zero exit code"
+    fail "unleashtx --version" "non-zero exit code"
 fi
 
 # ─── 20. Invalid subcommand ────────────────────────────────────
-echo "[20] au invalid-subcommand"
+echo "[20] unleash invalid-subcommand"
 if run_headless "$BIN" invalid-subcommand; then
     fail "invalid subcommand" "should exit non-zero"
 else
@@ -270,7 +270,7 @@ else
 fi
 
 # ─── Cleanup ────────────────────────────────────────────────────
-rm -f /tmp/au-test-stderr
+rm -f /tmp/unleash-test-stderr
 
 # ─── Summary ────────────────────────────────────────────────────
 echo

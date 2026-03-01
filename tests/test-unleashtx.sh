@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# test-autx.sh - Test suite for autx headless tmux mode
+# test-unleashtx.sh - Test suite for unleashtx headless tmux mode
 #
 # Tests:
 # 1. Help command functionality
@@ -14,8 +14,8 @@
 set -uo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-AUTX="${SCRIPT_DIR}/../scripts/autx"
-TEST_SESSION="autx-test-$$"
+AUTX="${SCRIPT_DIR}/../scripts/unleashtx"
+TEST_SESSION="unleashtx-test-$$"
 
 # Colors
 RED='\033[0;31m'
@@ -88,8 +88,8 @@ cleanup() {
     # Kill test tmux session if it exists
     tmux kill-session -t "$TEST_SESSION" 2>/dev/null || true
     # Clean up cache files
-    rm -f "${HOME}/.cache/agent-unleashed/autx/${TEST_SESSION}.output" 2>/dev/null || true
-    rm -f "${HOME}/.cache/agent-unleashed/autx/${TEST_SESSION}.marker" 2>/dev/null || true
+    rm -f "${HOME}/.cache/unleash/unleashtx/${TEST_SESSION}.output" 2>/dev/null || true
+    rm -f "${HOME}/.cache/unleash/unleashtx/${TEST_SESSION}.marker" 2>/dev/null || true
 }
 trap cleanup EXIT
 
@@ -98,12 +98,12 @@ check_prerequisites() {
     echo "=== Checking prerequisites ==="
 
     if [[ ! -f "$AUTX" ]]; then
-        echo -e "${RED}ERROR${NC}: autx script not found at $AUTX"
+        echo -e "${RED}ERROR${NC}: unleashtx script not found at $AUTX"
         exit 1
     fi
 
     if [[ ! -x "$AUTX" ]]; then
-        echo -e "${RED}ERROR${NC}: autx script is not executable"
+        echo -e "${RED}ERROR${NC}: unleashtx script is not executable"
         exit 1
     fi
 
@@ -156,7 +156,7 @@ test_session_lifecycle() {
     # Ensure clean state
     tmux kill-session -t "$TEST_SESSION" 2>/dev/null || true
 
-    # Create a dummy tmux session (simulates what autx start does with tmux)
+    # Create a dummy tmux session (simulates what unleashtx start does with tmux)
     tmux new-session -d -s "$TEST_SESSION" "sleep 60" 2>/dev/null
     local create_exit=$?
 
@@ -311,7 +311,7 @@ test_empty_command() {
 test_cache_directory() {
     echo "=== Test: cache directory handling ==="
 
-    local cache_dir="${HOME}/.cache/agent-unleashed/autx"
+    local cache_dir="${HOME}/.cache/unleash/unleashtx"
 
     # The script should create cache dir on any operation
     "$AUTX" help >/dev/null 2>&1
@@ -347,10 +347,10 @@ test_script_syntax() {
     echo "=== Test: script syntax validation ==="
 
     if bash -n "$AUTX" 2>/dev/null; then
-        echo -e "${GREEN}PASS${NC}: autx has valid bash syntax"
+        echo -e "${GREEN}PASS${NC}: unleashtx has valid bash syntax"
         ((passed++))
     else
-        echo -e "${RED}FAIL${NC}: autx has invalid bash syntax"
+        echo -e "${RED}FAIL${NC}: unleashtx has invalid bash syntax"
         ((failed++))
     fi
     echo ""
@@ -422,7 +422,7 @@ test_invalid_numeric_env_vars() {
 # Run all tests
 main() {
     echo "========================================"
-    echo "autx Test Suite"
+    echo "unleashtx Test Suite"
     echo "========================================"
     echo ""
 

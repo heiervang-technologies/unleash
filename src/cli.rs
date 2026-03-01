@@ -28,24 +28,24 @@ pub fn get_full_version() -> String {
 
     if claude_version == "not installed" {
         format!(
-            "Agent Unleashed: v{}\nClaude Code: {}",
+            "Unleash: v{}\nClaude Code: {}",
             au_version, claude_version
         )
     } else {
         format!(
-            "Agent Unleashed: v{}\nClaude Code: v{}",
+            "Unleash: v{}\nClaude Code: v{}",
             au_version, claude_version
         )
     }
 }
 
-/// Agent Unleashed - Extended CLI for AI Code Agents
+/// Unleash - Extended CLI for AI Code Agents
 #[derive(Parser, Debug)]
-#[command(name = "au")]
+#[command(name = "unleash")]
 #[command(author = "Heiervang Technologies")]
 #[command(version)]
-#[command(about = "Agent Unleashed - Extended CLI for AI Code Agents")]
-#[command(long_about = r#"Agent Unleashed - Extended CLI for AI Code Agents
+#[command(about = "Unleash - Extended CLI for AI Code Agents")]
+#[command(long_about = r#"Unleash - Extended CLI for AI Code Agents
 
 A wrapper for AI code agents (Claude, Codex, etc.) with extended features:
   - Self-restart capability for MCP server reloading
@@ -55,17 +55,17 @@ A wrapper for AI code agents (Claude, Codex, etc.) with extended features:
   - Headless tmux mode for automation
 
 BINARY STRUCTURE:
-  au     - Wrapper script that runs agent with plugins and features
-  aui    - TUI for profile and version management
-  autx   - Headless tmux automation mode
+  unleash     - Wrapper script that runs agent with plugins and features
+  unleashi    - TUI for profile and version management
+  unleashtx   - Headless tmux automation mode
 
 USAGE NOTES:
-  When you run 'au', you're using a wrapper script that adds functionality
+  When you run 'unleash', you're using a wrapper script that adds functionality
   to the underlying agent. The wrapper intercepts some flags like --auto and --help.
 
   For Claude Code's native help: claude --help
-  For wrapper-specific help: au --help
-  For TUI help: aui --help (or this command)"#)]
+  For wrapper-specific help: unleash --help
+  For TUI help: unleashi --help (or this command)"#)]
 pub struct Cli {
     /// Output results as JSON (supported by: auth, version)
     #[arg(long, global = true)]

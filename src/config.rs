@@ -1,6 +1,6 @@
 //! Profile configuration management
 //!
-//! Profiles are stored in ~/.config/agent-unleashed/profiles/
+//! Profiles are stored in ~/.config/unleash/profiles/
 //! Each profile is a TOML file with agent settings and environment variables.
 
 use serde::{Deserialize, Serialize};
@@ -17,7 +17,7 @@ pub struct Profile {
     /// Optional description
     #[serde(default)]
     pub description: String,
-    /// Path to agent CLI executable (default: "aug" for full unleashed features)
+    /// Path to agent CLI executable (default: "unleashg" for full unleashed features)
     #[serde(default = "default_agent_cli_path", alias = "claude_path")]
     pub agent_cli_path: String,
     /// Additional arguments to pass to the agent CLI
@@ -120,12 +120,12 @@ fn default_theme() -> String {
 }
 
 fn default_agent_cli_path() -> String {
-    // Default to aug (au go) for full unleashed features:
+    // Default to unleashg (unleash go) for full unleashed features:
     // - Auto-mode via Stop hook enforcement
     // - Restart/resurrection support
     // - Plugin loading
     // - Extended timeouts
-    "aug".to_string()
+    "unleashg".to_string()
 }
 
 fn default_env() -> HashMap<String, String> {
@@ -201,12 +201,12 @@ impl ProfileManager {
         Ok(manager)
     }
 
-    /// Get the default config directory (~/.config/agent-unleashed)
+    /// Get the default config directory (~/.config/unleash)
     pub fn default_config_dir() -> io::Result<PathBuf> {
         let config_base = dirs::config_dir()
             .ok_or_else(|| io::Error::new(io::ErrorKind::NotFound, "Could not find config directory"))?;
 
-        Ok(config_base.join("agent-unleashed"))
+        Ok(config_base.join("unleash"))
     }
 
     /// Get path to a profile file
@@ -452,7 +452,7 @@ mod tests {
     fn test_profile_with_api_key() {
         let profile = Profile::with_api_key("work", "sk-work-key");
         assert_eq!(profile.name, "work");
-        assert_eq!(profile.agent_cli_path, "aug");
+        assert_eq!(profile.agent_cli_path, "unleashg");
         assert_eq!(profile.theme, "orange");
         assert_eq!(profile.get_env("ANTHROPIC_API_KEY"), Some(&"sk-work-key".to_string()));
     }
@@ -475,7 +475,7 @@ mod tests {
     #[test]
     fn test_profile_default_settings() {
         let profile = Profile::default();
-        assert_eq!(profile.agent_cli_path, "aug");
+        assert_eq!(profile.agent_cli_path, "unleashg");
         assert_eq!(profile.claude_args, Vec::<String>::new());
         assert_eq!(profile.stop_prompt, None);
         assert_eq!(profile.theme, "orange");
@@ -493,7 +493,7 @@ KEY = "value"
 "#;
         let profile: Profile = toml::from_str(toml_str).unwrap();
         assert_eq!(profile.name, "old-profile");
-        assert_eq!(profile.agent_cli_path, "aug");
+        assert_eq!(profile.agent_cli_path, "unleashg");
         assert_eq!(profile.theme, "orange");
         assert_eq!(profile.claude_args, Vec::<String>::new());
         assert_eq!(profile.stop_prompt, None);

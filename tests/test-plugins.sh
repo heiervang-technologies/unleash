@@ -104,7 +104,7 @@ test_auto_mode_hook_output() {
     fi
 
     # Test 3: With wrapper PID and flag file, should block with JSON
-    FLAG_DIR="$HOME/.cache/agent-unleashed/auto-mode"
+    FLAG_DIR="$HOME/.cache/unleash/auto-mode"
     mkdir -p "$FLAG_DIR"
     TEST_PID="$$"
     touch "$FLAG_DIR/active-$TEST_PID"

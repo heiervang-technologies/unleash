@@ -79,8 +79,8 @@ jobs:
       - name: Run headless tests
         run: ./tests/test-headless.sh
 
-  test-autx:
-    name: Test autx (Headless Mode)
+  test-unleashtx:
+    name: Test unleashtx (Headless Mode)
     runs-on: self-hosted
     strategy:
       matrix:
@@ -95,19 +95,19 @@ jobs:
         run: sudo apt-get update && sudo apt-get install -y tmux
 
       - name: Make test scripts executable
-        run: chmod +x tests/*.sh scripts/autx
+        run: chmod +x tests/*.sh scripts/unleashtx
 
-      - name: Run autx tests
-        run: ./tests/test-autx.sh
+      - name: Run unleashtx tests
+        run: ./tests/test-unleashtx.sh
 
       - name: Upload test results
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: autx-test-results-${{ matrix.os }}
+          name: unleashtx-test-results-${{ matrix.os }}
           path: |
-            ~/.cache/agent-unleashed/autx/*.output
-            ~/.cache/agent-unleashed/autx/*.marker
+            ~/.cache/unleash/unleashtx/*.output
+            ~/.cache/unleash/unleashtx/*.marker
           retention-days: 7
           if-no-files-found: ignore
 
@@ -155,7 +155,7 @@ jobs:
           # Test the stop hook + flag file system
 
           # 1. Create auto-mode flag (simulating auto mode activation)
-          FLAG_DIR="$HOME/.cache/agent-unleashed/auto-mode"
+          FLAG_DIR="$HOME/.cache/unleash/auto-mode"
           mkdir -p "$FLAG_DIR"
           TEST_PID="$$"
           touch "$FLAG_DIR/active-$TEST_PID"
@@ -188,7 +188,7 @@ jobs:
   summary:
     name: Test Summary
     runs-on: self-hosted
-    needs: [shellcheck, test-headless, test-autx, test-plugins, test-auto-mode]
+    needs: [shellcheck, test-headless, test-unleashtx, test-plugins, test-auto-mode]
     if: always()
 
     steps:
@@ -200,7 +200,7 @@ jobs:
           echo "|-----|--------|" >> $GITHUB_STEP_SUMMARY
           echo "| ShellCheck Linting | ${{ needs.shellcheck.result == 'success' && '✅ Passed' || '❌ Failed' }} |" >> $GITHUB_STEP_SUMMARY
           echo "| Headless Commands | ${{ needs.test-headless.result == 'success' && '✅ Passed' || '❌ Failed' }} |" >> $GITHUB_STEP_SUMMARY
-          echo "| autx Tests (Headless Mode) | ${{ needs.test-autx.result == 'success' && '✅ Passed' || '❌ Failed' }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| unleashtx Tests (Headless Mode) | ${{ needs.test-unleashtx.result == 'success' && '✅ Passed' || '❌ Failed' }} |" >> $GITHUB_STEP_SUMMARY
           echo "| Plugin Tests | ${{ needs.test-plugins.result == 'success' && '✅ Passed' || '❌ Failed' }} |" >> $GITHUB_STEP_SUMMARY
           echo "| Auto Mode Hook | ${{ needs.test-auto-mode.result == 'success' && '✅ Passed' || '❌ Failed' }} |" >> $GITHUB_STEP_SUMMARY
 
@@ -208,7 +208,7 @@ jobs:
         run: |
           if [[ "${{ needs.shellcheck.result }}" == "success" ]] && \
              [[ "${{ needs.test-headless.result }}" == "success" ]] && \
-             [[ "${{ needs.test-autx.result }}" == "success" ]] && \
+             [[ "${{ needs.test-unleashtx.result }}" == "success" ]] && \
              [[ "${{ needs.test-plugins.result }}" == "success" ]] && \
              [[ "${{ needs.test-auto-mode.result }}" == "success" ]]; then
             echo "✅ All integration tests passed!"
@@ -217,7 +217,7 @@ jobs:
             echo "❌ Some tests failed:"
             echo "  - shellcheck: ${{ needs.shellcheck.result }}"
             echo "  - test-headless: ${{ needs.test-headless.result }}"
-            echo "  - test-autx: ${{ needs.test-autx.result }}"
+            echo "  - test-unleashtx: ${{ needs.test-unleashtx.result }}"
             echo "  - test-plugins: ${{ needs.test-plugins.result }}"
             echo "  - test-auto-mode: ${{ needs.test-auto-mode.result }}"
             exit 1

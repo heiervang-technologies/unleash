@@ -733,7 +733,7 @@ pub mod mascots {
             .collect()
     }
 
-    /// Orange snail mascot for Agent Unleashed
+    /// Orange snail mascot for Unleash
     pub fn orange_snail() -> PixelArt {
         let orange = Color::CLAUDE_ORANGE;
         let dark_orange = Color::rgb(180, 90, 60);

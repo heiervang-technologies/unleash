@@ -43,13 +43,13 @@ jobs:
 
       - name: Rename binary and generate checksum
         run: |
-          cp target/x86_64-unknown-linux-gnu/release/au au-linux-x86_64
-          sha256sum au-linux-x86_64 > checksums.txt
+          cp target/x86_64-unknown-linux-gnu/release/unleash unleash-linux-x86_64
+          sha256sum unleash-linux-x86_64 > checksums.txt
 
       - name: Upload to release
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ github.event.inputs.tag_name }}
           files: |
-            au-linux-x86_64
+            unleash-linux-x86_64
             checksums.txt

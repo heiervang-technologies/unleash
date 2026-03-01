@@ -1,6 +1,6 @@
 //! Hook management for Claude Code
 //!
-//! Agent Unleashed acts as the central hook manager for Claude Code.
+//! Unleash acts as the central hook manager for Claude Code.
 //! It tracks the Claude installation, manages hooks in ~/.claude/settings.json,
 //! and syncs hooks from unleashed plugins.
 
@@ -147,7 +147,7 @@ impl HookManager {
 
         let hooks_dir = dirs::data_local_dir()
             .unwrap_or_else(|| PathBuf::from("/tmp"))
-            .join("agent-unleashed/hooks");
+            .join("unleash/hooks");
 
         fs::create_dir_all(&hooks_dir)?;
 

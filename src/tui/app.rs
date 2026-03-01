@@ -723,9 +723,9 @@ impl App {
             }
         }
 
-        // 3. Installed location (~/.local/share/agent-unleashed/plugins/...)
+        // 3. Installed location (~/.local/share/unleash/plugins/...)
         if let Ok(home) = std::env::var("HOME") {
-            candidates.push(format!("{}/.local/share/agent-unleashed/{}", home, HOOK_RELATIVE));
+            candidates.push(format!("{}/.local/share/unleash/{}", home, HOOK_RELATIVE));
         }
 
         for path in &candidates {
@@ -2100,7 +2100,7 @@ impl App {
         // Render title
         let title_text = vec![
             Line::from(Span::styled(
-                "Agent Unleashed",
+                "Unleash",
                 Style::default()
                     .fg(self.accent_color())
                     .add_modifier(Modifier::BOLD),
@@ -3073,8 +3073,8 @@ impl LaunchRequest {
         cmd.env("CLAUDE_WRAPPER_PID", wrapper_pid.to_string());
 
         // Only override arg0 for direct claude invocations.
-        // When launching aug/au, we must preserve argv[0] so the binary
-        // can detect it was invoked as "aug" and run the launcher mode.
+        // When launching unleashg/unleash, we must preserve argv[0] so the binary
+        // can detect it was invoked as "unleashg" and run the launcher mode.
         let cmd_name = std::path::Path::new(&self.profile.agent_cli_path)
             .file_name()
             .and_then(|n| n.to_str())
@@ -3085,7 +3085,7 @@ impl LaunchRequest {
             // Format: "claude:<pid>" - allows correlating with conversation later
             cmd.arg0(format!("claude:{}", wrapper_pid));
         }
-        // For aug/au, let the binary see its natural argv[0]
+        // For unleashg/unleash, let the binary see its natural argv[0]
 
         cmd.args(&self.profile.claude_args);
         cmd.status()
@@ -3099,7 +3099,7 @@ impl UpdateRequest {
 
         let tui_dir = self.repo_dir.clone();
 
-        println!("\n=== Updating Agent Unleashed TUI ===\n");
+        println!("\n=== Updating Unleash TUI ===\n");
 
         // Step 1: Git pull
         println!("Pulling latest changes...");

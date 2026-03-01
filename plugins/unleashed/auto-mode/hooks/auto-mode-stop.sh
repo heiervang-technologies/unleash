@@ -4,14 +4,14 @@
 # When auto mode is active for THIS wrapper, this hook blocks Claude from stopping.
 #
 # Message priority:
-#   1. Session-specific: ~/.cache/agent-unleashed/auto-mode/reminder-${PID}
-#   2. Global config:    ~/.config/agent-unleashed/config.toml (stop_prompt)
+#   1. Session-specific: ~/.cache/unleash/auto-mode/reminder-${PID}
+#   2. Global config:    ~/.config/unleash/config.toml (stop_prompt)
 #   3. Default:          Hardcoded message
 
 set -uo pipefail
 
-AUTO_MODE_DIR="${HOME}/.cache/agent-unleashed/auto-mode"
-CONFIG_FILE="${HOME}/.config/agent-unleashed/config.toml"
+AUTO_MODE_DIR="${HOME}/.cache/unleash/auto-mode"
+CONFIG_FILE="${HOME}/.config/unleash/config.toml"
 
 # Get wrapper PID - if not set, allow stop (not running under wrapper)
 WRAPPER_PID="${CLAUDE_WRAPPER_PID:-}"

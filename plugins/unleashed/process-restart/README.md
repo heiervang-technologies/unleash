@@ -6,9 +6,9 @@ Enables Claude Code to restart itself while preserving session state and convers
 
 ```bash
 # Start Claude with restart capability
-agent-unleashed
+unleash
 # Or use the alias
-au
+unleash
 
 # From within Claude, to restart:
 restart-claude
@@ -19,15 +19,15 @@ exit-claude
 
 ## Installation
 
-The `agent-unleashed` wrapper and commands should be symlinked to `~/bin`:
+The `unleash` wrapper and commands should be symlinked to `~/bin`:
 
 ```bash
-ln -sf ~/agent-unleashed/scripts/wrapper.sh ~/bin/agent-unleashed
-ln -sf ~/agent-unleashed/scripts/restart-claude ~/bin/
-ln -sf ~/agent-unleashed/scripts/exit-claude ~/bin/
+ln -sf ~/unleash/scripts/wrapper.sh ~/bin/unleash
+ln -sf ~/unleash/scripts/restart-claude ~/bin/
+ln -sf ~/unleash/scripts/exit-claude ~/bin/
 
 # Optional: add alias to your shell config
-alias au='agent-unleashed'
+alias unleash='unleash'
 ```
 
 ## Commands
@@ -46,11 +46,11 @@ Claude cannot spawn its own replacement directly. The solution uses an **externa
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
-│                     agent-unleashed                         │
+│                     unleash                         │
 ├─────────────────────────────────────────────────────────────┤
 │                                                             │
 │  ┌─────────────────┐                                        │
-│  │ agent-unleashed │ ← Wrapper (while loop), holds TTY      │
+│  │ unleash │ ← Wrapper (while loop), holds TTY      │
 │  │   PID: 1234     │                                        │
 │  └────────┬────────┘                                        │
 │           │                                                 │
@@ -79,7 +79,7 @@ Claude cannot spawn its own replacement directly. The solution uses an **externa
 
 ### Process Isolation
 
-Multiple concurrent `agent-unleashed` instances are fully isolated:
+Multiple concurrent `unleash` instances are fully isolated:
 
 - Each wrapper uses a unique trigger file: `restart-trigger-${WRAPPER_PID}`
 - `CLAUDE_WRAPPER_PID` env var ensures commands target the correct instance
@@ -126,13 +126,13 @@ After restart:
 | `scripts/wrapper.sh` | Main wrapper script |
 | `scripts/restart-claude` | Restart command |
 | `scripts/exit-claude` | Exit command |
-| `~/.cache/agent-unleashed/process-restart/` | Trigger files |
+| `~/.cache/unleash/process-restart/` | Trigger files |
 
 ## Troubleshooting
 
-### "Not running under agent-unleashed wrapper"
+### "Not running under unleash wrapper"
 
-Start Claude with `au` or `agent-unleashed` instead of `claude` directly.
+Start Claude with `unleash` or `unleash` instead of `claude` directly.
 
 ### MCP servers disconnected after restart
 
@@ -152,7 +152,7 @@ tmux new-session -s claude
 claude
 
 # To restart (from within Claude):
-~/agent-unleashed/scripts/trigger-restart.sh
+~/unleash/scripts/trigger-restart.sh
 ```
 
 ## Version History
@@ -170,7 +170,7 @@ claude
 
 ## License
 
-Same as Agent Unleashed parent repository.
+Same as Unleash parent repository.
 
 ## Author
 

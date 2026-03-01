@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
-# install-remote.sh - Remote installer for Agent Unleashed
+# install-remote.sh - Remote installer for Unleash
 #
 # Usage (public repo):
-#   curl -fsSL https://raw.githubusercontent.com/heiervang-technologies/agent-unleashed/main/scripts/install-remote.sh | bash
+#   curl -fsSL https://raw.githubusercontent.com/heiervang-technologies/unleash/main/scripts/install-remote.sh | bash
 #
 # Usage (private repo):
 #   GH_TOKEN=ghp_xxx curl -fsSL -H "Authorization: token $GH_TOKEN" \
-#     https://raw.githubusercontent.com/heiervang-technologies/agent-unleashed/main/scripts/install-remote.sh | bash
+#     https://raw.githubusercontent.com/heiervang-technologies/unleash/main/scripts/install-remote.sh | bash
 #
 # Options (via environment variables):
 #   GH_TOKEN / GH_PAT / GITHUB_TOKEN - GitHub token for private repo access (any of these work)
@@ -19,7 +19,7 @@
 # 1. Checks prerequisites (curl/wget, optionally cargo)
 # 2. Installs Claude Code (native binary preferred, npm fallback)
 # 3. Downloads pre-built binary or builds from source
-# 4. Sets up au/aui/aug/autx commands
+# 4. Sets up unleash/unleashi/unleashg/unleashtx commands
 
 set -euo pipefail
 
@@ -28,7 +28,7 @@ GITHUB_TOKEN="${GH_TOKEN:-${GH_PAT:-${GITHUB_TOKEN:-}}}"
 
 # Configuration
 REPO_OWNER="heiervang-technologies"
-REPO_NAME="agent-unleashed"
+REPO_NAME="unleash"
 REPO_URL="https://github.com/${REPO_OWNER}/${REPO_NAME}"
 RAW_URL="https://raw.githubusercontent.com/${REPO_OWNER}/${REPO_NAME}/main"
 INSTALL_DIR="${INSTALL_DIR:-$HOME/.local/bin}"
@@ -87,18 +87,18 @@ detect_platform() {
     case "$PLATFORM" in
         linux)
             if [[ "$ARCH" == "x86_64" ]]; then
-                ARTIFACT_NAME="au-linux-x86_64"
+                ARTIFACT_NAME="unleash-linux-x86_64"
             else
-                ARTIFACT_NAME="au-linux-${ARCH}"
+                ARTIFACT_NAME="unleash-linux-${ARCH}"
             fi
             ;;
         macos)
             if [[ "$ARCH" == "x86_64" ]]; then
-                ARTIFACT_NAME="au-macos-x86_64"
+                ARTIFACT_NAME="unleash-macos-x86_64"
             elif [[ "$ARCH" == "aarch64" ]]; then
-                ARTIFACT_NAME="au-macos-arm64"
+                ARTIFACT_NAME="unleash-macos-arm64"
             else
-                ARTIFACT_NAME="au-macos-${ARCH}"
+                ARTIFACT_NAME="unleash-macos-${ARCH}"
             fi
             ;;
     esac
@@ -549,7 +549,7 @@ download_binary() {
         asset_id=$(gh api "repos/${REPO_OWNER}/${REPO_NAME}/releases/tags/${version}" --jq ".assets[] | select(.name==\"${ARTIFACT_NAME}\") | .id" 2>/dev/null)
 
         if [[ -n "$asset_id" ]]; then
-            if gh api "repos/${REPO_OWNER}/${REPO_NAME}/releases/assets/${asset_id}" -H "Accept: application/octet-stream" > "${temp_dir}/au" 2>/dev/null; then
+            if gh api "repos/${REPO_OWNER}/${REPO_NAME}/releases/assets/${asset_id}" -H "Accept: application/octet-stream" > "${temp_dir}/unleash" 2>/dev/null; then
                 downloaded=true
             fi
         fi
@@ -576,11 +576,11 @@ download_binary() {
                 local asset_api_url="https://api.github.com/repos/${REPO_OWNER}/${REPO_NAME}/releases/assets/${asset_id}"
 
                 if command -v curl &> /dev/null; then
-                    if curl -fsSL -H "Authorization: token $GITHUB_TOKEN" -H "Accept: application/octet-stream" "$asset_api_url" -o "${temp_dir}/au" 2>/dev/null; then
+                    if curl -fsSL -H "Authorization: token $GITHUB_TOKEN" -H "Accept: application/octet-stream" "$asset_api_url" -o "${temp_dir}/unleash" 2>/dev/null; then
                         downloaded=true
                     fi
                 elif command -v wget &> /dev/null; then
-                    if wget -q --header="Authorization: token $GITHUB_TOKEN" --header="Accept: application/octet-stream" "$asset_api_url" -O "${temp_dir}/au" 2>/dev/null; then
+                    if wget -q --header="Authorization: token $GITHUB_TOKEN" --header="Accept: application/octet-stream" "$asset_api_url" -O "${temp_dir}/unleash" 2>/dev/null; then
                         downloaded=true
                     fi
                 fi
@@ -591,7 +591,7 @@ download_binary() {
     # Method 3: Direct download URL (works for public repos only)
     if [[ "$downloaded" != "true" ]]; then
         local download_url="${REPO_URL}/releases/download/${version}/${ARTIFACT_NAME}"
-        if download "$download_url" "${temp_dir}/au" 2>/dev/null; then
+        if download "$download_url" "${temp_dir}/unleash" 2>/dev/null; then
             downloaded=true
         fi
     fi
@@ -602,7 +602,7 @@ download_binary() {
     fi
 
     # Verify we got a real binary, not an error page
-    if [[ ! -s "${temp_dir}/au" ]] || file "${temp_dir}/au" 2>/dev/null | grep -q "text\|HTML"; then
+    if [[ ! -s "${temp_dir}/unleash" ]] || file "${temp_dir}/unleash" 2>/dev/null | grep -q "text\|HTML"; then
         rm -rf "$temp_dir"
         return 1
     fi
@@ -614,7 +614,7 @@ download_binary() {
         expected_checksum=$(grep "${ARTIFACT_NAME}" "${temp_dir}/checksums.txt" | awk '{print $1}')
         if [[ -n "$expected_checksum" ]]; then
             local actual_checksum
-            actual_checksum=$(sha256sum "${temp_dir}/au" 2>/dev/null | cut -d' ' -f1 || shasum -a 256 "${temp_dir}/au" 2>/dev/null | cut -d' ' -f1)
+            actual_checksum=$(sha256sum "${temp_dir}/unleash" 2>/dev/null | cut -d' ' -f1 || shasum -a 256 "${temp_dir}/unleash" 2>/dev/null | cut -d' ' -f1)
             if [[ "$actual_checksum" != "$expected_checksum" ]]; then
                 error "Checksum verification failed for ${ARTIFACT_NAME}"
                 error "  Expected: $expected_checksum"
@@ -626,15 +626,15 @@ download_binary() {
         fi
     fi
 
-    chmod +x "${temp_dir}/au"
-    mv "${temp_dir}/au" "${INSTALL_DIR}/au"
+    chmod +x "${temp_dir}/unleash"
+    mv "${temp_dir}/unleash" "${INSTALL_DIR}/unleash"
     rm -rf "$temp_dir"
 
-    # Create symlinks for aui, aug, autx
-    ln -sf "${INSTALL_DIR}/au" "${INSTALL_DIR}/aui"
-    ln -sf "${INSTALL_DIR}/au" "${INSTALL_DIR}/aug"
-    ln -sf "${INSTALL_DIR}/au" "${INSTALL_DIR}/autx"
-    ln -sf "${INSTALL_DIR}/au" "${INSTALL_DIR}/agent-unleashed"
+    # Create symlinks for unleashi, unleashg, unleashtx
+    ln -sf "${INSTALL_DIR}/unleash" "${INSTALL_DIR}/unleashi"
+    ln -sf "${INSTALL_DIR}/unleash" "${INSTALL_DIR}/unleashg"
+    ln -sf "${INSTALL_DIR}/unleash" "${INSTALL_DIR}/unleashtx"
+    ln -sf "${INSTALL_DIR}/unleash" "${INSTALL_DIR}/unleash"
 
     success "Binary downloaded and installed"
     return 0
@@ -656,16 +656,16 @@ build_from_source() {
     cd "$temp_dir"
     cargo build --release
 
-    # Install all binaries (au, aui, aug, autx, autxg)
-    for bin in au aui aug autx autxg; do
+    # Install all binaries (unleash, unleashi, unleashg, unleashtx, unleashtxg)
+    for bin in unleash unleashi unleashg unleashtx unleashtxg; do
         if [[ -f "target/release/$bin" ]]; then
             cp "target/release/$bin" "${INSTALL_DIR}/$bin"
             chmod +x "${INSTALL_DIR}/$bin"
         fi
     done
 
-    # agent-unleashed is an alias for au
-    ln -sf "${INSTALL_DIR}/au" "${INSTALL_DIR}/agent-unleashed"
+    # unleash is an alias for unleash
+    ln -sf "${INSTALL_DIR}/unleash" "${INSTALL_DIR}/unleash"
 
     # Cleanup
     rm -rf "$temp_dir"
@@ -771,7 +771,7 @@ except Exception as e:
   "lastOnboardingVersion": "${claude_version}",
   "bypassPermissionsModeAccepted": true,
   "numStartups": 1,
-  "installMethod": "agent-unleashed"
+  "installMethod": "unleash"
 }
 EOF
     fi
@@ -783,7 +783,7 @@ EOF
 main() {
     echo ""
     echo "╭──────────────────────────────────────────╮"
-    echo "│     Agent Unleashed Remote Installer     │"
+    echo "│     Unleash Remote Installer     │"
     echo "╰──────────────────────────────────────────╯"
     echo ""
 
@@ -804,7 +804,7 @@ main() {
             AGENT_UNLEASHED_VERSION="main"
         fi
     fi
-    info "Installing Agent Unleashed ${AGENT_UNLEASHED_VERSION}"
+    info "Installing Unleash ${AGENT_UNLEASHED_VERSION}"
 
     # Install binary (try download first, fall back to source)
     if [[ "$BUILD_FROM_SOURCE" == "1" ]]; then
@@ -834,21 +834,21 @@ main() {
     echo "╰──────────────────────────────────────────╯"
     echo ""
     echo "Installed commands:"
-    echo "  au       - Main CLI (run Claude with unleashed features)"
-    echo "  aui      - TUI mode (profile & version management)"
-    echo "  autx     - Headless tmux mode"
+    echo "  unleash       - Main CLI (run Claude with unleashed features)"
+    echo "  unleashi      - TUI mode (profile & version management)"
+    echo "  unleashtx     - Headless tmux mode"
     echo ""
     echo "Quick start:"
-    echo "  au                 - Launch Claude directly"
-    echo "  au --tui           - Launch TUI"
-    echo "  au --auto          - Launch with auto mode"
-    echo "  au -p \"prompt\"     - Headless mode with prompt"
-    echo "  au tmux start      - Start tmux session"
+    echo "  unleash                 - Launch Claude directly"
+    echo "  unleash --tui           - Launch TUI"
+    echo "  unleash --auto          - Launch with auto mode"
+    echo "  unleash -p \"prompt\"     - Headless mode with prompt"
+    echo "  unleash tmux start      - Start tmux session"
     echo ""
 
     show_path_instructions
 
-    success "Done! Run 'au' to start Agent Unleashed."
+    success "Done! Run 'unleash' to start Unleash."
 }
 
 main "$@"

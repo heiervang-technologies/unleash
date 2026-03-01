@@ -1,10 +1,10 @@
-# Agent Unleashed
+# Unleash
 
 <img width="720" height="480" alt="claude-unleashed" src="https://github.com/user-attachments/assets/0b8ff3af-90e8-4d7d-8204-33a159ae0835" />
 
 
 <p align="center">
-  <img src="demo-animation.gif" alt="Agent Unleashed - Smooth menu animations" width="900">
+  <img src="demo-animation.gif" alt="Unleash - Smooth menu animations" width="900">
 </p>
 
 A powerful extension framework for Claude Code with auto-mode, version management, and plugin support.
@@ -13,36 +13,36 @@ A powerful extension framework for Claude Code with auto-mode, version managemen
 
 ```bash
 # Using gh CLI (recommended - handles auth automatically)
-gh repo clone heiervang-technologies/agent-unleashed /tmp/au && bash /tmp/au/scripts/install.sh && rm -rf /tmp/au
+gh repo clone heiervang-technologies/unleash /tmp/unleash && bash /tmp/unleash/scripts/install.sh && rm -rf /tmp/unleash
 ```
 Or with GitHub token if repo is still private:
 ```bash
 # export GH_TOKEN=ghp_xxx
 curl -fsSL -H "Authorization: token $GH_TOKEN" \
-  https://raw.githubusercontent.com/heiervang-technologies/agent-unleashed/main/scripts/install-remote.sh | bash
+  https://raw.githubusercontent.com/heiervang-technologies/unleash/main/scripts/install-remote.sh | bash
 ```
 
-This installs/updates both **Claude Code** and **Agent Unleashed**.
+This installs/updates both **Claude Code** and **Unleash**.
 
 **After install:**
 ```bash
-au          # Show help and available commands
-aug         # Start Claude with unleashed features (shorthand for 'au go')
-aui         # TUI for profiles & version management
-autx        # Headless mode for automation
+unleash          # Show help and available commands
+unleashg         # Start Claude with unleashed features (shorthand for 'unleash go')
+unleashi         # TUI for profiles & version management
+unleashtx        # Headless mode for automation
 ```
 
 > **Already have it installed?** Run the same command to update to latest versions.
 
 ---
 <p align="center">
-  <img src="demo-tui.gif" alt="Agent Unleashed TUI Demo" width="800">
+  <img src="demo-tui.gif" alt="Unleash TUI Demo" width="800">
 </p>
 ---
 
 ## Overview
 
-**Agent Unleashed** is a wrapper around Anthropic's official [Claude Code](https://github.com/anthropics/claude-code) CLI that adds auto-mode, version management, and a plugin system — without modifying Claude Code itself.
+**Unleash** is a wrapper around Anthropic's official [Claude Code](https://github.com/anthropics/claude-code) CLI that adds auto-mode, version management, and a plugin system — without modifying Claude Code itself.
 
 This approach provides:
 - **Zero upstream conflicts**: Uses Claude Code as-is via native binary or npm install
@@ -55,7 +55,7 @@ This approach provides:
 
 ```mermaid
 graph TD
-    subgraph Agent Unleashed
+    subgraph Unleash
         A[src/ - Rust TUI & CLI] --> B[Cargo.toml - Config & Versions]
         A --> C[scripts/ - Shell Installers/Wrappers]
         A --> D[docs/ - Documentation]
@@ -73,7 +73,7 @@ graph TD
 
 ### How It Works
 
-Agent Unleashed wraps Claude Code (installed separately via native binary or npm) and extends it through:
+Unleash wraps Claude Code (installed separately via native binary or npm) and extends it through:
 
 ```mermaid
 graph LR
@@ -110,7 +110,7 @@ All customizations are implemented as plugins. This keeps the core clean and mak
 
 ## Version Management
 
-Agent Unleashed manages Claude Code versions with configurable filtering:
+Unleash manages Claude Code versions with configurable filtering:
 
 - **Blacklist mode** (default for Claude): All versions allowed except known-bad ones
 - **Whitelist mode** (default for Codex): Only verified versions allowed
@@ -140,27 +140,27 @@ This creates a minimal binary without crossterm/ratatui dependencies that works 
 Install everything with a single command:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/heiervang-technologies/agent-unleashed/main/scripts/install-remote.sh | bash
+curl -fsSL https://raw.githubusercontent.com/heiervang-technologies/unleash/main/scripts/install-remote.sh | bash
 ```
 
 This will:
 - Install Claude Code (native binary preferred, npm fallback)
 - Download the pre-built TUI binary
-- Set up `au`, `aug`, `autx`, and `aui` commands
+- Set up `unleash`, `unleashg`, `unleashtx`, and `unleashi` commands
 
 ### Installation Options
 
 #### Option 1: gh CLI (recommended for private repo)
 ```bash
 # Clone, install, cleanup
-gh repo clone heiervang-technologies/agent-unleashed /tmp/au && \
-  bash /tmp/au/scripts/install.sh && \
-  rm -rf /tmp/au
+gh repo clone heiervang-technologies/unleash /tmp/unleash && \
+  bash /tmp/unleash/scripts/install.sh && \
+  rm -rf /tmp/unleash
 
 # With specific Claude Code version
-gh repo clone heiervang-technologies/agent-unleashed /tmp/au && \
-  bash /tmp/au/scripts/install.sh --claude-version 2.1.5 && \
-  rm -rf /tmp/au
+gh repo clone heiervang-technologies/unleash /tmp/unleash && \
+  bash /tmp/unleash/scripts/install.sh --claude-version 2.1.5 && \
+  rm -rf /tmp/unleash
 ```
 
 #### Option 2: curl with GitHub token
@@ -170,18 +170,18 @@ export GH_TOKEN=ghp_xxxxxxxxxxxx
 
 # Install latest
 curl -fsSL -H "Authorization: token $GH_TOKEN" \
-  https://raw.githubusercontent.com/heiervang-technologies/agent-unleashed/main/scripts/install-remote.sh | bash
+  https://raw.githubusercontent.com/heiervang-technologies/unleash/main/scripts/install-remote.sh | bash
 
 # Install specific Claude Code version
 CLAUDE_CODE_VERSION=2.1.5 curl -fsSL -H "Authorization: token $GH_TOKEN" \
-  https://raw.githubusercontent.com/heiervang-technologies/agent-unleashed/main/scripts/install-remote.sh | bash
+  https://raw.githubusercontent.com/heiervang-technologies/unleash/main/scripts/install-remote.sh | bash
 ```
 
 #### Option 3: Clone and build from source
 ```bash
 # Clone (SSH for private repo)
-git clone git@github.com:heiervang-technologies/agent-unleashed.git
-cd agent-unleashed
+git clone git@github.com:heiervang-technologies/unleash.git
+cd unleash
 
 # Build TUI and install
 cargo build --release
@@ -193,7 +193,7 @@ cargo build --release
 
 ### Authentication Setup
 
-Agent Unleashed requires authentication with Claude Code. You have two options:
+Unleash requires authentication with Claude Code. You have two options:
 
 #### Option 1: OAuth Token (Recommended for Automation)
 
@@ -232,15 +232,15 @@ claude
 
 #### Verifying Authentication
 
-Agent Unleashed automatically checks for authentication on startup. You can also verify authentication status manually:
+Unleash automatically checks for authentication on startup. You can also verify authentication status manually:
 
 ```bash
 # Quick check
-au auth
+unleash auth
 # ✓ Authentication configured
 
 # Detailed check
-au auth --verbose
+unleash auth --verbose
 # ✓ Authentication configured
 #
 # Authentication method:
@@ -250,11 +250,11 @@ au auth --verbose
 # Status: Ready to use Claude Code
 
 # JSON output (for scripting)
-au auth --json
+unleash auth --json
 # {"authenticated":true,"method":"oauth_token","details":null}
 
 # Quiet mode (only exit code, no output)
-au auth -q
+unleash auth -q
 # (no output, only exit code: 0=success, 1=failure)
 ```
 
@@ -280,19 +280,19 @@ export PATH="$HOME/.local/bin:$PATH"
 ### Command Overview
 
 ```bash
-au                    # Show help and available commands
-au go                 # Start Claude with unleashed features
-au go --auto          # Start in autonomous mode
-aug                   # Shorthand for 'au go'
-aug --auto            # Shorthand for 'au go --auto'
-au ui / aui           # Launch TUI interface
-au tmux / autx        # Headless mode (see below)
-au auth               # Check authentication status
-au auth -v            # Check with detailed information
-au auth -q            # Check quietly (only exit code)
-au auth --json        # Output as JSON for scripting
-au version            # Show installed version
-au version --list     # List available versions
+unleash                    # Show help and available commands
+unleash go                 # Start Claude with unleashed features
+unleash go --auto          # Start in autonomous mode
+unleashg                   # Shorthand for 'unleash go'
+unleashg --auto            # Shorthand for 'unleash go --auto'
+unleash ui / unleashi           # Launch TUI interface
+unleash tmux / unleashtx        # Headless mode (see below)
+unleash auth               # Check authentication status
+unleash auth -v            # Check with detailed information
+unleash auth -q            # Check quietly (only exit code)
+unleash auth --json        # Output as JSON for scripting
+unleash version            # Show installed version
+unleash version --list     # List available versions
 restart-claude        # Restart Claude (preserves session)
 exit-claude           # Exit Claude cleanly
 ```
@@ -305,21 +305,21 @@ Customize the message Claude receives when auto-mode blocks it from exiting:
 
 ```bash
 # Set a custom prompt
-aug --stop-prompt="Keep working until tests pass!"
+unleashg --stop-prompt="Keep working until tests pass!"
 
 # Edit with your $EDITOR
-aug --stop-prompt-edit
+unleashg --stop-prompt-edit
 
 # Reset to default
-aug --stop-prompt-clear
+unleashg --stop-prompt-clear
 ```
 
 You can also configure this via the TUI:
 ```bash
-aui  # Navigate to Settings > Stop Prompt
+unleashi  # Navigate to Settings > Stop Prompt
 ```
 
-The prompt is stored globally in `~/.config/agent-unleashed/config.toml` and applies to all future auto-mode sessions.
+The prompt is stored globally in `~/.config/unleash/config.toml` and applies to all future auto-mode sessions.
 
 **Priority order:**
 1. Session-specific override (programmatic)
@@ -330,7 +330,7 @@ For detailed configuration options, see [docs/extensions/configuration.md](docs/
 
 ## TUI Features
 
-The TUI (`aui`) provides a graphical interface for managing Agent Unleashed:
+The TUI (`unleashi`) provides a graphical interface for managing Unleash:
 
 ### Profile Management
 - Create and manage environment profiles
@@ -349,11 +349,11 @@ Navigate with:
 - `Esc` - Go back
 - `?` - Help
 
-## Headless Mode (autx)
+## Headless Mode (unleashtx)
 
 ### Overview
 
-`autx` is a headless mode for Agent Unleashed that runs Claude in a tmux session, enabling programmatic access for automation, scripting, and CI/CD pipelines. It provides a command-line interface to start, stop, send messages, and read responses from Claude without requiring an interactive terminal.
+`unleashtx` is a headless mode for Unleash that runs Claude in a tmux session, enabling programmatic access for automation, scripting, and CI/CD pipelines. It provides a command-line interface to start, stop, send messages, and read responses from Claude without requiring an interactive terminal.
 
 ### When to Use It
 
@@ -367,35 +367,35 @@ Navigate with:
 
 ```bash
 # Start a headless session
-autx start
+unleashtx start
 
 # Send a message to Claude
-autx send "Analyze this code for bugs"
+unleashtx send "Analyze this code for bugs"
 
 # Wait for Claude to finish responding
-autx wait
+unleashtx wait
 
 # Read the response
-autx read
+unleashtx read
 
 # Or use the shorthand for quick queries (start, send, wait, read in one command)
-autx "What is 2+2?"
+unleashtx "What is 2+2?"
 
 # Attach to the session for interactive use
-autx attach
+unleashtx attach
 
 # Check session status
-autx status
+unleashtx status
 
 # Stop the session
-autx stop
+unleashtx stop
 ```
 
 ### Environment Variables
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `AUTX_SESSION_NAME` | `agent-unleashed` | tmux session name |
+| `AUTX_SESSION_NAME` | `unleash` | tmux session name |
 | `AUTX_WAIT_TIMEOUT` | `300` | Default wait timeout in seconds |
 | `AUTX_TERM_WIDTH` | `200` | Terminal width |
 | `AUTX_TERM_HEIGHT` | `50` | Terminal height |
@@ -553,8 +553,8 @@ This project maintains the same license as the upstream Claude Code project. See
 
 - [Upstream Repository (anthropics/claude-code)](https://github.com/anthropics/claude-code)
 - [Plugin Development Guide](docs/extensions/plugin-development.md)
-- [Issue Tracker](https://github.com/heiervang-technologies/agent-unleashed/issues)
-- [Discussions](https://github.com/heiervang-technologies/agent-unleashed/discussions)
+- [Issue Tracker](https://github.com/heiervang-technologies/unleash/issues)
+- [Discussions](https://github.com/heiervang-technologies/unleash/discussions)
 
 ---
 

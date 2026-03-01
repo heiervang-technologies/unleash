@@ -1,4 +1,4 @@
-//! Multi-agent management for Agent Unleashed
+//! Multi-agent management for Unleash
 //!
 //! Manages different code agents (Claude Code, Codex, etc.) including:
 //! - Agent definitions and configuration
@@ -160,7 +160,7 @@ impl AgentManager {
     pub fn new() -> io::Result<Self> {
         let config_dir = dirs::config_dir()
             .ok_or_else(|| io::Error::new(io::ErrorKind::NotFound, "Config directory not found"))?
-            .join("agent-unleashed");
+            .join("unleash");
 
         fs::create_dir_all(&config_dir)?;
 
@@ -365,7 +365,7 @@ impl AgentManager {
     fn update_codex(&self) -> io::Result<String> {
         let cache_dir = dirs::cache_dir()
             .unwrap_or_else(|| PathBuf::from("/tmp"))
-            .join("agent-unleashed/codex-source");
+            .join("unleash/codex-source");
 
         let mut progress = Vec::new();
 

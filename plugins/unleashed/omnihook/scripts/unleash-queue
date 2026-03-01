@@ -1,23 +1,23 @@
 #!/usr/bin/env bash
-# au-queue - Add messages to the omnihook queue
+# unleash-queue - Add messages to the omnihook queue
 #
 # This tool allows external programs (like voice transcription)
 # to queue messages that will be injected into Claude sessions.
 #
 # Usage:
-#   au-queue "Your message here"
-#   au-queue --pid 12345 "Message for specific session"
-#   echo "Message" | au-queue --stdin
-#   au-queue --list                    # List all active queues
-#   au-queue --clear                   # Clear queue for current session
-#   au-queue --notify                  # Also wake Claude via FIFO
+#   unleash-queue "Your message here"
+#   unleash-queue --pid 12345 "Message for specific session"
+#   echo "Message" | unleash-queue --stdin
+#   unleash-queue --list                    # List all active queues
+#   unleash-queue --clear                   # Clear queue for current session
+#   unleash-queue --notify                  # Also wake Claude via FIFO
 #
 # The message will be picked up by the next hook event in Claude Code.
 
 set -euo pipefail
 
 # Configuration
-QUEUE_DIR="${HOME}/.cache/agent-unleashed/omnihook"
+QUEUE_DIR="${HOME}/.cache/unleash/omnihook"
 
 # Defaults
 TARGET_PID="${AGENT_WRAPPER_PID:-}"
@@ -32,11 +32,11 @@ while [[ $# -gt 0 ]]; do
   case "$1" in
     -h|--help)
       cat <<'EOF'
-au-queue - Add messages to the omnihook queue
+unleash-queue - Add messages to the omnihook queue
 
 USAGE:
-  au-queue [OPTIONS] "MESSAGE"
-  echo "MESSAGE" | au-queue --stdin
+  unleash-queue [OPTIONS] "MESSAGE"
+  echo "MESSAGE" | unleash-queue --stdin
 
 OPTIONS:
   -p, --pid PID      Target a specific Claude wrapper PID
@@ -49,19 +49,19 @@ OPTIONS:
 
 EXAMPLES:
   # Queue a voice transcription
-  au-queue "Please search for files containing auth"
+  unleash-queue "Please search for files containing auth"
 
   # From voice transcription pipeline
-  echo "$TRANSCRIPTION" | au-queue --stdin --notify
+  echo "$TRANSCRIPTION" | unleash-queue --stdin --notify
 
   # Target specific session
-  au-queue --pid 12345 "Message for that session"
+  unleash-queue --pid 12345 "Message for that session"
 
   # Send to all sessions
-  au-queue --all "Attention all Claude sessions"
+  unleash-queue --all "Attention all Claude sessions"
 
   # Check what's queued
-  au-queue --list
+  unleash-queue --list
 
 ENVIRONMENT:
   AGENT_WRAPPER_PID  - Default target PID if --pid not specified
@@ -69,7 +69,7 @@ ENVIRONMENT:
 NOTES:
   Messages are JSON-encoded and newline-separated in the queue file.
   The omnihook will pick up messages on the next hook event.
-  Use --notify with au-wait for immediate wakeup.
+  Use --notify with unleash-wait for immediate wakeup.
 EOF
       exit 0
       ;;
@@ -174,8 +174,8 @@ fi
 # Validate we have a message
 if [[ -z "${MESSAGE}" ]]; then
   echo "Error: No message provided" >&2
-  echo "Usage: au-queue \"Your message here\"" >&2
-  echo "   or: echo \"message\" | au-queue --stdin" >&2
+  echo "Usage: unleash-queue \"Your message here\"" >&2
+  echo "   or: echo \"message\" | unleash-queue --stdin" >&2
   exit 1
 fi
 
@@ -194,7 +194,7 @@ queue_for_pid() {
   json_message=$(jq -c -n \
     --arg text "${MESSAGE}" \
     --arg ts "${timestamp}" \
-    --arg src "au-queue" \
+    --arg src "unleash-queue" \
     '{
       text: $text,
       timestamp: $ts,
@@ -232,7 +232,7 @@ if [[ "${TARGET_PID}" == "ALL" ]]; then
 
   if [[ "${found}" == "false" ]]; then
     echo "Warning: No active sessions found" >&2
-    echo "Start Claude with agent-unleashed first" >&2
+    echo "Start Claude with unleash first" >&2
     exit 1
   fi
 elif [[ -n "${TARGET_PID}" ]]; then

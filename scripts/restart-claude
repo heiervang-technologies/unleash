@@ -3,20 +3,20 @@
 #
 # Usage: restart-claude [message]
 #
-# Requires: Running under agent-unleashed wrapper
+# Requires: Running under unleash wrapper
 
 set -uo pipefail
 
-CACHE_DIR="${HOME}/.cache/agent-unleashed/process-restart"
+CACHE_DIR="${HOME}/.cache/unleash/process-restart"
 
 # Check if running under wrapper
 if [[ -z "${AGENT_UNLEASHED:-}" ]]; then
-    echo "Error: Not running under agent-unleashed wrapper"
-    echo "Start Claude with: au (or agent-unleashed)"
+    echo "Error: Not running under unleash wrapper"
+    echo "Start Claude with: unleash (or unleash)"
     exit 1
 fi
 
-# Get wrapper PID from environment (set by agent-unleashed wrapper)
+# Get wrapper PID from environment (set by unleash wrapper)
 WRAPPER_PID="${AGENT_WRAPPER_PID:-}"
 if [[ -z "${WRAPPER_PID}" ]]; then
     echo "Error: AGENT_WRAPPER_PID not set"

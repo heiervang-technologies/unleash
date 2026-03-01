@@ -26,7 +26,7 @@ fi
 # Deactivate auto mode if active
 WRAPPER_PID="${AGENT_WRAPPER_PID:-}"
 if [[ -n "${WRAPPER_PID}" ]]; then
-    AUTO_MODE_FILE="${HOME}/.cache/agent-unleashed/auto-mode/active-${WRAPPER_PID}"
+    AUTO_MODE_FILE="${HOME}/.cache/unleash/auto-mode/active-${WRAPPER_PID}"
     if [[ -f "${AUTO_MODE_FILE}" ]]; then
         rm -f "${AUTO_MODE_FILE}"
         echo "Auto mode deactivated."

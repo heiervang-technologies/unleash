@@ -11,7 +11,7 @@
 #   AU_FOCUS_OPACITY_ACTIVE=0.7      Focused window opacity while agent runs (default: 0.7)
 #   AU_FOCUS_OPACITY_INACTIVE=0.4    Unfocused window opacity while agent runs (default: 0.4)
 #
-# State file: /tmp/au-hyprfocus-<wrapper_pid>
+# State file: /tmp/unleash-hyprfocus-<wrapper_pid>
 
 set -euo pipefail
 
@@ -35,7 +35,7 @@ fi
 # --- State ---
 
 # Use wrapper PID for state file so restarts share the same window
-STATE_DIR="/tmp/au-hyprfocus"
+STATE_DIR="/tmp/unleash-hyprfocus"
 mkdir -p "$STATE_DIR"
 
 WRAPPER_PID="${AGENT_WRAPPER_PID:-$$}"

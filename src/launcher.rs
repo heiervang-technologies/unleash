@@ -24,7 +24,7 @@ pub const UNLEASHED_ENV_VAR: &str = "AGENT_UNLEASHED";
 fn cache_dir() -> PathBuf {
     dirs::cache_dir()
         .unwrap_or_else(|| PathBuf::from("/tmp"))
-        .join("agent-unleashed/process-restart")
+        .join("unleash/process-restart")
 }
 
 /// Run Claude with wrapper features
@@ -73,7 +73,7 @@ pub fn run(auto_mode: bool, prompt: Option<String>, extra_args: Vec<String>) -> 
         if let Err(e) = hyprland::apply_agent_window_rules() {
             eprintln!("Warning: Failed to apply Hyprland window rules: {}", e);
         }
-        let _ = hyprland::notify_info("Agent Unleashed started");
+        let _ = hyprland::notify_info("Unleash started");
     }
 
     let mut restart_count = 0;
@@ -139,7 +139,7 @@ pub fn run(auto_mode: bool, prompt: Option<String>, extra_args: Vec<String>) -> 
         // Treat SIGTERM (143 = 128 + 15) as clean exit
         if exit_code == 143 {
             if hyprland::is_hyprland() {
-                let _ = hyprland::notify_info("Agent Unleashed stopped");
+                let _ = hyprland::notify_info("Unleash stopped");
             }
             return Ok(());
         }
@@ -147,10 +147,10 @@ pub fn run(auto_mode: bool, prompt: Option<String>, extra_args: Vec<String>) -> 
         // Notify on exit if running under Hyprland
         if hyprland::is_hyprland() {
             if exit_code == 0 {
-                let _ = hyprland::notify_info("Agent Unleashed stopped");
+                let _ = hyprland::notify_info("Unleash stopped");
             } else {
                 let _ = hyprland::notify_warning(&format!(
-                    "Agent Unleashed exited with code {}",
+                    "Unleash exited with code {}",
                     exit_code
                 ));
             }
@@ -194,7 +194,7 @@ fn load_profile_env() -> io::Result<HashMap<String, String>> {
 /// Find plugin directories (returns paths)
 /// Only returns from ONE source to avoid duplicate hooks:
 /// - Prefer repo dev path (plugins/unleashed/) when running from repo
-/// - Fall back to installed path (~/.local/share/agent-unleashed/plugins/)
+/// - Fall back to installed path (~/.local/share/unleash/plugins/)
 pub fn find_plugin_dirs() -> Vec<PathBuf> {
     let mut dirs = Vec::new();
     let mut seen_names = std::collections::HashSet::new();
@@ -217,9 +217,9 @@ pub fn find_plugin_dirs() -> Vec<PathBuf> {
         }
     }
 
-    // Check ~/.local/share/agent-unleashed/plugins - only add if not already seen
+    // Check ~/.local/share/unleash/plugins - only add if not already seen
     if let Some(data_dir) = dirs::data_local_dir() {
-        let plugins_dir = data_dir.join("agent-unleashed/plugins");
+        let plugins_dir = data_dir.join("unleash/plugins");
         if plugins_dir.exists() {
             if let Ok(entries) = fs::read_dir(&plugins_dir) {
                 for entry in entries.flatten() {
@@ -277,7 +277,7 @@ fn run_claude(
         // Create auto-mode marker file (activates Stop hook enforcement)
         let auto_dir = dirs::cache_dir()
             .unwrap_or_else(|| PathBuf::from("/tmp"))
-            .join("agent-unleashed/auto-mode");
+            .join("unleash/auto-mode");
         let _ = fs::create_dir_all(&auto_dir);
         let _ = fs::write(
             auto_dir.join(format!("active-{}", wrapper_pid)),
@@ -304,7 +304,7 @@ fn run_claude(
     // Always use bypass permissions (auto mode is differentiated by the Stop hook,
     // not by a custom permission mode — native binaries don't support patched modes)
     if !args.iter().any(|a| a == "--dangerously-skip-permissions") {
-        eprintln!("\x1b[33m[Agent Unleashed] ⚠ WARNING: Running with --dangerously-skip-permissions automatically enabled.\x1b[0m");
+        eprintln!("\x1b[33m[Unleash] ⚠ WARNING: Running with --dangerously-skip-permissions automatically enabled.\x1b[0m");
     }
     cmd.arg("--dangerously-skip-permissions");
 

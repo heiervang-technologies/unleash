@@ -1,6 +1,6 @@
 # JSON Output Feature
 
-This document describes the `--json` flag feature for Agent Unleashed CLI.
+This document describes the `--json` flag feature for Unleash CLI.
 
 ## Overview
 
@@ -16,7 +16,7 @@ The `--json` flag is a global flag that changes command output from human-readab
 Add the `--json` flag to any supported command:
 
 ```bash
-au--version --json
+unleash--version --json
 auversion --json
 auversion --list --json
 auauth-check --json
@@ -25,7 +25,7 @@ auauth-check --json --verbose
 
 ## Supported Commands
 
-### 1. Version Information (`au--version --json`)
+### 1. Version Information (`unleash--version --json`)
 
 Shows version information for both Claude Unleashed and Claude Code.
 
@@ -45,7 +45,7 @@ Shows version information for both Claude Unleashed and Claude Code.
 
 ### 2. Version Command (`auversion --json`)
 
-Same output as `au--version --json`.
+Same output as `unleash--version --json`.
 
 ### 3. Version List (`auversion --list --json`)
 
@@ -170,7 +170,7 @@ Added `serde_json = "1.0"` to `Cargo.toml` for JSON serialization.
 ### Parse version with jq
 
 ```bash
-au--version --json | jq -r '.claude_code_version'
+unleash--version --json | jq -r '.claude_code_version'
 # Output: 2.1.4
 ```
 
@@ -233,7 +233,7 @@ All JSON outputs have been tested with:
 
 ```bash
 cargo build --release
-./target/release/au--version --json
+./target/release/unleash--version --json
 ./target/release/auversion --json
 ./target/release/auversion --list --json
 ./target/release/auauth-check --json

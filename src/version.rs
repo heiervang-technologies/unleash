@@ -27,13 +27,13 @@ pub fn get_versions_file_path() -> PathBuf {
     
     // 2. Fallback to user's config directory
     if let Some(config_dir) = dirs::config_dir() {
-        let unleashed_dir = config_dir.join("agent-unleashed");
+        let unleashed_dir = config_dir.join("unleash");
         let _ = std::fs::create_dir_all(&unleashed_dir);
         return unleashed_dir.join("versions.json");
     }
     
     // 3. Fallback to temp if nothing else works
-    std::env::temp_dir().join("agent-unleashed-versions.json")
+    std::env::temp_dir().join("unleash-versions.json")
 }
 
 /// Load embedded version lists from the dynamically read JSON.
@@ -1274,7 +1274,7 @@ pub fn show_current_json() {
     let is_installed = vm.get_installed_version().is_some();
 
     let output = VersionOutput {
-        agent_unleashed_version: cu_version.to_string(),
+        unleash_version: cu_version.to_string(),
         claude_code_version,
         claude_code_installed: is_installed,
     };

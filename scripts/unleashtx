@@ -1,21 +1,21 @@
 #!/usr/bin/env bash
-# autx - Agent Unleashed (Headless tmux mode)
+# unleashtx - Unleash (Headless tmux mode)
 #
 # A headless mode for Claude using tmux instead of native headless.
 # This allows interaction via key inputs and better session management.
 #
 # Usage:
-#   autx start [args]     Start a new Claude session in tmux
-#   autx send "message"   Send a message to Claude
-#   autx read             Read current output from Claude
-#   autx attach           Attach to the Claude tmux session
-#   autx detach           Detach from session (when attached)
-#   autx stop             Stop the Claude session
-#   autx status           Check if session is running
-#   autx "message"        Shorthand: send message and wait for response
+#   unleashtx start [args]     Start a new Claude session in tmux
+#   unleashtx send "message"   Send a message to Claude
+#   unleashtx read             Read current output from Claude
+#   unleashtx attach           Attach to the Claude tmux session
+#   unleashtx detach           Detach from session (when attached)
+#   unleashtx stop             Stop the Claude session
+#   unleashtx status           Check if session is running
+#   unleashtx "message"        Shorthand: send message and wait for response
 #
 # Environment:
-#   AUTX_SESSION_NAME      tmux session name (default: agent-unleashed)
+#   AUTX_SESSION_NAME      tmux session name (default: unleash)
 #   AUTX_WAIT_TIMEOUT      Seconds to wait for response (default: 300)
 #   AUTX_TERM_WIDTH        Terminal width for tmux session (default: 200)
 #   AUTX_TERM_HEIGHT       Terminal height for tmux session (default: 50)
@@ -27,13 +27,13 @@
 set -uo pipefail
 
 # Configuration
-SESSION_NAME="${AUTX_SESSION_NAME:-agent-unleashed}"
+SESSION_NAME="${AUTX_SESSION_NAME:-unleash}"
 WAIT_TIMEOUT="${AUTX_WAIT_TIMEOUT:-300}"
 TERM_WIDTH="${AUTX_TERM_WIDTH:-200}"
 TERM_HEIGHT="${AUTX_TERM_HEIGHT:-50}"
 STABLE_THRESHOLD="${AUTX_STABLE_THRESHOLD:-3}"
 INIT_WAIT="${AUTX_INIT_WAIT:-5}"
-CACHE_DIR="${HOME}/.cache/agent-unleashed/autx"
+CACHE_DIR="${HOME}/.cache/unleash/unleashtx"
 OUTPUT_FILE="${CACHE_DIR}/${SESSION_NAME}.output"
 MARKER_FILE="${CACHE_DIR}/${SESSION_NAME}.marker"
 LOCK_FILE="${CACHE_DIR}/${SESSION_NAME}.lock"
@@ -90,15 +90,15 @@ if ! [[ -w "$CACHE_DIR" ]]; then
 fi
 
 log_info() {
-    echo -e "${GREEN}[autx]${NC} $1"
+    echo -e "${GREEN}[unleashtx]${NC} $1"
 }
 
 log_warn() {
-    echo -e "${YELLOW}[autx]${NC} $1"
+    echo -e "${YELLOW}[unleashtx]${NC} $1"
 }
 
 log_error() {
-    echo -e "${RED}[autx]${NC} $1" >&2
+    echo -e "${RED}[unleashtx]${NC} $1" >&2
 }
 
 # Check if tmux is available
@@ -111,17 +111,17 @@ check_tmux() {
 
 # Check if Claude is available
 check_claude() {
-    local launcher="${SCRIPT_DIR}/au"
+    local launcher="${SCRIPT_DIR}/unleash"
     if [[ -x "$launcher" ]]; then
         return 0
     fi
-    if command -v au &>/dev/null; then
+    if command -v unleash &>/dev/null; then
         return 0
     fi
     if command -v claude &>/dev/null; then
         return 0
     fi
-    log_error "Neither au nor claude command found"
+    log_error "Neither unleash nor claude command found"
     return 1
 }
 
@@ -141,14 +141,14 @@ cmd_start() {
 
     if session_exists; then
         log_warn "Session '$SESSION_NAME' already exists"
-        log_info "Use 'autx attach' to connect or 'autx stop' to restart"
+        log_info "Use 'unleashtx attach' to connect or 'unleashtx stop' to restart"
         return 1
     fi
 
     # Acquire lock to prevent concurrent starts
     exec 200>"$LOCK_FILE"
     if ! flock -n 200; then
-        log_error "Another autx start is in progress for session '$SESSION_NAME'"
+        log_error "Another unleashtx start is in progress for session '$SESSION_NAME'"
         log_info "If this is an error, remove: $LOCK_FILE"
         return 1
     fi
@@ -191,9 +191,9 @@ cmd_start() {
     fi
 
     # Determine which launcher to use
-    local launcher="${SCRIPT_DIR}/au"
+    local launcher="${SCRIPT_DIR}/unleash"
     if [[ ! -x "$launcher" ]]; then
-        launcher="au"
+        launcher="unleash"
         if ! command -v "$launcher" &>/dev/null; then
             launcher="claude"
         fi
@@ -237,8 +237,8 @@ cmd_start() {
     # Send command with properly quoted arguments to prevent injection
     tmux send-keys -t "$SESSION_NAME" "$cmd" Enter
 
-    log_info "Session started. Use 'autx attach' to connect interactively"
-    log_info "Or use 'autx send \"message\"' to send commands"
+    log_info "Session started. Use 'unleashtx attach' to connect interactively"
+    log_info "Or use 'unleashtx send \"message\"' to send commands"
 }
 
 # Send a message to Claude
@@ -248,14 +248,14 @@ cmd_send() {
     fi
 
     if ! session_exists; then
-        log_error "No active session. Run 'autx start' first"
+        log_error "No active session. Run 'unleashtx start' first"
         return 1
     fi
 
     local message="$*"
     if [[ -z "$message" ]]; then
         log_error "No message provided"
-        echo "Usage: autx send \"your message\""
+        echo "Usage: unleashtx send \"your message\""
         return 1
     fi
 
@@ -346,7 +346,7 @@ cmd_attach() {
     fi
 
     if ! session_exists; then
-        log_error "No active session. Run 'autx start' first"
+        log_error "No active session. Run 'unleashtx start' first"
         return 1
     fi
 
@@ -441,18 +441,18 @@ cmd_query() {
 # Show help
 cmd_help() {
     cat << 'EOF'
-autx - Agent Unleashed (Headless tmux mode)
+unleashtx - Unleash (Headless tmux mode)
 
 USAGE:
-    autx <command> [args]
-    autx "message"           Send message and wait for response
+    unleashtx <command> [args]
+    unleashtx "message"           Send message and wait for response
 
 COMMANDS:
     start [--auto] [-d] [args]
                     Start a new Claude session in tmux
                     --auto: enable auto mode (Claude won't stop)
                     -d/--daemon: kill session when Claude exits
-                    Additional args are passed to agent-unleashed
+                    Additional args are passed to unleash
 
     send "msg"      Send a message to the running Claude session
 
@@ -472,7 +472,7 @@ COMMANDS:
     help            Show this help message
 
 ENVIRONMENT:
-    AUTX_SESSION_NAME      tmux session name (default: agent-unleashed)
+    AUTX_SESSION_NAME      tmux session name (default: unleash)
                            Must contain only alphanumeric, underscore, or dash
     AUTX_WAIT_TIMEOUT      Default wait timeout in seconds (default: 300)
     AUTX_TERM_WIDTH        Terminal width for tmux session (default: 200)
@@ -482,22 +482,22 @@ ENVIRONMENT:
 
 EXAMPLES:
     # Start a session and send a message
-    autx start
-    autx send "Hello Claude, how are you?"
-    autx wait
-    autx read
+    unleashtx start
+    unleashtx send "Hello Claude, how are you?"
+    unleashtx wait
+    unleashtx read
 
     # Or use the shorthand
-    autx "Hello Claude, how are you?"
+    unleashtx "Hello Claude, how are you?"
 
     # Attach for interactive use
-    autx attach
+    unleashtx attach
 
     # Start with specific arguments
-    autx start --continue
+    unleashtx start --continue
 
     # Check status
-    autx status
+    unleashtx status
 
 EOF
 }

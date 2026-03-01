@@ -2,7 +2,7 @@
 # trigger-restart.sh - Trigger Claude Code self-restart
 #
 # Supports two methods:
-#   1. Wrapper method (preferred) - Works if started via au (Agent Unleashed)
+#   1. Wrapper method (preferred) - Works if started via unleash (Unleash)
 #   2. tmux method (fallback) - Works if running inside tmux
 #
 # The script auto-detects which method is available.
@@ -12,7 +12,7 @@
 set -uo pipefail
 
 # Configuration
-CACHE_DIR="${HOME}/.cache/agent-unleashed/process-restart"
+CACHE_DIR="${HOME}/.cache/unleash/process-restart"
 TRIGGER_FILE="${CACHE_DIR}/restart-trigger"
 RESTART_MESSAGE_FILE="${CACHE_DIR}/restart-message"
 
@@ -182,8 +182,8 @@ case "${METHOD}" in
         echo "Claude Code self-restart requires one of:"
         echo ""
         echo "  1. Wrapper method (recommended):"
-        echo "     Start Claude with: au (Agent Unleashed)"
-        echo "     Location: scripts/au"
+        echo "     Start Claude with: unleash (Unleash)"
+        echo "     Location: scripts/unleash"
         echo ""
         echo "  2. tmux method:"
         echo "     Run Claude inside tmux: tmux new-session -s claude"
