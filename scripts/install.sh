@@ -326,8 +326,7 @@ fi
 # Step 2: Create symlinks for additional commands
 info "Creating symlinks..."
 
-# unleash is an alias for unleash
-ln -sf "$BIN_DIR/unleash" "$BIN_DIR/unleash"
+# unleash is already installed as a binary, no need to symlink it to itself
 success "Symlink: unleash -> unleash"
 
 # Helper commands (bash scripts)
