@@ -17,13 +17,32 @@ const CLAUDE_GCS_BUCKET: &str = "https://storage.googleapis.com/claude-code-dist
 
 /// Embedded version lists, compiled into the binary for instant display.
 /// Updated periodically and committed to the repo.
-const EMBEDDED_VERSIONS_JSON: &str = include_str!("embedded_versions.json");
 
-/// Load embedded version lists from the compiled-in JSON.
+pub fn get_versions_file_path() -> PathBuf {
+    // 1. Check if we are in the repo (or have the data file in CWD)
+    let local_path = PathBuf::from("data/versions.json");
+    if local_path.exists() {
+        return local_path;
+    }
+    
+    // 2. Fallback to user's config directory
+    if let Some(config_dir) = dirs::config_dir() {
+        let unleashed_dir = config_dir.join("agent-unleashed");
+        let _ = std::fs::create_dir_all(&unleashed_dir);
+        return unleashed_dir.join("versions.json");
+    }
+    
+    // 3. Fallback to temp if nothing else works
+    std::env::temp_dir().join("agent-unleashed-versions.json")
+}
+
+/// Load embedded version lists from the dynamically read JSON.
 /// Returns a map of agent key -> list of version strings (newest first).
 pub fn load_embedded_versions() -> HashMap<String, Vec<String>> {
+    let path = get_versions_file_path();
+    let content = std::fs::read_to_string(&path).unwrap_or_else(|_| "{}".to_string());
     let parsed: serde_json::Value =
-        serde_json::from_str(EMBEDDED_VERSIONS_JSON).unwrap_or_default();
+        serde_json::from_str(&content).unwrap_or_default();
     let mut map = HashMap::new();
     for key in &["claude", "codex", "gemini", "opencode"] {
         if let Some(arr) = parsed.get(key).and_then(|v| v.as_array()) {
@@ -35,6 +54,28 @@ pub fn load_embedded_versions() -> HashMap<String, Vec<String>> {
         }
     }
     map
+}
+
+pub fn save_embedded_versions(map: &HashMap<crate::agents::AgentType, Vec<VersionInfo>>) {
+    let mut out_map = serde_json::Map::new();
+
+    for (agent_type, versions) in map {
+        let key = match agent_type {
+            crate::agents::AgentType::Claude => "claude",
+            crate::agents::AgentType::Codex => "codex",
+            crate::agents::AgentType::Gemini => "gemini",
+            crate::agents::AgentType::OpenCode => "opencode",
+        };
+        let arr: Vec<serde_json::Value> = versions.iter()
+            .map(|v| serde_json::Value::String(v.version.clone()))
+            .collect();
+        out_map.insert(key.to_string(), serde_json::Value::Array(arr));
+    }
+    
+    let path = get_versions_file_path();
+    if let Ok(json_str) = serde_json::to_string_pretty(&serde_json::Value::Object(out_map)) {
+        let _ = std::fs::write(path, json_str);
+    }
 }
 
 /// Information about an agent version
@@ -83,6 +124,57 @@ impl VersionManager {
         } else {
             None
         }
+    }
+
+    /// Check if there are conflicting installations (e.g. native + npm for Claude Code)
+    pub fn has_conflicts(&self, binary_name: &str) -> bool {
+        if binary_name == "claude" {
+            let mut install_count = 0;
+
+            // Check native
+            let native_dir = dirs::home_dir().map(|h| h.join(".local/share/claude/versions"));
+            if let Some(dir) = native_dir {
+                if dir.exists() && dir.read_dir().is_ok_and(|mut d| d.next().is_some()) {
+                    install_count += 1;
+                }
+            }
+
+            // Check NPM
+            if Self::has_npm() {
+                if let Ok(out) = Command::new("npm")
+                    .args(["list", "-g", "@anthropic-ai/claude-code"])
+                    .output()
+                {
+                    let stdout = String::from_utf8_lossy(&out.stdout);
+                    if out.status.success() && !stdout.contains("empty") && stdout.contains("@anthropic-ai/claude-code") {
+                        install_count += 1;
+                    }
+                }
+            }
+
+            return install_count > 1;
+        }
+
+        // Generic check for other binaries: multiple distinct paths in PATH
+        if let Ok(paths) = which::which_all(binary_name) {
+            let unique_paths: std::collections::HashSet<_> = paths.map(|p| p.canonicalize().unwrap_or(p)).collect();
+            return unique_paths.len() > 1;
+        }
+
+        false
+    }
+
+    /// Cleanup conflicting installations
+    pub fn cleanup_conflicts(&self, binary_name: &str) -> io::Result<()> {
+        if binary_name == "claude" {
+            // Keep native, uninstall npm
+            if Self::has_npm() {
+                let _ = Command::new("npm")
+                    .args(["uninstall", "-g", "@anthropic-ai/claude-code"])
+                    .output();
+            }
+        }
+        Ok(())
     }
 
     /// Get the latest Claude Code version from GCS

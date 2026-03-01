@@ -190,11 +190,14 @@ pub enum ClickTarget {
     ThemeItem(usize),
     /// The Claude mascot / avatar art sidebar
     AvatarArt,
+    DialogYes,
+    DialogNo,
 }
 
 /// Main application state
 pub struct App {
     pub running: bool,
+    pub last_frame_area: Rect,
     pub screen: Screen,
     pub main_menu: MenuState,
     pub profile_menu: MenuState,
@@ -231,9 +234,13 @@ pub struct App {
     /// Receiver for async installed-version fetch at startup (None once done)
     version_fetch_receiver: Option<Receiver<(AgentType, Option<String>)>>,
     /// Receiver for async version-list fetch (None when not fetching)
-    version_list_receiver: Option<Receiver<(AgentType, Vec<VersionInfo>)>>,
+    version_list_receiver: Option<Receiver<(AgentType, Vec<VersionInfo>, bool)>>,
     /// Async installation state
     pub install_state: Option<InstallState>,
+    
+    // Conflict detection
+    pub has_conflicts: bool,
+    pub conflict_warning_open: bool,
     /// Animation frame counter (increments each tick)
     pub animation_frame: usize,
     /// Art layout preference for main view (non-main views use the opposite)
@@ -346,6 +353,7 @@ impl App {
 
         Ok(Self {
             running: true,
+            last_frame_area: Rect::default(),
             screen: Screen::Main,
             main_menu: MenuState::new(6), // Start, Profiles, Agent Versions, Update, Help, Quit
             profile_menu: MenuState::new(profiles.len()),
@@ -372,6 +380,8 @@ impl App {
             version_fetch_receiver: Some(version_rx),
             version_list_receiver: None,
             install_state: None,
+            has_conflicts: false,
+            conflict_warning_open: false,
             animation_frame: 0,
             art_layout: ArtLayout::ArtRight,
             art_animation: None,
@@ -478,15 +488,37 @@ impl App {
                         self.cached_agent_versions.insert(agent_type, version.clone());
 
                         // Update is_installed flags in cached version lists (embedded or fetched)
+                        let mut needs_save = false;
                         if let Some(list) = self.cached_version_lists.get_mut(&agent_type) {
+                            let mut found = false;
                             for vi in list.iter_mut() {
-                                vi.is_installed = version.as_deref() == Some(vi.version.as_str());
+                                if version.as_deref() == Some(vi.version.as_str()) {
+                                    vi.is_installed = true;
+                                    found = true;
+                                } else {
+                                    vi.is_installed = false;
+                                }
+                            }
+                            if !found {
+                                if let Some(v) = &version {
+                                    list.insert(0, VersionInfo {
+                                        version: v.clone(),
+                                        is_installed: true,
+                                    });
+                                    needs_save = true;
+                                }
                             }
                         }
+                        
+                        if needs_save {
+                            crate::version::save_embedded_versions(&self.cached_version_lists);
+                        }
+
                         // Also update the currently displayed list if viewing this agent
                         if self.version_agent == agent_type {
-                            for vi in self.versions.iter_mut() {
-                                vi.is_installed = version.as_deref() == Some(vi.version.as_str());
+                            if let Some(list) = self.cached_version_lists.get(&agent_type) {
+                                self.versions = list.clone();
+                                self.version_menu.set_items_count(self.versions.len());
                             }
                         }
                     }
@@ -502,8 +534,10 @@ impl App {
         // Poll async version list fetch
         if let Some(ref receiver) = self.version_list_receiver {
             match receiver.try_recv() {
-                Ok((agent_type, versions)) => {
+                Ok((agent_type, versions, has_conflicts)) => {
                     self.cached_version_lists.insert(agent_type, versions.clone());
+                    crate::version::save_embedded_versions(&self.cached_version_lists);
+                    
                     // Update displayed list if we're still viewing this agent
                     if self.screen == Screen::VersionManagement && self.version_agent == agent_type {
                         let prev_selected = self.version_menu.selected;
@@ -512,6 +546,10 @@ impl App {
                         // Preserve selection if possible
                         if prev_selected < self.versions.len() {
                             self.version_menu.selected = prev_selected;
+                        }
+                        self.has_conflicts = has_conflicts;
+                        if self.has_conflicts {
+                            self.conflict_warning_open = true;
                         }
                         self.status_message = Some(format!("{} versions loaded", agent_type.display_name()));
                     }
@@ -752,28 +790,32 @@ impl App {
                 thread::spawn(move || {
                     let vm = VersionManager::new();
                     let versions = vm.get_version_list();
-                    let _ = tx.send((AgentType::Claude, versions));
+                    let conflicts = vm.has_conflicts("claude");
+                    let _ = tx.send((AgentType::Claude, versions, conflicts));
                 });
             }
             AgentType::Codex => {
                 thread::spawn(move || {
                     let vm = VersionManager::new();
                     let versions = vm.get_codex_version_list(installed.as_deref());
-                    let _ = tx.send((AgentType::Codex, versions));
+                    let conflicts = vm.has_conflicts("codex");
+                    let _ = tx.send((AgentType::Codex, versions, conflicts));
                 });
             }
             AgentType::Gemini => {
                 thread::spawn(move || {
                     let vm = VersionManager::new();
                     let versions = vm.get_gemini_version_list(installed.as_deref());
-                    let _ = tx.send((AgentType::Gemini, versions));
+                    let conflicts = vm.has_conflicts("gemini");
+                    let _ = tx.send((AgentType::Gemini, versions, conflicts));
                 });
             }
             AgentType::OpenCode => {
                 thread::spawn(move || {
                     let vm = VersionManager::new();
                     let versions = vm.get_opencode_version_list(installed.as_deref());
-                    let _ = tx.send((AgentType::OpenCode, versions));
+                    let conflicts = vm.has_conflicts("opencode");
+                    let _ = tx.send((AgentType::OpenCode, versions, conflicts));
                 });
             }
         }
@@ -924,6 +966,14 @@ impl App {
                     self.screen = Screen::Main;
                     self.refresh_screen_data();
                 }
+            }
+            (ClickTarget::DialogYes, Screen::VersionManagement) => {
+                let dummy_key = KeyEvent::new(KeyCode::Char('y'), KeyModifiers::NONE);
+                self.handle_version_input(NavAction::Select, dummy_key);
+            }
+            (ClickTarget::DialogNo, Screen::VersionManagement) => {
+                let dummy_key = KeyEvent::new(KeyCode::Char('n'), KeyModifiers::NONE);
+                self.handle_version_input(NavAction::Select, dummy_key);
             }
             _ => {}
         }
@@ -1297,6 +1347,42 @@ impl App {
     }
 
     fn handle_version_input(&mut self, action: NavAction, key: KeyEvent) {
+        // Handle conflict dialog if open
+        if self.conflict_warning_open {
+            let mut accepted = false;
+            let mut rejected = false;
+            
+            match action {
+                NavAction::Select => accepted = true,
+                NavAction::Back | NavAction::Quit => rejected = true,
+                _ => {}
+            }
+            
+            match key.code {
+                KeyCode::Char('y') | KeyCode::Char('Y') => accepted = true,
+                KeyCode::Char('n') | KeyCode::Char('N') => rejected = true,
+                _ => {}
+            }
+            
+            if accepted {
+                // Enter / Y: clean up
+                let agent_str = match self.version_agent {
+                    AgentType::Claude => "claude",
+                    AgentType::Codex => "codex",
+                    AgentType::Gemini => "gemini",
+                    AgentType::OpenCode => "opencode",
+                };
+                let _ = self.version_manager.cleanup_conflicts(agent_str);
+                self.conflict_warning_open = false;
+                self.has_conflicts = false;
+                self.refresh_versions();
+            } else if rejected {
+                // Esc / N: close dialog
+                self.conflict_warning_open = false;
+            }
+            return;
+        }
+
         // Handle 'gg' two-key sequence for jump-to-top
         if self.g_pending {
             self.g_pending = false;
@@ -1836,6 +1922,7 @@ impl App {
         // Clear clickable areas from the previous frame before registering new ones
         self.clickable_areas.clear();
 
+        self.last_frame_area = frame.area();
         // Main layout: content area + status bar at bottom
         let main_chunks = Layout::default()
             .direction(Direction::Vertical)
@@ -1958,7 +2045,12 @@ impl App {
                 self.render_profiles(frame, area);
                 self.render_confirm_delete_dialog(frame, frame.area());
             }
-            Screen::VersionManagement => self.render_version_management(frame, area),
+            Screen::VersionManagement => {
+                self.render_version_management(frame, area);
+                if self.conflict_warning_open {
+                    self.render_conflict_dialog(frame, frame.area());
+                }
+            }
             Screen::Updating => self.render_updating(frame, area),
         }
     }
@@ -2428,6 +2520,54 @@ impl App {
         frame.render_widget(dialog, dialog_area);
     }
 
+    fn render_conflict_dialog(&mut self, frame: &mut Frame, area: Rect) {
+        let dialog_width = 60.min(area.width.saturating_sub(4));
+        let dialog_height = 11;
+        let dialog_x = (area.width.saturating_sub(dialog_width)) / 2;
+        let dialog_y = (area.height.saturating_sub(dialog_height)) / 2;
+
+        let dialog_area = Rect::new(dialog_x, dialog_y, dialog_width, dialog_height);
+
+        frame.render_widget(Clear, dialog_area);
+
+        let lines = vec![
+            Line::from(""),
+            Line::from(Span::styled(
+                "  Warning: Multiple conflicting versions detected!",
+                Style::default().add_modifier(Modifier::BOLD).fg(Color::Yellow),
+            )),
+            Line::from("  Different install methods may collide and cause issues."),
+            Line::from(""),
+            Line::from("  Do you want to clean up the mess?"),
+            Line::from(""),
+            Line::from(""),
+            Line::from(vec![
+                Span::raw("  "),
+                Span::styled("[Y] Yes (Clean up)", Style::default().fg(Color::Green).add_modifier(Modifier::BOLD)),
+                Span::raw("    "),
+                Span::styled("[N] No (Ignore)", Style::default().fg(Color::Red).add_modifier(Modifier::BOLD)),
+            ]),
+        ];
+
+        let dialog = Paragraph::new(lines).block(
+            Block::default()
+                .borders(Borders::ALL)
+                .border_style(Style::default().fg(Color::Yellow))
+                .style(Style::default().bg(Color::Black)),
+        );
+
+        frame.render_widget(dialog, dialog_area);
+
+        // Register clickable areas for Yes/No buttons
+        // "Yes" button is at row 7, cols 3..21 relative to inside dialog
+        let yes_rect = Rect::new(dialog_x + 3, dialog_y + 8, 18, 1);
+        // "No" button is at row 7, cols 25..40
+        let no_rect = Rect::new(dialog_x + 25, dialog_y + 8, 15, 1);
+
+        self.clickable_areas.push((yes_rect, ClickTarget::DialogYes));
+        self.clickable_areas.push((no_rect, ClickTarget::DialogNo));
+    }
+
     fn render_theme(&mut self, frame: &mut Frame, area: Rect) {
         let presets = ThemePreset::all();
         let custom_index = presets.len();
@@ -2708,10 +2848,16 @@ impl App {
             Color::DarkGray
         };
 
+        let title = if self.version_list_receiver.is_some() {
+            format!(" {} Versions {} ", agent_name, SPINNER_FRAMES[self.animation_frame % SPINNER_FRAMES.len()])
+        } else {
+            format!(" {} Versions ", agent_name)
+        };
+
         let block = Block::default()
             .borders(Borders::ALL)
             .border_style(Style::default().fg(border_color))
-            .title(format!(" {} Versions ", agent_name));
+            .title(title);
 
         let inner = block.inner(area);
         frame.render_widget(block, area);
@@ -3006,6 +3152,7 @@ mod tests {
 
         let app = App {
             running: true,
+            last_frame_area: Rect::default(),
             screen: Screen::Main,
             main_menu: MenuState::new(6),
             profile_menu: MenuState::new(profiles.len()),
@@ -3032,6 +3179,8 @@ mod tests {
             version_fetch_receiver: None,
             version_list_receiver: None,
             install_state: None,
+            has_conflicts: false,
+            conflict_warning_open: false,
             animation_frame: 0,
             art_layout: ArtLayout::default(),
             art_animation: None,
