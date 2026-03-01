@@ -24,14 +24,14 @@ pub fn get_versions_file_path() -> PathBuf {
     if local_path.exists() {
         return local_path;
     }
-    
+
     // 2. Fallback to user's config directory
     if let Some(config_dir) = dirs::config_dir() {
         let unleashed_dir = config_dir.join("unleash");
         let _ = std::fs::create_dir_all(&unleashed_dir);
         return unleashed_dir.join("versions.json");
     }
-    
+
     // 3. Fallback to temp if nothing else works
     std::env::temp_dir().join("unleash-versions.json")
 }
@@ -41,8 +41,7 @@ pub fn get_versions_file_path() -> PathBuf {
 pub fn load_embedded_versions() -> HashMap<String, Vec<String>> {
     let path = get_versions_file_path();
     let content = std::fs::read_to_string(&path).unwrap_or_else(|_| "{}".to_string());
-    let parsed: serde_json::Value =
-        serde_json::from_str(&content).unwrap_or_default();
+    let parsed: serde_json::Value = serde_json::from_str(&content).unwrap_or_default();
     let mut map = HashMap::new();
     for key in &["claude", "codex", "gemini", "opencode"] {
         if let Some(arr) = parsed.get(key).and_then(|v| v.as_array()) {
@@ -66,12 +65,13 @@ pub fn save_embedded_versions(map: &HashMap<crate::agents::AgentType, Vec<Versio
             crate::agents::AgentType::Gemini => "gemini",
             crate::agents::AgentType::OpenCode => "opencode",
         };
-        let arr: Vec<serde_json::Value> = versions.iter()
+        let arr: Vec<serde_json::Value> = versions
+            .iter()
             .map(|v| serde_json::Value::String(v.version.clone()))
             .collect();
         out_map.insert(key.to_string(), serde_json::Value::Array(arr));
     }
-    
+
     let path = get_versions_file_path();
     if let Ok(json_str) = serde_json::to_string_pretty(&serde_json::Value::Object(out_map)) {
         let _ = std::fs::write(path, json_str);
@@ -107,10 +107,7 @@ impl VersionManager {
 
     /// Get the currently installed Claude Code version
     pub fn get_installed_version(&self) -> Option<String> {
-        let output = Command::new("claude")
-            .arg("--version")
-            .output()
-            .ok()?;
+        let output = Command::new("claude").arg("--version").output().ok()?;
 
         if output.status.success() {
             let version_str = String::from_utf8_lossy(&output.stdout);
@@ -146,7 +143,10 @@ impl VersionManager {
                     .output()
                 {
                     let stdout = String::from_utf8_lossy(&out.stdout);
-                    if out.status.success() && !stdout.contains("empty") && stdout.contains("@anthropic-ai/claude-code") {
+                    if out.status.success()
+                        && !stdout.contains("empty")
+                        && stdout.contains("@anthropic-ai/claude-code")
+                    {
                         install_count += 1;
                     }
                 }
@@ -157,7 +157,8 @@ impl VersionManager {
 
         // Generic check for other binaries: multiple distinct paths in PATH
         if let Ok(paths) = which::which_all(binary_name) {
-            let unique_paths: std::collections::HashSet<_> = paths.map(|p| p.canonicalize().unwrap_or(p)).collect();
+            let unique_paths: std::collections::HashSet<_> =
+                paths.map(|p| p.canonicalize().unwrap_or(p)).collect();
             return unique_paths.len() > 1;
         }
 
@@ -244,9 +245,7 @@ impl VersionManager {
                     let value_start = start + 1;
                     if let Some(end) = after_key[value_start..].find('"') {
                         let checksum = &after_key[value_start..value_start + end];
-                        if checksum.len() == 64
-                            && checksum.chars().all(|c| c.is_ascii_hexdigit())
-                        {
+                        if checksum.len() == 64 && checksum.chars().all(|c| c.is_ascii_hexdigit()) {
                             return Some(checksum.to_string());
                         }
                     }
@@ -337,7 +336,12 @@ impl VersionManager {
         // Fallback: try npm
         if Self::has_npm() {
             let output = Command::new("npm")
-                .args(["install", "-g", "--force", &format!("@anthropic-ai/claude-code@{}", version)])
+                .args([
+                    "install",
+                    "-g",
+                    "--force",
+                    &format!("@anthropic-ai/claude-code@{}", version),
+                ])
                 .output()?;
 
             let stdout = String::from_utf8_lossy(&output.stdout).to_string();
@@ -347,8 +351,11 @@ impl VersionManager {
                 // After install, update symlink to npm-installed cli.js
                 if let Ok(npm_output) = Command::new("npm").args(["root", "-g"]).output() {
                     if npm_output.status.success() {
-                        let npm_root = String::from_utf8_lossy(&npm_output.stdout).trim().to_string();
-                        let cli_js = PathBuf::from(&npm_root).join("@anthropic-ai/claude-code/cli.js");
+                        let npm_root = String::from_utf8_lossy(&npm_output.stdout)
+                            .trim()
+                            .to_string();
+                        let cli_js =
+                            PathBuf::from(&npm_root).join("@anthropic-ai/claude-code/cli.js");
                         if cli_js.exists() {
                             if let Some(home) = dirs::home_dir() {
                                 let bin_claude = home.join(".local/bin/claude");
@@ -390,7 +397,12 @@ impl VersionManager {
 
         // Download binary
         let download = Command::new("curl")
-            .args(["-fsSL", "-o", temp_path.to_str().unwrap_or("/tmp/claude-download"), &download_url])
+            .args([
+                "-fsSL",
+                "-o",
+                temp_path.to_str().unwrap_or("/tmp/claude-download"),
+                &download_url,
+            ])
             .output()?;
 
         if !download.status.success() {
@@ -399,20 +411,24 @@ impl VersionManager {
                 success: false,
                 stdout: String::new(),
                 stderr: String::from_utf8_lossy(&download.stderr).to_string(),
-                error: Some(format!("Failed to download Claude Code {} from GCS", version)),
+                error: Some(format!(
+                    "Failed to download Claude Code {} from GCS",
+                    version
+                )),
             });
         }
 
         // Download manifest for checksum verification
-        if let Ok(manifest_output) = Command::new("curl")
-            .args(["-fsSL", &manifest_url])
-            .output()
-        {
+        if let Ok(manifest_output) = Command::new("curl").args(["-fsSL", &manifest_url]).output() {
             if manifest_output.status.success() {
                 let manifest = String::from_utf8_lossy(&manifest_output.stdout);
                 if let Some(expected) = Self::extract_checksum_from_manifest(&manifest, &platform) {
                     // Verify checksum
-                    let checksum_cmd = if cfg!(target_os = "macos") { "shasum" } else { "sha256sum" };
+                    let checksum_cmd = if cfg!(target_os = "macos") {
+                        "shasum"
+                    } else {
+                        "sha256sum"
+                    };
                     let mut cmd = Command::new(checksum_cmd);
                     if cfg!(target_os = "macos") {
                         cmd.args(["-a", "256"]);
@@ -428,7 +444,10 @@ impl VersionManager {
                                 return Ok(InstallResult {
                                     success: false,
                                     stdout: String::new(),
-                                    stderr: format!("Checksum mismatch: expected {}, got {}", expected, actual_checksum),
+                                    stderr: format!(
+                                        "Checksum mismatch: expected {}, got {}",
+                                        expected, actual_checksum
+                                    ),
                                     error: Some("Checksum verification failed".to_string()),
                                 });
                             }
@@ -461,7 +480,11 @@ impl VersionManager {
 
         Ok(InstallResult {
             success: true,
-            stdout: format!("Claude Code v{} installed natively to {}", version, binary_path.display()),
+            stdout: format!(
+                "Claude Code v{} installed natively to {}",
+                version,
+                binary_path.display()
+            ),
             stderr: String::new(),
             error: None,
         })
@@ -473,9 +496,11 @@ impl VersionManager {
     pub fn get_codex_available_versions(&self) -> io::Result<Vec<String>> {
         let output = Command::new("gh")
             .args([
-                "api", "repos/openai/codex/tags",
+                "api",
+                "repos/openai/codex/tags",
                 "--paginate",
-                "--jq", ".[].name",
+                "--jq",
+                ".[].name",
             ])
             .output()?;
 
@@ -537,10 +562,15 @@ impl VersionManager {
         // Download the main codex binary tarball
         let download = Command::new("gh")
             .args([
-                "release", "download", &tag,
-                "--repo", "openai/codex",
-                "--pattern", &format!("{}.tar.gz", asset_name),
-                "--dir", tmp_dir.to_str().unwrap_or("/tmp"),
+                "release",
+                "download",
+                &tag,
+                "--repo",
+                "openai/codex",
+                "--pattern",
+                &format!("{}.tar.gz", asset_name),
+                "--dir",
+                tmp_dir.to_str().unwrap_or("/tmp"),
             ])
             .output()?;
 
@@ -668,7 +698,12 @@ impl VersionManager {
         }
 
         let output = Command::new("npm")
-            .args(["install", "-g", "--force", &format!("@google/gemini-cli@{}", version)])
+            .args([
+                "install",
+                "-g",
+                "--force",
+                &format!("@google/gemini-cli@{}", version),
+            ])
             .output()?;
 
         let stdout = String::from_utf8_lossy(&output.stdout).to_string();
@@ -681,7 +716,10 @@ impl VersionManager {
             error: if output.status.success() {
                 None
             } else {
-                Some(format!("Failed to install Gemini CLI v{}: {}", version, stderr))
+                Some(format!(
+                    "Failed to install Gemini CLI v{}: {}",
+                    version, stderr
+                ))
             },
         })
     }
@@ -696,8 +734,10 @@ impl VersionManager {
         // Try GitHub releases first
         if let Ok(output) = Command::new("gh")
             .args([
-                "api", "repos/opencode-ai/opencode/releases",
-                "--jq", ".[].tag_name",
+                "api",
+                "repos/opencode-ai/opencode/releases",
+                "--jq",
+                ".[].tag_name",
             ])
             .output()
         {
@@ -705,7 +745,10 @@ impl VersionManager {
                 let tag_output = String::from_utf8_lossy(&output.stdout);
                 for line in tag_output.lines() {
                     let v = line.trim().trim_start_matches('v').to_string();
-                    if !v.is_empty() && v.starts_with(|c: char| c.is_ascii_digit()) && seen.insert(v.clone()) {
+                    if !v.is_empty()
+                        && v.starts_with(|c: char| c.is_ascii_digit())
+                        && seen.insert(v.clone())
+                    {
                         versions.push(v);
                     }
                 }
@@ -778,7 +821,12 @@ impl VersionManager {
         }
 
         let output = Command::new("npm")
-            .args(["install", "-g", "--force", &format!("opencode-ai@{}", version)])
+            .args([
+                "install",
+                "-g",
+                "--force",
+                &format!("opencode-ai@{}", version),
+            ])
             .output()?;
 
         let stdout = String::from_utf8_lossy(&output.stdout).to_string();
@@ -791,7 +839,10 @@ impl VersionManager {
             error: if output.status.success() {
                 None
             } else {
-                Some(format!("Failed to install OpenCode v{}: {}", version, stderr))
+                Some(format!(
+                    "Failed to install OpenCode v{}: {}",
+                    version, stderr
+                ))
             },
         })
     }
@@ -839,10 +890,7 @@ impl VersionManager {
         cmd: &mut Command,
         log_tx: &mpsc::Sender<String>,
     ) -> io::Result<(bool, String, String)> {
-        let mut child = cmd
-            .stdout(Stdio::piped())
-            .stderr(Stdio::piped())
-            .spawn()?;
+        let mut child = cmd.stdout(Stdio::piped()).stderr(Stdio::piped()).spawn()?;
         let (stdout, stderr) = Self::stream_child_output(&mut child, log_tx);
         let status = child.wait()?;
         Ok((status.success(), stdout, stderr))
@@ -855,7 +903,10 @@ impl VersionManager {
         log_tx: mpsc::Sender<String>,
     ) -> io::Result<InstallResult> {
         // Try native (GCS) first
-        let _ = log_tx.send(format!("Attempting native install of Claude Code v{}...", version));
+        let _ = log_tx.send(format!(
+            "Attempting native install of Claude Code v{}...",
+            version
+        ));
         let native_result = self.install_version_native_streaming(version, &log_tx)?;
         if native_result.success {
             return Ok(native_result);
@@ -864,10 +915,18 @@ impl VersionManager {
         // Fallback: try npm
         if Self::has_npm() {
             let _ = log_tx.send(format!("Native install failed, trying npm fallback..."));
-            let _ = log_tx.send(format!("Running: npm install -g @anthropic-ai/claude-code@{}", version));
+            let _ = log_tx.send(format!(
+                "Running: npm install -g @anthropic-ai/claude-code@{}",
+                version
+            ));
 
             let (ok, stdout, stderr) = Self::run_streaming(
-                Command::new("npm").args(["install", "-g", "--force", &format!("@anthropic-ai/claude-code@{}", version)]),
+                Command::new("npm").args([
+                    "install",
+                    "-g",
+                    "--force",
+                    &format!("@anthropic-ai/claude-code@{}", version),
+                ]),
                 &log_tx,
             )?;
 
@@ -875,8 +934,11 @@ impl VersionManager {
                 let _ = log_tx.send("Updating symlink...".to_string());
                 if let Ok(npm_output) = Command::new("npm").args(["root", "-g"]).output() {
                     if npm_output.status.success() {
-                        let npm_root = String::from_utf8_lossy(&npm_output.stdout).trim().to_string();
-                        let cli_js = PathBuf::from(&npm_root).join("@anthropic-ai/claude-code/cli.js");
+                        let npm_root = String::from_utf8_lossy(&npm_output.stdout)
+                            .trim()
+                            .to_string();
+                        let cli_js =
+                            PathBuf::from(&npm_root).join("@anthropic-ai/claude-code/cli.js");
                         if cli_js.exists() {
                             if let Some(home) = dirs::home_dir() {
                                 let bin_claude = home.join(".local/bin/claude");
@@ -887,7 +949,12 @@ impl VersionManager {
                         }
                     }
                 }
-                return Ok(InstallResult { success: true, stdout, stderr, error: None });
+                return Ok(InstallResult {
+                    success: true,
+                    stdout,
+                    stderr,
+                    error: None,
+                });
             }
         }
 
@@ -915,7 +982,12 @@ impl VersionManager {
         // Download binary
         let _ = log_tx.send(format!("Downloading Claude Code v{} from GCS...", version));
         let (ok, _stdout, stderr) = Self::run_streaming(
-            Command::new("curl").args(["-fSL", "-o", temp_path.to_str().unwrap_or("/tmp/claude-download"), &download_url]),
+            Command::new("curl").args([
+                "-fSL",
+                "-o",
+                temp_path.to_str().unwrap_or("/tmp/claude-download"),
+                &download_url,
+            ]),
             log_tx,
         )?;
 
@@ -925,7 +997,10 @@ impl VersionManager {
                 success: false,
                 stdout: String::new(),
                 stderr,
-                error: Some(format!("Failed to download Claude Code {} from GCS", version)),
+                error: Some(format!(
+                    "Failed to download Claude Code {} from GCS",
+                    version
+                )),
             });
         }
 
@@ -936,7 +1011,11 @@ impl VersionManager {
                 let manifest = String::from_utf8_lossy(&manifest_output.stdout);
                 if let Some(expected) = Self::extract_checksum_from_manifest(&manifest, &platform) {
                     let _ = log_tx.send("Verifying checksum...".to_string());
-                    let checksum_cmd = if cfg!(target_os = "macos") { "shasum" } else { "sha256sum" };
+                    let checksum_cmd = if cfg!(target_os = "macos") {
+                        "shasum"
+                    } else {
+                        "sha256sum"
+                    };
                     let mut cmd = Command::new(checksum_cmd);
                     if cfg!(target_os = "macos") {
                         cmd.args(["-a", "256"]);
@@ -949,11 +1028,17 @@ impl VersionManager {
                             let actual_checksum = actual.split_whitespace().next().unwrap_or("");
                             if actual_checksum != expected {
                                 let _ = fs::remove_file(&temp_path);
-                                let _ = log_tx.send(format!("Checksum mismatch: expected {}, got {}", expected, actual_checksum));
+                                let _ = log_tx.send(format!(
+                                    "Checksum mismatch: expected {}, got {}",
+                                    expected, actual_checksum
+                                ));
                                 return Ok(InstallResult {
                                     success: false,
                                     stdout: String::new(),
-                                    stderr: format!("Checksum mismatch: expected {}, got {}", expected, actual_checksum),
+                                    stderr: format!(
+                                        "Checksum mismatch: expected {}, got {}",
+                                        expected, actual_checksum
+                                    ),
                                     error: Some("Checksum verification failed".to_string()),
                                 });
                             }
@@ -988,7 +1073,11 @@ impl VersionManager {
 
         Ok(InstallResult {
             success: true,
-            stdout: format!("Claude Code v{} installed natively to {}", version, binary_path.display()),
+            stdout: format!(
+                "Claude Code v{} installed natively to {}",
+                version,
+                binary_path.display()
+            ),
             stderr: String::new(),
             error: None,
         })
@@ -1013,13 +1102,21 @@ impl VersionManager {
         fs::create_dir_all(&tmp_dir)?;
 
         // Download
-        let _ = log_tx.send(format!("Downloading Codex {} from GitHub release {}...", asset_name, tag));
+        let _ = log_tx.send(format!(
+            "Downloading Codex {} from GitHub release {}...",
+            asset_name, tag
+        ));
         let (ok, stdout, stderr) = Self::run_streaming(
             Command::new("gh").args([
-                "release", "download", &tag,
-                "--repo", "openai/codex",
-                "--pattern", &format!("{}.tar.gz", asset_name),
-                "--dir", tmp_dir.to_str().unwrap_or("/tmp"),
+                "release",
+                "download",
+                &tag,
+                "--repo",
+                "openai/codex",
+                "--pattern",
+                &format!("{}.tar.gz", asset_name),
+                "--dir",
+                tmp_dir.to_str().unwrap_or("/tmp"),
             ]),
             &log_tx,
         )?;
@@ -1027,22 +1124,31 @@ impl VersionManager {
         if !ok {
             let _ = fs::remove_dir_all(&tmp_dir);
             return Ok(InstallResult {
-                success: false, stdout, stderr,
-                error: Some(format!("Failed to download {} from release {}", asset_name, tag)),
+                success: false,
+                stdout,
+                stderr,
+                error: Some(format!(
+                    "Failed to download {} from release {}",
+                    asset_name, tag
+                )),
             });
         }
 
         // Extract
         let _ = log_tx.send("Extracting tarball...".to_string());
         let (ok, stdout, stderr) = Self::run_streaming(
-            Command::new("tar").args(["xzf", &format!("{}.tar.gz", asset_name)]).current_dir(&tmp_dir),
+            Command::new("tar")
+                .args(["xzf", &format!("{}.tar.gz", asset_name)])
+                .current_dir(&tmp_dir),
             &log_tx,
         )?;
 
         if !ok {
             let _ = fs::remove_dir_all(&tmp_dir);
             return Ok(InstallResult {
-                success: false, stdout, stderr,
+                success: false,
+                stdout,
+                stderr,
                 error: Some("Failed to extract tarball".to_string()),
             });
         }
@@ -1061,7 +1167,10 @@ impl VersionManager {
             });
         }
 
-        let _ = log_tx.send(format!("Installing binary to {}...", install_path.display()));
+        let _ = log_tx.send(format!(
+            "Installing binary to {}...",
+            install_path.display()
+        ));
         fs::copy(&extracted_binary, &install_path)?;
         #[cfg(unix)]
         {
@@ -1096,9 +1205,17 @@ impl VersionManager {
             });
         }
 
-        let _ = log_tx.send(format!("Running: npm install -g @google/gemini-cli@{}", version));
+        let _ = log_tx.send(format!(
+            "Running: npm install -g @google/gemini-cli@{}",
+            version
+        ));
         let (ok, stdout, stderr) = Self::run_streaming(
-            Command::new("npm").args(["install", "-g", "--force", &format!("@google/gemini-cli@{}", version)]),
+            Command::new("npm").args([
+                "install",
+                "-g",
+                "--force",
+                &format!("@google/gemini-cli@{}", version),
+            ]),
             &log_tx,
         )?;
 
@@ -1106,7 +1223,14 @@ impl VersionManager {
             success: ok,
             stdout,
             stderr: stderr.clone(),
-            error: if ok { None } else { Some(format!("Failed to install Gemini CLI v{}: {}", version, stderr)) },
+            error: if ok {
+                None
+            } else {
+                Some(format!(
+                    "Failed to install Gemini CLI v{}: {}",
+                    version, stderr
+                ))
+            },
         })
     }
 
@@ -1127,7 +1251,12 @@ impl VersionManager {
 
         let _ = log_tx.send(format!("Running: npm install -g opencode-ai@{}", version));
         let (ok, stdout, stderr) = Self::run_streaming(
-            Command::new("npm").args(["install", "-g", "--force", &format!("opencode-ai@{}", version)]),
+            Command::new("npm").args([
+                "install",
+                "-g",
+                "--force",
+                &format!("opencode-ai@{}", version),
+            ]),
             &log_tx,
         )?;
 
@@ -1135,7 +1264,14 @@ impl VersionManager {
             success: ok,
             stdout,
             stderr: stderr.clone(),
-            error: if ok { None } else { Some(format!("Failed to install OpenCode v{}: {}", version, stderr)) },
+            error: if ok {
+                None
+            } else {
+                Some(format!(
+                    "Failed to install OpenCode v{}: {}",
+                    version, stderr
+                ))
+            },
         })
     }
 
@@ -1212,7 +1348,11 @@ pub fn list_versions(json: bool) -> io::Result<()> {
         println!();
 
         for info in versions {
-            let installed = if info.is_installed { " [installed]" } else { "" };
+            let installed = if info.is_installed {
+                " [installed]"
+            } else {
+                ""
+            };
             println!("  v{}{}", info.version, installed);
         }
 
@@ -1236,20 +1376,27 @@ pub fn install_version(version: &str, json: bool) -> io::Result<()> {
     let install_result = vm.install_version(version)?;
     if !install_result.success {
         if !json {
-            eprintln!("Install failed: {}", install_result.error.unwrap_or_default());
+            eprintln!(
+                "Install failed: {}",
+                install_result.error.unwrap_or_default()
+            );
             if !install_result.stderr.is_empty() {
                 eprintln!("{}", install_result.stderr);
             }
         }
-        return Err(io::Error::other(
-            format!("Failed to install Claude Code {}", version),
-        ));
+        return Err(io::Error::other(format!(
+            "Failed to install Claude Code {}",
+            version
+        )));
     }
 
     if !json {
         println!("Done!");
     } else {
-        json_output::print_success_json(&format!("Successfully installed Claude Code v{}", version));
+        json_output::print_success_json(&format!(
+            "Successfully installed Claude Code v{}",
+            version
+        ));
     }
 
     Ok(())
@@ -1270,7 +1417,9 @@ pub fn show_current() -> io::Result<()> {
 pub fn show_current_json() {
     let cu_version = env!("CARGO_PKG_VERSION");
     let vm = VersionManager::new();
-    let claude_code_version = vm.get_installed_version().unwrap_or_else(|| "not installed".to_string());
+    let claude_code_version = vm
+        .get_installed_version()
+        .unwrap_or_else(|| "not installed".to_string());
     let is_installed = vm.get_installed_version().is_some();
 
     let output = VersionOutput {
@@ -1290,10 +1439,16 @@ mod tests {
 
     #[test]
     fn test_version_compare() {
-        assert_eq!(version_compare("2.1.5", "2.1.4"), std::cmp::Ordering::Greater);
+        assert_eq!(
+            version_compare("2.1.5", "2.1.4"),
+            std::cmp::Ordering::Greater
+        );
         assert_eq!(version_compare("2.1.5", "2.1.5"), std::cmp::Ordering::Equal);
         assert_eq!(version_compare("2.0.0", "2.1.0"), std::cmp::Ordering::Less);
-        assert_eq!(version_compare("2.10.0", "2.9.0"), std::cmp::Ordering::Greater);
+        assert_eq!(
+            version_compare("2.10.0", "2.9.0"),
+            std::cmp::Ordering::Greater
+        );
     }
 
     #[test]
@@ -1399,7 +1554,6 @@ mod tests {
         );
     }
 
-
     /// Create a mock "npm" binary that captures arguments to a file,
     /// and a mock "curl" that always fails (so native install falls through to npm).
     fn create_mock_npm() -> (TempDir, PathBuf, PathBuf) {
@@ -1453,7 +1607,10 @@ mod tests {
 
         assert!(result.is_ok(), "install_version should not return an error");
         let install_result = result.unwrap();
-        assert!(install_result.success, "install should succeed with mock npm");
+        assert!(
+            install_result.success,
+            "install should succeed with mock npm"
+        );
 
         let captured_args = std::fs::read_to_string(&args_file)
             .expect("Should be able to read captured npm arguments");
@@ -1479,7 +1636,6 @@ mod tests {
             captured_args.trim()
         );
     }
-
 
     /// Network-dependent benchmark: measures version fetch latency for all agents
     #[test]
@@ -1523,7 +1679,9 @@ mod tests {
             let _ = vm.get_opencode_available_versions();
             let _ = tx3.send(());
         });
-        for _ in 0..4 { let _ = rx.recv(); }
+        for _ in 0..4 {
+            let _ = rx.recv();
+        }
         let parallel_time = start.elapsed();
 
         println!(

@@ -118,7 +118,10 @@ pub struct ThemeShift {
 impl ThemeShift {
     /// No-op transform (default orange theme)
     pub fn identity() -> Self {
-        Self { hue: 0.0, sat_scale: 1.0 }
+        Self {
+            hue: 0.0,
+            sat_scale: 1.0,
+        }
     }
 
     /// Whether this is effectively no change
@@ -377,7 +380,10 @@ mod tests {
     #[test]
     fn test_non_orange_unchanged() {
         // Gray pixels should never be changed regardless of shift
-        let shift = ThemeShift { hue: 200.0, sat_scale: 1.0 };
+        let shift = ThemeShift {
+            hue: 200.0,
+            sat_scale: 1.0,
+        };
         let (r, g, b) = transform_theme_color(128, 128, 128, shift);
         assert_eq!((r, g, b), (128, 128, 128));
     }
@@ -385,21 +391,40 @@ mod tests {
     #[test]
     fn test_hue_shift_changes_color() {
         // Blue shift should produce a noticeably different color from orange
-        let shift = ThemeShift { hue: 200.0, sat_scale: 1.0 };
+        let shift = ThemeShift {
+            hue: 200.0,
+            sat_scale: 1.0,
+        };
         let (r, g, b) = transform_theme_color(217, 119, 87, shift);
         // The result should be blue-ish, not orange
-        assert!(b > r, "blue shift should increase blue component: r={}, g={}, b={}", r, g, b);
+        assert!(
+            b > r,
+            "blue shift should increase blue component: r={}, g={}, b={}",
+            r,
+            g,
+            b
+        );
     }
 
     #[test]
     fn test_white_theme_desaturates() {
         // White target: sat_scale=0 should produce grayscale from orange pixels
         let shift = ThemeColor::Custom(255, 255, 255).theme_shift();
-        assert!(shift.sat_scale.abs() < 0.01, "white should have ~0 sat_scale: {}", shift.sat_scale);
+        assert!(
+            shift.sat_scale.abs() < 0.01,
+            "white should have ~0 sat_scale: {}",
+            shift.sat_scale
+        );
         let (r, g, b) = transform_theme_color(217, 119, 87, shift);
         // Result should be grayscale (all channels equal or near-equal)
         let spread = (r.max(g).max(b) as i16) - (r.min(g).min(b) as i16);
-        assert!(spread <= 1, "white theme should desaturate orange: got ({}, {}, {})", r, g, b);
+        assert!(
+            spread <= 1,
+            "white theme should desaturate orange: got ({}, {}, {})",
+            r,
+            g,
+            b
+        );
     }
 
     #[test]
@@ -422,7 +447,12 @@ mod tests {
                     && (g as i16 - g2 as i16).abs() <= 1
                     && (b as i16 - b2 as i16).abs() <= 1,
                 "roundtrip failed for ({}, {}, {}): got ({}, {}, {})",
-                r, g, b, r2, g2, b2
+                r,
+                g,
+                b,
+                r2,
+                g2,
+                b2
             );
         }
     }
@@ -454,9 +484,15 @@ mod tests {
     #[test]
     fn test_theme_color_from_config() {
         // Preset names
-        assert!(matches!(ThemeColor::from_config("blue"), Some(ThemeColor::Preset(ThemePreset::Blue))));
+        assert!(matches!(
+            ThemeColor::from_config("blue"),
+            Some(ThemeColor::Preset(ThemePreset::Blue))
+        ));
         // Hex colors
-        assert!(matches!(ThemeColor::from_config("#ff0000"), Some(ThemeColor::Custom(255, 0, 0))));
+        assert!(matches!(
+            ThemeColor::from_config("#ff0000"),
+            Some(ThemeColor::Custom(255, 0, 0))
+        ));
         // Invalid
         assert!(ThemeColor::from_config("bogus").is_none());
     }
@@ -478,8 +514,16 @@ mod tests {
     fn test_custom_theme_shift_identity() {
         // Using the base orange as custom color should give ~identity shift
         let shift = ThemeColor::Custom(217, 119, 87).theme_shift();
-        assert!(shift.hue.abs() < 1.0, "base orange should have near-zero hue shift: {}", shift.hue);
-        assert!((shift.sat_scale - 1.0).abs() < 0.01, "base orange should have ~1.0 sat_scale: {}", shift.sat_scale);
+        assert!(
+            shift.hue.abs() < 1.0,
+            "base orange should have near-zero hue shift: {}",
+            shift.hue
+        );
+        assert!(
+            (shift.sat_scale - 1.0).abs() < 0.01,
+            "base orange should have ~1.0 sat_scale: {}",
+            shift.sat_scale
+        );
     }
 
     #[test]
@@ -495,7 +539,9 @@ mod tests {
                     && (expected.1 as i16 - actual.1 as i16).abs() <= 1
                     && (expected.2 as i16 - actual.2 as i16).abs() <= 1,
                 "accent_rgb for {:?} drifted from transform: expected {:?}, got {:?}",
-                preset, expected, actual
+                preset,
+                expected,
+                actual
             );
         }
     }

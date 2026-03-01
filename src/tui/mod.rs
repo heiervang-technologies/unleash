@@ -126,15 +126,14 @@ fn run_external_editor(content: &str) -> io::Result<String> {
     fs::write(&temp_path, content)?;
 
     // Run editor
-    let status = Command::new(&editor)
-        .arg(&temp_path)
-        .status()?;
+    let status = Command::new(&editor).arg(&temp_path).status()?;
 
     if !status.success() {
         let _ = fs::remove_file(&temp_path);
-        return Err(io::Error::other(
-            format!("Editor '{}' exited with error", editor),
-        ));
+        return Err(io::Error::other(format!(
+            "Editor '{}' exited with error",
+            editor
+        )));
     }
 
     // Read back content

@@ -106,7 +106,8 @@ pub fn run(auto_mode: bool, prompt: Option<String>, extra_args: Vec<String>) -> 
 
             // Check for custom restart message
             let restart_msg = if message_file.exists() {
-                let msg = fs::read_to_string(&message_file).unwrap_or_else(|_| "RESURRECTED.".to_string());
+                let msg = fs::read_to_string(&message_file)
+                    .unwrap_or_else(|_| "RESURRECTED.".to_string());
                 let _ = fs::remove_file(&message_file);
                 msg
             } else {
@@ -178,10 +179,8 @@ pub fn run(auto_mode: bool, prompt: Option<String>, extra_args: Vec<String>) -> 
             if exit_code == 0 {
                 let _ = hyprland::notify_info("Unleash stopped");
             } else {
-                let _ = hyprland::notify_warning(&format!(
-                    "Unleash exited with code {}",
-                    exit_code
-                ));
+                let _ =
+                    hyprland::notify_warning(&format!("Unleash exited with code {}", exit_code));
             }
         }
 
@@ -367,7 +366,9 @@ fn run_agent(
 fn check_authentication() {
     // Check OAuth token
     if env::var("CLAUDE_CODE_OAUTH_TOKEN").is_ok() {
-        println!("\x1b[32m✓\x1b[0m Using OAuth token from CLAUDE_CODE_OAUTH_TOKEN environment variable");
+        println!(
+            "\x1b[32m✓\x1b[0m Using OAuth token from CLAUDE_CODE_OAUTH_TOKEN environment variable"
+        );
         return;
     }
 
@@ -423,8 +424,7 @@ pub fn trigger_exit(wrapper_pid: u32) -> io::Result<()> {
     use nix::sys::signal::{kill, Signal};
     use nix::unistd::Pid;
 
-    kill(Pid::from_raw(wrapper_pid as i32), Signal::SIGTERM)
-        .map_err(io::Error::other)?;
+    kill(Pid::from_raw(wrapper_pid as i32), Signal::SIGTERM).map_err(io::Error::other)?;
 
     Ok(())
 }

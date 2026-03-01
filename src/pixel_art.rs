@@ -76,10 +76,10 @@ impl Color {
     pub const CLAUDE_DARK: Self = Self::rgb(45, 35, 30);
 
     // Vibrant lava lamp palette (4 colors) - idea by cac taurus
-    pub const LAVA_ORANGE: Self = Self::rgb(255, 140, 90);    // Vibrant orange
-    pub const LAVA_PINK: Self = Self::rgb(255, 100, 150);     // Hot pink
-    pub const LAVA_PURPLE: Self = Self::rgb(200, 100, 255);   // Electric purple
-    pub const LAVA_CYAN: Self = Self::rgb(100, 220, 255);     // Bright cyan
+    pub const LAVA_ORANGE: Self = Self::rgb(255, 140, 90); // Vibrant orange
+    pub const LAVA_PINK: Self = Self::rgb(255, 100, 150); // Hot pink
+    pub const LAVA_PURPLE: Self = Self::rgb(200, 100, 255); // Electric purple
+    pub const LAVA_CYAN: Self = Self::rgb(100, 220, 255); // Bright cyan
 }
 
 /// Dynamic color palette for lava lamp effect
@@ -88,10 +88,30 @@ impl Color {
 pub fn get_lava_palette(frame: usize) -> [Color; 4] {
     // Rotate the palette based on frame to create flowing effect
     let palettes: [[Color; 4]; 4] = [
-        [Color::LAVA_ORANGE, Color::LAVA_PINK, Color::LAVA_PURPLE, Color::LAVA_CYAN],
-        [Color::LAVA_PINK, Color::LAVA_PURPLE, Color::LAVA_CYAN, Color::LAVA_ORANGE],
-        [Color::LAVA_PURPLE, Color::LAVA_CYAN, Color::LAVA_ORANGE, Color::LAVA_PINK],
-        [Color::LAVA_CYAN, Color::LAVA_ORANGE, Color::LAVA_PINK, Color::LAVA_PURPLE],
+        [
+            Color::LAVA_ORANGE,
+            Color::LAVA_PINK,
+            Color::LAVA_PURPLE,
+            Color::LAVA_CYAN,
+        ],
+        [
+            Color::LAVA_PINK,
+            Color::LAVA_PURPLE,
+            Color::LAVA_CYAN,
+            Color::LAVA_ORANGE,
+        ],
+        [
+            Color::LAVA_PURPLE,
+            Color::LAVA_CYAN,
+            Color::LAVA_ORANGE,
+            Color::LAVA_PINK,
+        ],
+        [
+            Color::LAVA_CYAN,
+            Color::LAVA_ORANGE,
+            Color::LAVA_PINK,
+            Color::LAVA_PURPLE,
+        ],
     ];
     palettes[(frame / 8) % 4]
 }
@@ -183,7 +203,12 @@ impl PixelArt {
     /// Get dimensions (width, height)
     pub fn dimensions(&self) -> (usize, usize) {
         let height = self.grid.len();
-        let width = self.grid.iter().map(|row| row.chars().count()).max().unwrap_or(0);
+        let width = self
+            .grid
+            .iter()
+            .map(|row| row.chars().count())
+            .max()
+            .unwrap_or(0);
         (width, height)
     }
 
@@ -252,10 +277,18 @@ impl PixelArt {
                 let bot_char = self.grid.get(y + 1).and_then(|row| row.chars().nth(x));
 
                 let top_color = top_char.and_then(|c| {
-                    if c == ' ' || c == '.' { None } else { self.palette.get(&c) }
+                    if c == ' ' || c == '.' {
+                        None
+                    } else {
+                        self.palette.get(&c)
+                    }
                 });
                 let bot_color = bot_char.and_then(|c| {
-                    if c == ' ' || c == '.' { None } else { self.palette.get(&c) }
+                    if c == ' ' || c == '.' {
+                        None
+                    } else {
+                        self.palette.get(&c)
+                    }
                 });
 
                 match (top_color, bot_color) {
@@ -371,7 +404,10 @@ pub fn parse_ansi_to_ratatui(ansi_text: &str) -> Vec<RatatuiLine<'static>> {
 /// Parse ANSI with dynamic lava lamp color transformation
 /// The animation_frame parameter controls the color cycling
 #[cfg(feature = "tui")]
-pub fn parse_ansi_to_ratatui_lava(ansi_text: &str, animation_frame: usize) -> Vec<RatatuiLine<'static>> {
+pub fn parse_ansi_to_ratatui_lava(
+    ansi_text: &str,
+    animation_frame: usize,
+) -> Vec<RatatuiLine<'static>> {
     let mut lines: Vec<RatatuiLine<'static>> = Vec::new();
 
     for line in ansi_text.lines() {
@@ -433,7 +469,11 @@ fn parse_ansi_line_to_spans_lava(line: &str, animation_frame: usize) -> Vec<Rata
 
 /// Parse ANSI sequence with lava color transformation
 #[cfg(feature = "tui")]
-fn parse_ansi_sequence_lava(seq: &str, mut style: RatatuiStyle, animation_frame: usize) -> RatatuiStyle {
+fn parse_ansi_sequence_lava(
+    seq: &str,
+    mut style: RatatuiStyle,
+    animation_frame: usize,
+) -> RatatuiStyle {
     let parts: Vec<&str> = seq.split(';').collect();
     let mut i = 0;
 
@@ -443,32 +483,30 @@ fn parse_ansi_sequence_lava(seq: &str, mut style: RatatuiStyle, animation_frame:
                 style = RatatuiStyle::default();
             }
             "38" => {
-                if i + 1 < parts.len() && parts[i + 1] == "2"
-                    && i + 4 < parts.len() {
-                        if let (Ok(r), Ok(g), Ok(b)) = (
-                            parts[i + 2].parse::<u8>(),
-                            parts[i + 3].parse::<u8>(),
-                            parts[i + 4].parse::<u8>(),
-                        ) {
-                            let (nr, ng, nb) = transform_to_lava_color(r, g, b, animation_frame);
-                            style = style.fg(RatatuiColor::Rgb(nr, ng, nb));
-                        }
-                        i += 4;
+                if i + 1 < parts.len() && parts[i + 1] == "2" && i + 4 < parts.len() {
+                    if let (Ok(r), Ok(g), Ok(b)) = (
+                        parts[i + 2].parse::<u8>(),
+                        parts[i + 3].parse::<u8>(),
+                        parts[i + 4].parse::<u8>(),
+                    ) {
+                        let (nr, ng, nb) = transform_to_lava_color(r, g, b, animation_frame);
+                        style = style.fg(RatatuiColor::Rgb(nr, ng, nb));
                     }
+                    i += 4;
+                }
             }
             "48" => {
-                if i + 1 < parts.len() && parts[i + 1] == "2"
-                    && i + 4 < parts.len() {
-                        if let (Ok(r), Ok(g), Ok(b)) = (
-                            parts[i + 2].parse::<u8>(),
-                            parts[i + 3].parse::<u8>(),
-                            parts[i + 4].parse::<u8>(),
-                        ) {
-                            let (nr, ng, nb) = transform_to_lava_color(r, g, b, animation_frame);
-                            style = style.bg(RatatuiColor::Rgb(nr, ng, nb));
-                        }
-                        i += 4;
+                if i + 1 < parts.len() && parts[i + 1] == "2" && i + 4 < parts.len() {
+                    if let (Ok(r), Ok(g), Ok(b)) = (
+                        parts[i + 2].parse::<u8>(),
+                        parts[i + 3].parse::<u8>(),
+                        parts[i + 4].parse::<u8>(),
+                    ) {
+                        let (nr, ng, nb) = transform_to_lava_color(r, g, b, animation_frame);
+                        style = style.bg(RatatuiColor::Rgb(nr, ng, nb));
                     }
+                    i += 4;
+                }
             }
             _ => {}
         }
@@ -481,7 +519,10 @@ fn parse_ansi_sequence_lava(seq: &str, mut style: RatatuiStyle, animation_frame:
 /// Parse ANSI with theme hue rotation
 /// Shifts orange-family colors by the given hue offset in degrees
 #[cfg(feature = "tui")]
-pub fn parse_ansi_to_ratatui_themed(ansi_text: &str, shift: crate::theme::ThemeShift) -> Vec<RatatuiLine<'static>> {
+pub fn parse_ansi_to_ratatui_themed(
+    ansi_text: &str,
+    shift: crate::theme::ThemeShift,
+) -> Vec<RatatuiLine<'static>> {
     let mut lines: Vec<RatatuiLine<'static>> = Vec::new();
 
     for line in ansi_text.lines() {
@@ -494,7 +535,10 @@ pub fn parse_ansi_to_ratatui_themed(ansi_text: &str, shift: crate::theme::ThemeS
 
 /// Parse a single line of ANSI text with theme hue rotation
 #[cfg(feature = "tui")]
-fn parse_ansi_line_to_spans_themed(line: &str, shift: crate::theme::ThemeShift) -> Vec<RatatuiSpan<'static>> {
+fn parse_ansi_line_to_spans_themed(
+    line: &str,
+    shift: crate::theme::ThemeShift,
+) -> Vec<RatatuiSpan<'static>> {
     let mut spans: Vec<RatatuiSpan<'static>> = Vec::new();
     let mut current_style = RatatuiStyle::default();
     let mut current_text = String::new();
@@ -543,7 +587,11 @@ fn parse_ansi_line_to_spans_themed(line: &str, shift: crate::theme::ThemeShift) 
 
 /// Parse ANSI sequence with theme hue rotation
 #[cfg(feature = "tui")]
-fn parse_ansi_sequence_themed(seq: &str, mut style: RatatuiStyle, shift: crate::theme::ThemeShift) -> RatatuiStyle {
+fn parse_ansi_sequence_themed(
+    seq: &str,
+    mut style: RatatuiStyle,
+    shift: crate::theme::ThemeShift,
+) -> RatatuiStyle {
     use crate::theme::transform_theme_color;
 
     let parts: Vec<&str> = seq.split(';').collect();
@@ -555,32 +603,30 @@ fn parse_ansi_sequence_themed(seq: &str, mut style: RatatuiStyle, shift: crate::
                 style = RatatuiStyle::default();
             }
             "38" => {
-                if i + 1 < parts.len() && parts[i + 1] == "2"
-                    && i + 4 < parts.len() {
-                        if let (Ok(r), Ok(g), Ok(b)) = (
-                            parts[i + 2].parse::<u8>(),
-                            parts[i + 3].parse::<u8>(),
-                            parts[i + 4].parse::<u8>(),
-                        ) {
-                            let (nr, ng, nb) = transform_theme_color(r, g, b, shift);
-                            style = style.fg(RatatuiColor::Rgb(nr, ng, nb));
-                        }
-                        i += 4;
+                if i + 1 < parts.len() && parts[i + 1] == "2" && i + 4 < parts.len() {
+                    if let (Ok(r), Ok(g), Ok(b)) = (
+                        parts[i + 2].parse::<u8>(),
+                        parts[i + 3].parse::<u8>(),
+                        parts[i + 4].parse::<u8>(),
+                    ) {
+                        let (nr, ng, nb) = transform_theme_color(r, g, b, shift);
+                        style = style.fg(RatatuiColor::Rgb(nr, ng, nb));
                     }
+                    i += 4;
+                }
             }
             "48" => {
-                if i + 1 < parts.len() && parts[i + 1] == "2"
-                    && i + 4 < parts.len() {
-                        if let (Ok(r), Ok(g), Ok(b)) = (
-                            parts[i + 2].parse::<u8>(),
-                            parts[i + 3].parse::<u8>(),
-                            parts[i + 4].parse::<u8>(),
-                        ) {
-                            let (nr, ng, nb) = transform_theme_color(r, g, b, shift);
-                            style = style.bg(RatatuiColor::Rgb(nr, ng, nb));
-                        }
-                        i += 4;
+                if i + 1 < parts.len() && parts[i + 1] == "2" && i + 4 < parts.len() {
+                    if let (Ok(r), Ok(g), Ok(b)) = (
+                        parts[i + 2].parse::<u8>(),
+                        parts[i + 3].parse::<u8>(),
+                        parts[i + 4].parse::<u8>(),
+                    ) {
+                        let (nr, ng, nb) = transform_theme_color(r, g, b, shift);
+                        style = style.bg(RatatuiColor::Rgb(nr, ng, nb));
                     }
+                    i += 4;
+                }
             }
             _ => {}
         }
@@ -638,7 +684,10 @@ pub mod mascots {
     /// Get unleashed Claude art with dynamic lava lamp colors - right facing
     /// The animation_frame parameter controls the color cycling (idea by cac taurus)
     #[cfg(feature = "tui")]
-    pub fn unleashed_claude_ratatui_lava(max_lines: usize, animation_frame: usize) -> Vec<RatatuiLine<'static>> {
+    pub fn unleashed_claude_ratatui_lava(
+        max_lines: usize,
+        animation_frame: usize,
+    ) -> Vec<RatatuiLine<'static>> {
         let art = unleashed_claude();
         let all_lines = super::parse_ansi_to_ratatui_lava(&art, animation_frame);
         all_lines
@@ -669,7 +718,10 @@ pub mod mascots {
     /// Get unleashed Claude art with dynamic lava lamp colors - left facing
     /// The animation_frame parameter controls the color cycling (idea by cac taurus)
     #[cfg(feature = "tui")]
-    pub fn unleashed_claude_left_ratatui_lava(max_lines: usize, animation_frame: usize) -> Vec<RatatuiLine<'static>> {
+    pub fn unleashed_claude_left_ratatui_lava(
+        max_lines: usize,
+        animation_frame: usize,
+    ) -> Vec<RatatuiLine<'static>> {
         let art = unleashed_claude_left();
         let all_lines = super::parse_ansi_to_ratatui_lava(&art, animation_frame);
         all_lines
@@ -681,7 +733,10 @@ pub mod mascots {
 
     /// Get unleashed Claude art with theme hue rotation - right facing
     #[cfg(feature = "tui")]
-    pub fn unleashed_claude_ratatui_themed(max_lines: usize, shift: crate::theme::ThemeShift) -> Vec<RatatuiLine<'static>> {
+    pub fn unleashed_claude_ratatui_themed(
+        max_lines: usize,
+        shift: crate::theme::ThemeShift,
+    ) -> Vec<RatatuiLine<'static>> {
         let art = unleashed_claude();
         let all_lines = super::parse_ansi_to_ratatui_themed(&art, shift);
         all_lines
@@ -693,7 +748,10 @@ pub mod mascots {
 
     /// Get unleashed Claude art with theme hue rotation - left facing
     #[cfg(feature = "tui")]
-    pub fn unleashed_claude_left_ratatui_themed(max_lines: usize, shift: crate::theme::ThemeShift) -> Vec<RatatuiLine<'static>> {
+    pub fn unleashed_claude_left_ratatui_themed(
+        max_lines: usize,
+        shift: crate::theme::ThemeShift,
+    ) -> Vec<RatatuiLine<'static>> {
         let art = unleashed_claude_left();
         let all_lines = super::parse_ansi_to_ratatui_themed(&art, shift);
         all_lines
@@ -705,7 +763,10 @@ pub mod mascots {
 
     /// Get full-figure Claude art with theme hue rotation
     #[cfg(feature = "tui")]
-    pub fn unleashed_claude_full_ratatui_themed(max_lines: usize, shift: crate::theme::ThemeShift) -> Vec<RatatuiLine<'static>> {
+    pub fn unleashed_claude_full_ratatui_themed(
+        max_lines: usize,
+        shift: crate::theme::ThemeShift,
+    ) -> Vec<RatatuiLine<'static>> {
         let art = unleashed_claude_full();
         let all_lines = super::parse_ansi_to_ratatui_themed(&art, shift);
         all_lines
@@ -754,11 +815,11 @@ pub mod mascots {
             .row("        bbbbb   ")
             .row("       bbbbb    ")
             .row("      bbbbb     ")
-            .color('@', dark_orange)      // antenna
-            .color('S', dark_orange)      // shell outline
-            .color('*', orange)           // shell fill
-            .color('O', light_orange)     // shell spiral
-            .color('b', orange)           // body
+            .color('@', dark_orange) // antenna
+            .color('S', dark_orange) // shell outline
+            .color('*', orange) // shell fill
+            .color('O', light_orange) // shell spiral
+            .color('b', orange) // body
             .build()
     }
 
@@ -803,7 +864,10 @@ impl PixelArt {
 
     /// Render half-block to individual lines
     pub fn to_lines_halfblock(&self) -> Vec<String> {
-        self.render_halfblock().lines().map(|s| s.to_string()).collect()
+        self.render_halfblock()
+            .lines()
+            .map(|s| s.to_string())
+            .collect()
     }
 }
 

@@ -25,9 +25,13 @@ pub enum AgentType {
 impl AgentType {
     /// All agent types in stable order (used for TUI cycling)
     pub fn all() -> &'static [AgentType] {
-        &[AgentType::Claude, AgentType::Codex, AgentType::Gemini, AgentType::OpenCode]
+        &[
+            AgentType::Claude,
+            AgentType::Codex,
+            AgentType::Gemini,
+            AgentType::OpenCode,
+        ]
     }
-
 
     pub fn display_name(&self) -> &'static str {
         match self {
@@ -127,12 +131,10 @@ impl AgentDefinition {
             enabled: true,
         }
     }
-
 }
 
 /// Version information for an agent
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[derive(Default)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct AgentVersion {
     /// Current installed version
     pub installed: Option<String>,
@@ -143,7 +145,6 @@ pub struct AgentVersion {
     /// Last checked timestamp
     pub last_checked: Option<u64>,
 }
-
 
 /// Agent manager for handling multiple code agents
 pub struct AgentManager {
@@ -306,11 +307,7 @@ impl AgentManager {
 
     /// Compare version strings (returns -1, 0, or 1)
     fn version_compare(a: &str, b: &str) -> i32 {
-        let parse = |s: &str| -> Vec<u32> {
-            s.split('.')
-                .filter_map(|p| p.parse().ok())
-                .collect()
-        };
+        let parse = |s: &str| -> Vec<u32> { s.split('.').filter_map(|p| p.parse().ok()).collect() };
 
         let va = parse(a);
         let vb = parse(b);
@@ -352,12 +349,10 @@ impl AgentManager {
         if output.status.success() {
             Ok("Claude Code updated successfully".to_string())
         } else {
-            Err(io::Error::other(
-                format!(
-                    "Failed to update Claude Code: {}",
-                    String::from_utf8_lossy(&output.stderr)
-                ),
-            ))
+            Err(io::Error::other(format!(
+                "Failed to update Claude Code: {}",
+                String::from_utf8_lossy(&output.stderr)
+            )))
         }
     }
 
@@ -453,13 +448,11 @@ impl AgentManager {
         if output.status.success() {
             Ok(format!("{} updated successfully", name))
         } else {
-            Err(io::Error::other(
-                format!(
-                    "Failed to update {}: {}",
-                    name,
-                    String::from_utf8_lossy(&output.stderr)
-                ),
-            ))
+            Err(io::Error::other(format!(
+                "Failed to update {}: {}",
+                name,
+                String::from_utf8_lossy(&output.stderr)
+            )))
         }
     }
 
@@ -494,7 +487,10 @@ impl AgentManager {
 
         for agent_type in agent_types {
             let installed = self.get_installed_version(agent_type).ok().flatten();
-            let latest = self.versions.get(&agent_type).and_then(|v| v.latest.clone());
+            let latest = self
+                .versions
+                .get(&agent_type)
+                .and_then(|v| v.latest.clone());
             let update_available = match (&installed, &latest) {
                 (Some(i), Some(l)) => Self::version_compare(i, l) < 0,
                 _ => false,

@@ -41,7 +41,10 @@ impl ClaudeInstallation {
             .and_then(|p| p.parent())
             .map(|p| p.to_path_buf())
             .ok_or_else(|| {
-                io::Error::new(io::ErrorKind::NotFound, "Could not determine package directory")
+                io::Error::new(
+                    io::ErrorKind::NotFound,
+                    "Could not determine package directory",
+                )
             })?;
 
         // Get version
@@ -49,7 +52,9 @@ impl ClaudeInstallation {
 
         // Settings path
         let settings_path = dirs::home_dir()
-            .ok_or_else(|| io::Error::new(io::ErrorKind::NotFound, "Could not find home directory"))?
+            .ok_or_else(|| {
+                io::Error::new(io::ErrorKind::NotFound, "Could not find home directory")
+            })?
             .join(".claude/settings.json");
 
         Ok(Self {
@@ -74,9 +79,7 @@ impl ClaudeInstallation {
                 .replace(" (Claude Code)", "");
             Ok(version)
         } else {
-            Err(io::Error::other(
-                "Failed to get Claude version",
-            ))
+            Err(io::Error::other("Failed to get Claude version"))
         }
     }
 }
@@ -227,9 +230,9 @@ impl HookManager {
             settings["hooks"] = json!({});
         }
 
-        let hooks = settings["hooks"].as_object_mut().ok_or_else(|| {
-            io::Error::new(io::ErrorKind::InvalidData, "hooks is not an object")
-        })?;
+        let hooks = settings["hooks"]
+            .as_object_mut()
+            .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidData, "hooks is not an object"))?;
 
         let event_name = event.as_str();
 
@@ -253,7 +256,11 @@ impl HookManager {
         for h in event_hooks.iter_mut() {
             if let Some(hooks) = h.get_mut("hooks").and_then(|h| h.as_array_mut()) {
                 for hook in hooks.iter_mut() {
-                    if let Some(c) = hook.get("command").and_then(|c| c.as_str()).map(|s| s.to_string()) {
+                    if let Some(c) = hook
+                        .get("command")
+                        .and_then(|c| c.as_str())
+                        .map(|s| s.to_string())
+                    {
                         if c == command {
                             found_exact = true;
                         } else if Self::command_basename(&c) == new_basename {
@@ -437,10 +444,8 @@ EOF
             for hook in hooks {
                 if let Some(command) = hook.get("command").and_then(|c| c.as_str()) {
                     // Expand ${CLAUDE_PLUGIN_ROOT}
-                    let expanded_command = command.replace(
-                        "${CLAUDE_PLUGIN_ROOT}",
-                        plugin_dir.to_str().unwrap_or(""),
-                    );
+                    let expanded_command =
+                        command.replace("${CLAUDE_PLUGIN_ROOT}", plugin_dir.to_str().unwrap_or(""));
                     let matcher = config.get("matcher").and_then(|m| m.as_str());
                     self.register_hook(event, &expanded_command, matcher)?;
                 }
@@ -469,7 +474,10 @@ mod tests {
     #[test]
     fn test_hook_event_from_str() {
         assert_eq!(HookEvent::from_str("Stop"), Some(HookEvent::Stop));
-        assert_eq!(HookEvent::from_str("PreCompact"), Some(HookEvent::PreCompact));
+        assert_eq!(
+            HookEvent::from_str("PreCompact"),
+            Some(HookEvent::PreCompact)
+        );
         assert_eq!(HookEvent::from_str("Invalid"), None);
     }
 

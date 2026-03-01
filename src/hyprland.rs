@@ -45,8 +45,12 @@ pub fn hyprctl_json(args: &[&str]) -> io::Result<serde_json::Value> {
     let mut full_args: Vec<&str> = args.to_vec();
     full_args.push("-j");
     let stdout = hyprctl(&full_args)?;
-    serde_json::from_str(&stdout)
-        .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, format!("JSON parse error: {}", e)))
+    serde_json::from_str(&stdout).map_err(|e| {
+        io::Error::new(
+            io::ErrorKind::InvalidData,
+            format!("JSON parse error: {}", e),
+        )
+    })
 }
 
 /// Gather information about the running Hyprland instance.
@@ -160,7 +164,8 @@ pub fn notify_ok(message: &str) -> io::Result<()> {
 /// Find the hypr-window-opacity.sh script path.
 /// Checks repo path first (development), then installed path.
 fn focus_script_path() -> Option<PathBuf> {
-    let repo_path = PathBuf::from("plugins/unleashed/hyprland-focus/scripts/hypr-window-opacity.sh");
+    let repo_path =
+        PathBuf::from("plugins/unleashed/hyprland-focus/scripts/hypr-window-opacity.sh");
     if repo_path.exists() {
         return fs::canonicalize(&repo_path).ok();
     }
@@ -188,7 +193,10 @@ pub fn focus_set(wrapper_pid: u32) -> io::Result<()> {
         .env("AGENT_WRAPPER_PID", wrapper_pid.to_string())
         .status()?;
     if !status.success() {
-        eprintln!("[Unleash] focus: set failed with exit code {:?}", status.code());
+        eprintln!(
+            "[Unleash] focus: set failed with exit code {:?}",
+            status.code()
+        );
     }
     Ok(())
 }
@@ -208,7 +216,10 @@ pub fn focus_reset(wrapper_pid: u32) -> io::Result<()> {
         .env("AGENT_WRAPPER_PID", wrapper_pid.to_string())
         .status()?;
     if !status.success() {
-        eprintln!("[Unleash] focus: reset failed with exit code {:?}", status.code());
+        eprintln!(
+            "[Unleash] focus: reset failed with exit code {:?}",
+            status.code()
+        );
     }
     Ok(())
 }

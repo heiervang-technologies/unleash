@@ -78,10 +78,9 @@ pub fn check_auth() -> AuthStatus {
     }
 
     // 3. Check macOS Keychain (only on macOS)
-    if cfg!(target_os = "macos")
-        && check_macos_keychain() {
-            return AuthStatus::MacOSKeychain;
-        }
+    if cfg!(target_os = "macos") && check_macos_keychain() {
+        return AuthStatus::MacOSKeychain;
+    }
 
     AuthStatus::NotFound
 }
@@ -142,7 +141,7 @@ pub fn run(verbose: bool, json: bool, quiet: bool) -> io::Result<ExitCode> {
                     println!("  • OAuth token from CLAUDE_CODE_OAUTH_TOKEN environment variable");
                     if let Ok(token) = env::var("CLAUDE_CODE_OAUTH_TOKEN") {
                         let preview = if token.len() > 20 {
-                            format!("{}...{}", &token[..10], &token[token.len()-10..])
+                            format!("{}...{}", &token[..10], &token[token.len() - 10..])
                         } else {
                             token
                         };
@@ -180,7 +179,9 @@ pub fn run(verbose: bool, json: bool, quiet: bool) -> io::Result<ExitCode> {
         eprintln!();
         eprintln!("To authenticate, you have two options:");
         eprintln!();
-        eprintln!("\x1b[1m1. Generate a long-lived OAuth token\x1b[0m (recommended for automation):");
+        eprintln!(
+            "\x1b[1m1. Generate a long-lived OAuth token\x1b[0m (recommended for automation):"
+        );
         eprintln!("   Run: \x1b[36mclaude setup-token\x1b[0m");
         eprintln!("   Then export: \x1b[36mexport CLAUDE_CODE_OAUTH_TOKEN=<your-token>\x1b[0m");
         eprintln!();
@@ -194,7 +195,10 @@ pub fn run(verbose: bool, json: bool, quiet: bool) -> io::Result<ExitCode> {
             eprintln!("  • Environment variable: CLAUDE_CODE_OAUTH_TOKEN - \x1b[31mnot set\x1b[0m");
             if let Some(home) = dirs::home_dir() {
                 let creds_file = home.join(".claude/.credentials.json");
-                eprintln!("  • Credentials file: {} - \x1b[31mnot found\x1b[0m", creds_file.display());
+                eprintln!(
+                    "  • Credentials file: {} - \x1b[31mnot found\x1b[0m",
+                    creds_file.display()
+                );
             }
             if cfg!(target_os = "macos") {
                 eprintln!("  • macOS Keychain: service 'claude' - \x1b[31mnot found\x1b[0m");
@@ -218,7 +222,8 @@ mod tests {
         let oauth = AuthStatus::OAuthToken;
         assert!(oauth.description().contains("OAuth token"));
 
-        let creds = AuthStatus::CredentialsFile(PathBuf::from("/home/user/.claude/.credentials.json"));
+        let creds =
+            AuthStatus::CredentialsFile(PathBuf::from("/home/user/.claude/.credentials.json"));
         assert!(creds.description().contains("Credentials file"));
 
         let keychain = AuthStatus::MacOSKeychain;

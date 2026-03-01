@@ -2,7 +2,7 @@
 //!
 //! This module provides serializable structures for outputting command results as JSON.
 
-use serde::{Serialize, Deserialize};
+use serde::{Deserialize, Serialize};
 
 /// Version information output
 #[derive(Debug, Serialize, Deserialize)]

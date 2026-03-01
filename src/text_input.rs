@@ -328,7 +328,10 @@ mod tests {
 
     #[test]
     fn test_censor_sensitive() {
-        assert_eq!(censor_sensitive("sk-ant-api123456789xyz", 7, 4), "sk-ant-...9xyz");
+        assert_eq!(
+            censor_sensitive("sk-ant-api123456789xyz", 7, 4),
+            "sk-ant-...9xyz"
+        );
         assert_eq!(censor_sensitive("short", 7, 4), "********"); // Too short
         assert_eq!(censor_sensitive("abcdefghijklmnop", 4, 4), "abcd...mnop");
     }
