@@ -244,6 +244,14 @@ fn cmd_start(config: &Config, args: &[String]) -> io::Result<()> {
         return Err(io::Error::other("Failed to create tmux session"));
     }
 
+    // Configure session for 256 colors and transparent status bar
+    let _ = Command::new("tmux")
+        .args(["set-option", "-t", &config.session_name, "default-terminal", "screen-256color"])
+        .status();
+    let _ = Command::new("tmux")
+        .args(["set-option", "-t", &config.session_name, "status-style", "bg=default"])
+        .status();
+
     // Enable logging
     let _ = Command::new("tmux")
         .args([
