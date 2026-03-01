@@ -11,7 +11,8 @@ SCRIPT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 "$SCRIPT_DIR/scripts/hypr-window-opacity.sh" reset
 
 # Play notification sound (async, don't block the hook)
-if [[ "${AU_HYPRLAND_FOCUS:-}" != "0" && -n "${HYPRLAND_INSTANCE_SIGNATURE:-}" ]]; then
+# Skip sound when called from SessionStart (HOOK_NO_SOUND=1)
+if [[ "${HOOK_NO_SOUND:-}" != "1" && "${AU_HYPRLAND_FOCUS:-}" != "0" && -n "${HYPRLAND_INSTANCE_SIGNATURE:-}" ]]; then
     (
         SOUND_FILE="$SCRIPT_DIR/sounds/idle.wav"
         if [[ -f "$SOUND_FILE" ]]; then
