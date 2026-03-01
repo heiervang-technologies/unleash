@@ -1,5 +1,12 @@
 # Changelog
 
+## [8.2.0](https://github.com/heiervang-technologies/unleash/compare/v8.1.2...v8.2.0) (2026-03-01)
+
+
+### Features
+
+* unify version management into single screen ([#173](https://github.com/heiervang-technologies/unleash/issues/173)) ([96b135f](https://github.com/heiervang-technologies/unleash/commit/96b135fc4c6861e190a03c3469f9ace0318b2bd3))
+
 ## [8.1.2](https://github.com/heiervang-technologies/unleash/compare/v8.1.1...v8.1.2) (2026-03-01)
 
 
