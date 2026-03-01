@@ -8,7 +8,7 @@ use crate::text_input::{censor_sensitive, is_sensitive_key, TextInput};
 use crate::theme::{ThemeColor, ThemePreset};
 use crate::version::{InstallResult, VersionInfo, VersionManager};
 
-use crossterm::event::{Event, KeyCode, KeyEvent, KeyModifiers};
+use crossterm::event::{Event, KeyCode, KeyEvent, KeyModifiers, MouseButton, MouseEvent, MouseEventKind};
 use ratatui::{
     layout::{Constraint, Direction, Layout, Rect},
     style::{Color, Modifier, Style},
@@ -179,6 +179,19 @@ pub enum ArtLayout {
     ArtLeft,
 }
 
+/// Targets that can be activated by a mouse click
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ClickTarget {
+    MainMenuItem(usize),
+    ProfileItem(usize),
+    ProfileEditItem(usize),
+    VersionAgentItem(usize),
+    VersionListItem(usize),
+    ThemeItem(usize),
+    /// The Claude mascot / avatar art sidebar
+    AvatarArt,
+}
+
 /// Main application state
 pub struct App {
     pub running: bool,
@@ -263,6 +276,10 @@ pub struct App {
     pub theme_menu: MenuState,
     /// Currently active color theme (preset or custom RGB)
     pub theme_color: ThemeColor,
+
+    // Mouse support
+    /// Clickable regions registered during the last render pass for hit-testing
+    clickable_areas: Vec<(Rect, ClickTarget)>,
 }
 
 impl App {
@@ -373,6 +390,7 @@ impl App {
             konami_progress: 0,
             theme_menu: MenuState::new(ThemePreset::all().len() + 1), // presets + Custom
             theme_color,
+            clickable_areas: Vec::new(),
         })
     }
 
@@ -823,8 +841,149 @@ impl App {
         Ok(())
     }
 
+    // ── Mouse support ──────────────────────────────────────────────────────────
+
+    /// Dispatch a mouse event to the appropriate handler
+    fn handle_mouse(&mut self, mouse: MouseEvent) -> io::Result<Option<AppAction>> {
+        match mouse.kind {
+            MouseEventKind::Down(MouseButton::Left) => {
+                let col = mouse.column;
+                let row = mouse.row;
+                if let Some(target) = self
+                    .clickable_areas
+                    .iter()
+                    .find(|(rect, _)| {
+                        col >= rect.x
+                            && col < rect.x + rect.width
+                            && row >= rect.y
+                            && row < rect.y + rect.height
+                    })
+                    .map(|(_, t)| *t)
+                {
+                    return self.handle_click(target);
+                }
+            }
+            MouseEventKind::ScrollUp => self.handle_scroll(NavAction::Up),
+            MouseEventKind::ScrollDown => self.handle_scroll(NavAction::Down),
+            _ => {}
+        }
+        Ok(None)
+    }
+
+    /// Handle a click on a registered ClickTarget
+    fn handle_click(&mut self, target: ClickTarget) -> io::Result<Option<AppAction>> {
+        match (target, self.screen) {
+            (ClickTarget::MainMenuItem(i), Screen::Main) => {
+                if self.main_menu.selected == i {
+                    return self.handle_main_input(NavAction::Select);
+                }
+                self.main_menu.selected = i;
+            }
+            (ClickTarget::ProfileItem(i), Screen::Profiles | Screen::ConfirmDelete) => {
+                if self.profile_menu.selected == i {
+                    self.handle_profiles_input(NavAction::Select);
+                } else {
+                    self.profile_menu.selected = i;
+                }
+            }
+            (ClickTarget::ProfileEditItem(i), Screen::ProfileEdit | Screen::EnvVarEdit) => {
+                if self.env_menu.selected == i {
+                    let dummy_key = KeyEvent::new(KeyCode::Null, KeyModifiers::NONE);
+                    self.handle_profile_edit_input(NavAction::Select, dummy_key);
+                } else {
+                    self.env_menu.selected = i;
+                }
+            }
+            (ClickTarget::VersionAgentItem(i), Screen::VersionManagement) => {
+                if self.agent_picker_menu.selected != i {
+                    self.switch_to_agent_index(i);
+                }
+                self.focus_agent_picker = true;
+            }
+            (ClickTarget::VersionListItem(i), Screen::VersionManagement) => {
+                if self.version_menu.selected == i && !self.focus_agent_picker {
+                    let dummy_key = KeyEvent::new(KeyCode::Null, KeyModifiers::NONE);
+                    self.handle_version_input(NavAction::Select, dummy_key);
+                } else {
+                    self.version_menu.selected = i;
+                    self.focus_agent_picker = false;
+                }
+            }
+            (ClickTarget::ThemeItem(i), Screen::Theme) => {
+                if self.theme_menu.selected == i {
+                    self.handle_theme_input(NavAction::Select);
+                } else {
+                    self.theme_menu.selected = i;
+                }
+            }
+            (ClickTarget::AvatarArt, screen) if screen != Screen::Main => {
+                // Clicking the avatar from any sub-screen returns to Main
+                self.trigger_screen_animation(false, Screen::Main);
+                self.pending_screen = Some(Screen::Main);
+                if self.art_animation.is_none() {
+                    self.screen = Screen::Main;
+                    self.refresh_screen_data();
+                }
+            }
+            _ => {}
+        }
+        Ok(None)
+    }
+
+    /// Handle scroll wheel events — navigates the active list on the current screen
+    fn handle_scroll(&mut self, action: NavAction) {
+        match self.screen {
+            Screen::Main => {
+                self.main_menu.handle_action(action);
+            }
+            Screen::Profiles => {
+                self.profile_menu.handle_action(action);
+            }
+            Screen::ProfileEdit | Screen::EnvVarEdit => {
+                self.env_menu.handle_action(action);
+            }
+            Screen::Theme => {
+                self.theme_menu.handle_action(action);
+            }
+            Screen::VersionManagement => {
+                if self.focus_agent_picker {
+                    let agents = AgentType::all();
+                    let current_idx = agents
+                        .iter()
+                        .position(|a| *a == self.version_agent)
+                        .unwrap_or(0);
+                    let new_idx = match action {
+                        NavAction::Down => (current_idx + 1).min(agents.len().saturating_sub(1)),
+                        NavAction::Up => current_idx.saturating_sub(1),
+                        _ => current_idx,
+                    };
+                    if new_idx != current_idx {
+                        self.switch_to_agent_index(new_idx);
+                    }
+                } else {
+                    self.version_menu.handle_action(action);
+                }
+            }
+            Screen::Help => match action {
+                NavAction::Up => {
+                    self.help_scroll_offset = self.help_scroll_offset.saturating_sub(1);
+                }
+                NavAction::Down => {
+                    self.help_scroll_offset = self.help_scroll_offset.saturating_add(1);
+                }
+                _ => {}
+            },
+            _ => {}
+        }
+    }
+
+    // ── Input events ───────────────────────────────────────────────────────────
+
     /// Handle input events
     pub fn handle_event(&mut self, event: Event) -> io::Result<Option<AppAction>> {
+        if let Event::Mouse(mouse) = event {
+            return self.handle_mouse(mouse);
+        }
         if let Event::Key(key) = event {
             // Global quit with Ctrl+C (except when editing)
             if key.code == KeyCode::Char('c') && key.modifiers.contains(KeyModifiers::CONTROL)
@@ -1674,6 +1833,9 @@ impl App {
 
     /// Render the UI
     pub fn render(&mut self, frame: &mut Frame) {
+        // Clear clickable areas from the previous frame before registering new ones
+        self.clickable_areas.clear();
+
         // Main layout: content area + status bar at bottom
         let main_chunks = Layout::default()
             .direction(Direction::Vertical)
@@ -1760,6 +1922,7 @@ impl App {
 
                 self.render_art_sidebar(frame, content_chunks[0]); // Right-facing on left
                 self.render_screen_content(frame, content_chunks[1]);
+                self.clickable_areas.push((content_chunks[0], ClickTarget::AvatarArt));
             } else {
                 let content_chunks = Layout::default()
                     .direction(Direction::Horizontal)
@@ -1772,6 +1935,7 @@ impl App {
 
                 self.render_art_sidebar_left(frame, content_chunks[1]); // Left-facing on right
                 self.render_screen_content(frame, content_chunks[0]);
+                self.clickable_areas.push((content_chunks[1], ClickTarget::AvatarArt));
             }
         }
 
@@ -1904,11 +2068,25 @@ impl App {
             String::new()
         };
 
+        // Register clickable areas for mouse: each item takes 2 rows
+        let visible_count = visible_items.min(menu_items.len().saturating_sub(scroll_offset));
+        for j in 0..visible_count {
+            let item_idx = scroll_offset + j;
+            let row = menu_area.y + (j as u16 * 2);
+            if row < menu_area.y + menu_area.height {
+                let height = 2.min(menu_area.y + menu_area.height - row);
+                self.clickable_areas.push((
+                    Rect::new(menu_area.x, row, menu_area.width, height),
+                    ClickTarget::MainMenuItem(item_idx),
+                ));
+            }
+        }
+
         let menu = List::new(items);
         frame.render_widget(menu, menu_area);
     }
 
-    fn render_profiles(&self, frame: &mut Frame, area: Rect) {
+    fn render_profiles(&mut self, frame: &mut Frame, area: Rect) {
         let key_style = Style::default().fg(self.accent_color()).add_modifier(Modifier::BOLD);
         let desc_style = Style::default().fg(Color::DarkGray);
 
@@ -1963,11 +2141,25 @@ impl App {
         };
         frame.render_widget(hints, chunks[0]);
 
+        // Register clickable areas: each profile item takes 2 rows
+        let list_area = chunks[1];
+        for i in 0..self.profiles.len() {
+            let row = list_area.y + (i as u16 * 2);
+            if row >= list_area.y + list_area.height {
+                break;
+            }
+            let height = 2.min(list_area.y + list_area.height - row);
+            self.clickable_areas.push((
+                Rect::new(list_area.x, row, list_area.width, height),
+                ClickTarget::ProfileItem(i),
+            ));
+        }
+
         let menu = List::new(items);
         frame.render_widget(menu, chunks[1]);
     }
 
-    fn render_profile_edit(&self, frame: &mut Frame, area: Rect) {
+    fn render_profile_edit(&mut self, frame: &mut Frame, area: Rect) {
         let profile = match &self.editing_profile {
             Some(p) => p,
             None => return,
@@ -2046,6 +2238,18 @@ impl App {
             Style::default().fg(Color::DarkGray),
         ))));
 
+        // Register clickable areas for settings (1 row each)
+        let settings_area = chunks[0];
+        for i in 0..settings.len() {
+            let row = settings_area.y + i as u16;
+            if row < settings_area.y + settings_area.height {
+                self.clickable_areas.push((
+                    Rect::new(settings_area.x, row, settings_area.width, 1),
+                    ClickTarget::ProfileEditItem(i),
+                ));
+            }
+        }
+
         let settings_list = List::new(settings_items);
         frame.render_widget(settings_list, chunks[0]);
 
@@ -2088,6 +2292,19 @@ impl App {
             format!("{}+ Add new variable", add_prefix),
             add_style,
         ))));
+
+        // Register clickable areas for env vars and "Add new" (1 row each)
+        let env_area = chunks[1];
+        for i in 0..=self.env_vars_list.len() {
+            let menu_idx = num_settings + i;
+            let row = env_area.y + i as u16;
+            if row < env_area.y + env_area.height {
+                self.clickable_areas.push((
+                    Rect::new(env_area.x, row, env_area.width, 1),
+                    ClickTarget::ProfileEditItem(menu_idx),
+                ));
+            }
+        }
 
         let env_list = List::new(env_items);
         frame.render_widget(env_list, chunks[1]);
@@ -2211,7 +2428,7 @@ impl App {
         frame.render_widget(dialog, dialog_area);
     }
 
-    fn render_theme(&self, frame: &mut Frame, area: Rect) {
+    fn render_theme(&mut self, frame: &mut Frame, area: Rect) {
         let presets = ThemePreset::all();
         let custom_index = presets.len();
 
@@ -2303,6 +2520,18 @@ impl App {
             items.push(ListItem::new(vec![Line::from(swatch)]));
         }
 
+        // Register clickable areas: presets take 1 row each, Custom takes 1 or 2 rows
+        let presets_count = ThemePreset::all().len();
+        for i in 0..=presets_count {
+            let row = area.y + i as u16;
+            if row < area.y + area.height {
+                self.clickable_areas.push((
+                    Rect::new(area.x, row, area.width, 1),
+                    ClickTarget::ThemeItem(i),
+                ));
+            }
+        }
+
         let menu = List::new(items);
         frame.render_widget(menu, area);
     }
@@ -2324,6 +2553,10 @@ impl App {
             Line::from("  Tab      Switch field"),
             Line::from("  Enter    Save"),
             Line::from("  Esc      Cancel"),
+            Line::from(""),
+            Line::from(Span::styled("Mouse", Style::default().add_modifier(Modifier::BOLD))),
+            Line::from("  Click    Select item (click again to activate)"),
+            Line::from("  Scroll   Navigate lists"),
         ];
 
         let total_lines = lines.len() as u16;
@@ -2413,7 +2646,7 @@ impl App {
     }
 
     /// Render the agent picker as a compact list with the selected agent highlighted
-    fn render_agent_picker(&self, frame: &mut Frame, area: Rect) {
+    fn render_agent_picker(&mut self, frame: &mut Frame, area: Rect) {
         let border_color = if self.focus_agent_picker {
             self.accent_color()
         } else {
@@ -2449,6 +2682,17 @@ impl App {
                 Span::styled(prefix, style),
                 Span::styled(agent.display_name(), style),
             ]));
+        }
+
+        // Register clickable areas: one row per agent
+        for (i, _) in agents.iter().enumerate() {
+            let row = inner.y + i as u16;
+            if row < inner.y + inner.height {
+                self.clickable_areas.push((
+                    Rect::new(inner.x, row, inner.width, 1),
+                    ClickTarget::VersionAgentItem(i),
+                ));
+            }
         }
 
         let content = Paragraph::new(lines);
@@ -2551,6 +2795,16 @@ impl App {
                 spans.push(Span::styled(
                     format!(" {} installing...", spinner),
                     Style::default().fg(Color::Yellow),
+                ));
+            }
+
+            // Register clickable area for this version item (1 row each)
+            let row_offset = if has_above { i - start + 1 } else { i - start };
+            let row = area.y + row_offset as u16;
+            if row < area.y + area.height {
+                self.clickable_areas.push((
+                    Rect::new(area.x, row, area.width, 1),
+                    ClickTarget::VersionListItem(i),
                 ));
             }
 
@@ -2796,6 +3050,7 @@ mod tests {
             konami_progress: 0,
             theme_menu: MenuState::new(ThemePreset::all().len() + 1),
             theme_color: ThemeColor::Preset(ThemePreset::Orange),
+            clickable_areas: Vec::new(),
         };
 
         (app, temp)
