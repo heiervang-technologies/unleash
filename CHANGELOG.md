@@ -1,5 +1,12 @@
 # Changelog
 
+## [8.3.0](https://github.com/heiervang-technologies/unleash/compare/v8.2.1...v8.3.0) (2026-03-01)
+
+
+### Features
+
+* remove claude-specific install, fix focus hook opacity logic ([e2c4dbe](https://github.com/heiervang-technologies/unleash/commit/e2c4dbeb90d083e856871d89c4cd745e2a04e267))
+
 ## [8.2.1](https://github.com/heiervang-technologies/unleash/compare/v8.2.0...v8.2.1) (2026-03-01)
 
 
