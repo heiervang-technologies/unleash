@@ -1,5 +1,12 @@
 # Changelog
 
+## [8.1.0](https://github.com/heiervang-technologies/agent-unleashed/compare/v8.0.0...v8.1.0) (2026-03-01)
+
+
+### Features
+
+* **tui:** mouse-friendly TUI with click and scroll support ([#169](https://github.com/heiervang-technologies/agent-unleashed/issues/169)) ([d4d2356](https://github.com/heiervang-technologies/agent-unleashed/commit/d4d2356d738e3a0e6da7c78c4574ae7a222a7660))
+
 ## [8.0.0](https://github.com/heiervang-technologies/agent-unleashed/compare/v7.5.0...v8.0.0) (2026-02-27)
 
 
