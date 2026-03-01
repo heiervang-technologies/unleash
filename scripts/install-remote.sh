@@ -607,6 +607,25 @@ download_binary() {
         return 1
     fi
 
+    # Try to verify checksum
+    local checksums_url="${REPO_URL}/releases/download/${version}/checksums.txt"
+    if download "$checksums_url" "${temp_dir}/checksums.txt" 2>/dev/null && [[ -s "${temp_dir}/checksums.txt" ]] && ! file "${temp_dir}/checksums.txt" 2>/dev/null | grep -q "HTML"; then
+        local expected_checksum
+        expected_checksum=$(grep "${ARTIFACT_NAME}" "${temp_dir}/checksums.txt" | awk '{print $1}')
+        if [[ -n "$expected_checksum" ]]; then
+            local actual_checksum
+            actual_checksum=$(sha256sum "${temp_dir}/au" 2>/dev/null | cut -d' ' -f1 || shasum -a 256 "${temp_dir}/au" 2>/dev/null | cut -d' ' -f1)
+            if [[ "$actual_checksum" != "$expected_checksum" ]]; then
+                error "Checksum verification failed for ${ARTIFACT_NAME}"
+                error "  Expected: $expected_checksum"
+                error "  Got:      $actual_checksum"
+                rm -rf "$temp_dir"
+                return 1
+            fi
+            success "Checksum verified for ${ARTIFACT_NAME}"
+        fi
+    fi
+
     chmod +x "${temp_dir}/au"
     mv "${temp_dir}/au" "${INSTALL_DIR}/au"
     rm -rf "$temp_dir"
@@ -712,12 +731,36 @@ ensure_onboarding_complete() {
                 rm -f "$tmp_file"
             fi
         else
-            # Fallback: use sed for simple updates
-            if grep -q '"hasCompletedOnboarding"' "$claude_json"; then
-                sed -i 's/"hasCompletedOnboarding":\s*false/"hasCompletedOnboarding": true/g' "$claude_json"
-            fi
-            if grep -q '"bypassPermissionsModeAccepted"' "$claude_json"; then
-                sed -i 's/"bypassPermissionsModeAccepted":\s*false/"bypassPermissionsModeAccepted": true/g' "$claude_json"
+            # Fallback: use python3 if available for safer JSON processing
+            if command -v python3 &>/dev/null; then
+                local tmp_file
+                tmp_file=$(mktemp)
+                if python3 -c "
+import sys, json
+try:
+    with open('$claude_json', 'r') as f:
+        data = json.load(f)
+    data['hasCompletedOnboarding'] = True
+    data['bypassPermissionsModeAccepted'] = True
+    data['lastOnboardingVersion'] = '$claude_version'
+    with open('$tmp_file', 'w') as f:
+        json.dump(data, f, indent=2)
+except Exception as e:
+    sys.exit(1)
+" 2>/dev/null; then
+                    mv "$tmp_file" "$claude_json"
+                else
+                    rm -f "$tmp_file"
+                fi
+            else
+                # Final fallback to sed (less safe)
+                if grep -q '"hasCompletedOnboarding"' "$claude_json"; then
+                    sed -i.bak 's/"hasCompletedOnboarding":\s*false/"hasCompletedOnboarding": true/g' "$claude_json" 2>/dev/null || true
+                fi
+                if grep -q '"bypassPermissionsModeAccepted"' "$claude_json"; then
+                    sed -i.bak 's/"bypassPermissionsModeAccepted":\s*false/"bypassPermissionsModeAccepted": true/g' "$claude_json" 2>/dev/null || true
+                fi
+                rm -f "${claude_json}.bak"
             fi
         fi
     else

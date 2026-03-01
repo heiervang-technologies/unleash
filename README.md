@@ -53,40 +53,45 @@ This approach provides:
 
 ## Architecture
 
-```
-agent-unleashed/
-├── src/                          # Rust TUI & CLI (main entry point)
-│   └── main.rs
-├── Cargo.toml                    # Build configuration + version lists
-├── scripts/                      # Shell scripts
-│   ├── install.sh               # Installation script
-│   ├── install-remote.sh        # Remote one-line installer
-│   ├── restart-claude           # Restart command
-│   ├── exit-claude              # Exit command
-│   └── wrapper.sh               # Bash wrapper for self-restart
-├── plugins/unleashed/            # Plugin extensions
-│   ├── auto-mode/               # Autonomous operation mode
-│   ├── mcp-refresh/             # MCP config change detection
-│   ├── process-restart/         # Self-restart capability
-│   └── voice-output/            # Text-to-speech output
-├── docs/                         # Documentation
-└── tests/                        # Test scripts
+```mermaid
+graph TD
+    subgraph Agent Unleashed
+        A[src/ - Rust TUI & CLI] --> B[Cargo.toml - Config & Versions]
+        A --> C[scripts/ - Shell Installers/Wrappers]
+        A --> D[docs/ - Documentation]
+        A --> E[tests/ - Test Scripts]
+        A --> F[plugins/unleashed/ - Extension Layer]
+    end
+
+    subgraph Plugins
+        F --> G[auto-mode]
+        F --> H[mcp-refresh]
+        F --> I[process-restart]
+        F --> J[voice-output]
+    end
 ```
 
 ### How It Works
 
 Agent Unleashed wraps Claude Code (installed separately via native binary or npm) and extends it through:
 
-1. **Wrapper Layer** (this repository)
-   - Rust TUI for profile and version management
-   - Launches Claude Code with `--dangerously-skip-permissions`
-   - Auto-mode via Stop hook + flag file system
-   - Plugin loading via `--plugin-dir`
+```mermaid
+graph LR
+    subgraph Wrapper Layer
+        W1[Rust TUI Profile/Version Manager]
+        W2[Launch with --dangerously-skip-permissions]
+        W3[Auto-mode via Stop Hook + Flags]
+        W4[Plugin Loading via --plugin-dir]
+    end
 
-2. **Extension Layer** (`plugins/`)
-   - Custom functionality as self-contained plugins
-   - Organization-specific integrations
-   - Team workflows and automations
+    subgraph Extension Layer
+        E1[Custom functionality as plugins]
+        E2[Organization Integrations]
+        E3[Team Workflows & Automations]
+    end
+
+    WrapperLayer --> ExtensionLayer
+```
 
 ## Extension Approach: Plugin-First
 
