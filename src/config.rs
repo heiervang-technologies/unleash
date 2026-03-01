@@ -3,6 +3,7 @@
 //! Profiles are stored in ~/.config/unleash/profiles/
 //! Each profile is a TOML file with agent settings and environment variables.
 
+use crate::agents::AgentType;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::fs;
@@ -97,6 +98,51 @@ impl Profile {
     }
 }
 
+/// Auto-update settings for Unleash and agent CLIs
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct AutoUpdateConfig {
+    /// Auto-update Unleash TUI on launch
+    #[serde(default)]
+    pub unleash: bool,
+    /// Per-agent auto-update settings (keys: "claude", "codex", "gemini", "opencode")
+    #[serde(default)]
+    pub agents: HashMap<String, bool>,
+}
+
+impl Default for AutoUpdateConfig {
+    fn default() -> Self {
+        Self {
+            unleash: false,
+            agents: HashMap::new(),
+        }
+    }
+}
+
+impl AutoUpdateConfig {
+    /// Get auto-update setting for a specific agent type
+    pub fn auto_update_for_agent(&self, agent: &AgentType) -> bool {
+        let key = match agent {
+            AgentType::Claude => "claude",
+            AgentType::Codex => "codex",
+            AgentType::Gemini => "gemini",
+            AgentType::OpenCode => "opencode",
+        };
+        self.agents.get(key).copied().unwrap_or(false)
+    }
+
+    /// Toggle auto-update setting for a specific agent type
+    pub fn toggle_agent(&mut self, agent: &AgentType) {
+        let key = match agent {
+            AgentType::Claude => "claude",
+            AgentType::Codex => "codex",
+            AgentType::Gemini => "gemini",
+            AgentType::OpenCode => "opencode",
+        };
+        let current = self.agents.get(key).copied().unwrap_or(false);
+        self.agents.insert(key.to_string(), !current);
+    }
+}
+
 /// Global app configuration (just tracks which profile is active)
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AppConfig {
@@ -106,6 +152,9 @@ pub struct AppConfig {
     /// Whether TUI animations are enabled
     #[serde(default = "default_true")]
     pub animations: bool,
+    /// Auto-update settings for Unleash and agent CLIs
+    #[serde(default)]
+    pub auto_update: AutoUpdateConfig,
 }
 
 fn default_true() -> bool {
@@ -140,6 +189,7 @@ impl Default for AppConfig {
         Self {
             current_profile: default_profile_name(),
             animations: true,
+            auto_update: AutoUpdateConfig::default(),
         }
     }
 }

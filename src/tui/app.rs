@@ -120,8 +120,18 @@ pub enum Screen {
     Theme,
     Help,
     ConfirmDelete,
-    Updating,
     VersionManagement,
+}
+
+/// Focus zone within the unified version management screen
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum VersionFocus {
+    /// Focus on the Unleash (parent) section
+    Unleash,
+    /// Focus on the agent picker
+    AgentPicker,
+    /// Focus on the version list for the selected agent
+    VersionList,
 }
 
 /// What we're currently editing
@@ -185,6 +195,7 @@ pub enum ClickTarget {
     MainMenuItem(usize),
     ProfileItem(usize),
     ProfileEditItem(usize),
+    UnleashSection,
     VersionAgentItem(usize),
     VersionListItem(usize),
     ThemeItem(usize),
@@ -258,9 +269,11 @@ pub struct App {
     /// Scroll offset for help screen content
     pub help_scroll_offset: u16,
 
-    // Drum picker for agent selection
-    /// Whether focus is on the agent picker (true) or version list (false)
-    pub focus_agent_picker: bool,
+    // Unified version management
+    /// Which section has focus in the unified version view
+    pub version_focus: VersionFocus,
+    /// Current Unleash version (from CARGO_PKG_VERSION)
+    pub unleash_version: String,
     /// Menu state for agent picker
     pub agent_picker_menu: MenuState,
     /// Index of version currently being installed (for inline spinner)
@@ -355,7 +368,7 @@ impl App {
             running: true,
             last_frame_area: Rect::default(),
             screen: Screen::Main,
-            main_menu: MenuState::new(6), // Start, Profiles, Agent Versions, Update, Help, Quit
+            main_menu: MenuState::new(5), // Start, Profiles, Versions & Updates, Help, Quit
             profile_menu: MenuState::new(profiles.len()),
             profile_manager,
             app_config,
@@ -390,7 +403,8 @@ impl App {
             pending_external_edit: None,
             help_return_screen: None,
             help_scroll_offset: 0,
-            focus_agent_picker: true,
+            version_focus: VersionFocus::Unleash,
+            unleash_version: env!("CARGO_PKG_VERSION").to_string(),
             agent_picker_menu: MenuState::new(AgentType::all().len()),
             installing_version_index: None,
             install_log_lines: Vec::new(),
@@ -683,16 +697,13 @@ impl App {
         match self.screen {
             Screen::Profiles => self.refresh_profiles(),
             Screen::VersionManagement => {
-                self.focus_agent_picker = true;
+                self.version_focus = VersionFocus::Unleash;
                 self.refresh_versions();
                 if self.versions.is_empty() {
                     self.status_message = Some("Loading versions...".to_string());
                 } else {
                     self.status_message = Some("Refreshing versions...".to_string());
                 }
-            }
-            Screen::Updating => {
-                self.status_message = Some("Updating...".to_string());
             }
             Screen::Main
             | Screen::ProfileEdit
@@ -936,19 +947,22 @@ impl App {
                     self.env_menu.selected = i;
                 }
             }
+            (ClickTarget::UnleashSection, Screen::VersionManagement) => {
+                self.version_focus = VersionFocus::Unleash;
+            }
             (ClickTarget::VersionAgentItem(i), Screen::VersionManagement) => {
                 if self.agent_picker_menu.selected != i {
                     self.switch_to_agent_index(i);
                 }
-                self.focus_agent_picker = true;
+                self.version_focus = VersionFocus::AgentPicker;
             }
             (ClickTarget::VersionListItem(i), Screen::VersionManagement) => {
-                if self.version_menu.selected == i && !self.focus_agent_picker {
+                if self.version_menu.selected == i && self.version_focus == VersionFocus::VersionList {
                     let dummy_key = KeyEvent::new(KeyCode::Null, KeyModifiers::NONE);
-                    self.handle_version_input(NavAction::Select, dummy_key);
+                    let _ = self.handle_version_input(NavAction::Select, dummy_key);
                 } else {
                     self.version_menu.selected = i;
-                    self.focus_agent_picker = false;
+                    self.version_focus = VersionFocus::VersionList;
                 }
             }
             (ClickTarget::ThemeItem(i), Screen::Theme) => {
@@ -969,11 +983,11 @@ impl App {
             }
             (ClickTarget::DialogYes, Screen::VersionManagement) => {
                 let dummy_key = KeyEvent::new(KeyCode::Char('y'), KeyModifiers::NONE);
-                self.handle_version_input(NavAction::Select, dummy_key);
+                let _ = self.handle_version_input(NavAction::Select, dummy_key);
             }
             (ClickTarget::DialogNo, Screen::VersionManagement) => {
                 let dummy_key = KeyEvent::new(KeyCode::Char('n'), KeyModifiers::NONE);
-                self.handle_version_input(NavAction::Select, dummy_key);
+                let _ = self.handle_version_input(NavAction::Select, dummy_key);
             }
             _ => {}
         }
@@ -996,22 +1010,26 @@ impl App {
                 self.theme_menu.handle_action(action);
             }
             Screen::VersionManagement => {
-                if self.focus_agent_picker {
-                    let agents = AgentType::all();
-                    let current_idx = agents
-                        .iter()
-                        .position(|a| *a == self.version_agent)
-                        .unwrap_or(0);
-                    let new_idx = match action {
-                        NavAction::Down => (current_idx + 1).min(agents.len().saturating_sub(1)),
-                        NavAction::Up => current_idx.saturating_sub(1),
-                        _ => current_idx,
-                    };
-                    if new_idx != current_idx {
-                        self.switch_to_agent_index(new_idx);
+                match self.version_focus {
+                    VersionFocus::Unleash => {} // no scroll in unleash section
+                    VersionFocus::AgentPicker => {
+                        let agents = AgentType::all();
+                        let current_idx = agents
+                            .iter()
+                            .position(|a| *a == self.version_agent)
+                            .unwrap_or(0);
+                        let new_idx = match action {
+                            NavAction::Down => (current_idx + 1).min(agents.len().saturating_sub(1)),
+                            NavAction::Up => current_idx.saturating_sub(1),
+                            _ => current_idx,
+                        };
+                        if new_idx != current_idx {
+                            self.switch_to_agent_index(new_idx);
+                        }
                     }
-                } else {
-                    self.version_menu.handle_action(action);
+                    VersionFocus::VersionList => {
+                        self.version_menu.handle_action(action);
+                    }
                 }
             }
             Screen::Help => match action {
@@ -1077,8 +1095,7 @@ impl App {
                 Screen::Theme => self.handle_theme_input(action),
                 Screen::Help => self.handle_help_input(action),
                 Screen::ConfirmDelete => self.handle_confirm_delete_input(action),
-                Screen::Updating => return self.handle_updating_input(action),
-                Screen::VersionManagement => self.handle_version_input(action, key),
+                Screen::VersionManagement => return self.handle_version_input(action, key),
             }
         }
         Ok(None)
@@ -1315,22 +1332,17 @@ impl App {
                         self.pending_screen = Some(Screen::Profiles);
                     }
                     2 => {
-                        // Agent Versions
+                        // Versions & Updates
                         self.trigger_screen_animation(true, Screen::VersionManagement);
                         self.pending_screen = Some(Screen::VersionManagement);
                     }
                     3 => {
-                        // Update TUI
-                        self.trigger_screen_animation(true, Screen::Updating);
-                        self.pending_screen = Some(Screen::Updating);
-                    }
-                    4 => {
                         // Help
                         self.help_return_screen = Some(Screen::Main);
                         self.trigger_screen_animation(true, Screen::Help);
                         self.pending_screen = Some(Screen::Help);
                     }
-                    5 => {
+                    4 => {
                         // Quit
                         self.running = false;
                     }
@@ -1346,24 +1358,24 @@ impl App {
         Ok(None)
     }
 
-    fn handle_version_input(&mut self, action: NavAction, key: KeyEvent) {
+    fn handle_version_input(&mut self, action: NavAction, key: KeyEvent) -> io::Result<Option<AppAction>> {
         // Handle conflict dialog if open
         if self.conflict_warning_open {
             let mut accepted = false;
             let mut rejected = false;
-            
+
             match action {
                 NavAction::Select => accepted = true,
                 NavAction::Back | NavAction::Quit => rejected = true,
                 _ => {}
             }
-            
+
             match key.code {
                 KeyCode::Char('y') | KeyCode::Char('Y') => accepted = true,
                 KeyCode::Char('n') | KeyCode::Char('N') => rejected = true,
                 _ => {}
             }
-            
+
             if accepted {
                 // Enter / Y: clean up
                 let agent_str = match self.version_agent {
@@ -1380,7 +1392,27 @@ impl App {
                 // Esc / N: close dialog
                 self.conflict_warning_open = false;
             }
-            return;
+            return Ok(None);
+        }
+
+        // Handle 'a' key for toggling auto-update on any focused section
+        if key.code == KeyCode::Char('a') {
+            match self.version_focus {
+                VersionFocus::Unleash => {
+                    self.app_config.auto_update.unleash = !self.app_config.auto_update.unleash;
+                    let state = if self.app_config.auto_update.unleash { "On" } else { "Off" };
+                    self.status_message = Some(format!("Unleash auto-update: {}", state));
+                    let _ = self.profile_manager.save_app_config(&self.app_config);
+                }
+                VersionFocus::AgentPicker => {
+                    self.app_config.auto_update.toggle_agent(&self.version_agent);
+                    let state = if self.app_config.auto_update.auto_update_for_agent(&self.version_agent) { "On" } else { "Off" };
+                    self.status_message = Some(format!("{} auto-update: {}", self.version_agent.display_name(), state));
+                    let _ = self.profile_manager.save_app_config(&self.app_config);
+                }
+                VersionFocus::VersionList => {} // no toggle on version list
+            }
+            return Ok(None);
         }
 
         // Handle 'gg' two-key sequence for jump-to-top
@@ -1388,91 +1420,131 @@ impl App {
             self.g_pending = false;
             if key.code == KeyCode::Char('g') {
                 // gg: jump to top of whichever panel is focused
-                if self.focus_agent_picker {
-                    self.switch_to_agent_index(0);
-                } else {
-                    self.version_menu.select_first();
+                match self.version_focus {
+                    VersionFocus::Unleash => {} // nothing to jump
+                    VersionFocus::AgentPicker => self.switch_to_agent_index(0),
+                    VersionFocus::VersionList => self.version_menu.select_first(),
                 }
-                return;
+                return Ok(None);
             }
             // Not 'g' — fall through to handle the key normally
         }
 
         // Handle raw key shortcuts that don't map to NavAction
         match key.code {
-            KeyCode::Char('s') => {
+            KeyCode::Char('s') if self.version_focus != VersionFocus::Unleash => {
                 // Rescan versions for current agent
                 self.refresh_versions();
-                return;
+                return Ok(None);
             }
             KeyCode::Char('G') => {
                 // Jump to bottom of focused panel
-                if self.focus_agent_picker {
-                    let last = AgentType::all().len().saturating_sub(1);
-                    self.switch_to_agent_index(last);
-                } else {
-                    self.version_menu.select_last();
+                match self.version_focus {
+                    VersionFocus::Unleash => {} // nothing to jump
+                    VersionFocus::AgentPicker => {
+                        let last = AgentType::all().len().saturating_sub(1);
+                        self.switch_to_agent_index(last);
+                    }
+                    VersionFocus::VersionList => self.version_menu.select_last(),
                 }
-                return;
+                return Ok(None);
             }
-            KeyCode::Char('g') => {
+            KeyCode::Char('g') if self.version_focus != VersionFocus::Unleash => {
                 self.g_pending = true;
-                return;
+                return Ok(None);
             }
             _ => {}
         }
 
-        match action {
-            NavAction::Up | NavAction::Down => {
-                if self.focus_agent_picker {
-                    let agents = AgentType::all();
-                    let current_idx = agents
-                        .iter()
-                        .position(|a| *a == self.version_agent)
-                        .unwrap_or(0);
-                    let new_idx = match action {
-                        NavAction::Down => (current_idx + 1).min(agents.len() - 1),
-                        NavAction::Up => current_idx.saturating_sub(1),
-                        _ => unreachable!(),
-                    };
-                    if new_idx != current_idx {
-                        self.switch_to_agent_index(new_idx);
+        match self.version_focus {
+            VersionFocus::Unleash => {
+                match action {
+                    NavAction::Select => {
+                        // Trigger Unleash self-update
+                        let exe_path = std::env::current_exe().ok();
+                        let repo_dir = exe_path
+                            .as_ref()
+                            .and_then(|p| p.parent()) // target/release
+                            .and_then(|p| p.parent()) // target
+                            .and_then(|p| p.parent()) // repo root
+                            .map(|p| p.to_path_buf())
+                            .unwrap_or_else(|| PathBuf::from("."));
+                        return Ok(Some(AppAction::Update(UpdateRequest { repo_dir })));
                     }
-                } else {
-                    self.version_menu.handle_action(action);
+                    NavAction::Down | NavAction::Tab => {
+                        self.version_focus = VersionFocus::AgentPicker;
+                    }
+                    NavAction::Back | NavAction::Quit => {
+                        self.trigger_screen_animation(false, Screen::Main);
+                        self.pending_screen = Some(Screen::Main);
+                    }
+                    _ => {}
                 }
             }
-            NavAction::Tab => {
-                if self.focus_agent_picker {
-                    self.focus_agent_picker = false;
+            VersionFocus::AgentPicker => {
+                match action {
+                    NavAction::Up | NavAction::Down => {
+                        let agents = AgentType::all();
+                        let current_idx = agents
+                            .iter()
+                            .position(|a| *a == self.version_agent)
+                            .unwrap_or(0);
+                        let new_idx = match action {
+                            NavAction::Down => (current_idx + 1).min(agents.len() - 1),
+                            NavAction::Up => {
+                                if current_idx == 0 {
+                                    // At top of agent list, move focus to Unleash
+                                    self.version_focus = VersionFocus::Unleash;
+                                    return Ok(None);
+                                }
+                                current_idx.saturating_sub(1)
+                            }
+                            _ => unreachable!(),
+                        };
+                        if new_idx != current_idx {
+                            self.switch_to_agent_index(new_idx);
+                        }
+                    }
+                    NavAction::Tab | NavAction::Select => {
+                        self.version_focus = VersionFocus::VersionList;
+                    }
+                    NavAction::BackTab => {
+                        self.version_focus = VersionFocus::Unleash;
+                    }
+                    NavAction::Back | NavAction::Quit => {
+                        self.version_focus = VersionFocus::Unleash;
+                    }
+                    _ => {}
                 }
             }
-            NavAction::BackTab => {
-                if !self.focus_agent_picker {
-                    self.focus_agent_picker = true;
+            VersionFocus::VersionList => {
+                match action {
+                    NavAction::Up | NavAction::Down => {
+                        self.version_menu.handle_action(action);
+                    }
+                    NavAction::Tab => {
+                        self.version_focus = VersionFocus::Unleash;
+                    }
+                    NavAction::BackTab => {
+                        self.version_focus = VersionFocus::AgentPicker;
+                    }
+                    NavAction::Select => {
+                        self.install_version_for_agent();
+                    }
+                    NavAction::Back | NavAction::Quit => {
+                        // Dismiss install log panel first if visible and install is done
+                        if self.show_install_log && self.install_state.is_none() {
+                            self.show_install_log = false;
+                            self.install_log_lines.clear();
+                        } else {
+                            self.version_focus = VersionFocus::AgentPicker;
+                        }
+                    }
+                    _ => {}
                 }
             }
-            NavAction::Select => {
-                if self.focus_agent_picker {
-                    self.focus_agent_picker = false;
-                } else {
-                    self.install_version_for_agent();
-                }
-            }
-            NavAction::Back | NavAction::Quit => {
-                // Dismiss install log panel first if visible and install is done
-                if self.show_install_log && self.install_state.is_none() {
-                    self.show_install_log = false;
-                    self.install_log_lines.clear();
-                } else if !self.focus_agent_picker {
-                    self.focus_agent_picker = true;
-                } else {
-                    self.trigger_screen_animation(false, Screen::Main);
-                    self.pending_screen = Some(Screen::Main);
-                }
-            }
-            _ => {}
         }
+        Ok(None)
     }
 
     /// Switch to the agent at the given index, refreshing versions
@@ -1838,30 +1910,6 @@ impl App {
         }
     }
 
-    fn handle_updating_input(&mut self, action: NavAction) -> io::Result<Option<AppAction>> {
-        match action {
-            NavAction::Select => {
-                // Find the repo directory
-                let exe_path = std::env::current_exe().ok();
-                let repo_dir = exe_path
-                    .as_ref()
-                    .and_then(|p| p.parent()) // target/release
-                    .and_then(|p| p.parent()) // target
-                    .and_then(|p| p.parent()) // repo root
-                    .map(|p| p.to_path_buf())
-                    .unwrap_or_else(|| PathBuf::from("."));
-
-                return Ok(Some(AppAction::Update(UpdateRequest { repo_dir })));
-            }
-            NavAction::Back | NavAction::Quit => {
-                self.trigger_screen_animation(false, Screen::Main);
-                self.pending_screen = Some(Screen::Main);
-            }
-            _ => {}
-        }
-        Ok(None)
-    }
-
     /// Calculate the minimum content width needed for the current screen
     fn content_width(&self) -> u16 {
         self.content_width_for_screen(self.screen)
@@ -1875,8 +1923,7 @@ impl App {
                 let menu_items = [
                     ("Start Session", "Launch Claude with selected profile".to_string()),
                     ("Profiles", "Manage profiles and their settings".to_string()),
-                    ("Agent Versions", "Manage installed agent CLIs".to_string()),
-                    ("Update TUI", "Pull latest and recompile".to_string()),
+                    ("Versions & Updates", "Manage Unleash and agent CLI versions".to_string()),
                     ("Help", "Keyboard shortcuts and tips".to_string()),
                     ("Quit", "Exit the launcher".to_string()),
                 ];
@@ -1902,13 +1949,9 @@ impl App {
                 // Help screen has fixed text
                 40
             }
-            Screen::Updating => {
-                // Update status messages
-                35
-            }
             Screen::VersionManagement => {
-                // Version entries: "> v2.1.37 [installed] ✓" ~30 chars + padding
-                45
+                // Wider to fit agent versions + auto-update toggles
+                55
             }
             Screen::ProfileEdit | Screen::EnvVarEdit => {
                 // Profile editing needs more space for env var keys/values
@@ -2051,7 +2094,6 @@ impl App {
                     self.render_conflict_dialog(frame, frame.area());
                 }
             }
-            Screen::Updating => self.render_updating(frame, area),
         }
     }
 
@@ -2117,8 +2159,7 @@ impl App {
         let menu_items = [
             ("Start Session", "Launch Claude with selected profile".to_string()),
             ("Profiles", "Manage profiles and their settings".to_string()),
-            ("Agent Versions", "Manage installed agent CLIs".to_string()),
-            ("Update TUI", "Pull latest and recompile".to_string()),
+            ("Versions & Updates", "Manage Unleash and agent CLI versions".to_string()),
             ("Help", "Keyboard shortcuts and tips".to_string()),
             ("Quit", "Exit the launcher".to_string()),
         ];
@@ -2728,66 +2769,102 @@ impl App {
         }
     }
 
-    fn render_updating(&self, frame: &mut Frame, area: Rect) {
-        let lines = vec![
-            Line::from(""),
-            Line::from(Span::styled(
-                "Updating TUI...",
-                Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD),
-            )),
-            Line::from(""),
-            Line::from("This will:"),
-            Line::from("  1. Pull latest changes from git"),
-            Line::from("  2. Recompile with cargo build --release"),
-            Line::from("  3. Replace current binary and restart"),
-            Line::from(""),
-            Line::from(Span::styled(
-                "Press Enter to continue, Esc to cancel",
-                Style::default().fg(Color::DarkGray),
-            )),
-        ];
-
-        let content = Paragraph::new(lines)
-            .wrap(Wrap { trim: false });
-        frame.render_widget(content, area);
-    }
-
     fn render_version_management(&mut self, frame: &mut Frame, area: Rect) {
+        let unleash_height = 4; // 2 lines content + 2 for borders
         let agents = AgentType::all();
         let agent_height = (agents.len() as u16) + 2; // agents + borders
 
         if self.show_install_log {
-            // 3-panel layout: agent picker, version list (shrunk), install log
+            // 4-panel layout: unleash, agent picker, version list (shrunk), install log
             let chunks = Layout::default()
                 .direction(Direction::Vertical)
                 .constraints([
+                    Constraint::Length(unleash_height),
                     Constraint::Length(agent_height),
                     Constraint::Min(3),
                     Constraint::Length(10),
                 ])
                 .split(area);
 
-            self.render_agent_picker(frame, chunks[0]);
-            self.render_version_panel(frame, chunks[1]);
-            self.render_install_log_panel(frame, chunks[2]);
+            self.render_unleash_section(frame, chunks[0]);
+            self.render_agent_picker(frame, chunks[1]);
+            self.render_version_panel(frame, chunks[2]);
+            self.render_install_log_panel(frame, chunks[3]);
         } else {
-            // Normal 2-panel layout
+            // 3-panel layout: unleash, agent picker, version list
             let chunks = Layout::default()
                 .direction(Direction::Vertical)
                 .constraints([
+                    Constraint::Length(unleash_height),
                     Constraint::Length(agent_height),
                     Constraint::Min(5),
                 ])
                 .split(area);
 
-            self.render_agent_picker(frame, chunks[0]);
-            self.render_version_panel(frame, chunks[1]);
+            self.render_unleash_section(frame, chunks[0]);
+            self.render_agent_picker(frame, chunks[1]);
+            self.render_version_panel(frame, chunks[2]);
         }
+    }
+
+    /// Render the Unleash (parent) section showing version and auto-update toggle
+    fn render_unleash_section(&mut self, frame: &mut Frame, area: Rect) {
+        let is_focused = self.version_focus == VersionFocus::Unleash;
+        let border_color = if is_focused { self.accent_color() } else { Color::DarkGray };
+
+        let block = Block::default()
+            .borders(Borders::ALL)
+            .border_style(Style::default().fg(border_color))
+            .title(Span::styled(
+                " Unleash ",
+                Style::default()
+                    .fg(self.accent_color())
+                    .add_modifier(Modifier::BOLD),
+            ));
+
+        let inner = block.inner(area);
+        frame.render_widget(block, area);
+
+        let auto_update = if self.app_config.auto_update.unleash { "On" } else { "Off" };
+
+        let version_line = Line::from(vec![
+            Span::styled("  ", Style::default()),
+            Span::styled(
+                format!("v{}", self.unleash_version),
+                Style::default().fg(Color::White).add_modifier(Modifier::BOLD),
+            ),
+            Span::raw("    "),
+            Span::styled(
+                format!("Auto-update: [{}]", auto_update),
+                Style::default().fg(Color::DarkGray),
+            ),
+        ]);
+
+        let hints_line = if is_focused {
+            Line::from(vec![
+                Span::styled("  ", Style::default()),
+                Span::styled("[Enter] ", Style::default().fg(self.accent_color())),
+                Span::styled("Update  ", Style::default().fg(Color::DarkGray)),
+                Span::styled("[a] ", Style::default().fg(self.accent_color())),
+                Span::styled("Toggle auto-update", Style::default().fg(Color::DarkGray)),
+            ])
+        } else {
+            Line::from("")
+        };
+
+        let content = Paragraph::new(vec![version_line, hints_line]);
+        frame.render_widget(content, inner);
+
+        // Register clickable area
+        self.clickable_areas.push((
+            Rect::new(inner.x, inner.y, inner.width, inner.height),
+            ClickTarget::UnleashSection,
+        ));
     }
 
     /// Render the agent picker as a compact list with the selected agent highlighted
     fn render_agent_picker(&mut self, frame: &mut Frame, area: Rect) {
-        let border_color = if self.focus_agent_picker {
+        let border_color = if self.version_focus == VersionFocus::AgentPicker {
             self.accent_color()
         } else {
             Color::DarkGray
@@ -2796,7 +2873,7 @@ impl App {
         let block = Block::default()
             .borders(Borders::ALL)
             .border_style(Style::default().fg(border_color))
-            .title(" Agent CLI ");
+            .title(" Agent CLIs ");
 
         let inner = block.inner(area);
         frame.render_widget(block, area);
@@ -2818,10 +2895,35 @@ impl App {
                 ("  ", Style::default().fg(Color::DarkGray))
             };
 
-            lines.push(Line::from(vec![
+            // Show installed version
+            let version_str = self.cached_agent_versions
+                .get(agent)
+                .and_then(|v| v.as_ref())
+                .map(|v| format!("  v{}", v))
+                .unwrap_or_default();
+
+            // Show auto-update status
+            let auto_update = if self.app_config.auto_update.auto_update_for_agent(agent) { "On" } else { "Off" };
+
+            let mut spans = vec![
                 Span::styled(prefix, style),
-                Span::styled(agent.display_name(), style),
-            ]));
+                Span::styled(format!("{:<12}", agent.display_name()), style),
+                Span::styled(
+                    format!("{:<12}", version_str),
+                    Style::default().fg(Color::Green),
+                ),
+                Span::styled(
+                    format!("Auto: {}", auto_update),
+                    Style::default().fg(Color::DarkGray),
+                ),
+            ];
+
+            // Show [a] hint when focused on this agent
+            if is_selected && self.version_focus == VersionFocus::AgentPicker {
+                spans.push(Span::raw(" "));
+            }
+
+            lines.push(Line::from(spans));
         }
 
         // Register clickable areas: one row per agent
@@ -2842,7 +2944,7 @@ impl App {
     /// Render the version list inside a bordered panel
     fn render_version_panel(&mut self, frame: &mut Frame, area: Rect) {
         let agent_name = self.version_agent.display_name();
-        let border_color = if !self.focus_agent_picker {
+        let border_color = if self.version_focus == VersionFocus::VersionList {
             self.accent_color()
         } else {
             Color::DarkGray
@@ -3154,7 +3256,7 @@ mod tests {
             running: true,
             last_frame_area: Rect::default(),
             screen: Screen::Main,
-            main_menu: MenuState::new(6),
+            main_menu: MenuState::new(5),
             profile_menu: MenuState::new(profiles.len()),
             profile_manager,
             app_config,
@@ -3189,7 +3291,8 @@ mod tests {
             pending_external_edit: None,
             help_return_screen: None,
             help_scroll_offset: 0,
-            focus_agent_picker: true,
+            version_focus: VersionFocus::Unleash,
+            unleash_version: env!("CARGO_PKG_VERSION").to_string(),
             agent_picker_menu: MenuState::new(AgentType::all().len()),
             installing_version_index: None,
             install_log_lines: Vec::new(),
@@ -3493,8 +3596,8 @@ mod tests {
         let (mut app, _temp) = test_app();
         app.animations_enabled = false;
 
-        // Select Help menu item (index 4)
-        app.main_menu.selected = 4;
+        // Select Help menu item (index 3)
+        app.main_menu.selected = 3;
         let _ = app.handle_main_input(NavAction::Select);
         app.tick();
         assert_eq!(app.screen, Screen::Help);
@@ -3547,12 +3650,12 @@ mod tests {
     }
 
     #[test]
-    fn test_quit_is_index_5() {
+    fn test_quit_is_index_4() {
         let (mut app, _temp) = test_app();
         app.animations_enabled = false;
 
-        // Selecting index 5 should quit
-        app.main_menu.selected = 5;
+        // Selecting index 4 should quit
+        app.main_menu.selected = 4;
         let _ = app.handle_main_input(NavAction::Select);
         assert!(!app.running);
     }
@@ -3563,21 +3666,21 @@ mod tests {
         app.animations_enabled = false;
 
         app.screen = Screen::VersionManagement;
-        app.focus_agent_picker = true;
+        app.version_focus = VersionFocus::AgentPicker;
         assert_eq!(app.version_agent, AgentType::Claude);
 
         // Navigate down: Claude -> Codex -> Gemini -> OpenCode
-        app.handle_version_input(NavAction::Down, key_for(NavAction::Down));
+        let _ = app.handle_version_input(NavAction::Down, key_for(NavAction::Down));
         assert_eq!(app.version_agent, AgentType::Codex);
 
-        app.handle_version_input(NavAction::Down, key_for(NavAction::Down));
+        let _ = app.handle_version_input(NavAction::Down, key_for(NavAction::Down));
         assert_eq!(app.version_agent, AgentType::Gemini);
 
-        app.handle_version_input(NavAction::Down, key_for(NavAction::Down));
+        let _ = app.handle_version_input(NavAction::Down, key_for(NavAction::Down));
         assert_eq!(app.version_agent, AgentType::OpenCode);
 
         // Clamp at bottom (no wrap)
-        app.handle_version_input(NavAction::Down, key_for(NavAction::Down));
+        let _ = app.handle_version_input(NavAction::Down, key_for(NavAction::Down));
         assert_eq!(app.version_agent, AgentType::OpenCode);
     }
 
@@ -3587,24 +3690,24 @@ mod tests {
         app.animations_enabled = false;
 
         app.screen = Screen::VersionManagement;
-        app.focus_agent_picker = true;
+        app.version_focus = VersionFocus::AgentPicker;
 
         // Start at OpenCode
         app.switch_to_agent_index(3);
         assert_eq!(app.version_agent, AgentType::OpenCode);
 
         // Navigate up: OpenCode -> Gemini -> Codex -> Claude
-        app.handle_version_input(NavAction::Up, key_for(NavAction::Up));
+        let _ = app.handle_version_input(NavAction::Up, key_for(NavAction::Up));
         assert_eq!(app.version_agent, AgentType::Gemini);
 
-        app.handle_version_input(NavAction::Up, key_for(NavAction::Up));
+        let _ = app.handle_version_input(NavAction::Up, key_for(NavAction::Up));
         assert_eq!(app.version_agent, AgentType::Codex);
 
-        app.handle_version_input(NavAction::Up, key_for(NavAction::Up));
+        let _ = app.handle_version_input(NavAction::Up, key_for(NavAction::Up));
         assert_eq!(app.version_agent, AgentType::Claude);
 
         // Clamp at top (no wrap)
-        app.handle_version_input(NavAction::Up, key_for(NavAction::Up));
+        let _ = app.handle_version_input(NavAction::Up, key_for(NavAction::Up));
         assert_eq!(app.version_agent, AgentType::Claude);
     }
 
@@ -3614,12 +3717,12 @@ mod tests {
         app.animations_enabled = false;
 
         app.screen = Screen::VersionManagement;
-        app.focus_agent_picker = true; // Focus on drum picker
+        app.version_focus = VersionFocus::AgentPicker; // Focus on agent picker
         app.version_menu.selected = 3;
         app.version_menu.scroll_offset = 2;
 
         // Switching agent resets selection and scroll
-        app.handle_version_input(NavAction::Down, key_for(NavAction::Down));
+        let _ = app.handle_version_input(NavAction::Down, key_for(NavAction::Down));
         assert_eq!(app.version_menu.selected, 0);
         assert_eq!(app.version_menu.scroll_offset, 0);
     }
@@ -3712,7 +3815,7 @@ mod tests {
         let (mut app, _temp) = test_app();
         app.animations_enabled = false;
 
-        // Select "Agent Versions" (index 2) from main menu
+        // Select "Versions & Updates" (index 2) from main menu
         app.main_menu.selected = 2;
         let _ = app.handle_main_input(NavAction::Select);
         app.tick();
@@ -3724,7 +3827,7 @@ mod tests {
         let (mut app, _temp) = test_app();
         app.animations_enabled = false;
         app.screen = Screen::VersionManagement;
-        app.focus_agent_picker = true;
+        app.version_focus = VersionFocus::AgentPicker;
 
         // Pre-populate Claude versions
         app.versions = vec![VersionInfo {
@@ -3735,7 +3838,7 @@ mod tests {
         assert_eq!(app.version_agent, AgentType::Claude);
 
         // Switch to Codex (no cache exists for Codex)
-        app.handle_version_input(NavAction::Down, key_for(NavAction::Down));
+        let _ = app.handle_version_input(NavAction::Down, key_for(NavAction::Down));
         assert_eq!(app.version_agent, AgentType::Codex);
 
         // After the fix, versions should be cleared (no stale Claude data)
@@ -3752,7 +3855,7 @@ mod tests {
         let (mut app, _temp) = test_app();
         app.animations_enabled = false;
         app.screen = Screen::VersionManagement;
-        app.focus_agent_picker = true;
+        app.version_focus = VersionFocus::AgentPicker;
 
         // Pre-cache Codex versions
         let codex_versions = vec![VersionInfo {
@@ -3762,7 +3865,7 @@ mod tests {
         app.cached_version_lists.insert(AgentType::Codex, codex_versions);
 
         // Switch to Codex
-        app.handle_version_input(NavAction::Down, key_for(NavAction::Down));
+        let _ = app.handle_version_input(NavAction::Down, key_for(NavAction::Down));
         assert_eq!(app.version_agent, AgentType::Codex);
 
         // Should show cached Codex version immediately
@@ -3775,20 +3878,20 @@ mod tests {
         let (mut app, _temp) = test_app();
         app.animations_enabled = false;
         app.screen = Screen::VersionManagement;
-        app.focus_agent_picker = true;
+        app.version_focus = VersionFocus::AgentPicker;
 
         // Switch to Codex (starts async fetch)
-        app.handle_version_input(NavAction::Down, key_for(NavAction::Down));
+        let _ = app.handle_version_input(NavAction::Down, key_for(NavAction::Down));
         assert!(app.version_list_receiver.is_some());
         assert_eq!(app.version_agent, AgentType::Codex);
 
         // Immediately switch to Gemini (should replace receiver)
-        app.handle_version_input(NavAction::Down, key_for(NavAction::Down));
+        let _ = app.handle_version_input(NavAction::Down, key_for(NavAction::Down));
         assert!(app.version_list_receiver.is_some());
         assert_eq!(app.version_agent, AgentType::Gemini);
 
         // Switch again to OpenCode
-        app.handle_version_input(NavAction::Down, key_for(NavAction::Down));
+        let _ = app.handle_version_input(NavAction::Down, key_for(NavAction::Down));
         assert!(app.version_list_receiver.is_some());
         assert_eq!(app.version_agent, AgentType::OpenCode);
     }
@@ -3873,15 +3976,15 @@ mod tests {
         let (mut app, _temp) = test_app();
         app.animations_enabled = false;
         app.screen = Screen::VersionManagement;
-        app.focus_agent_picker = true;
+        app.version_focus = VersionFocus::AgentPicker;
 
         // Tab moves from picker to version list
-        app.handle_version_input(NavAction::Tab, key_for(NavAction::Tab));
-        assert!(!app.focus_agent_picker);
+        let _ = app.handle_version_input(NavAction::Tab, key_for(NavAction::Tab));
+        assert!(app.version_focus != VersionFocus::AgentPicker);
 
         // Back goes from version list to picker
-        app.handle_version_input(NavAction::Back, key_for(NavAction::Back));
-        assert!(app.focus_agent_picker);
+        let _ = app.handle_version_input(NavAction::Back, key_for(NavAction::Back));
+        assert!(app.version_focus == VersionFocus::AgentPicker);
     }
 
     #[test]
@@ -3889,11 +3992,11 @@ mod tests {
         let (mut app, _temp) = test_app();
         app.animations_enabled = false;
         app.screen = Screen::VersionManagement;
-        app.focus_agent_picker = true;
+        app.version_focus = VersionFocus::AgentPicker;
 
         // Select in picker should move focus to version list
-        app.handle_version_input(NavAction::Select, key_for(NavAction::Select));
-        assert!(!app.focus_agent_picker);
+        let _ = app.handle_version_input(NavAction::Select, key_for(NavAction::Select));
+        assert!(app.version_focus != VersionFocus::AgentPicker);
     }
 
     #[test]
@@ -3901,30 +4004,35 @@ mod tests {
         let (mut app, _temp) = test_app();
         app.animations_enabled = false;
         app.screen = Screen::VersionManagement;
-        app.focus_agent_picker = false;
+        app.version_focus = VersionFocus::VersionList;
 
-        // Back from version list goes to picker
-        app.handle_version_input(NavAction::Back, key_for(NavAction::Back));
-        assert!(app.focus_agent_picker);
+        // Back from version list goes to agent picker
+        let _ = app.handle_version_input(NavAction::Back, key_for(NavAction::Back));
+        assert!(app.version_focus == VersionFocus::AgentPicker);
         assert_eq!(app.screen, Screen::VersionManagement);
 
-        // Back from picker goes to main screen
-        app.handle_version_input(NavAction::Back, key_for(NavAction::Back));
+        // Back from agent picker goes to unleash section
+        let _ = app.handle_version_input(NavAction::Back, key_for(NavAction::Back));
+        assert!(app.version_focus == VersionFocus::Unleash);
+        assert_eq!(app.screen, Screen::VersionManagement);
+
+        // Back from unleash goes to main screen
+        let _ = app.handle_version_input(NavAction::Back, key_for(NavAction::Back));
         app.tick();
         assert_eq!(app.screen, Screen::Main);
     }
 
     #[test]
-    fn test_version_screen_starts_with_agent_picker_focused() {
+    fn test_version_screen_starts_with_unleash_focused() {
         let (mut app, _temp) = test_app();
         app.animations_enabled = false;
-        app.focus_agent_picker = false; // Simulate leftover state
+        app.version_focus = VersionFocus::VersionList; // Simulate leftover state
 
         // Enter version management screen
         app.screen = Screen::VersionManagement;
         app.refresh_screen_data();
 
-        assert!(app.focus_agent_picker);
+        assert!(app.version_focus == VersionFocus::Unleash);
     }
 
     #[test]
@@ -3932,7 +4040,7 @@ mod tests {
         let (mut app, _temp) = test_app();
         app.animations_enabled = false;
         app.screen = Screen::VersionManagement;
-        app.focus_agent_picker = true;
+        app.version_focus = VersionFocus::AgentPicker;
 
         // Navigate to OpenCode (bottom)
         app.switch_to_agent_index(3);
@@ -3940,9 +4048,9 @@ mod tests {
 
         // Press 'g' then 'g' to jump to top
         let g_key = KeyEvent::new(KeyCode::Char('g'), KeyModifiers::NONE);
-        app.handle_version_input(NavAction::None, g_key);
+        let _ = app.handle_version_input(NavAction::None, g_key);
         assert!(app.g_pending);
-        app.handle_version_input(NavAction::None, g_key);
+        let _ = app.handle_version_input(NavAction::None, g_key);
         assert!(!app.g_pending);
         assert_eq!(app.version_agent, AgentType::Claude);
     }
@@ -3952,13 +4060,13 @@ mod tests {
         let (mut app, _temp) = test_app();
         app.animations_enabled = false;
         app.screen = Screen::VersionManagement;
-        app.focus_agent_picker = true;
+        app.version_focus = VersionFocus::AgentPicker;
 
         assert_eq!(app.version_agent, AgentType::Claude);
 
         // Press 'G' to jump to bottom
         let big_g_key = KeyEvent::new(KeyCode::Char('G'), KeyModifiers::SHIFT);
-        app.handle_version_input(NavAction::None, big_g_key);
+        let _ = app.handle_version_input(NavAction::None, big_g_key);
         assert_eq!(app.version_agent, AgentType::OpenCode);
     }
 
@@ -3967,11 +4075,11 @@ mod tests {
         let (mut app, _temp) = test_app();
         app.animations_enabled = false;
         app.screen = Screen::VersionManagement;
-        app.focus_agent_picker = false;
+        app.version_focus = VersionFocus::VersionList;
 
         // Press 's' triggers a rescan (version_list_receiver gets set)
         let s_key = KeyEvent::new(KeyCode::Char('s'), KeyModifiers::NONE);
-        app.handle_version_input(NavAction::None, s_key);
+        let _ = app.handle_version_input(NavAction::None, s_key);
         assert!(app.version_list_receiver.is_some());
     }
 
@@ -3980,15 +4088,15 @@ mod tests {
         let (mut app, _temp) = test_app();
         app.animations_enabled = false;
         app.screen = Screen::VersionManagement;
-        app.focus_agent_picker = true;
+        app.version_focus = VersionFocus::AgentPicker;
 
         // Press 'g' — should set pending
         let g_key = KeyEvent::new(KeyCode::Char('g'), KeyModifiers::NONE);
-        app.handle_version_input(NavAction::None, g_key);
+        let _ = app.handle_version_input(NavAction::None, g_key);
         assert!(app.g_pending);
 
         // Press something else — should clear pending and handle normally
-        app.handle_version_input(NavAction::Down, key_for(NavAction::Down));
+        let _ = app.handle_version_input(NavAction::Down, key_for(NavAction::Down));
         assert!(!app.g_pending);
     }
 }
