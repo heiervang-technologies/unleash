@@ -3,6 +3,23 @@
 version = 4
 
 [[package]]
+name = "unleash"
+version = "8.1.0"
+dependencies = [
+ "clap",
+ "crossterm",
+ "ctrlc",
+ "dirs",
+ "nix 0.29.0",
+ "ratatui",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "toml",
+ "which",
+]
+
+[[package]]
 name = "allocator-api2"
 version = "0.2.21"
 source = "registry+https://github.com/rust-lang/crates.io-index"
