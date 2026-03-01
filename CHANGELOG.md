@@ -1,5 +1,12 @@
 # Changelog
 
+## [8.5.0](https://github.com/heiervang-technologies/unleash/compare/v8.4.0...v8.5.0) (2026-03-01)
+
+
+### Features
+
+* extend hyprland-focus hooks to all agent CLIs ([#182](https://github.com/heiervang-technologies/unleash/issues/182)) ([3644c4d](https://github.com/heiervang-technologies/unleash/commit/3644c4dfc788fe2cbbf3d7a0be74fae474ee7e3e))
+
 ## [8.4.0](https://github.com/heiervang-technologies/unleash/compare/v8.3.0...v8.4.0) (2026-03-01)
 
 
