@@ -303,6 +303,9 @@ fn run_claude(
 
     // Always use bypass permissions (auto mode is differentiated by the Stop hook,
     // not by a custom permission mode — native binaries don't support patched modes)
+    if !args.iter().any(|a| a == "--dangerously-skip-permissions") {
+        eprintln!("\x1b[33m[Agent Unleashed] ⚠ WARNING: Running with --dangerously-skip-permissions automatically enabled.\x1b[0m");
+    }
     cmd.arg("--dangerously-skip-permissions");
 
     // Add user arguments

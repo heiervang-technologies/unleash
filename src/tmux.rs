@@ -82,6 +82,24 @@ const YELLOW: &str = "\x1b[1;33m";
 const RED: &str = "\x1b[0;31m";
 const NC: &str = "\x1b[0m";
 
+/// Escape a string for use in a shell command
+fn shell_escape(s: &str) -> String {
+    if s.is_empty() {
+        return "''".to_string();
+    }
+    let mut escaped = String::with_capacity(s.len() + 2);
+    escaped.push('\'');
+    for c in s.chars() {
+        if c == '\'' {
+            escaped.push_str("'\\''");
+        } else {
+            escaped.push(c);
+        }
+    }
+    escaped.push('\'');
+    escaped
+}
+
 fn log_info(msg: &str) {
     println!("{}[autx]{} {}", GREEN, NC, msg);
 }
@@ -242,8 +260,10 @@ fn cmd_start(config: &Config, args: &[String]) -> io::Result<()> {
     if auto_mode {
         cmd_parts.push("CLAUDE_AUTO_MODE=1".to_string());
     }
-    cmd_parts.push(launcher.to_string_lossy().to_string());
-    cmd_parts.extend(claude_args);
+    cmd_parts.push(shell_escape(&launcher.to_string_lossy()));
+    for arg in claude_args {
+        cmd_parts.push(shell_escape(&arg));
+    }
     if daemon_mode {
         cmd_parts.push(format!("; tmux kill-session -t {}", config.session_name));
     }
@@ -305,9 +325,12 @@ fn cmd_send(config: &Config, args: &[String]) -> io::Result<()> {
         .unwrap_or(0);
     fs::write(config.marker_file(), marker.to_string())?;
 
-    // Send the message
+    // Send the message literally to avoid hyphen/flag parsing, then press Enter
     Command::new("tmux")
-        .args(["send-keys", "-t", &config.session_name, &message, "Enter"])
+        .args(["send-keys", "-t", &config.session_name, "-l", "--", &message])
+        .status()?;
+    Command::new("tmux")
+        .args(["send-keys", "-t", &config.session_name, "Enter"])
         .status()?;
 
     log_info("Message sent");
@@ -366,8 +389,8 @@ fn cmd_wait(config: &Config, timeout_override: Option<u64>) -> io::Result<()> {
             return Err(io::Error::other("Session terminated"));
         }
 
-        let current_size = fs::read(config.output_file())
-            .map(|b| b.len())
+        let current_size = fs::metadata(config.output_file())
+            .map(|m| m.len() as usize)
             .unwrap_or(0);
 
         if current_size == last_size {

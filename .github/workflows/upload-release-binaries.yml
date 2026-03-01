@@ -41,12 +41,15 @@ jobs:
       - name: Build release
         run: cargo build --release --target x86_64-unknown-linux-gnu
 
-      - name: Rename binary
+      - name: Rename binary and generate checksum
         run: |
           cp target/x86_64-unknown-linux-gnu/release/au au-linux-x86_64
+          sha256sum au-linux-x86_64 > checksums.txt
 
       - name: Upload to release
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ github.event.inputs.tag_name }}
-          files: au-linux-x86_64
+          files: |
+            au-linux-x86_64
+            checksums.txt
