@@ -122,6 +122,22 @@ pub enum Screen {
     ConfirmDelete,
     Updating,
     VersionManagement,
+    /// First-time setup wizard
+    Setup,
+}
+
+/// Phase of the first-time setup wizard animation
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum SetupPhase {
+    /// Intro animation: shackled wrists with "unleash" typing out
+    #[default]
+    Intro,
+    /// Breaking free animation
+    Breaking,
+    /// Agent selection phase
+    Selection,
+    /// Completion "UNLEASHING..." animation before transitioning to main
+    Unleashing,
 }
 
 /// What we're currently editing
@@ -238,6 +254,18 @@ pub struct App {
     /// Scroll offset for help screen content
     pub help_scroll_offset: u16,
 
+    // First-time setup wizard state
+    /// Current phase of the setup wizard
+    pub setup_phase: SetupPhase,
+    /// When the current phase started (for animation timing)
+    pub setup_phase_started: Instant,
+    /// How many characters of "UNLEASH" have been revealed (typewriter effect)
+    pub setup_title_chars: usize,
+    /// Scrollable menu for selecting the default agent in setup
+    pub setup_agent_menu: MenuState,
+    /// Detected agents and whether they are installed
+    pub setup_detected_agents: Vec<(AgentType, bool)>,
+
     // Drum picker for agent selection
     /// Whether focus is on the agent picker (true) or version list (false)
     pub focus_agent_picker: bool,
@@ -327,9 +355,28 @@ impl App {
 
         let animations_enabled = app_config.animations;
 
+        // Detect which agent CLIs are installed (for first-time setup)
+        let setup_needed = !app_config.setup_completed;
+        let setup_detected_agents: Vec<(AgentType, bool)> = AgentType::all()
+            .iter()
+            .map(|&agent| {
+                let binary = match agent {
+                    AgentType::Claude => "claude",
+                    AgentType::Codex => "codex",
+                    AgentType::Gemini => "gemini",
+                    AgentType::OpenCode => "opencode",
+                };
+                let installed = which::which(binary).is_ok();
+                (agent, installed)
+            })
+            .collect();
+
+        let initial_screen = if setup_needed { Screen::Setup } else { Screen::Main };
+        let setup_agent_count = setup_detected_agents.len();
+
         Ok(Self {
             running: true,
-            screen: Screen::Main,
+            screen: initial_screen,
             main_menu: MenuState::new(6), // Start, Profiles, Agent Versions, Update, Help, Quit
             profile_menu: MenuState::new(profiles.len()),
             profile_manager,
@@ -363,6 +410,11 @@ impl App {
             pending_external_edit: None,
             help_return_screen: None,
             help_scroll_offset: 0,
+            setup_phase: SetupPhase::Intro,
+            setup_phase_started: Instant::now(),
+            setup_title_chars: 0,
+            setup_agent_menu: MenuState::new(setup_agent_count),
+            setup_detected_agents,
             focus_agent_picker: true,
             agent_picker_menu: MenuState::new(AgentType::all().len()),
             installing_version_index: None,
@@ -576,6 +628,45 @@ impl App {
                 self.refresh_cached_version_for(agent_type);
             }
         }
+
+        // Advance setup wizard animation
+        if self.screen == Screen::Setup {
+            let elapsed = self.setup_phase_started.elapsed();
+            match self.setup_phase {
+                SetupPhase::Intro => {
+                    // Typewriter: reveal one char of "UNLEASH" every 120ms (after 300ms delay)
+                    const TITLE: &str = "UNLEASH";
+                    const CHAR_DELAY_MS: u64 = 120;
+                    const INITIAL_DELAY_MS: u64 = 300;
+                    if elapsed.as_millis() > INITIAL_DELAY_MS as u128 {
+                        let chars_to_show = ((elapsed.as_millis() - INITIAL_DELAY_MS as u128)
+                            / CHAR_DELAY_MS as u128) as usize;
+                        self.setup_title_chars = chars_to_show.min(TITLE.len());
+                    }
+                    // Auto-advance to breaking phase after full title + 800ms pause
+                    if self.setup_title_chars >= TITLE.len()
+                        && elapsed > Duration::from_millis(INITIAL_DELAY_MS + TITLE.len() as u64 * CHAR_DELAY_MS + 800)
+                    {
+                        self.setup_phase = SetupPhase::Breaking;
+                        self.setup_phase_started = Instant::now();
+                    }
+                }
+                SetupPhase::Breaking => {
+                    // Breaking animation plays for 800ms then transitions to Selection
+                    if elapsed > Duration::from_millis(800) {
+                        self.setup_phase = SetupPhase::Selection;
+                        self.setup_phase_started = Instant::now();
+                    }
+                }
+                SetupPhase::Unleashing => {
+                    // Unleashing animation plays for 900ms then goes to Main
+                    if elapsed > Duration::from_millis(900) {
+                        self.finish_setup();
+                    }
+                }
+                SetupPhase::Selection => {}
+            }
+        }
     }
 
     /// Get the current spinner frame
@@ -643,7 +734,8 @@ impl App {
             | Screen::EnvVarEdit
             | Screen::Theme
             | Screen::Help
-            | Screen::ConfirmDelete => {}
+            | Screen::ConfirmDelete
+            | Screen::Setup => {}
         }
     }
 
@@ -844,8 +936,8 @@ impl App {
 
             let action = key_to_action(key);
 
-            // Global help: '?' opens help from any navigable screen
-            if action == NavAction::Help && self.screen != Screen::Help {
+            // Global help: '?' opens help from any navigable screen (not during setup)
+            if action == NavAction::Help && self.screen != Screen::Help && self.screen != Screen::Setup {
                 // Only animate when transitioning from Main (mascot changes sides)
                 if self.screen == Screen::Main {
                     self.trigger_screen_animation(true, Screen::Help);
@@ -861,6 +953,7 @@ impl App {
             }
 
             match self.screen {
+                Screen::Setup => return self.handle_setup_input(key),
                 Screen::Main => return self.handle_main_input(action),
                 Screen::Profiles => self.handle_profiles_input(action),
                 Screen::ProfileEdit => self.handle_profile_edit_input(action, key),
@@ -1669,11 +1762,26 @@ impl App {
                 // Profile editing needs more space for env var keys/values
                 50
             }
+            Screen::Setup => {
+                // Setup takes full width (rendered without sidebar)
+                0
+            }
         }
     }
 
     /// Render the UI
     pub fn render(&mut self, frame: &mut Frame) {
+        // Setup screen is full-screen (no sidebar)
+        if self.screen == Screen::Setup {
+            let main_chunks = Layout::default()
+                .direction(Direction::Vertical)
+                .constraints([Constraint::Min(10), Constraint::Length(3)])
+                .split(frame.area());
+            self.render_setup(frame, main_chunks[0]);
+            self.render_status_bar(frame, main_chunks[1]);
+            return;
+        }
+
         // Main layout: content area + status bar at bottom
         let main_chunks = Layout::default()
             .direction(Direction::Vertical)
@@ -1796,6 +1904,7 @@ impl App {
             }
             Screen::VersionManagement => self.render_version_management(frame, area),
             Screen::Updating => self.render_updating(frame, area),
+            Screen::Setup => self.render_setup(frame, area),
         }
     }
 
@@ -2615,6 +2724,239 @@ impl App {
         frame.render_widget(content, inner);
     }
 
+    // ─── First-time setup wizard ────────────────────────────────────────────────
+
+    /// Complete the setup wizard: save preferences, mark setup done, switch to Main
+    fn finish_setup(&mut self) {
+        // Determine selected agent from menu
+        let selected_agent = self.setup_detected_agents
+            .get(self.setup_agent_menu.selected)
+            .map(|(a, _)| *a)
+            .unwrap_or(AgentType::Claude);
+
+        // Update the default profile to use the chosen agent CLI
+        let binary = match selected_agent {
+            AgentType::Claude => "aug",
+            AgentType::Codex => "codex",
+            AgentType::Gemini => "gemini",
+            AgentType::OpenCode => "opencode",
+        };
+
+        if let Some(ref mut profile) = self.selected_profile {
+            profile.agent_cli_path = binary.to_string();
+            let _ = self.profile_manager.save_profile(profile);
+        }
+
+        // Mark setup as complete
+        self.app_config.setup_completed = true;
+        let _ = self.profile_manager.save_app_config(&self.app_config);
+
+        // Switch to Main screen
+        self.screen = Screen::Main;
+    }
+
+    /// Handle keyboard input on the setup screen
+    fn handle_setup_input(&mut self, key: KeyEvent) -> io::Result<Option<AppAction>> {
+        match self.setup_phase {
+            SetupPhase::Intro | SetupPhase::Breaking => {
+                // Any key skips straight to agent selection
+                self.setup_phase = SetupPhase::Selection;
+                self.setup_phase_started = Instant::now();
+                self.setup_title_chars = 7; // "UNLEASH" fully revealed
+            }
+            SetupPhase::Selection => {
+                match key.code {
+                    KeyCode::Up | KeyCode::Char('k') => {
+                        self.setup_agent_menu.select_prev();
+                    }
+                    KeyCode::Down | KeyCode::Char('j') => {
+                        self.setup_agent_menu.select_next();
+                    }
+                    KeyCode::Enter => {
+                        // Start unleashing animation
+                        self.setup_phase = SetupPhase::Unleashing;
+                        self.setup_phase_started = Instant::now();
+                    }
+                    KeyCode::Esc => {
+                        // Skip setup entirely, use defaults
+                        self.finish_setup();
+                    }
+                    _ => {}
+                }
+            }
+            SetupPhase::Unleashing => {
+                // Any key completes immediately
+                self.finish_setup();
+            }
+        }
+
+        Ok(None)
+    }
+
+    /// Render the first-time setup wizard (full-screen, no sidebar)
+    fn render_setup(&mut self, frame: &mut Frame, area: Rect) {
+        let accent = self.accent_color();
+        let dim = Color::DarkGray;
+
+        // Vertical layout: top padding, art area, title, content, bottom padding
+        let chunks = Layout::default()
+            .direction(Direction::Vertical)
+            .constraints([
+                Constraint::Length(1),          // top padding
+                Constraint::Length(11),         // shackle art (11 lines)
+                Constraint::Length(3),          // "UNLEASH" title
+                Constraint::Length(1),          // separator
+                Constraint::Min(6),             // agent selection or unleashing
+                Constraint::Length(1),          // hint bar
+            ])
+            .split(area);
+
+        // ── Shackle art ──────────────────────────────────────────────────────────
+        let frame_idx = self.animation_frame;
+        let art_lines = setup_shackle_art(self.setup_phase, frame_idx);
+        let art_widget = Paragraph::new(art_lines)
+            .alignment(ratatui::layout::Alignment::Center);
+        frame.render_widget(art_widget, chunks[1]);
+
+        // ── "UNLEASH" typewriter title ────────────────────────────────────────────
+        const FULL_TITLE: &str = "UNLEASH";
+        let revealed = &FULL_TITLE[..self.setup_title_chars.min(FULL_TITLE.len())];
+        let cursor = if self.setup_title_chars < FULL_TITLE.len()
+            && self.setup_phase == SetupPhase::Intro
+        {
+            "█"
+        } else {
+            ""
+        };
+        let title_style = Style::default()
+            .fg(accent)
+            .add_modifier(Modifier::BOLD);
+        let title_text = if self.setup_phase == SetupPhase::Unleashing {
+            // Flash "UNLEASHING..." during completion animation
+            let dots = ".".repeat((self.animation_frame / 6) % 4);
+            format!("UNLEASHING{}", dots)
+        } else {
+            format!("{}{}", revealed, cursor)
+        };
+        let title_widget = Paragraph::new(Line::from(Span::styled(title_text, title_style)))
+            .alignment(ratatui::layout::Alignment::Center);
+        frame.render_widget(title_widget, chunks[2]);
+
+        // ── Separator ────────────────────────────────────────────────────────────
+        let sep_widget = Paragraph::new(Line::from(Span::styled(
+            "─".repeat(area.width as usize / 2),
+            Style::default().fg(dim),
+        )))
+        .alignment(ratatui::layout::Alignment::Center);
+        frame.render_widget(sep_widget, chunks[3]);
+
+        // ── Agent selection / unleashing content ─────────────────────────────────
+        match self.setup_phase {
+            SetupPhase::Intro | SetupPhase::Breaking => {
+                // Nothing — show empty area while animation plays
+                let hint = Paragraph::new(Line::from(Span::styled(
+                    "Press any key to skip",
+                    Style::default().fg(dim),
+                )))
+                .alignment(ratatui::layout::Alignment::Center);
+                frame.render_widget(hint, chunks[4]);
+            }
+            SetupPhase::Selection => {
+                self.render_setup_selection(frame, chunks[4]);
+            }
+            SetupPhase::Unleashing => {
+                let msg = Paragraph::new(vec![
+                    Line::from(""),
+                    Line::from(Span::styled(
+                        "Setting your preferred agent...",
+                        Style::default().fg(Color::Green),
+                    )),
+                ])
+                .alignment(ratatui::layout::Alignment::Center);
+                frame.render_widget(msg, chunks[4]);
+            }
+        }
+
+        // ── Bottom hint ───────────────────────────────────────────────────────────
+        let hint_text = match self.setup_phase {
+            SetupPhase::Selection => {
+                Line::from(vec![
+                    Span::styled("↑↓ / jk", Style::default().fg(accent)),
+                    Span::styled(" select    ", Style::default().fg(dim)),
+                    Span::styled("Enter", Style::default().fg(accent)),
+                    Span::styled(" confirm    ", Style::default().fg(dim)),
+                    Span::styled("Esc", Style::default().fg(accent)),
+                    Span::styled(" skip", Style::default().fg(dim)),
+                ])
+            }
+            _ => Line::from(Span::styled(
+                "Ctrl+C to quit",
+                Style::default().fg(dim),
+            )),
+        };
+        let hint_widget = Paragraph::new(hint_text)
+            .alignment(ratatui::layout::Alignment::Center);
+        frame.render_widget(hint_widget, chunks[5]);
+    }
+
+    /// Render the agent selection list within the setup wizard
+    fn render_setup_selection(&mut self, frame: &mut Frame, area: Rect) {
+        let accent = self.accent_color();
+        let label_style = Style::default().fg(Color::White).add_modifier(Modifier::BOLD);
+        let dim = Style::default().fg(Color::DarkGray);
+        let installed_style = Style::default().fg(Color::Green);
+        let missing_style = Style::default().fg(Color::DarkGray);
+
+        // Header
+        let header_chunks = Layout::default()
+            .direction(Direction::Vertical)
+            .constraints([Constraint::Length(2), Constraint::Min(1)])
+            .split(area);
+
+        let header = Paragraph::new(vec![
+            Line::from(Span::styled(
+                "Select your default agent CLI:",
+                label_style,
+            )),
+            Line::from(Span::styled(
+                "(You can change this later in Profiles)",
+                dim,
+            )),
+        ])
+        .alignment(ratatui::layout::Alignment::Center);
+        frame.render_widget(header, header_chunks[0]);
+
+        // Agent list
+        let list_area = header_chunks[1];
+        let items: Vec<ListItem> = self
+            .setup_detected_agents
+            .iter()
+            .enumerate()
+            .map(|(i, (agent, installed))| {
+                let is_sel = i == self.setup_agent_menu.selected;
+                let prefix = if is_sel { "> " } else { "  " };
+                let name = agent.display_name();
+                let status_span = if *installed {
+                    Span::styled(" [installed]", installed_style)
+                } else {
+                    Span::styled(" [not installed]", missing_style)
+                };
+                let name_style = if is_sel {
+                    Style::default().fg(accent).add_modifier(Modifier::BOLD)
+                } else {
+                    Style::default()
+                };
+                ListItem::new(Line::from(vec![
+                    Span::styled(format!("{}{}", prefix, name), name_style),
+                    status_span,
+                ]))
+            })
+            .collect();
+
+        let list = List::new(items);
+        frame.render_widget(list, list_area);
+    }
+
     fn render_status_bar(&self, frame: &mut Frame, area: Rect) {
         let status = self.status_message.as_deref().unwrap_or("Press ? for help");
         let config_hint = format!("Config: {}", self.profile_manager.config_dir().display());
@@ -2638,6 +2980,121 @@ impl App {
         .block(Block::default().borders(Borders::TOP));
         frame.render_widget(config_line, chunks[1]);
     }
+}
+
+/// Generate ASCII art for the shackled-wrists setup animation.
+///
+/// Returns 11 lines of styled text showing:
+/// - Intro phase: wrists with a chain between them
+/// - Breaking phase: chain snapping with sparks
+/// - Selection/Unleashing phase: wrists freed, celebration sparks
+fn setup_shackle_art(phase: SetupPhase, frame: usize) -> Vec<Line<'static>> {
+    const SHACKLED: &[&str] = &[
+        "                                                   ",
+        "     ┌────────┐               ┌────────┐          ",
+        "     │  ~~~~  │               │  ~~~~  │          ",
+        "     │  ~~~~  │               │  ~~~~  │          ",
+        "     └───┬────┘               └────┬───┘          ",
+        "         │═══════════════════════════│             ",
+        "         │  ○ ○ ○  CHAIN  ○ ○ ○    │             ",
+        "         │═══════════════════════════│             ",
+        "         │                           │             ",
+        "     ════╧═══════════════════════════╧════        ",
+        "                                                   ",
+    ];
+
+    const BREAKING_0: &[&str] = &[
+        "                                                   ",
+        "     ┌────────┐               ┌────────┐          ",
+        "     │  ~~~~  │               │  ~~~~  │          ",
+        "     │  ~~~~  │               │  ~~~~  │          ",
+        "     └───┬────┘    * ✦ *      └────┬───┘          ",
+        "         │══════  ✦ SNAP ✦  ══════│             ",
+        "         │  ○ ○   * ✦ *   ○ ○    │             ",
+        "         │══════════════════════════│             ",
+        "         │                           │             ",
+        "     ════╧═══════════════════════════╧════        ",
+        "                                                   ",
+    ];
+
+    const BREAKING_1: &[&str] = &[
+        "                                                   ",
+        "     ┌────────┐               ┌────────┐          ",
+        "     │  ~~~~  │               │  ~~~~  │          ",
+        "     │  ~~~~  │   ✦  ★  ✦   │  ~~~~  │          ",
+        "     └───┬────┘  * BREAK! *   └────┬───┘          ",
+        "         │══════  ✦  ★  ✦  ════════│             ",
+        "         │         *  *  *           │             ",
+        "         │                           │             ",
+        "         │                           │             ",
+        "     ════╧═══════════════════════════╧════        ",
+        "                                                   ",
+    ];
+
+    const FREE: &[&str] = &[
+        "                                                   ",
+        "  ┌────────┐                         ┌────────┐   ",
+        "  │  ~~~~  │      * ✦ FREE ✦ *      │  ~~~~  │   ",
+        "  │  ~~~~  │   ✦                 ✦   │  ~~~~  │   ",
+        "  └────────┘      *           *      └────────┘   ",
+        "                     ✦     ✦                      ",
+        "                        ★                         ",
+        "                     ✦     ✦                      ",
+        "                  *           *                    ",
+        "                                                   ",
+        "                                                   ",
+    ];
+
+    const UNLEASH_0: &[&str] = &[
+        "                                                   ",
+        "  ┌────────┐    ✦  ★  ✦  ★  ✦    ┌────────┐   ",
+        "  │  ~~~~  │  ★  ✦           ✦  ★  │  ~~~~  │   ",
+        "  │  ~~~~  │  ✦    ★       ★    ✦  │  ~~~~  │   ",
+        "  └────────┘    ✦   ★  ☆  ★   ✦   └────────┘   ",
+        "              ★  ✦    ☆   ☆    ✦  ★            ",
+        "                 ★  ☆       ☆  ★               ",
+        "                    ✦  ★ ★  ✦                   ",
+        "                       ★ ★                      ",
+        "                                                   ",
+        "                                                   ",
+    ];
+
+    const UNLEASH_1: &[&str] = &[
+        "                                                   ",
+        "  ┌────────┐   ★  ✦  ☆  ✦  ☆  ✦  ★  ┌────────┐   ",
+        "  │  ~~~~  │   ✦  ☆           ☆  ✦   │  ~~~~  │   ",
+        "  │  ~~~~  │   ☆    ✦  ★   ★  ✦    ☆  │  ~~~~  │   ",
+        "  └────────┘   ✦  ★    ☆ ☆ ☆    ★  ✦  └────────┘   ",
+        "               ★  ✦  ☆           ☆  ✦  ★          ",
+        "                  ★  ✦  ★     ★  ✦  ★             ",
+        "                     ✦  ☆  ★  ☆  ✦               ",
+        "                        ★  ✦  ★                   ",
+        "                           ✦                       ",
+        "                                                   ",
+    ];
+
+    let color = match phase {
+        SetupPhase::Intro => Color::Rgb(180, 120, 60),
+        SetupPhase::Breaking => Color::Rgb(255, 200, 50),
+        SetupPhase::Selection => Color::Rgb(80, 200, 120),
+        SetupPhase::Unleashing => Color::Rgb(255, 180, 50),
+    };
+
+    let source: &[&str] = match phase {
+        SetupPhase::Intro => SHACKLED,
+        SetupPhase::Breaking => {
+            if (frame / 8) % 2 == 0 { BREAKING_0 } else { BREAKING_1 }
+        }
+        SetupPhase::Selection => FREE,
+        SetupPhase::Unleashing => {
+            if (frame / 5) % 2 == 0 { UNLEASH_0 } else { UNLEASH_1 }
+        }
+    };
+
+    source
+        .iter()
+        .map(|line| Line::from(Span::styled(*line, Style::default().fg(color))))
+        .collect()
 }
 
 /// Actions that can be returned from the app
@@ -2786,6 +3243,11 @@ mod tests {
             pending_external_edit: None,
             help_return_screen: None,
             help_scroll_offset: 0,
+            setup_phase: SetupPhase::Intro,
+            setup_phase_started: Instant::now(),
+            setup_title_chars: 0,
+            setup_agent_menu: MenuState::new(AgentType::all().len()),
+            setup_detected_agents: AgentType::all().iter().map(|&a| (a, false)).collect(),
             focus_agent_picker: true,
             agent_picker_menu: MenuState::new(AgentType::all().len()),
             installing_version_index: None,

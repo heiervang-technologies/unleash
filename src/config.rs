@@ -105,6 +105,9 @@ pub struct AppConfig {
     /// Whether TUI animations are enabled
     #[serde(default = "default_true")]
     pub animations: bool,
+    /// Whether the first-time setup wizard has been completed
+    #[serde(default)]
+    pub setup_completed: bool,
 }
 
 fn default_true() -> bool {
@@ -139,6 +142,7 @@ impl Default for AppConfig {
         Self {
             current_profile: default_profile_name(),
             animations: true,
+            setup_completed: false,
         }
     }
 }
