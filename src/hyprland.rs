@@ -4,7 +4,9 @@
 //! workspace assignment, and notification support via `hyprctl`.
 
 use std::env;
+use std::fs;
 use std::io;
+use std::path::PathBuf;
 use std::process::Command;
 
 /// Check if the current session is running under Hyprland
@@ -151,6 +153,92 @@ pub fn notify_error(message: &str) -> io::Result<()> {
 #[allow(dead_code)]
 pub fn notify_ok(message: &str) -> io::Result<()> {
     notify(icon::OK, 5000, "0", message)
+}
+
+// --- Focus (window opacity) ---
+
+/// Find the hypr-window-opacity.sh script path.
+/// Checks repo path first (development), then installed path.
+fn focus_script_path() -> Option<PathBuf> {
+    let repo_path = PathBuf::from("plugins/unleashed/hyprland-focus/scripts/hypr-window-opacity.sh");
+    if repo_path.exists() {
+        return fs::canonicalize(&repo_path).ok();
+    }
+    dirs::data_local_dir()
+        .map(|d| d.join("unleash/plugins/hyprland-focus/scripts/hypr-window-opacity.sh"))
+        .filter(|p| p.exists())
+}
+
+/// Set window to transparent (agent is working).
+/// Calls the hyprland-focus plugin's opacity script.
+pub fn focus_set(wrapper_pid: u32) -> io::Result<()> {
+    if !is_hyprland() || env::var("AU_HYPRLAND_FOCUS").ok().as_deref() == Some("0") {
+        return Ok(());
+    }
+    let script = match focus_script_path() {
+        Some(p) => p,
+        None => {
+            eprintln!("[Unleash] focus: hypr-window-opacity.sh not found, skipping");
+            return Ok(());
+        }
+    };
+    eprintln!("[Unleash] focus: set transparent (pid={})", wrapper_pid);
+    let status = Command::new(&script)
+        .arg("set")
+        .env("AGENT_WRAPPER_PID", wrapper_pid.to_string())
+        .status()?;
+    if !status.success() {
+        eprintln!("[Unleash] focus: set failed with exit code {:?}", status.code());
+    }
+    Ok(())
+}
+
+/// Reset window to opaque (agent is idle/stopped).
+pub fn focus_reset(wrapper_pid: u32) -> io::Result<()> {
+    if !is_hyprland() || env::var("AU_HYPRLAND_FOCUS").ok().as_deref() == Some("0") {
+        return Ok(());
+    }
+    let script = match focus_script_path() {
+        Some(p) => p,
+        None => return Ok(()),
+    };
+    eprintln!("[Unleash] focus: reset opaque (pid={})", wrapper_pid);
+    let status = Command::new(&script)
+        .arg("reset")
+        .env("AGENT_WRAPPER_PID", wrapper_pid.to_string())
+        .status()?;
+    if !status.success() {
+        eprintln!("[Unleash] focus: reset failed with exit code {:?}", status.code());
+    }
+    Ok(())
+}
+
+/// Play the idle sound (agent stopped). Non-blocking.
+pub fn play_idle_sound() {
+    if !is_hyprland() || env::var("AU_HYPRLAND_FOCUS").ok().as_deref() == Some("0") {
+        return;
+    }
+    let sound_file = focus_script_path()
+        .and_then(|p| p.parent().map(|d| d.to_path_buf()))
+        .map(|scripts_dir| scripts_dir.join("../sounds/idle.wav"))
+        .and_then(|p| fs::canonicalize(&p).ok())
+        .filter(|p| p.exists());
+
+    if let Some(sound) = sound_file {
+        // Try pw-play first, fall back to paplay, then play
+        for player in &["pw-play", "paplay", "play"] {
+            if which::which(player).is_ok() {
+                let _ = Command::new(player).arg(&sound).spawn();
+                return;
+            }
+        }
+    }
+}
+
+/// Clean up cached focus state file on exit.
+pub fn focus_cleanup(wrapper_pid: u32) {
+    let state_file = PathBuf::from(format!("/tmp/unleash-hyprfocus/{}", wrapper_pid));
+    let _ = fs::remove_file(state_file);
 }
 
 #[cfg(test)]

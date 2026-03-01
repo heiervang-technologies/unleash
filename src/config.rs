@@ -23,8 +23,8 @@ pub struct Profile {
     pub agent_cli_path: String,
 
     /// Additional arguments to pass to the agent CLI
-    #[serde(default)]
-    pub claude_args: Vec<String>,
+    #[serde(default, alias = "claude_args")]
+    pub agent_args: Vec<String>,
     /// Custom stop-hook prompt for auto-mode (None = use default)
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub stop_prompt: Option<String>,
@@ -39,10 +39,10 @@ pub struct Profile {
 impl Default for Profile {
     fn default() -> Self {
         Self {
-            name: "default".to_string(),
-            description: "Default profile".to_string(),
+            name: "claude".to_string(),
+            description: "Claude Code by Anthropic".to_string(),
             agent_cli_path: default_agent_cli_path(),
-            claude_args: Vec::new(),
+            agent_args: Vec::new(),
             stop_prompt: None,
             theme: default_theme(),
             env: default_env(),
@@ -56,7 +56,7 @@ impl Profile {
             name: name.to_string(),
             description: String::new(),
             agent_cli_path: default_agent_cli_path(),
-            claude_args: Vec::new(),
+            agent_args: Vec::new(),
             stop_prompt: None,
             theme: default_theme(),
             env: default_env(),
@@ -72,11 +72,61 @@ impl Profile {
             name: name.to_string(),
             description: format!("API key profile: {}", name),
             agent_cli_path: default_agent_cli_path(),
-            claude_args: Vec::new(),
+            agent_args: Vec::new(),
             stop_prompt: None,
             theme: default_theme(),
             env,
         }
+    }
+
+    /// Create default profiles for all supported agents
+    pub fn default_profiles() -> Vec<Self> {
+        vec![
+            Self {
+                name: "claude".to_string(),
+                description: "Claude Code by Anthropic".to_string(),
+                agent_cli_path: "claude".to_string(),
+                agent_args: Vec::new(),
+                stop_prompt: None,
+                theme: "orange".to_string(),
+                env: default_env(),
+            },
+            Self {
+                name: "codex".to_string(),
+                description: "Codex by OpenAI".to_string(),
+                agent_cli_path: "codex".to_string(),
+                agent_args: Vec::new(),
+                stop_prompt: None,
+                theme: "#aaaaaa".to_string(),
+                env: default_env(),
+            },
+            Self {
+                name: "gemini".to_string(),
+                description: "Gemini CLI by Google".to_string(),
+                agent_cli_path: "gemini".to_string(),
+                agent_args: Vec::new(),
+                stop_prompt: None,
+                theme: "#4285f4".to_string(),
+                env: default_env(),
+            },
+            Self {
+                name: "opencode".to_string(),
+                description: "OpenCode".to_string(),
+                agent_cli_path: "opencode".to_string(),
+                agent_args: Vec::new(),
+                stop_prompt: None,
+                theme: "#10b981".to_string(),
+                env: default_env(),
+            },
+        ]
+    }
+
+    /// Return the agent type if this profile's CLI path matches a known agent
+    pub fn agent_type(&self) -> Option<AgentType> {
+        let name = std::path::Path::new(&self.agent_cli_path)
+            .file_name()
+            .and_then(|n| n.to_str())?;
+        AgentType::from_str(name)
     }
 
     /// Set an environment variable
@@ -162,7 +212,7 @@ fn default_true() -> bool {
 }
 
 fn default_profile_name() -> String {
-    "default".to_string()
+    "claude".to_string()
 }
 
 fn default_theme() -> String {
@@ -244,18 +294,30 @@ impl ProfileManager {
         // Migrate legacy config.toml settings into profiles
         manager.migrate_if_needed()?;
 
-        // Create default profile if none exist
-        if manager.list_profiles()?.is_empty() {
-            manager.save_profile(&Profile::default())?;
-        }
+        // Ensure default profiles exist for all supported agents.
+        // This backfills newly introduced defaults on upgrades
+        // without overwriting any existing user profile files.
+        manager.seed_missing_default_profiles()?;
 
         Ok(manager)
     }
 
+    /// Create any missing default profiles without overwriting existing files.
+    fn seed_missing_default_profiles(&self) -> io::Result<()> {
+        for profile in Profile::default_profiles() {
+            let path = self.profile_path(&profile.name);
+            if !path.exists() {
+                self.save_profile(&profile)?;
+            }
+        }
+        Ok(())
+    }
+
     /// Get the default config directory (~/.config/unleash)
     pub fn default_config_dir() -> io::Result<PathBuf> {
-        let config_base = dirs::config_dir()
-            .ok_or_else(|| io::Error::new(io::ErrorKind::NotFound, "Could not find config directory"))?;
+        let config_base = dirs::config_dir().ok_or_else(|| {
+            io::Error::new(io::ErrorKind::NotFound, "Could not find config directory")
+        })?;
 
         Ok(config_base.join("unleash"))
     }
@@ -288,11 +350,14 @@ impl ProfileManager {
         }
 
         // Determine target profile name
-        let profile_name = legacy.current_profile.clone()
+        let profile_name = legacy
+            .current_profile
+            .clone()
             .unwrap_or_else(default_profile_name);
 
         // Load or create the target profile
-        let mut profile = self.load_profile(&profile_name)
+        let mut profile = self
+            .load_profile(&profile_name)
             .unwrap_or_else(|_| Profile::new(&profile_name));
 
         // Copy legacy settings into profile
@@ -300,7 +365,7 @@ impl ProfileManager {
             profile.agent_cli_path = path;
         }
         if let Some(args) = legacy.claude_args {
-            profile.claude_args = args;
+            profile.agent_args = args;
         }
         if let Some(prompt) = legacy.stop_prompt {
             profile.stop_prompt = Some(prompt);
@@ -430,7 +495,71 @@ mod tests {
     fn test_default_profile_created() {
         let (manager, _temp) = test_manager();
         let profiles = manager.list_profiles().unwrap();
-        assert!(profiles.contains(&"default".to_string()));
+        // All 4 agent profiles are seeded by default
+        assert!(profiles.contains(&"claude".to_string()));
+        assert!(profiles.contains(&"codex".to_string()));
+        assert!(profiles.contains(&"gemini".to_string()));
+        assert!(profiles.contains(&"opencode".to_string()));
+    }
+
+    #[test]
+    fn test_backfills_missing_default_profiles_on_existing_install() {
+        let temp = TempDir::new().unwrap();
+        let config_dir = temp.path().to_path_buf();
+        let profiles_dir = config_dir.join("profiles");
+        fs::create_dir_all(&profiles_dir).unwrap();
+
+        // Simulate an older install that only had claude + codex.
+        let mut claude = Profile::new("claude");
+        claude.agent_cli_path = "claude".to_string();
+        let mut codex = Profile::new("codex");
+        codex.agent_cli_path = "codex".to_string();
+        fs::write(
+            profiles_dir.join("claude.toml"),
+            toml::to_string_pretty(&claude).unwrap(),
+        )
+        .unwrap();
+        fs::write(
+            profiles_dir.join("codex.toml"),
+            toml::to_string_pretty(&codex).unwrap(),
+        )
+        .unwrap();
+
+        let manager = ProfileManager::with_config_dir(config_dir).unwrap();
+        let profiles = manager.list_profiles().unwrap();
+        assert!(profiles.contains(&"claude".to_string()));
+        assert!(profiles.contains(&"codex".to_string()));
+        assert!(profiles.contains(&"gemini".to_string()));
+        assert!(profiles.contains(&"opencode".to_string()));
+    }
+
+    #[test]
+    fn test_backfill_does_not_overwrite_existing_profile() {
+        let temp = TempDir::new().unwrap();
+        let config_dir = temp.path().to_path_buf();
+        let profiles_dir = config_dir.join("profiles");
+        fs::create_dir_all(&profiles_dir).unwrap();
+
+        let mut claude = Profile::new("claude");
+        claude.description = "custom claude profile".to_string();
+        claude.agent_cli_path = "custom-claude".to_string();
+        claude.theme = "blue".to_string();
+        fs::write(
+            profiles_dir.join("claude.toml"),
+            toml::to_string_pretty(&claude).unwrap(),
+        )
+        .unwrap();
+
+        let manager = ProfileManager::with_config_dir(config_dir).unwrap();
+        let loaded = manager.load_profile("claude").unwrap();
+        assert_eq!(loaded.description, "custom claude profile");
+        assert_eq!(loaded.agent_cli_path, "custom-claude");
+        assert_eq!(loaded.theme, "blue");
+
+        // New defaults should still be added.
+        let profiles = manager.list_profiles().unwrap();
+        assert!(profiles.contains(&"gemini".to_string()));
+        assert!(profiles.contains(&"opencode".to_string()));
     }
 
     #[test]
@@ -451,8 +580,14 @@ mod tests {
         assert_eq!(loaded.description, "Test profile");
         assert_eq!(loaded.agent_cli_path, "custom-cli");
         assert_eq!(loaded.theme, "blue");
-        assert_eq!(loaded.get_env("ANTHROPIC_API_KEY"), Some(&"sk-test-123".to_string()));
-        assert_eq!(loaded.get_env("ANTHROPIC_BASE_URL"), Some(&"https://custom.api.com".to_string()));
+        assert_eq!(
+            loaded.get_env("ANTHROPIC_API_KEY"),
+            Some(&"sk-test-123".to_string())
+        );
+        assert_eq!(
+            loaded.get_env("ANTHROPIC_BASE_URL"),
+            Some(&"https://custom.api.com".to_string())
+        );
     }
 
     #[test]
@@ -462,11 +597,17 @@ mod tests {
         let profile = Profile::new("to_delete");
         manager.save_profile(&profile).unwrap();
 
-        assert!(manager.list_profiles().unwrap().contains(&"to_delete".to_string()));
+        assert!(manager
+            .list_profiles()
+            .unwrap()
+            .contains(&"to_delete".to_string()));
 
         manager.delete_profile("to_delete").unwrap();
 
-        assert!(!manager.list_profiles().unwrap().contains(&"to_delete".to_string()));
+        assert!(!manager
+            .list_profiles()
+            .unwrap()
+            .contains(&"to_delete".to_string()));
     }
 
     #[test]
@@ -481,7 +622,7 @@ mod tests {
         assert!(profiles.contains(&"alpha".to_string()));
         assert!(profiles.contains(&"beta".to_string()));
         assert!(profiles.contains(&"gamma".to_string()));
-        assert!(profiles.contains(&"default".to_string()));
+        assert!(profiles.contains(&"claude".to_string()));
     }
 
     #[test]
@@ -505,7 +646,10 @@ mod tests {
         assert_eq!(profile.name, "work");
         assert_eq!(profile.agent_cli_path, "unleashed");
         assert_eq!(profile.theme, "orange");
-        assert_eq!(profile.get_env("ANTHROPIC_API_KEY"), Some(&"sk-work-key".to_string()));
+        assert_eq!(
+            profile.get_env("ANTHROPIC_API_KEY"),
+            Some(&"sk-work-key".to_string())
+        );
     }
 
     #[test]
@@ -527,7 +671,7 @@ mod tests {
     fn test_profile_default_settings() {
         let profile = Profile::default();
         assert_eq!(profile.agent_cli_path, "unleashed");
-        assert_eq!(profile.claude_args, Vec::<String>::new());
+        assert_eq!(profile.agent_args, Vec::<String>::new());
         assert_eq!(profile.stop_prompt, None);
         assert_eq!(profile.theme, "orange");
     }
@@ -546,7 +690,7 @@ KEY = "value"
         assert_eq!(profile.name, "old-profile");
         assert_eq!(profile.agent_cli_path, "unleashed");
         assert_eq!(profile.theme, "orange");
-        assert_eq!(profile.claude_args, Vec::<String>::new());
+        assert_eq!(profile.agent_args, Vec::<String>::new());
         assert_eq!(profile.stop_prompt, None);
         assert_eq!(profile.get_env("KEY"), Some(&"value".to_string()));
     }
@@ -608,7 +752,7 @@ SOME_KEY = "some_value"
         // Verify profile now has the migrated settings
         let profile = manager.load_profile("default").unwrap();
         assert_eq!(profile.agent_cli_path, "cug");
-        assert_eq!(profile.claude_args, vec!["--verbose".to_string()]);
+        assert_eq!(profile.agent_args, vec!["--verbose".to_string()]);
         assert_eq!(profile.theme, "#ffff00");
         assert_eq!(profile.get_env("SOME_KEY"), Some(&"some_value".to_string()));
     }
@@ -646,7 +790,11 @@ theme = "#ffff00"
 
         let mut profile = Profile::new("full");
         profile.agent_cli_path = "/usr/local/bin/claude".to_string();
-        profile.claude_args = vec!["--dangerously-skip-permissions".to_string(), "--timeout".to_string(), "300".to_string()];
+        profile.agent_args = vec![
+            "--dangerously-skip-permissions".to_string(),
+            "--timeout".to_string(),
+            "300".to_string(),
+        ];
         profile.stop_prompt = Some("Stop if I ask you to review the code.".to_string());
         profile.theme = "green".to_string();
         profile.set_env("API_KEY", "test-key");
@@ -655,8 +803,14 @@ theme = "#ffff00"
 
         let loaded = manager.load_profile("full").unwrap();
         assert_eq!(loaded.agent_cli_path, "/usr/local/bin/claude");
-        assert_eq!(loaded.claude_args, vec!["--dangerously-skip-permissions", "--timeout", "300"]);
-        assert_eq!(loaded.stop_prompt, Some("Stop if I ask you to review the code.".to_string()));
+        assert_eq!(
+            loaded.agent_args,
+            vec!["--dangerously-skip-permissions", "--timeout", "300"]
+        );
+        assert_eq!(
+            loaded.stop_prompt,
+            Some("Stop if I ask you to review the code.".to_string())
+        );
         assert_eq!(loaded.theme, "green");
         assert_eq!(loaded.get_env("API_KEY"), Some(&"test-key".to_string()));
     }

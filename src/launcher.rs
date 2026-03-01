@@ -6,6 +6,7 @@
 //! - Auto-mode via Stop hook + flag file system
 //! - Process management
 
+use crate::agents::AgentType;
 use crate::config::ProfileManager;
 use crate::hooks::HookManager;
 use crate::hyprland;
@@ -27,7 +28,13 @@ fn cache_dir() -> PathBuf {
         .join("unleash/process-restart")
 }
 
-/// Run Claude with wrapper features
+/// Detect agent type from the command path
+fn detect_agent_type(cmd: &PathBuf) -> Option<AgentType> {
+    let name = cmd.file_name()?.to_str()?;
+    AgentType::from_str(name)
+}
+
+/// Run an agent with wrapper features
 pub fn run(auto_mode: bool, prompt: Option<String>, extra_args: Vec<String>) -> io::Result<()> {
     // Install default hooks (NOT plugin hooks - those are loaded by Claude Code via --plugin-dir)
     match HookManager::new() {
@@ -47,8 +54,10 @@ pub fn run(auto_mode: bool, prompt: Option<String>, extra_args: Vec<String>) -> 
         }
     }
 
-    // Find claude command
-    let claude_cmd = find_claude_command()?;
+    // Find agent command
+    let agent_cmd = find_agent_command()?;
+    let agent_type = detect_agent_type(&agent_cmd);
+    let is_claude = agent_type == Some(AgentType::Claude);
 
     // Setup wrapper environment
     let wrapper_pid = std::process::id();
@@ -88,8 +97,11 @@ pub fn run(auto_mode: bool, prompt: Option<String>, extra_args: Vec<String>) -> 
         // If this is a restart, add --continue and message
         if restart_count > 0 {
             if !args.iter().any(|a| a == "--continue" || a == "--resume") {
-                args.insert(0, "--dangerously-skip-permissions".to_string());
                 args.insert(0, "--continue".to_string());
+                // Only Claude Code supports --dangerously-skip-permissions
+                if is_claude {
+                    args.insert(1, "--dangerously-skip-permissions".to_string());
+                }
             }
 
             // Check for custom restart message
@@ -112,18 +124,29 @@ pub fn run(auto_mode: bool, prompt: Option<String>, extra_args: Vec<String>) -> 
             args.push(p.clone());
         }
 
-        // Find plugin directories
-        let plugin_args = find_plugins();
+        // Find plugin directories (only used for Claude Code)
+        let plugin_args = if is_claude { find_plugins() } else { vec![] };
+
+        // For non-Claude agents, set window transparent before launch
+        // (Claude handles this via its own UserPromptSubmit hook)
+        if !is_claude {
+            let _ = hyprland::focus_set(wrapper_pid);
+        }
 
         // Build and run command
-        let status = run_claude(
-            &claude_cmd,
+        let status = run_agent(
+            &agent_cmd,
             &args,
             &plugin_args,
             &profile_env,
             wrapper_pid,
             auto_mode,
+            agent_type,
         )?;
+
+        // Reset to opaque + play sound after agent exit
+        let _ = hyprland::focus_reset(wrapper_pid);
+        hyprland::play_idle_sound();
 
         // Check if restart was requested
         if trigger_file.exists() {
@@ -138,11 +161,17 @@ pub fn run(auto_mode: bool, prompt: Option<String>, extra_args: Vec<String>) -> 
 
         // Treat SIGTERM (143 = 128 + 15) as clean exit
         if exit_code == 143 {
+            let _ = hyprland::focus_reset(wrapper_pid);
+            hyprland::focus_cleanup(wrapper_pid);
             if hyprland::is_hyprland() {
                 let _ = hyprland::notify_info("Unleash stopped");
             }
             return Ok(());
         }
+
+        // Reset focus and clean up on exit (safety net for all agents)
+        let _ = hyprland::focus_reset(wrapper_pid);
+        hyprland::focus_cleanup(wrapper_pid);
 
         // Notify on exit if running under Hyprland
         if hyprland::is_hyprland() {
@@ -161,18 +190,18 @@ pub fn run(auto_mode: bool, prompt: Option<String>, extra_args: Vec<String>) -> 
     }
 }
 
-/// Find the claude command
-fn find_claude_command() -> io::Result<PathBuf> {
-    // Check CLAUDE_CMD environment variable
-    if let Ok(cmd) = env::var("CLAUDE_CMD") {
+/// Find the agent command (set via AGENT_CMD env var, or defaults to 'claude')
+fn find_agent_command() -> io::Result<PathBuf> {
+    // Check AGENT_CMD environment variable
+    if let Ok(cmd) = env::var("AGENT_CMD") {
         return Ok(PathBuf::from(cmd));
     }
 
-    // Try to find 'claude' in PATH
+    // Default to 'claude' in PATH
     which("claude").map_err(|_| {
         io::Error::new(
             io::ErrorKind::NotFound,
-            "Could not find 'claude' command. Make sure Claude Code is installed.",
+            "Could not find agent command. Set AGENT_CMD or install an agent CLI.",
         )
     })
 }
@@ -250,16 +279,18 @@ fn find_plugins() -> Vec<String> {
     args
 }
 
-/// Run claude command with full configuration
-fn run_claude(
-    claude_cmd: &PathBuf,
+/// Run agent command with full configuration
+fn run_agent(
+    agent_cmd: &PathBuf,
     args: &[String],
     plugin_args: &[String],
     profile_env: &HashMap<String, String>,
     wrapper_pid: u32,
     auto_mode: bool,
+    agent_type: Option<AgentType>,
 ) -> io::Result<ExitStatus> {
-    let mut cmd = Command::new(claude_cmd);
+    let mut cmd = Command::new(agent_cmd);
+    let is_claude = agent_type == Some(AgentType::Claude);
 
     // Set environment variables from profile
     for (key, value) in profile_env {
@@ -298,15 +329,33 @@ fn run_claude(
         cmd.env("MCP_TOOL_TIMEOUT", "999999999");
     }
 
-    // Add plugin arguments
-    cmd.args(plugin_args);
+    // Claude Code-specific flags (other agents don't support these)
+    if is_claude {
+        // Add plugin arguments
+        cmd.args(plugin_args);
 
-    // Always use bypass permissions (auto mode is differentiated by the Stop hook,
-    // not by a custom permission mode — native binaries don't support patched modes)
-    if !args.iter().any(|a| a == "--dangerously-skip-permissions") {
-        eprintln!("\x1b[33m[Unleash] ⚠ WARNING: Running with --dangerously-skip-permissions automatically enabled.\x1b[0m");
+        // Bypass permissions (auto mode is differentiated by the Stop hook,
+        // not by a custom permission mode — native binaries don't support patched modes)
+        if !args.iter().any(|a| a == "--dangerously-skip-permissions") {
+            eprintln!("\x1b[33m[Unleash] ⚠ WARNING: Running with --dangerously-skip-permissions automatically enabled.\x1b[0m");
+        }
+        cmd.arg("--dangerously-skip-permissions");
     }
-    cmd.arg("--dangerously-skip-permissions");
+
+    // Codex native notify hook: end-of-turn => reset opaque + idle sound.
+    if agent_type == Some(AgentType::Codex)
+        && hyprland::is_hyprland()
+        && env::var("AU_HYPRLAND_FOCUS").ok().as_deref() != Some("0")
+    {
+        if let Ok(exe) = env::current_exe() {
+            let exe = exe.to_string_lossy().replace('\\', "\\\\").replace('\"', "\\\"");
+            let notify_override = format!(
+                "notify=[\"{}\",\"__unleash-focus-turn-complete\",\"{}\"]",
+                exe, wrapper_pid
+            );
+            cmd.arg("-c").arg(notify_override);
+        }
+    }
 
     // Add user arguments
     cmd.args(args);

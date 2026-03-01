@@ -8,7 +8,9 @@ use crate::text_input::{censor_sensitive, is_sensitive_key, TextInput};
 use crate::theme::{ThemeColor, ThemePreset};
 use crate::version::{InstallResult, VersionInfo, VersionManager};
 
-use crossterm::event::{Event, KeyCode, KeyEvent, KeyModifiers, MouseButton, MouseEvent, MouseEventKind};
+use crossterm::event::{
+    Event, KeyCode, KeyEvent, KeyModifiers, MouseButton, MouseEvent, MouseEventKind,
+};
 use ratatui::{
     layout::{Constraint, Direction, Layout, Rect},
     style::{Color, Modifier, Style},
@@ -248,7 +250,7 @@ pub struct App {
     version_list_receiver: Option<Receiver<(AgentType, Vec<VersionInfo>, bool)>>,
     /// Async installation state
     pub install_state: Option<InstallState>,
-    
+
     // Conflict detection
     pub has_conflicts: bool,
     pub conflict_warning_open: bool,
@@ -358,7 +360,8 @@ impl App {
             }
         });
 
-        let theme_color = selected_profile.as_ref()
+        let theme_color = selected_profile
+            .as_ref()
             .and_then(|p| ThemeColor::from_config(&p.theme))
             .unwrap_or(ThemeColor::Preset(ThemePreset::Orange));
 
@@ -426,11 +429,9 @@ impl App {
                 self.cached_installed_version = v.clone();
                 v
             }
-            _ => {
-                AgentManager::new()
-                    .ok()
-                    .and_then(|mut m| m.get_installed_version(agent_type).ok().flatten())
-            }
+            _ => AgentManager::new()
+                .ok()
+                .and_then(|mut m| m.get_installed_version(agent_type).ok().flatten()),
         };
         self.cached_agent_versions.insert(agent_type, version);
     }
@@ -499,7 +500,8 @@ impl App {
                         if agent_type == AgentType::Claude {
                             self.cached_installed_version = version.clone();
                         }
-                        self.cached_agent_versions.insert(agent_type, version.clone());
+                        self.cached_agent_versions
+                            .insert(agent_type, version.clone());
 
                         // Update is_installed flags in cached version lists (embedded or fetched)
                         let mut needs_save = false;
@@ -515,15 +517,18 @@ impl App {
                             }
                             if !found {
                                 if let Some(v) = &version {
-                                    list.insert(0, VersionInfo {
-                                        version: v.clone(),
-                                        is_installed: true,
-                                    });
+                                    list.insert(
+                                        0,
+                                        VersionInfo {
+                                            version: v.clone(),
+                                            is_installed: true,
+                                        },
+                                    );
                                     needs_save = true;
                                 }
                             }
                         }
-                        
+
                         if needs_save {
                             crate::version::save_embedded_versions(&self.cached_version_lists);
                         }
@@ -549,11 +554,13 @@ impl App {
         if let Some(ref receiver) = self.version_list_receiver {
             match receiver.try_recv() {
                 Ok((agent_type, versions, has_conflicts)) => {
-                    self.cached_version_lists.insert(agent_type, versions.clone());
+                    self.cached_version_lists
+                        .insert(agent_type, versions.clone());
                     crate::version::save_embedded_versions(&self.cached_version_lists);
-                    
+
                     // Update displayed list if we're still viewing this agent
-                    if self.screen == Screen::VersionManagement && self.version_agent == agent_type {
+                    if self.screen == Screen::VersionManagement && self.version_agent == agent_type
+                    {
                         let prev_selected = self.version_menu.selected;
                         self.versions = versions;
                         self.version_menu.set_items_count(self.versions.len());
@@ -565,7 +572,8 @@ impl App {
                         if self.has_conflicts {
                             self.conflict_warning_open = true;
                         }
-                        self.status_message = Some(format!("{} versions loaded", agent_type.display_name()));
+                        self.status_message =
+                            Some(format!("{} versions loaded", agent_type.display_name()));
                     }
                     self.version_list_receiver = None;
                 }
@@ -616,7 +624,8 @@ impl App {
 
                 if install_ok {
                     self.install_log_lines.push(format!(
-                        "--- {} v{} installed successfully ---", agent_name, version
+                        "--- {} v{} installed successfully ---",
+                        agent_name, version
                     ));
                 } else {
                     let err = state
@@ -624,9 +633,8 @@ impl App {
                         .as_ref()
                         .and_then(|r| r.error.clone())
                         .unwrap_or_else(|| "unknown error".to_string());
-                    self.install_log_lines.push(format!(
-                        "--- Install failed: {} ---", err
-                    ));
+                    self.install_log_lines
+                        .push(format!("--- Install failed: {} ---", err));
                 }
 
                 self.status_message = Some(if !install_ok {
@@ -730,7 +738,13 @@ impl App {
         // 2. Relative to executable (e.g. ~/.local/bin/../plugins/...)
         if let Ok(exe) = std::env::current_exe() {
             if let Some(parent) = exe.parent() {
-                candidates.push(parent.join("..").join(HOOK_RELATIVE).to_string_lossy().to_string());
+                candidates.push(
+                    parent
+                        .join("..")
+                        .join(HOOK_RELATIVE)
+                        .to_string_lossy()
+                        .to_string(),
+                );
             }
         }
 
@@ -860,10 +874,15 @@ impl App {
     }
 
     fn load_profile_for_editing(&mut self, profile: Profile) {
-        self.env_vars_list = profile.env.iter().map(|(k, v)| (k.clone(), v.clone())).collect();
+        self.env_vars_list = profile
+            .env
+            .iter()
+            .map(|(k, v)| (k.clone(), v.clone()))
+            .collect();
         self.env_vars_list.sort_by(|a, b| a.0.cmp(&b.0));
         // Menu items: 4 settings + N env vars + 1 "Add new"
-        self.env_menu.set_items_count(Self::PROFILE_SETTINGS_COUNT + self.env_vars_list.len() + 1);
+        self.env_menu
+            .set_items_count(Self::PROFILE_SETTINGS_COUNT + self.env_vars_list.len() + 1);
         self.env_menu.selected = 0;
         self.editing_profile = Some(profile);
     }
@@ -884,7 +903,11 @@ impl App {
 
         // Update selected profile if it's the one we edited
         if let Some(name) = edited_name {
-            if self.selected_profile.as_ref().is_some_and(|p| p.name == name) {
+            if self
+                .selected_profile
+                .as_ref()
+                .is_some_and(|p| p.name == name)
+            {
                 self.selected_profile = self.profiles.iter().find(|p| p.name == name).cloned();
             }
             // Also update editing_profile from refreshed profiles
@@ -957,7 +980,9 @@ impl App {
                 self.version_focus = VersionFocus::AgentPicker;
             }
             (ClickTarget::VersionListItem(i), Screen::VersionManagement) => {
-                if self.version_menu.selected == i && self.version_focus == VersionFocus::VersionList {
+                if self.version_menu.selected == i
+                    && self.version_focus == VersionFocus::VersionList
+                {
                     let dummy_key = KeyEvent::new(KeyCode::Null, KeyModifiers::NONE);
                     let _ = self.handle_version_input(NavAction::Select, dummy_key);
                 } else {
@@ -1019,7 +1044,9 @@ impl App {
                             .position(|a| *a == self.version_agent)
                             .unwrap_or(0);
                         let new_idx = match action {
-                            NavAction::Down => (current_idx + 1).min(agents.len().saturating_sub(1)),
+                            NavAction::Down => {
+                                (current_idx + 1).min(agents.len().saturating_sub(1))
+                            }
                             NavAction::Up => current_idx.saturating_sub(1),
                             _ => current_idx,
                         };
@@ -1054,11 +1081,13 @@ impl App {
         }
         if let Event::Key(key) = event {
             // Global quit with Ctrl+C (except when editing)
-            if key.code == KeyCode::Char('c') && key.modifiers.contains(KeyModifiers::CONTROL)
-                && self.edit_field == EditField::None {
-                    self.running = false;
-                    return Ok(None);
-                }
+            if key.code == KeyCode::Char('c')
+                && key.modifiers.contains(KeyModifiers::CONTROL)
+                && self.edit_field == EditField::None
+            {
+                self.running = false;
+                return Ok(None);
+            }
 
             // Easter egg: Konami code detection (idea by cac taurus)
             // Up, Up, Down, Down, Left, Right, Left, Right, B, A
@@ -1106,7 +1135,10 @@ impl App {
             EditField::EnvKey => &mut self.key_input,
             EditField::EnvValue => &mut self.value_input,
             EditField::ProfileName | EditField::ProfileDescription => &mut self.key_input,
-            EditField::AgentCliPath | EditField::ClaudeArgs | EditField::StopPrompt | EditField::ThemeHex => &mut self.key_input,
+            EditField::AgentCliPath
+            | EditField::ClaudeArgs
+            | EditField::StopPrompt
+            | EditField::ThemeHex => &mut self.key_input,
             EditField::None => return None,
         };
 
@@ -1115,12 +1147,12 @@ impl App {
                 // Handle Ctrl+key shortcuts
                 if key.modifiers.contains(KeyModifiers::CONTROL) {
                     match c {
-                        'a' => input.move_home(),      // Ctrl+A: go to start
-                        'e' => input.move_end(),      // Ctrl+E: go to end
+                        'a' => input.move_home(),        // Ctrl+A: go to start
+                        'e' => input.move_end(),         // Ctrl+E: go to end
                         'w' => input.delete_word_back(), // Ctrl+W: delete word
-                        'u' => input.delete_to_start(), // Ctrl+U: delete to start
-                        'k' => input.delete_to_end(),  // Ctrl+K: delete to end
-                        _ => {} // Ignore other ctrl combinations
+                        'u' => input.delete_to_start(),  // Ctrl+U: delete to start
+                        'k' => input.delete_to_end(),    // Ctrl+K: delete to end
+                        _ => {}                          // Ignore other ctrl combinations
                     }
                 } else {
                     input.insert(c);
@@ -1179,9 +1211,11 @@ impl App {
                         self.edit_field = EditField::None;
                     }
                     EditField::ClaudeArgs => {
-                        // Save claude_args (space-separated) to editing profile
+                        // Save agent_args (space-separated) to editing profile
                         if let Some(ref mut profile) = self.editing_profile {
-                            profile.claude_args = self.key_input.value
+                            profile.agent_args = self
+                                .key_input
+                                .value
                                 .split_whitespace()
                                 .map(|s| s.to_string())
                                 .collect();
@@ -1195,11 +1229,7 @@ impl App {
                         // Save stop_prompt (empty string = None/default) to editing profile
                         let value = self.key_input.value.trim().to_string();
                         if let Some(ref mut profile) = self.editing_profile {
-                            profile.stop_prompt = if value.is_empty() {
-                                None
-                            } else {
-                                Some(value)
-                            };
+                            profile.stop_prompt = if value.is_empty() { None } else { Some(value) };
                             let _ = self.profile_manager.save_profile(profile);
                         }
                         self.sync_editing_to_selected();
@@ -1215,11 +1245,15 @@ impl App {
                                 let _ = self.profile_manager.save_profile(profile);
                             }
                             self.sync_editing_to_selected();
-                            self.status_message = Some(format!("Theme: #{:02X}{:02X}{:02X}", r, g, b));
+                            self.status_message =
+                                Some(format!("Theme: #{:02X}{:02X}{:02X}", r, g, b));
                             self.edit_field = EditField::None;
                             self.screen = Screen::ProfileEdit;
                         } else {
-                            self.status_message = Some("Invalid hex color — use 3 or 6 hex digits (e.g. FFF or FF5500)".to_string());
+                            self.status_message = Some(
+                                "Invalid hex color — use 3 or 6 hex digits (e.g. FFF or FF5500)"
+                                    .to_string(),
+                            );
                         }
                     }
                     EditField::ProfileName => {
@@ -1236,10 +1270,12 @@ impl App {
                                     // Update app config if this was the active profile
                                     if self.app_config.current_profile == old_name {
                                         self.app_config.current_profile = new_name.clone();
-                                        let _ = self.profile_manager.save_app_config(&self.app_config);
+                                        let _ =
+                                            self.profile_manager.save_app_config(&self.app_config);
                                     }
                                     self.refresh_profiles();
-                                    self.status_message = Some(format!("Renamed: {} -> {}", old_name, new_name));
+                                    self.status_message =
+                                        Some(format!("Renamed: {} -> {}", old_name, new_name));
                                 }
                             }
                         }
@@ -1358,7 +1394,11 @@ impl App {
         Ok(None)
     }
 
-    fn handle_version_input(&mut self, action: NavAction, key: KeyEvent) -> io::Result<Option<AppAction>> {
+    fn handle_version_input(
+        &mut self,
+        action: NavAction,
+        key: KeyEvent,
+    ) -> io::Result<Option<AppAction>> {
         // Handle conflict dialog if open
         if self.conflict_warning_open {
             let mut accepted = false;
@@ -1400,14 +1440,32 @@ impl App {
             match self.version_focus {
                 VersionFocus::Unleash => {
                     self.app_config.auto_update.unleash = !self.app_config.auto_update.unleash;
-                    let state = if self.app_config.auto_update.unleash { "On" } else { "Off" };
+                    let state = if self.app_config.auto_update.unleash {
+                        "On"
+                    } else {
+                        "Off"
+                    };
                     self.status_message = Some(format!("Unleash auto-update: {}", state));
                     let _ = self.profile_manager.save_app_config(&self.app_config);
                 }
                 VersionFocus::AgentPicker => {
-                    self.app_config.auto_update.toggle_agent(&self.version_agent);
-                    let state = if self.app_config.auto_update.auto_update_for_agent(&self.version_agent) { "On" } else { "Off" };
-                    self.status_message = Some(format!("{} auto-update: {}", self.version_agent.display_name(), state));
+                    self.app_config
+                        .auto_update
+                        .toggle_agent(&self.version_agent);
+                    let state = if self
+                        .app_config
+                        .auto_update
+                        .auto_update_for_agent(&self.version_agent)
+                    {
+                        "On"
+                    } else {
+                        "Off"
+                    };
+                    self.status_message = Some(format!(
+                        "{} auto-update: {}",
+                        self.version_agent.display_name(),
+                        state
+                    ));
                     let _ = self.profile_manager.save_app_config(&self.app_config);
                 }
                 VersionFocus::VersionList => {} // no toggle on version list
@@ -1576,7 +1634,11 @@ impl App {
             self.install_log_lines.clear();
             self.show_install_log = true;
 
-            let action = if is_reinstall { "Reinstalling" } else { "Installing" };
+            let action = if is_reinstall {
+                "Reinstalling"
+            } else {
+                "Installing"
+            };
             self.status_message = Some(format!(
                 "{} {} v{}...",
                 action,
@@ -1602,8 +1664,12 @@ impl App {
                 let result = match agent {
                     AgentType::Claude => vm.install_version_streaming(&version_clone, log_tx),
                     AgentType::Codex => vm.install_codex_version_streaming(&version_clone, log_tx),
-                    AgentType::Gemini => vm.install_gemini_version_streaming(&version_clone, log_tx),
-                    AgentType::OpenCode => vm.install_opencode_version_streaming(&version_clone, log_tx),
+                    AgentType::Gemini => {
+                        vm.install_gemini_version_streaming(&version_clone, log_tx)
+                    }
+                    AgentType::OpenCode => {
+                        vm.install_opencode_version_streaming(&version_clone, log_tx)
+                    }
                 };
 
                 // Wait for bridge to flush all log lines before sending completion
@@ -1684,7 +1750,9 @@ impl App {
                 match selected {
                     0 => {
                         // Edit profile name
-                        let current = self.editing_profile.as_ref()
+                        let current = self
+                            .editing_profile
+                            .as_ref()
                             .map(|p| p.name.clone())
                             .unwrap_or_default();
                         self.key_input = TextInput::new().with_value(&current);
@@ -1692,7 +1760,9 @@ impl App {
                     }
                     1 => {
                         // Edit Agent CLI path
-                        let current = self.editing_profile.as_ref()
+                        let current = self
+                            .editing_profile
+                            .as_ref()
                             .map(|p| p.agent_cli_path.clone())
                             .unwrap_or_default();
                         self.key_input = TextInput::new().with_value(&current);
@@ -1700,15 +1770,19 @@ impl App {
                     }
                     2 => {
                         // Edit arguments
-                        let current = self.editing_profile.as_ref()
-                            .map(|p| p.claude_args.join(" "))
+                        let current = self
+                            .editing_profile
+                            .as_ref()
+                            .map(|p| p.agent_args.join(" "))
                             .unwrap_or_default();
                         self.key_input = TextInput::new().with_value(&current);
                         self.edit_field = EditField::ClaudeArgs;
                     }
                     3 => {
                         // Theme selection — go to Theme sub-screen
-                        let theme_str = self.editing_profile.as_ref()
+                        let theme_str = self
+                            .editing_profile
+                            .as_ref()
                             .map(|p| p.theme.as_str())
                             .unwrap_or("orange");
                         let theme_color = ThemeColor::from_config(theme_str)
@@ -1727,7 +1801,9 @@ impl App {
                     4 => {
                         // Stop prompt — open in $EDITOR
                         let default_prompt = self.get_default_stop_prompt();
-                        let current = self.editing_profile.as_ref()
+                        let current = self
+                            .editing_profile
+                            .as_ref()
                             .and_then(|p| p.stop_prompt.clone())
                             .unwrap_or(default_prompt);
                         self.pending_external_edit = Some(current);
@@ -1769,7 +1845,8 @@ impl App {
                     let env_idx = selected - num_settings;
                     let key = self.env_vars_list[env_idx].0.clone();
                     self.env_vars_list.remove(env_idx);
-                    self.env_menu.set_items_count(num_settings + self.env_vars_list.len() + 1);
+                    self.env_menu
+                        .set_items_count(num_settings + self.env_vars_list.len() + 1);
                     let _ = self.save_editing_profile();
                     self.status_message = Some(format!("Deleted: {}", key));
                 }
@@ -1921,9 +1998,15 @@ impl App {
             Screen::Main => {
                 // Calculate based on actual menu content
                 let menu_items = [
-                    ("Start Session", "Launch Claude with selected profile".to_string()),
+                    (
+                        "Start Session",
+                        "Launch Claude with selected profile".to_string(),
+                    ),
                     ("Profiles", "Manage profiles and their settings".to_string()),
-                    ("Versions & Updates", "Manage Unleash and agent CLI versions".to_string()),
+                    (
+                        "Versions & Updates",
+                        "Manage Unleash and agent CLI versions".to_string(),
+                    ),
                     ("Help", "Keyboard shortcuts and tips".to_string()),
                     ("Quit", "Exit the launcher".to_string()),
                 ];
@@ -1936,7 +2019,12 @@ impl App {
             }
             Screen::Profiles | Screen::ConfirmDelete => {
                 // Based on profile names + " *" marker + "    X env vars"
-                let max_name = self.profiles.iter().map(|p| p.name.len()).max().unwrap_or(10);
+                let max_name = self
+                    .profiles
+                    .iter()
+                    .map(|p| p.name.len())
+                    .max()
+                    .unwrap_or(10);
                 let name_width = 2 + max_name + 2; // "> " + name + " *"
                 let desc_width = 4 + 12; // "    X env vars"
                 (name_width.max(desc_width) + 2) as u16
@@ -1969,10 +2057,7 @@ impl App {
         // Main layout: content area + status bar at bottom
         let main_chunks = Layout::default()
             .direction(Direction::Vertical)
-            .constraints([
-                Constraint::Min(10),
-                Constraint::Length(3),
-            ])
+            .constraints([Constraint::Min(10), Constraint::Length(3)])
             .split(frame.area());
 
         // Determine layout for current screen:
@@ -2052,7 +2137,8 @@ impl App {
 
                 self.render_art_sidebar(frame, content_chunks[0]); // Right-facing on left
                 self.render_screen_content(frame, content_chunks[1]);
-                self.clickable_areas.push((content_chunks[0], ClickTarget::AvatarArt));
+                self.clickable_areas
+                    .push((content_chunks[0], ClickTarget::AvatarArt));
             } else {
                 let content_chunks = Layout::default()
                     .direction(Direction::Horizontal)
@@ -2065,7 +2151,8 @@ impl App {
 
                 self.render_art_sidebar_left(frame, content_chunks[1]); // Left-facing on right
                 self.render_screen_content(frame, content_chunks[0]);
-                self.clickable_areas.push((content_chunks[1], ClickTarget::AvatarArt));
+                self.clickable_areas
+                    .push((content_chunks[1], ClickTarget::AvatarArt));
             }
         }
 
@@ -2149,7 +2236,13 @@ impl App {
             )),
             Line::from(""),
             Line::from(Span::styled(
-                format!("Profile: {}", self.selected_profile.as_ref().map(|p| p.name.as_str()).unwrap_or("none")),
+                format!(
+                    "Profile: {}",
+                    self.selected_profile
+                        .as_ref()
+                        .map(|p| p.name.as_str())
+                        .unwrap_or("none")
+                ),
                 Style::default().fg(Color::Yellow),
             )),
         ];
@@ -2157,9 +2250,15 @@ impl App {
         frame.render_widget(title, chunks[0]);
 
         let menu_items = [
-            ("Start Session", "Launch Claude with selected profile".to_string()),
+            (
+                "Start Session",
+                "Launch Claude with selected profile".to_string(),
+            ),
             ("Profiles", "Manage profiles and their settings".to_string()),
-            ("Versions & Updates", "Manage Unleash and agent CLI versions".to_string()),
+            (
+                "Versions & Updates",
+                "Manage Unleash and agent CLI versions".to_string(),
+            ),
             ("Help", "Keyboard shortcuts and tips".to_string()),
             ("Quit", "Exit the launcher".to_string()),
         ];
@@ -2186,17 +2285,28 @@ impl App {
                 } else {
                     Style::default()
                 };
-                let prefix = if i == self.main_menu.selected { "> " } else { "  " };
+                let prefix = if i == self.main_menu.selected {
+                    "> "
+                } else {
+                    "  "
+                };
                 ListItem::new(vec![
                     Line::from(Span::styled(format!("{}{}", prefix, name), style)),
-                    Line::from(Span::styled(format!("    {}", desc), Style::default().fg(Color::DarkGray))),
+                    Line::from(Span::styled(
+                        format!("    {}", desc),
+                        Style::default().fg(Color::DarkGray),
+                    )),
                 ])
             })
             .collect();
 
         // Show scroll indicator if needed
         let _scroll_hint = if menu_items.len() > visible_items {
-            format!(" [{}/{}]", scroll_offset + 1, menu_items.len().saturating_sub(visible_items) + 1)
+            format!(
+                " [{}/{}]",
+                scroll_offset + 1,
+                menu_items.len().saturating_sub(visible_items) + 1
+            )
         } else {
             String::new()
         };
@@ -2220,7 +2330,9 @@ impl App {
     }
 
     fn render_profiles(&mut self, frame: &mut Frame, area: Rect) {
-        let key_style = Style::default().fg(self.accent_color()).add_modifier(Modifier::BOLD);
+        let key_style = Style::default()
+            .fg(self.accent_color())
+            .add_modifier(Modifier::BOLD);
         let desc_style = Style::default().fg(Color::DarkGray);
 
         // Switch to vertical layout when terminal is too narrow for horizontal hints
@@ -2237,7 +2349,10 @@ impl App {
             .iter()
             .enumerate()
             .map(|(i, profile)| {
-                let is_current = self.selected_profile.as_ref().is_some_and(|p| p.name == profile.name);
+                let is_current = self
+                    .selected_profile
+                    .as_ref()
+                    .is_some_and(|p| p.name == profile.name);
                 let style = if i == self.profile_menu.selected {
                     Style::default()
                         .fg(self.accent_color())
@@ -2247,29 +2362,55 @@ impl App {
                 } else {
                     Style::default()
                 };
-                let prefix = if i == self.profile_menu.selected { "> " } else { "  " };
+                let prefix = if i == self.profile_menu.selected {
+                    "> "
+                } else {
+                    "  "
+                };
                 let current_marker = if is_current { " *" } else { "" };
                 let env_count = profile.env.len();
                 ListItem::new(vec![
-                    Line::from(Span::styled(format!("{}{}{}", prefix, profile.name, current_marker), style)),
-                    Line::from(Span::styled(format!("    {} env vars", env_count), Style::default().fg(Color::DarkGray))),
+                    Line::from(Span::styled(
+                        format!("{}{}{}", prefix, profile.name, current_marker),
+                        style,
+                    )),
+                    Line::from(Span::styled(
+                        format!("    {} env vars", env_count),
+                        Style::default().fg(Color::DarkGray),
+                    )),
                 ])
             })
             .collect();
 
         let hints = if vertical_hints {
             Paragraph::new(vec![
-                Line::from(vec![Span::styled(" n", key_style), Span::styled(" new", desc_style)]),
-                Line::from(vec![Span::styled(" e", key_style), Span::styled(" edit", desc_style)]),
-                Line::from(vec![Span::styled(" d", key_style), Span::styled(" delete", desc_style)]),
-                Line::from(vec![Span::styled(" esc", key_style), Span::styled(" back", desc_style)]),
+                Line::from(vec![
+                    Span::styled(" n", key_style),
+                    Span::styled(" new", desc_style),
+                ]),
+                Line::from(vec![
+                    Span::styled(" e", key_style),
+                    Span::styled(" edit", desc_style),
+                ]),
+                Line::from(vec![
+                    Span::styled(" d", key_style),
+                    Span::styled(" delete", desc_style),
+                ]),
+                Line::from(vec![
+                    Span::styled(" esc", key_style),
+                    Span::styled(" back", desc_style),
+                ]),
             ])
         } else {
             Paragraph::new(Line::from(vec![
-                Span::styled(" n", key_style), Span::styled(" new  ", desc_style),
-                Span::styled("e", key_style), Span::styled(" edit  ", desc_style),
-                Span::styled("d", key_style), Span::styled(" delete  ", desc_style),
-                Span::styled("esc", key_style), Span::styled(" back", desc_style),
+                Span::styled(" n", key_style),
+                Span::styled(" new  ", desc_style),
+                Span::styled("e", key_style),
+                Span::styled(" edit  ", desc_style),
+                Span::styled("d", key_style),
+                Span::styled(" delete  ", desc_style),
+                Span::styled("esc", key_style),
+                Span::styled(" back", desc_style),
             ]))
         };
         frame.render_widget(hints, chunks[0]);
@@ -2305,7 +2446,7 @@ impl App {
             .direction(Direction::Vertical)
             .constraints([
                 Constraint::Length(num_settings as u16 + 1), // Settings + separator
-                Constraint::Min(3),    // Env vars
+                Constraint::Min(3),                          // Env vars
             ])
             .split(area);
 
@@ -2313,7 +2454,14 @@ impl App {
         let settings: Vec<(&str, String)> = vec![
             ("Name", profile.name.clone()),
             ("Agent CLI", profile.agent_cli_path.clone()),
-            ("Arguments", if profile.claude_args.is_empty() { "(none)".to_string() } else { profile.claude_args.join(" ") }),
+            (
+                "Arguments",
+                if profile.agent_args.is_empty() {
+                    "(none)".to_string()
+                } else {
+                    profile.agent_args.join(" ")
+                },
+            ),
             ("Theme", {
                 ThemeColor::from_config(&profile.theme)
                     .map(|tc| match tc {
@@ -2322,22 +2470,31 @@ impl App {
                     })
                     .unwrap_or_else(|| profile.theme.clone())
             }),
-            ("Stop Prompt", profile.stop_prompt.clone().unwrap_or_else(|| "(default)".to_string())),
+            (
+                "Stop Prompt",
+                profile
+                    .stop_prompt
+                    .clone()
+                    .unwrap_or_else(|| "(default)".to_string()),
+            ),
         ];
 
         let mut settings_items: Vec<ListItem> = Vec::new();
         for (i, (name, value)) in settings.iter().enumerate() {
             let is_selected = i == self.env_menu.selected;
-            let is_editing = is_selected && match i {
-                0 => self.edit_field == EditField::ProfileName,
-                1 => self.edit_field == EditField::AgentCliPath,
-                2 => self.edit_field == EditField::ClaudeArgs,
-                4 => self.edit_field == EditField::StopPrompt,
-                _ => false,
-            };
+            let is_editing = is_selected
+                && match i {
+                    0 => self.edit_field == EditField::ProfileName,
+                    1 => self.edit_field == EditField::AgentCliPath,
+                    2 => self.edit_field == EditField::ClaudeArgs,
+                    4 => self.edit_field == EditField::StopPrompt,
+                    _ => false,
+                };
 
             let style = if is_selected {
-                Style::default().fg(self.accent_color()).add_modifier(Modifier::BOLD)
+                Style::default()
+                    .fg(self.accent_color())
+                    .add_modifier(Modifier::BOLD)
             } else {
                 Style::default()
             };
@@ -2352,7 +2509,9 @@ impl App {
             };
 
             let value_style = if is_editing {
-                Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)
+                Style::default()
+                    .fg(Color::Yellow)
+                    .add_modifier(Modifier::BOLD)
             } else {
                 Style::default().fg(Color::Cyan)
             };
@@ -2393,7 +2552,9 @@ impl App {
             let menu_idx = num_settings + i;
             let is_selected = menu_idx == self.env_menu.selected;
             let style = if is_selected {
-                Style::default().fg(self.accent_color()).add_modifier(Modifier::BOLD)
+                Style::default()
+                    .fg(self.accent_color())
+                    .add_modifier(Modifier::BOLD)
             } else {
                 Style::default()
             };
@@ -2416,11 +2577,17 @@ impl App {
         // Add new variable option
         let add_idx = num_settings + self.env_vars_list.len();
         let add_style = if self.env_menu.selected == add_idx {
-            Style::default().fg(Color::Green).add_modifier(Modifier::BOLD)
+            Style::default()
+                .fg(Color::Green)
+                .add_modifier(Modifier::BOLD)
         } else {
             Style::default().fg(Color::Green)
         };
-        let add_prefix = if self.env_menu.selected == add_idx { "> " } else { "  " };
+        let add_prefix = if self.env_menu.selected == add_idx {
+            "> "
+        } else {
+            "  "
+        };
         env_items.push(ListItem::new(Line::from(Span::styled(
             format!("{}+ Add new variable", add_prefix),
             add_style,
@@ -2453,27 +2620,41 @@ impl App {
 
         frame.render_widget(Clear, dialog_area);
 
-        let _title = if self.editing_env_index.is_some() { " Edit Variable " } else { " New Variable " };
+        let _title = if self.editing_env_index.is_some() {
+            " Edit Variable "
+        } else {
+            " New Variable "
+        };
 
         let key_style = if self.edit_field == EditField::EnvKey {
-            Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)
+            Style::default()
+                .fg(Color::Yellow)
+                .add_modifier(Modifier::BOLD)
         } else {
             Style::default()
         };
         let value_style = if self.edit_field == EditField::EnvValue {
-            Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)
+            Style::default()
+                .fg(Color::Yellow)
+                .add_modifier(Modifier::BOLD)
         } else {
             Style::default()
         };
 
         let key_display = if self.key_input.is_empty() {
-            Span::styled(&self.key_input.placeholder, Style::default().fg(Color::DarkGray))
+            Span::styled(
+                &self.key_input.placeholder,
+                Style::default().fg(Color::DarkGray),
+            )
         } else {
             Span::styled(&self.key_input.value, key_style)
         };
 
         let value_display = if self.value_input.is_empty() {
-            Span::styled(&self.value_input.placeholder, Style::default().fg(Color::DarkGray))
+            Span::styled(
+                &self.value_input.placeholder,
+                Style::default().fg(Color::DarkGray),
+            )
         } else if self.value_input.hidden && self.edit_field != EditField::EnvValue {
             // Show censored when not actively editing
             Span::styled(censor_sensitive(&self.value_input.value, 7, 4), value_style)
@@ -2515,9 +2696,7 @@ impl App {
         ];
 
         let dialog = Paragraph::new(lines)
-            .block(Block::default().style(
-                Style::default().bg(Color::Black),
-            ))
+            .block(Block::default().style(Style::default().bg(Color::Black)))
             .wrap(Wrap { trim: false });
 
         frame.render_widget(dialog, dialog_area);
@@ -2553,10 +2732,7 @@ impl App {
         ];
 
         let dialog = Paragraph::new(lines)
-            .block(
-                Block::default()
-                    .style(Style::default().bg(Color::Black).fg(Color::Red)),
-            );
+            .block(Block::default().style(Style::default().bg(Color::Black).fg(Color::Red)));
 
         frame.render_widget(dialog, dialog_area);
     }
@@ -2575,7 +2751,9 @@ impl App {
             Line::from(""),
             Line::from(Span::styled(
                 "  Warning: Multiple conflicting versions detected!",
-                Style::default().add_modifier(Modifier::BOLD).fg(Color::Yellow),
+                Style::default()
+                    .add_modifier(Modifier::BOLD)
+                    .fg(Color::Yellow),
             )),
             Line::from("  Different install methods may collide and cause issues."),
             Line::from(""),
@@ -2584,9 +2762,17 @@ impl App {
             Line::from(""),
             Line::from(vec![
                 Span::raw("  "),
-                Span::styled("[Y] Yes (Clean up)", Style::default().fg(Color::Green).add_modifier(Modifier::BOLD)),
+                Span::styled(
+                    "[Y] Yes (Clean up)",
+                    Style::default()
+                        .fg(Color::Green)
+                        .add_modifier(Modifier::BOLD),
+                ),
                 Span::raw("    "),
-                Span::styled("[N] No (Ignore)", Style::default().fg(Color::Red).add_modifier(Modifier::BOLD)),
+                Span::styled(
+                    "[N] No (Ignore)",
+                    Style::default().fg(Color::Red).add_modifier(Modifier::BOLD),
+                ),
             ]),
         ];
 
@@ -2605,7 +2791,8 @@ impl App {
         // "No" button is at row 7, cols 25..40
         let no_rect = Rect::new(dialog_x + 25, dialog_y + 8, 15, 1);
 
-        self.clickable_areas.push((yes_rect, ClickTarget::DialogYes));
+        self.clickable_areas
+            .push((yes_rect, ClickTarget::DialogYes));
         self.clickable_areas.push((no_rect, ClickTarget::DialogNo));
     }
 
@@ -2635,13 +2822,14 @@ impl App {
                 let prefix = if is_selected { "> " } else { "  " };
                 let active_marker = if is_active { " *" } else { "" };
 
-                ListItem::new(vec![
-                    Line::from(vec![
-                        Span::styled(prefix, style),
-                        Span::styled("\u{2588}\u{2588}", Style::default().fg(preview_color)),
-                        Span::styled(format!(" {}{}", preset.display_name(), active_marker), style),
-                    ]),
-                ])
+                ListItem::new(vec![Line::from(vec![
+                    Span::styled(prefix, style),
+                    Span::styled("\u{2588}\u{2588}", Style::default().fg(preview_color)),
+                    Span::styled(
+                        format!(" {}{}", preset.display_name(), active_marker),
+                        style,
+                    ),
+                ])])
             })
             .collect();
 
@@ -2656,7 +2844,9 @@ impl App {
         };
 
         let custom_style = if custom_selected {
-            Style::default().fg(custom_accent).add_modifier(Modifier::BOLD)
+            Style::default()
+                .fg(custom_accent)
+                .add_modifier(Modifier::BOLD)
         } else if custom_active {
             Style::default().fg(custom_accent)
         } else {
@@ -2672,7 +2862,12 @@ impl App {
                 Line::from(vec![
                     Span::styled(custom_prefix, custom_style),
                     Span::styled("# ", custom_style),
-                    Span::styled(&self.key_input.value, Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)),
+                    Span::styled(
+                        &self.key_input.value,
+                        Style::default()
+                            .fg(Color::Yellow)
+                            .add_modifier(Modifier::BOLD),
+                    ),
                     Span::styled(cursor, Style::default().fg(Color::Yellow)),
                 ]),
                 Line::from(Span::styled(
@@ -2719,7 +2914,10 @@ impl App {
 
     fn render_help(&mut self, frame: &mut Frame, area: Rect) {
         let lines = vec![
-            Line::from(Span::styled("Keyboard Shortcuts", Style::default().add_modifier(Modifier::BOLD))),
+            Line::from(Span::styled(
+                "Keyboard Shortcuts",
+                Style::default().add_modifier(Modifier::BOLD),
+            )),
             Line::from(""),
             Line::from("  j/↓      Move down"),
             Line::from("  k/↑      Move up"),
@@ -2730,12 +2928,18 @@ impl App {
             Line::from("  Esc/q    Go back/Quit"),
             Line::from("  ?        This help"),
             Line::from(""),
-            Line::from(Span::styled("In edit dialog:", Style::default().add_modifier(Modifier::BOLD))),
+            Line::from(Span::styled(
+                "In edit dialog:",
+                Style::default().add_modifier(Modifier::BOLD),
+            )),
             Line::from("  Tab      Switch field"),
             Line::from("  Enter    Save"),
             Line::from("  Esc      Cancel"),
             Line::from(""),
-            Line::from(Span::styled("Mouse", Style::default().add_modifier(Modifier::BOLD))),
+            Line::from(Span::styled(
+                "Mouse",
+                Style::default().add_modifier(Modifier::BOLD),
+            )),
             Line::from("  Click    Select item (click again to activate)"),
             Line::from("  Scroll   Navigate lists"),
         ];
@@ -2810,7 +3014,11 @@ impl App {
     /// Render the Unleash (parent) section showing version and auto-update toggle
     fn render_unleash_section(&mut self, frame: &mut Frame, area: Rect) {
         let is_focused = self.version_focus == VersionFocus::Unleash;
-        let border_color = if is_focused { self.accent_color() } else { Color::DarkGray };
+        let border_color = if is_focused {
+            self.accent_color()
+        } else {
+            Color::DarkGray
+        };
 
         let block = Block::default()
             .borders(Borders::ALL)
@@ -2825,13 +3033,19 @@ impl App {
         let inner = block.inner(area);
         frame.render_widget(block, area);
 
-        let auto_update = if self.app_config.auto_update.unleash { "On" } else { "Off" };
+        let auto_update = if self.app_config.auto_update.unleash {
+            "On"
+        } else {
+            "Off"
+        };
 
         let version_line = Line::from(vec![
             Span::styled("  ", Style::default()),
             Span::styled(
                 format!("v{}", self.unleash_version),
-                Style::default().fg(Color::White).add_modifier(Modifier::BOLD),
+                Style::default()
+                    .fg(Color::White)
+                    .add_modifier(Modifier::BOLD),
             ),
             Span::raw("    "),
             Span::styled(
@@ -2896,14 +3110,19 @@ impl App {
             };
 
             // Show installed version
-            let version_str = self.cached_agent_versions
+            let version_str = self
+                .cached_agent_versions
                 .get(agent)
                 .and_then(|v| v.as_ref())
                 .map(|v| format!("  v{}", v))
                 .unwrap_or_default();
 
             // Show auto-update status
-            let auto_update = if self.app_config.auto_update.auto_update_for_agent(agent) { "On" } else { "Off" };
+            let auto_update = if self.app_config.auto_update.auto_update_for_agent(agent) {
+                "On"
+            } else {
+                "Off"
+            };
 
             let mut spans = vec![
                 Span::styled(prefix, style),
@@ -2951,7 +3170,11 @@ impl App {
         };
 
         let title = if self.version_list_receiver.is_some() {
-            format!(" {} Versions {} ", agent_name, SPINNER_FRAMES[self.animation_frame % SPINNER_FRAMES.len()])
+            format!(
+                " {} Versions {} ",
+                agent_name,
+                SPINNER_FRAMES[self.animation_frame % SPINNER_FRAMES.len()]
+            )
         } else {
             format!(" {} Versions ", agent_name)
         };
@@ -3030,7 +3253,11 @@ impl App {
 
             let is_installing = self.installing_version_index == Some(i);
             let prefix = if is_selected { "> " } else { "  " };
-            let installed_marker = if version_info.is_installed { " [installed]" } else { "" };
+            let installed_marker = if version_info.is_installed {
+                " [installed]"
+            } else {
+                ""
+            };
 
             let mut spans = vec![
                 Span::styled(prefix, style),
@@ -3073,7 +3300,11 @@ impl App {
     /// Render the install log panel showing live subprocess output
     fn render_install_log_panel(&self, frame: &mut Frame, area: Rect) {
         let is_active = self.install_state.is_some();
-        let border_color = if is_active { Color::Yellow } else { Color::DarkGray };
+        let border_color = if is_active {
+            Color::Yellow
+        } else {
+            Color::DarkGray
+        };
 
         let title = if let Some(ref state) = self.install_state {
             let elapsed = state.start_time.elapsed().as_secs();
@@ -3123,7 +3354,10 @@ impl App {
 
         let chunks = Layout::default()
             .direction(Direction::Horizontal)
-            .constraints([Constraint::Min(20), Constraint::Length(config_hint.len() as u16 + 2)])
+            .constraints([
+                Constraint::Min(20),
+                Constraint::Length(config_hint.len() as u16 + 2),
+            ])
             .split(area);
 
         let status_line = Paragraph::new(Line::from(Span::styled(
@@ -3165,31 +3399,33 @@ impl LaunchRequest {
     pub fn execute(&self) -> io::Result<std::process::ExitStatus> {
         use std::os::unix::process::CommandExt;
 
-        let mut cmd = Command::new(&self.profile.agent_cli_path);
+        // If the profile points to a known agent binary, route through the wrapper
+        // so it gets focus, restart, and plugin features automatically.
+        // Unknown CLIs or "unleashed"/"unleash" are launched directly.
+        let is_known_agent = self.profile.agent_type().is_some();
+        let cmd_name = std::path::Path::new(&self.profile.agent_cli_path)
+            .file_name()
+            .and_then(|n| n.to_str())
+            .unwrap_or("");
+        let is_wrapper = cmd_name == "unleashed" || cmd_name == "unleash" || cmd_name == "u";
+
+        let mut cmd = if is_known_agent && !is_wrapper {
+            // Re-invoke ourselves as "unleashed" with AGENT_CMD pointing to the native binary.
+            // This gives all agents wrapper features (focus, restart, plugins for Claude).
+            let exe = std::env::current_exe()?;
+            let mut c = Command::new(&exe);
+            c.arg0("unleashed");
+            c.env("AGENT_CMD", &self.profile.agent_cli_path);
+            c
+        } else {
+            Command::new(&self.profile.agent_cli_path)
+        };
 
         for (key, value) in &self.profile.env {
             cmd.env(key, value);
         }
 
-        let wrapper_pid = std::process::id();
-        cmd.env("CLAUDE_WRAPPER_PID", wrapper_pid.to_string());
-
-        // Only override arg0 for direct claude invocations.
-        // When launching unleashed/unleash, we must preserve argv[0] so the binary
-        // can detect it was invoked as "unleashed" and run the launcher mode.
-        let cmd_name = std::path::Path::new(&self.profile.agent_cli_path)
-            .file_name()
-            .and_then(|n| n.to_str())
-            .unwrap_or("");
-
-        if cmd_name == "claude" {
-            // Set process name to include wrapper PID for identification
-            // Format: "claude:<pid>" - allows correlating with conversation later
-            cmd.arg0(format!("claude:{}", wrapper_pid));
-        }
-        // For unleashed/unleash, let the binary see its natural argv[0]
-
-        cmd.args(&self.profile.claude_args);
+        cmd.args(&self.profile.agent_args);
         cmd.status()
     }
 }
@@ -3211,9 +3447,7 @@ impl UpdateRequest {
             .status()?;
 
         if !git_status.success() {
-            return Err(io::Error::other(
-                "git pull failed",
-            ));
+            return Err(io::Error::other("git pull failed"));
         }
 
         // Step 2: Cargo build --release
@@ -3224,9 +3458,7 @@ impl UpdateRequest {
             .status()?;
 
         if !build_status.success() {
-            return Err(io::Error::other(
-                "cargo build failed",
-            ));
+            return Err(io::Error::other("cargo build failed"));
         }
 
         // Step 3: Re-exec the new binary
@@ -3235,9 +3467,10 @@ impl UpdateRequest {
 
         let err = Command::new(&new_binary).exec();
         // exec() only returns on error
-        Err(io::Error::other(
-            format!("Failed to exec new binary: {}", err),
-        ))
+        Err(io::Error::other(format!(
+            "Failed to exec new binary: {}",
+            err
+        )))
     }
 }
 
@@ -3392,7 +3625,10 @@ mod tests {
         app.animations_enabled = false;
 
         assert_eq!(app.screen, Screen::Main);
-        let _ = app.handle_event(Event::Key(KeyEvent::new(KeyCode::Char('?'), KeyModifiers::NONE)));
+        let _ = app.handle_event(Event::Key(KeyEvent::new(
+            KeyCode::Char('?'),
+            KeyModifiers::NONE,
+        )));
         app.tick();
         assert_eq!(app.screen, Screen::Help);
         assert_eq!(app.help_return_screen, Some(Screen::Main));
@@ -3415,7 +3651,10 @@ mod tests {
         assert_eq!(app.screen, Screen::Profiles);
 
         // Press ? to open help
-        let _ = app.handle_event(Event::Key(KeyEvent::new(KeyCode::Char('?'), KeyModifiers::NONE)));
+        let _ = app.handle_event(Event::Key(KeyEvent::new(
+            KeyCode::Char('?'),
+            KeyModifiers::NONE,
+        )));
         app.tick();
         assert_eq!(app.screen, Screen::Help);
         assert_eq!(app.help_return_screen, Some(Screen::Profiles));
@@ -3438,7 +3677,10 @@ mod tests {
         assert_eq!(app.screen, Screen::Profiles);
 
         // Press ? to open help
-        let _ = app.handle_event(Event::Key(KeyEvent::new(KeyCode::Char('?'), KeyModifiers::NONE)));
+        let _ = app.handle_event(Event::Key(KeyEvent::new(
+            KeyCode::Char('?'),
+            KeyModifiers::NONE,
+        )));
         app.tick();
         assert_eq!(app.screen, Screen::Help);
 
@@ -3862,7 +4104,8 @@ mod tests {
             version: "0.98.0".to_string(),
             is_installed: true,
         }];
-        app.cached_version_lists.insert(AgentType::Codex, codex_versions);
+        app.cached_version_lists
+            .insert(AgentType::Codex, codex_versions);
 
         // Switch to Codex
         let _ = app.handle_version_input(NavAction::Down, key_for(NavAction::Down));

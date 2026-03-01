@@ -27,15 +27,9 @@ pub fn get_full_version() -> String {
         .unwrap_or_else(|| "not installed".to_string());
 
     if claude_version == "not installed" {
-        format!(
-            "Unleash: v{}\nClaude Code: {}",
-            au_version, claude_version
-        )
+        format!("Unleash: v{}\nClaude Code: {}", au_version, claude_version)
     } else {
-        format!(
-            "Unleash: v{}\nClaude Code: v{}",
-            au_version, claude_version
-        )
+        format!("Unleash: v{}\nClaude Code: v{}", au_version, claude_version)
     }
 }
 
@@ -60,8 +54,8 @@ BINARY STRUCTURE:
 
 USAGE NOTES:
   When you run 'unleash', you'll open the TUI by default to manage profiles.
-  You can run an agent directly via 'unleash <agent_name> [args...]'
-  (e.g., 'unleash claude --auto', 'unleash gemini').
+  You can run a profile directly via 'unleash <profile_name> [args...]'
+  (e.g., 'unleash claude --auto', 'unleash work').
 
   Alternatively, use 'unleashed' or 'u' to directly run your active/default
   profile without TUI overhead (e.g., 'u --auto')."#)]
@@ -138,6 +132,10 @@ pub enum Commands {
         #[command(subcommand)]
         action: Option<AgentsAction>,
     },
+
+    /// Run a profile by name (e.g. `unleash work`)
+    #[command(external_subcommand)]
+    Profile(Vec<String>),
 }
 
 #[derive(Subcommand, Debug)]
@@ -202,4 +200,36 @@ pub enum AgentsAction {
         /// Agent name (claude, codex, aider)
         agent: String,
     },
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_known_subcommand_still_parses() {
+        let cli = Cli::try_parse_from(["unleash", "claude", "--", "--auto"]).unwrap();
+        match cli.command {
+            Some(Commands::Claude { args }) => assert_eq!(args, vec!["--auto".to_string()]),
+            _ => panic!("expected Claude subcommand"),
+        }
+    }
+
+    #[test]
+    fn test_external_profile_subcommand_parses() {
+        let cli = Cli::try_parse_from(["unleash", "work", "--auto", "--foo"]).unwrap();
+        match cli.command {
+            Some(Commands::Profile(args)) => {
+                assert_eq!(
+                    args,
+                    vec![
+                        "work".to_string(),
+                        "--auto".to_string(),
+                        "--foo".to_string()
+                    ]
+                );
+            }
+            _ => panic!("expected external profile subcommand"),
+        }
+    }
 }

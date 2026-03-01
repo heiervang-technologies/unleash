@@ -35,7 +35,7 @@ Example:
 ```toml
 current_profile = "default"
 claude_path = "claude"
-claude_args = []
+agent_args = []
 stop_prompt = "Keep working on the task!"
 ```
 

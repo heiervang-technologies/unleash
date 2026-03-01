@@ -25,15 +25,233 @@ mod tui;
 mod version;
 
 use clap::Parser;
+use crate::agents::AgentType;
 use cli::{Cli, Commands};
+use config::ProfileManager;
 use std::env;
 use std::io;
 use std::path::Path;
+use std::process::Command;
+use std::process::Stdio;
+use std::thread;
+use std::time::{Duration, SystemTime};
+
+const FOCUS_TURN_COMPLETE_CMD: &str = "__unleash-focus-turn-complete";
+const FOCUS_ARM_CMD: &str = "__unleash-focus-arm";
+
+fn is_wrapper_command(cmd_name: &str) -> bool {
+    matches!(cmd_name, "unleashed" | "unleash" | "u")
+}
+
+fn parse_wrapper_launch_args(
+    args: Vec<String>,
+    parse_prompt_flags: bool,
+) -> (bool, Option<String>, Vec<String>) {
+    let mut auto = false;
+    let mut prompt = None;
+    let mut pass_args = Vec::new();
+
+    let mut i = 0;
+    while i < args.len() {
+        let arg = &args[i];
+
+        if arg == "--auto" || arg == "-a" {
+            auto = true;
+            i += 1;
+            continue;
+        }
+
+        if parse_prompt_flags {
+            if arg == "-p" || arg == "--prompt" {
+                if prompt.is_none() {
+                    prompt = args.get(i + 1).cloned();
+                }
+                i += if i + 1 < args.len() { 2 } else { 1 };
+                continue;
+            }
+            if let Some(value) = arg.strip_prefix("--prompt=") {
+                if prompt.is_none() {
+                    prompt = Some(value.to_string());
+                }
+                i += 1;
+                continue;
+            }
+        }
+
+        pass_args.push(arg.clone());
+        i += 1;
+    }
+
+    (auto, prompt, pass_args)
+}
+
+fn detect_agent_type_from_cmd_path(cmd: &str) -> Option<AgentType> {
+    let cmd_name = Path::new(cmd).file_name().and_then(|n| n.to_str())?;
+    AgentType::from_str(cmd_name)
+}
+
+fn codex_history_path() -> Option<std::path::PathBuf> {
+    if let Some(codex_home) = env::var_os("CODEX_HOME") {
+        return Some(std::path::PathBuf::from(codex_home).join("history.jsonl"));
+    }
+    dirs::home_dir().map(|home| home.join(".codex/history.jsonl"))
+}
+
+fn file_mtime(path: &Path) -> Option<SystemTime> {
+    std::fs::metadata(path).ok()?.modified().ok()
+}
+
+fn focus_arm_wait_for_next_turn(wrapper_pid: u32) {
+    let history = match codex_history_path() {
+        Some(path) => path,
+        None => return,
+    };
+    let baseline = file_mtime(&history).unwrap_or(SystemTime::UNIX_EPOCH);
+    let started = std::time::Instant::now();
+
+    // Best effort: wait for the next history append as a proxy for "new prompt sent".
+    while started.elapsed() < Duration::from_secs(2 * 60 * 60) {
+        if !std::path::Path::new(&format!("/proc/{}", wrapper_pid)).exists() {
+            return;
+        }
+
+        if let Some(mtime) = file_mtime(&history) {
+            if mtime > baseline {
+                let _ = hyprland::focus_set(wrapper_pid);
+                return;
+            }
+        }
+        thread::sleep(Duration::from_millis(250));
+    }
+}
+
+fn ensure_profile_cli_available(profile_name: &str, cli_path: &str) -> io::Result<()> {
+    let cmd_name = Path::new(cli_path)
+        .file_name()
+        .and_then(|n| n.to_str())
+        .unwrap_or("");
+    if is_wrapper_command(cmd_name) {
+        return Ok(());
+    }
+
+    let looks_like_path = cli_path.contains(std::path::MAIN_SEPARATOR);
+    let available = if looks_like_path {
+        Path::new(cli_path).exists()
+    } else {
+        which::which(cli_path).is_ok()
+    };
+
+    if available {
+        return Ok(());
+    }
+
+    Err(io::Error::new(
+        io::ErrorKind::NotFound,
+        format!(
+            "Profile '{}' uses '{}', but that CLI is not installed or not in PATH.\nInstall it first, or edit the profile in `unleash` (TUI).",
+            profile_name, cli_path
+        ),
+    ))
+}
+
+fn run_profile(profile_name: &str, profile_args: Vec<String>) -> io::Result<()> {
+    let manager = ProfileManager::new()?;
+    let profile = manager.load_profile(profile_name).map_err(|e| {
+        if e.kind() == io::ErrorKind::NotFound {
+            let available = manager.list_profiles().unwrap_or_default();
+            let hint = if available.is_empty() {
+                String::new()
+            } else {
+                format!("\nAvailable profiles: {}", available.join(", "))
+            };
+            io::Error::new(
+                io::ErrorKind::NotFound,
+                format!("Profile '{}' not found.{}", profile_name, hint),
+            )
+        } else {
+            e
+        }
+    })?;
+
+    ensure_profile_cli_available(&profile.name, &profile.agent_cli_path)?;
+
+    let mut app_config = manager.load_app_config().unwrap_or_default();
+    if app_config.current_profile != profile.name {
+        app_config.current_profile = profile.name.clone();
+        manager.save_app_config(&app_config)?;
+    }
+
+    let mut launch_args = profile.agent_args.clone();
+    launch_args.extend(profile_args);
+    let cmd_name = Path::new(&profile.agent_cli_path)
+        .file_name()
+        .and_then(|n| n.to_str())
+        .unwrap_or("");
+    let profile_agent_type = profile.agent_type();
+    let uses_wrapper = profile_agent_type.is_some() || is_wrapper_command(cmd_name);
+
+    if uses_wrapper {
+        let parse_prompt_flags = profile_agent_type == Some(AgentType::Claude) || is_wrapper_command(cmd_name);
+        let (auto, prompt, pass_args) = parse_wrapper_launch_args(launch_args, parse_prompt_flags);
+
+        if profile_agent_type.is_some() {
+            env::set_var("AGENT_CMD", &profile.agent_cli_path);
+        }
+        return launcher::run(auto, prompt, pass_args);
+    }
+
+    let mut cmd = Command::new(&profile.agent_cli_path);
+    for (key, value) in &profile.env {
+        cmd.env(key, value);
+    }
+    cmd.args(&launch_args);
+    let status = cmd.status().map_err(|e| {
+        if e.kind() == io::ErrorKind::NotFound {
+            io::Error::new(
+                io::ErrorKind::NotFound,
+                format!(
+                    "Profile '{}' uses '{}', but it could not be started. Make sure that binary is installed and executable.",
+                    profile.name, profile.agent_cli_path
+                ),
+            )
+        } else {
+            e
+        }
+    })?;
+    std::process::exit(status.code().unwrap_or(1));
+}
 
 pub fn run() -> io::Result<()> {
     // Check for --version or -V flag before clap processing
     // This allows us to show both Claude Unleashed and Claude Code versions
     let args: Vec<String> = env::args().collect();
+
+    if args.get(1).map(String::as_str) == Some(FOCUS_TURN_COMPLETE_CMD) {
+        let wrapper_pid = args
+            .get(2)
+            .and_then(|s| s.parse::<u32>().ok())
+            .unwrap_or_else(std::process::id);
+        let _ = hyprland::focus_reset(wrapper_pid);
+        hyprland::play_idle_sound();
+
+        if let Ok(exe) = env::current_exe() {
+            let _ = Command::new(exe)
+                .arg(FOCUS_ARM_CMD)
+                .arg(wrapper_pid.to_string())
+                .stdin(Stdio::null())
+                .stdout(Stdio::null())
+                .stderr(Stdio::null())
+                .spawn();
+        }
+        return Ok(());
+    }
+    if args.get(1).map(String::as_str) == Some(FOCUS_ARM_CMD) {
+        if let Some(wrapper_pid) = args.get(2).and_then(|s| s.parse::<u32>().ok()) {
+            focus_arm_wait_for_next_turn(wrapper_pid);
+        }
+        return Ok(());
+    }
+
     let has_json_flag = args.iter().any(|arg| arg == "--json");
 
     if args.len() >= 2 && (args[1] == "--version" || args[1] == "-V") {
@@ -60,17 +278,14 @@ pub fn run() -> io::Result<()> {
         "unleashed" | "u" => {
             // Direct agent wrapper entrypoint
             let args: Vec<String> = env::args().skip(1).collect();
-            // Parse args for --auto and -p flags for backwards compatibility and wrapper features
-            let auto = args.iter().any(|a| a == "--auto" || a == "-a");
-            let prompt = args
-                .iter()
-                .position(|a| a == "-p" || a == "--prompt")
-                .and_then(|i| args.get(i + 1).cloned());
-            // Filter out the flags we consumed
-            let pass_args: Vec<String> = args
-                .into_iter()
-                .filter(|a| a != "--auto" && a != "-a" && a != "-p" && a != "--prompt")
-                .collect();
+            // Wrapper prompt flags are Claude-specific. For other agents, keep -p/--prompt untouched.
+            let parse_prompt_flags = env::var("AGENT_CMD")
+                .ok()
+                .and_then(|cmd| detect_agent_type_from_cmd_path(&cmd))
+                .map(|agent| agent == AgentType::Claude)
+                .unwrap_or(true);
+
+            let (auto, prompt, pass_args) = parse_wrapper_launch_args(args, parse_prompt_flags);
             return launcher::run(auto, prompt, pass_args);
         }
         _ => {}
@@ -80,33 +295,18 @@ pub fn run() -> io::Result<()> {
     let cli = Cli::parse();
 
     match cli.command {
-        Some(Commands::Claude { args }) => {
-            env::set_var("CLAUDE_CMD", "claude");
-            let auto = args.iter().any(|a| a == "--auto" || a == "-a");
-            let prompt = args.iter().position(|a| a == "-p" || a == "--prompt").and_then(|i| args.get(i + 1).cloned());
-            let pass_args: Vec<String> = args.into_iter().filter(|a| a != "--auto" && a != "-a" && a != "-p" && a != "--prompt").collect();
-            launcher::run(auto, prompt, pass_args)
-        }
-        Some(Commands::Codex { args }) => {
-            env::set_var("CLAUDE_CMD", "codex");
-            let auto = args.iter().any(|a| a == "--auto" || a == "-a");
-            let prompt = args.iter().position(|a| a == "-p" || a == "--prompt").and_then(|i| args.get(i + 1).cloned());
-            let pass_args: Vec<String> = args.into_iter().filter(|a| a != "--auto" && a != "-a" && a != "-p" && a != "--prompt").collect();
-            launcher::run(auto, prompt, pass_args)
-        }
-        Some(Commands::Gemini { args }) => {
-            env::set_var("CLAUDE_CMD", "gemini");
-            let auto = args.iter().any(|a| a == "--auto" || a == "-a");
-            let prompt = args.iter().position(|a| a == "-p" || a == "--prompt").and_then(|i| args.get(i + 1).cloned());
-            let pass_args: Vec<String> = args.into_iter().filter(|a| a != "--auto" && a != "-a" && a != "-p" && a != "--prompt").collect();
-            launcher::run(auto, prompt, pass_args)
-        }
-        Some(Commands::OpenCode { args }) => {
-            env::set_var("CLAUDE_CMD", "opencode");
-            let auto = args.iter().any(|a| a == "--auto" || a == "-a");
-            let prompt = args.iter().position(|a| a == "-p" || a == "--prompt").and_then(|i| args.get(i + 1).cloned());
-            let pass_args: Vec<String> = args.into_iter().filter(|a| a != "--auto" && a != "-a" && a != "-p" && a != "--prompt").collect();
-            launcher::run(auto, prompt, pass_args)
+        Some(Commands::Claude { args }) => run_profile("claude", args),
+        Some(Commands::Codex { args }) => run_profile("codex", args),
+        Some(Commands::Gemini { args }) => run_profile("gemini", args),
+        Some(Commands::OpenCode { args }) => run_profile("opencode", args),
+        Some(Commands::Profile(args)) => {
+            if args.is_empty() {
+                return Err(io::Error::new(
+                    io::ErrorKind::InvalidInput,
+                    "Profile name is required",
+                ));
+            }
+            run_profile(&args[0], args[1..].to_vec())
         }
         Some(Commands::Version { list, install }) => {
             if list {
@@ -162,9 +362,7 @@ pub fn run() -> io::Result<()> {
                     }
                     Ok(())
                 }
-                Some(HooksAction::Install) => {
-                    manager.install_default_hooks()
-                }
+                Some(HooksAction::Install) => manager.install_default_hooks(),
                 Some(HooksAction::Sync) => {
                     let plugin_dirs = launcher::find_plugin_dirs();
                     manager.sync_plugin_hooks(&plugin_dirs)?;
@@ -189,7 +387,11 @@ pub fn run() -> io::Result<()> {
                     }
                     Ok(())
                 }
-                Some(HooksAction::Add { event, command, matcher }) => {
+                Some(HooksAction::Add {
+                    event,
+                    command,
+                    matcher,
+                }) => {
                     let hook_event = HookEvent::from_str(&event).ok_or_else(|| {
                         io::Error::new(
                             io::ErrorKind::InvalidInput,
@@ -249,14 +451,20 @@ pub fn run() -> io::Result<()> {
                     println!("Available Agents:\n");
                     for agent in manager.list_agents() {
                         let status = if agent.enabled { "enabled" } else { "disabled" };
-                        println!("  {} ({}) - {} [{}]", agent.name, agent.binary, agent.description, status);
+                        println!(
+                            "  {} ({}) - {} [{}]",
+                            agent.name, agent.binary, agent.description, status
+                        );
                     }
                     Ok(())
                 }
                 Some(AgentsAction::Check { agent }) => {
                     let agents_to_check: Vec<AgentType> = if let Some(name) = agent {
                         vec![AgentType::from_str(&name).ok_or_else(|| {
-                            io::Error::new(io::ErrorKind::InvalidInput, format!("Unknown agent: {}", name))
+                            io::Error::new(
+                                io::ErrorKind::InvalidInput,
+                                format!("Unknown agent: {}", name),
+                            )
                         })?]
                     } else {
                         vec![AgentType::Claude, AgentType::Codex]
@@ -267,7 +475,10 @@ pub fn run() -> io::Result<()> {
                         match manager.check_update(agent_type) {
                             Ok(true) => {
                                 let latest = manager.get_latest_version(agent_type).ok().flatten();
-                                println!("update available: {}", latest.as_deref().unwrap_or("unknown"));
+                                println!(
+                                    "update available: {}",
+                                    latest.as_deref().unwrap_or("unknown")
+                                );
                             }
                             Ok(false) => println!("up to date"),
                             Err(e) => println!("error: {}", e),
@@ -278,7 +489,10 @@ pub fn run() -> io::Result<()> {
                 }
                 Some(AgentsAction::Update { agent }) => {
                     let agent_type = AgentType::from_str(&agent).ok_or_else(|| {
-                        io::Error::new(io::ErrorKind::InvalidInput, format!("Unknown agent: {}", agent))
+                        io::Error::new(
+                            io::ErrorKind::InvalidInput,
+                            format!("Unknown agent: {}", agent),
+                        )
                     })?;
 
                     println!("Updating {}...", agent_type.display_name());
@@ -295,7 +509,10 @@ pub fn run() -> io::Result<()> {
                 }
                 Some(AgentsAction::Info { agent }) => {
                     let agent_type = AgentType::from_str(&agent).ok_or_else(|| {
-                        io::Error::new(io::ErrorKind::InvalidInput, format!("Unknown agent: {}", agent))
+                        io::Error::new(
+                            io::ErrorKind::InvalidInput,
+                            format!("Unknown agent: {}", agent),
+                        )
                     })?;
 
                     if let Some(def) = manager.get_agent(agent_type) {
@@ -333,5 +550,72 @@ pub fn run() -> io::Result<()> {
                 Ok(())
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_parse_wrapper_launch_args() {
+        let args = vec![
+            "--auto".to_string(),
+            "-p".to_string(),
+            "hello".to_string(),
+            "--foo".to_string(),
+        ];
+        let (auto, prompt, pass_args) = parse_wrapper_launch_args(args, true);
+        assert!(auto);
+        assert_eq!(prompt.as_deref(), Some("hello"));
+        assert_eq!(pass_args, vec!["--foo".to_string()]);
+    }
+
+    #[test]
+    fn test_parse_wrapper_launch_args_non_claude_keeps_profile_flag() {
+        let args = vec![
+            "-p".to_string(),
+            "minimax".to_string(),
+            "--yolo".to_string(),
+        ];
+        let (auto, prompt, pass_args) = parse_wrapper_launch_args(args, false);
+        assert!(!auto);
+        assert_eq!(prompt, None);
+        assert_eq!(
+            pass_args,
+            vec![
+                "-p".to_string(),
+                "minimax".to_string(),
+                "--yolo".to_string()
+            ]
+        );
+    }
+
+    #[test]
+    fn test_parse_wrapper_launch_args_supports_prompt_equals() {
+        let args = vec!["--prompt=hello".to_string(), "--foo".to_string()];
+        let (auto, prompt, pass_args) = parse_wrapper_launch_args(args, true);
+        assert!(!auto);
+        assert_eq!(prompt.as_deref(), Some("hello"));
+        assert_eq!(pass_args, vec!["--foo".to_string()]);
+    }
+
+    #[test]
+    fn test_wrapper_command_detection() {
+        assert!(is_wrapper_command("unleashed"));
+        assert!(is_wrapper_command("unleash"));
+        assert!(is_wrapper_command("u"));
+        assert!(!is_wrapper_command("claude"));
+    }
+
+    #[test]
+    fn test_missing_profile_cli_error() {
+        let err = ensure_profile_cli_available(
+            "test-profile",
+            "__definitely_missing_unleash_test_binary_xyz__",
+        )
+        .unwrap_err();
+        assert_eq!(err.kind(), io::ErrorKind::NotFound);
+        assert!(err.to_string().contains("test-profile"));
     }
 }
