@@ -1,5 +1,12 @@
 # Changelog
 
+## [8.1.2](https://github.com/heiervang-technologies/unleash/compare/v8.1.1...v8.1.2) (2026-03-01)
+
+
+### Bug Fixes
+
+* resolve Cargo.lock merge conflict ([4b2e036](https://github.com/heiervang-technologies/unleash/commit/4b2e036b979817790d9659353affd6d1c948dc08))
+
 ## [8.1.1](https://github.com/heiervang-technologies/unleash/compare/v8.1.0...v8.1.1) (2026-03-01)
 
 
