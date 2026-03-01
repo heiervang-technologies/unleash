@@ -1,5 +1,12 @@
 # Changelog
 
+## [8.2.1](https://github.com/heiervang-technologies/unleash/compare/v8.2.0...v8.2.1) (2026-03-01)
+
+
+### Bug Fixes
+
+* remove self-referential symlink creation for unleash ([#178](https://github.com/heiervang-technologies/unleash/issues/178)) ([2554088](https://github.com/heiervang-technologies/unleash/commit/2554088c89f443b19f329558dea06cfadba506b0))
+
 ## [8.2.0](https://github.com/heiervang-technologies/unleash/compare/v8.1.2...v8.2.0) (2026-03-01)
 
 
