@@ -1,11 +1,11 @@
-# Claude Unleashed Test Suite
+# Unleash Test Suite
 
-This directory contains test scripts for validating Claude Unleashed functionality.
+This directory contains test scripts for validating Unleash functionality.
 
 ## Test Scripts
 
 ### `test_auth_check.sh`
-Basic test script for `cu auth` command functionality.
+Basic test script for `unleash auth` command functionality.
 
 **Usage:**
 ```bash
@@ -29,44 +29,43 @@ Comprehensive test suite that validates authentication checking logic and exit c
 **Test Suites:**
 
 #### Suite 1: No Authentication Present
-- ✓ Exit code 1 when no auth configured
-- ✓ Error message shows "not configured"
-- ✓ JSON output shows `authenticated: false`
+- Exit code 1 when no auth configured
+- Error message shows "not configured"
+- JSON output shows `authenticated: false`
 
 #### Suite 2: Environment Variable Authentication
-- ✓ Exit code 0 when `CLAUDE_CODE_OAUTH_TOKEN` is set
-- ✓ Success message shows "configured"
-- ✓ JSON output shows `authenticated: true`
-- ✓ Verbose output shows OAuth token method
+- Exit code 0 when `CLAUDE_CODE_OAUTH_TOKEN` is set
+- Success message shows "configured"
+- JSON output shows `authenticated: true`
+- Verbose output shows OAuth token method
 
 #### Suite 3: Credentials File Authentication
-- ✓ Exit code 0 with valid `~/.claude/.credentials.json`
-- ✓ Success message shows "configured"
-- ✓ JSON output shows `method: "credentials_file"`
+- Exit code 0 with valid `~/.claude/.credentials.json`
+- Success message shows "configured"
+- JSON output shows `method: "credentials_file"`
 
 #### Suite 4: Invalid Credentials File
-- ✓ Exit code 1 for empty credentials file (`{}`)
-- ✓ Exit code 1 for corrupted/invalid JSON
+- Exit code 1 for empty credentials file (`{}`)
+- Exit code 1 for corrupted/invalid JSON
 
 #### Suite 5: Authentication Priority
-- ✓ Both env var and file present → exit code 0
-- ✓ Environment variable takes priority over credentials file
+- Both env var and file present: exit code 0
+- Environment variable takes priority over credentials file
 
 #### Suite 6: JSON Format Validation
-- ✓ JSON output is valid and parseable by `jq`
-- ✓ JSON output contains required `authenticated` field
+- JSON output is valid and parseable by `jq`
+- JSON output contains required `authenticated` field
 
 #### Suite 7: Quiet Mode
-- ✓ With auth: No output produced
-- ✓ With auth: Exit code 0
-- ✓ Without auth: No output produced
-- ✓ Without auth: Exit code 1
-- ✓ Quiet mode overrides verbose flag
-- ✓ Quiet mode overrides JSON flag
+- With auth: No output produced
+- With auth: Exit code 0
+- Without auth: No output produced
+- Without auth: Exit code 1
+- Quiet mode overrides verbose flag
+- Quiet mode overrides JSON flag
 
 ## Running All Tests
 
-Run all test scripts:
 ```bash
 # Run basic tests
 ./tests/test_auth_check.sh
@@ -78,9 +77,9 @@ Run all test scripts:
 ## Test Results
 
 All tests use color-coded output:
-- 🟢 **Green**: Test passed
-- 🔴 **Red**: Test failed
-- 🟡 **Yellow**: Test skipped (edge case)
+- Green: Test passed
+- Red: Test failed
+- Yellow: Test skipped (edge case)
 
 ### Exit Codes
 
@@ -93,28 +92,28 @@ Test scripts exit with:
 The comprehensive test suite requires:
 - `bash` 4.0+
 - `jq` for JSON parsing
-- `cu` binary built and available (uses `./target/release/cu` by default)
+- `unleash` binary built and available (uses `./target/release/unleash` by default)
 
 ## Environment Variables
 
-**`CU_BIN`**: Override the cu binary path
+**`UNLEASH_BIN`**: Override the unleash binary path
 ```bash
-CU_BIN=/usr/local/bin/cu ./tests/test_auth_check_comprehensive.sh
+UNLEASH_BIN=/usr/local/bin/unleash ./tests/test_auth_check_comprehensive.sh
 ```
 
 ## Test Safety
 
 The comprehensive test script:
-- ✓ Backs up existing credentials before testing
-- ✓ Restores credentials after testing (even on failure)
-- ✓ Uses temporary directories for test artifacts
-- ✓ Cleans up all test files on exit
+- Backs up existing credentials before testing
+- Restores credentials after testing (even on failure)
+- Uses temporary directories for test artifacts
+- Cleans up all test files on exit
 
 ## Implementation Details
 
 ### Authentication Check Logic
 
-The `cu auth` command checks authentication in this order:
+The `unleash auth` command checks authentication in this order:
 
 1. **Environment Variable**: `CLAUDE_CODE_OAUTH_TOKEN`
 2. **Credentials File**: `~/.claude/.credentials.json`
@@ -159,29 +158,20 @@ These tests can be integrated into CI/CD pipelines:
 If tests fail:
 
 1. **Check build**: Ensure `cargo build --release` succeeded
-2. **Check binary**: Verify `./target/release/cu` exists
-3. **Manual test**: Run `cu auth --verbose` manually
+2. **Check binary**: Verify `./target/release/unleash` exists
+3. **Manual test**: Run `unleash auth --verbose` manually
 4. **Check output**: Failed tests show actual vs expected output
 5. **Isolated test**: Comment out passing tests to focus on failures
 
 ## Contributing
 
-When adding new features to `cu auth`:
+When adding new features to `unleash auth`:
 
 1. Add corresponding tests to `test_auth_check_comprehensive.sh`
 2. Test both success and failure cases
 3. Verify exit codes are correct
 4. Test JSON output format
 5. Run full test suite before submitting PR
-
-## Future Tests
-
-Planned test coverage:
-- [ ] macOS Keychain authentication (requires macOS)
-- [ ] Performance benchmarks
-- [ ] Concurrent auth checks
-- [ ] Network timeout scenarios
-- [ ] Permission errors (non-readable credentials file)
 
 ---
 

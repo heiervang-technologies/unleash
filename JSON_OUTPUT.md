@@ -16,18 +16,17 @@ The `--json` flag is a global flag that changes command output from human-readab
 Add the `--json` flag to any supported command:
 
 ```bash
-unleash--version --json
-auversion --json
-auversion --list --json
-auauth-check --json
-auauth-check --json --verbose
+unleash version --json
+unleash version --list --json
+unleash auth --json
+unleash auth --json --verbose
 ```
 
 ## Supported Commands
 
-### 1. Version Information (`unleash--version --json`)
+### 1. Version Information (`unleash version --json`)
 
-Shows version information for both Claude Unleashed and Claude Code.
+Shows version information for both Unleash and Claude Code.
 
 **Output:**
 ```json
@@ -39,15 +38,11 @@ Shows version information for both Claude Unleashed and Claude Code.
 ```
 
 **Fields:**
-- `claude_unleashed_version` - Version of Claude Unleashed CLI
+- `claude_unleashed_version` - Version of the Unleash CLI
 - `claude_code_version` - Version of installed Claude Code (or "not installed")
 - `claude_code_installed` - Boolean indicating if Claude Code is installed
 
-### 2. Version Command (`auversion --json`)
-
-Same output as `unleash--version --json`.
-
-### 3. Version List (`auversion --list --json`)
+### 2. Version List (`unleash version --list --json`)
 
 Lists all available Claude Code versions with metadata.
 
@@ -92,7 +87,7 @@ Lists all available Claude Code versions with metadata.
 - `whitelist` (default): Only whitelisted versions are recommended for installation
 - `blacklist`: All versions except blacklisted ones are allowed
 
-### 4. Authentication Check (`auauth-check --json`)
+### 3. Authentication Check (`unleash auth --json`)
 
 Checks Claude Code authentication status.
 
@@ -132,7 +127,7 @@ Checks Claude Code authentication status.
 - `0` - Authentication found
 - `1` - Authentication not found
 
-### 5. Version Install (`auversion --install <version> --json`)
+### 4. Version Install (`unleash version --install <version> --json`)
 
 Installs a specific version of Claude Code.
 
@@ -148,10 +143,10 @@ Installs a specific version of Claude Code.
 
 ### Code Structure
 
-- `<REPO_ROOT>/src/json_output.rs` - JSON output structures and utilities
-- `<REPO_ROOT>/src/cli.rs` - CLI argument parsing with `--json` flag
-- `<REPO_ROOT>/src/version.rs` - Version management with JSON support
-- `<REPO_ROOT>/src/auth.rs` - Authentication checking with JSON support
+- `src/json_output.rs` - JSON output structures and utilities
+- `src/cli.rs` - CLI argument parsing with `--json` flag
+- `src/version.rs` - Version management with JSON support
+- `src/auth.rs` - Authentication checking with JSON support
 
 ### Dependencies
 
@@ -170,14 +165,14 @@ Added `serde_json = "1.0"` to `Cargo.toml` for JSON serialization.
 ### Parse version with jq
 
 ```bash
-unleash--version --json | jq -r '.claude_code_version'
+unleash version --json | jq -r '.claude_code_version'
 # Output: 2.1.4
 ```
 
 ### Check if authenticated in script
 
 ```bash
-if auauth-check --json | jq -e '.authenticated' > /dev/null; then
+if unleash auth --json | jq -e '.authenticated' > /dev/null; then
     echo "Authenticated!"
 else
     echo "Not authenticated!"
@@ -187,32 +182,32 @@ fi
 ### List only installed versions
 
 ```bash
-auversion --list --json | jq '.versions[] | select(.is_installed == true)'
+unleash version --list --json | jq '.versions[] | select(.is_installed == true)'
 ```
 
 ### Find latest whitelisted version
 
 ```bash
-auversion --list --json | jq -r '.versions[] | select(.is_whitelisted == true) | .version' | head -1
+unleash version --list --json | jq -r '.versions[] | select(.is_whitelisted == true) | .version' | head -1
 ```
 
 ### Find versions that are not blacklisted
 
 ```bash
-auversion --list --json | jq -r '.versions[] | select(.is_blacklisted == false) | .version'
+unleash version --list --json | jq -r '.versions[] | select(.is_blacklisted == false) | .version'
 ```
 
 ### Check the current filter mode
 
 ```bash
-auversion --list --json | jq -r '.filter_mode'
+unleash version --list --json | jq -r '.filter_mode'
 ```
 
 ### Monitor authentication status
 
 ```bash
 # In a monitoring script
-STATUS=$(auauth-check --json)
+STATUS=$(unleash auth --json)
 AUTHENTICATED=$(echo "$STATUS" | jq -r '.authenticated')
 
 if [ "$AUTHENTICATED" != "true" ]; then
@@ -220,24 +215,16 @@ if [ "$AUTHENTICATED" != "true" ]; then
 fi
 ```
 
-## Future Enhancements
-
-Potential commands that could support `--json` in the future:
-
-- `autmux status --json` - Tmux session status
-- Error messages consistently formatted as JSON when `--json` is used globally
-
 ## Testing
 
-All JSON outputs have been tested with:
+All JSON outputs can be tested with:
 
 ```bash
 cargo build --release
-./target/release/unleash--version --json
-./target/release/auversion --json
-./target/release/auversion --list --json
-./target/release/auauth-check --json
-./target/release/auauth-check --json --verbose
+./target/release/unleash version --json
+./target/release/unleash version --list --json
+./target/release/unleash auth --json
+./target/release/unleash auth --json --verbose
 ```
 
 All outputs produce valid JSON that can be parsed by `jq` and other JSON processors.

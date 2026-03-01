@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
-# Comprehensive test script for cu auth command
+# Comprehensive test script for unleash auth command
 # Tests authentication detection logic and exit codes
 
 set -e
 
-CU_BIN="${CU_BIN:-./target/release/cu}"
-TEST_DIR="/tmp/cu-auth-test-$$"
+UNLEASH_BIN="${UNLEASH_BIN:-./target/release/unleash}"
+TEST_DIR="/tmp/unleash-auth-test-$$"
 CREDENTIALS_PATH="$HOME/.claude/.credentials.json"
 BACKUP_CREDENTIALS="${CREDENTIALS_PATH}.backup.$$"
 
@@ -108,7 +108,7 @@ assert_output_contains() {
 
 # Setup
 echo "================================"
-echo "Cu auth Comprehensive Tests"
+echo "Unleash auth Comprehensive Tests"
 echo "================================"
 echo
 echo "Setting up test environment..."
@@ -141,7 +141,7 @@ rm -f "$CREDENTIALS_PATH"
 run_test \
     "No auth: Should fail with exit code 1" \
     1 \
-    $CU_BIN auth
+    $UNLEASH_BIN auth
 
 # Test that output shows "not configured" message
 TESTS_RUN=$((TESTS_RUN + 1))
@@ -149,7 +149,7 @@ echo
 echo "Test $TESTS_RUN: No auth: Should show 'not configured' message"
 echo "---"
 set +e
-OUTPUT=$($CU_BIN auth 2>&1)
+OUTPUT=$($UNLEASH_BIN auth 2>&1)
 set -e
 if echo "$OUTPUT" | grep -q "not configured"; then
     echo -e "${GREEN}✓ PASS${NC}: Output contains 'not configured'"
@@ -167,7 +167,7 @@ echo
 echo "Test $TESTS_RUN: No auth: JSON output shows authenticated=false"
 echo "---"
 set +e
-JSON_OUTPUT=$($CU_BIN auth --json 2>&1)
+JSON_OUTPUT=$($UNLEASH_BIN auth --json 2>&1)
 set -e
 if echo "$JSON_OUTPUT" | jq -e '.authenticated == false' > /dev/null 2>&1; then
     echo -e "${GREEN}✓ PASS${NC}: JSON shows authenticated=false"
@@ -191,12 +191,12 @@ export CLAUDE_CODE_OAUTH_TOKEN="test-token-123456789"
 run_test \
     "Env var auth: Should pass with exit code 0" \
     0 \
-    $CU_BIN auth
+    $UNLEASH_BIN auth
 
 assert_output_contains \
     "Env var auth: Should show 'configured' message" \
     "configured" \
-    $CU_BIN auth
+    $UNLEASH_BIN auth
 
 # Test JSON output shows authenticated
 TESTS_RUN=$((TESTS_RUN + 1))
@@ -204,7 +204,7 @@ echo
 echo "Test $TESTS_RUN: Env var auth: JSON output shows authenticated=true"
 echo "---"
 set +e
-JSON_OUTPUT=$($CU_BIN auth --json 2>&1)
+JSON_OUTPUT=$($UNLEASH_BIN auth --json 2>&1)
 set -e
 if echo "$JSON_OUTPUT" | jq -e '.authenticated == true' > /dev/null 2>&1; then
     echo -e "${GREEN}✓ PASS${NC}: JSON shows authenticated=true"
@@ -221,7 +221,7 @@ echo
 echo "Test $TESTS_RUN: Env var auth: Verbose shows method=oauth_token"
 echo "---"
 set +e
-VERBOSE_OUTPUT=$($CU_BIN auth --verbose 2>&1)
+VERBOSE_OUTPUT=$($UNLEASH_BIN auth --verbose 2>&1)
 set -e
 if echo "$VERBOSE_OUTPUT" | grep -q -i "oauth.*token\|environment.*variable"; then
     echo -e "${GREEN}✓ PASS${NC}: Verbose output shows OAuth token method"
@@ -259,12 +259,12 @@ EOF
 run_test \
     "Credentials file: Should pass with exit code 0" \
     0 \
-    $CU_BIN auth
+    $UNLEASH_BIN auth
 
 assert_output_contains \
     "Credentials file: Should show 'configured' message" \
     "configured" \
-    $CU_BIN auth
+    $UNLEASH_BIN auth
 
 # Test JSON output shows credentials file method
 TESTS_RUN=$((TESTS_RUN + 1))
@@ -272,7 +272,7 @@ echo
 echo "Test $TESTS_RUN: Credentials file: JSON shows method=credentials_file"
 echo "---"
 set +e
-JSON_OUTPUT=$($CU_BIN auth --json --verbose 2>&1)
+JSON_OUTPUT=$($UNLEASH_BIN auth --json --verbose 2>&1)
 set -e
 if echo "$JSON_OUTPUT" | jq -e '.method == "credentials_file"' > /dev/null 2>&1; then
     echo -e "${GREEN}✓ PASS${NC}: JSON shows credentials_file method"
@@ -297,7 +297,7 @@ echo "{}" > "$CREDENTIALS_PATH"
 run_test \
     "Invalid credentials: Should fail with exit code 1" \
     1 \
-    $CU_BIN auth
+    $UNLEASH_BIN auth
 
 # Create corrupted credentials file
 echo "not valid json" > "$CREDENTIALS_PATH"
@@ -305,7 +305,7 @@ echo "not valid json" > "$CREDENTIALS_PATH"
 run_test \
     "Corrupted credentials: Should fail with exit code 1" \
     1 \
-    $CU_BIN auth
+    $UNLEASH_BIN auth
 
 # ============================================================================
 # Test Suite 5: Priority Order
@@ -330,7 +330,7 @@ EOF
 run_test \
     "Both present: Should pass with exit code 0" \
     0 \
-    $CU_BIN auth
+    $UNLEASH_BIN auth
 
 # Test that env var takes priority
 TESTS_RUN=$((TESTS_RUN + 1))
@@ -338,7 +338,7 @@ echo
 echo "Test $TESTS_RUN: Priority: Env var should take priority over file"
 echo "---"
 set +e
-VERBOSE_OUTPUT=$($CU_BIN auth --verbose 2>&1)
+VERBOSE_OUTPUT=$($UNLEASH_BIN auth --verbose 2>&1)
 set -e
 if echo "$VERBOSE_OUTPUT" | grep -q -i "oauth.*token\|environment.*variable" && \
    ! echo "$VERBOSE_OUTPUT" | grep -q -i "credentials.*file"; then
@@ -363,7 +363,7 @@ echo
 echo "Test $TESTS_RUN: JSON output is valid JSON"
 echo "---"
 set +e
-JSON_OUTPUT=$($CU_BIN auth --json 2>&1)
+JSON_OUTPUT=$($UNLEASH_BIN auth --json 2>&1)
 set -e
 if echo "$JSON_OUTPUT" | jq . > /dev/null 2>&1; then
     echo -e "${GREEN}✓ PASS${NC}: JSON is valid and parseable"
@@ -404,7 +404,7 @@ echo
 echo "Test $TESTS_RUN: Quiet mode with auth: No output produced"
 echo "---"
 set +e
-OUTPUT=$($CU_BIN auth -q 2>&1)
+OUTPUT=$($UNLEASH_BIN auth -q 2>&1)
 EXIT_CODE=$?
 set -e
 OUTPUT_LENGTH=${#OUTPUT}
@@ -438,7 +438,7 @@ echo
 echo "Test $TESTS_RUN: Quiet mode without auth: No output produced"
 echo "---"
 set +e
-OUTPUT=$($CU_BIN auth -q 2>&1)
+OUTPUT=$($UNLEASH_BIN auth -q 2>&1)
 EXIT_CODE=$?
 set -e
 OUTPUT_LENGTH=${#OUTPUT}
@@ -471,7 +471,7 @@ echo
 echo "Test $TESTS_RUN: Quiet mode overrides verbose flag"
 echo "---"
 set +e
-OUTPUT=$($CU_BIN auth -q -v 2>&1)
+OUTPUT=$($UNLEASH_BIN auth -q -v 2>&1)
 set -e
 OUTPUT_LENGTH=${#OUTPUT}
 if [ $OUTPUT_LENGTH -eq 0 ]; then
@@ -488,7 +488,7 @@ echo
 echo "Test $TESTS_RUN: Quiet mode overrides json flag"
 echo "---"
 set +e
-OUTPUT=$($CU_BIN auth -q --json 2>&1)
+OUTPUT=$($UNLEASH_BIN auth -q --json 2>&1)
 set -e
 OUTPUT_LENGTH=${#OUTPUT}
 if [ $OUTPUT_LENGTH -eq 0 ]; then

@@ -327,7 +327,7 @@ For detailed configuration options, see [docs/extensions/configuration.md](docs/
 
 ## TUI Features
 
-The TUI (`unleashi`) provides a graphical interface for managing Unleash:
+The TUI (`unleash`) provides a graphical interface for managing Unleash:
 
 ### Profile Management
 - Create and manage environment profiles

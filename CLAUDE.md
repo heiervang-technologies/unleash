@@ -1,16 +1,16 @@
-# Agent Instructions for Claude Unleashed
+# Agent Instructions for Unleash
 
-This file provides context and instructions for AI agents (including Claude, GitHub Copilot, and Snail agents) working on the Claude Unleashed repository.
+This file provides context and instructions for AI agents (including Claude, GitHub Copilot, and Snail agents) working on the Unleash repository.
 
 ## Self-Restart Capability
 
-**IMPORTANT**: If you are running under the `claude-unleashed` wrapper, you can restart yourself to reload MCP servers, apply configuration changes, or recover from issues.
+**IMPORTANT**: If you are running under the `unleash` wrapper, you can restart yourself to reload MCP servers, apply configuration changes, or recover from issues.
 
 ### How to Check if You Can Restart
 
 Check the environment variable:
 ```bash
-echo $CLAUDE_UNLEASHED
+echo $AGENT_UNLEASHED
 ```
 If it returns `1`, you are running under the wrapper and can restart.
 
@@ -50,7 +50,7 @@ restart-claude "Continue working on the feature"
 
 ## Repository Overview
 
-**Claude Unleashed** is a wrapper around Anthropic's official Claude Code CLI that adds auto-mode, version management, and a plugin system — without modifying Claude Code itself.
+**Unleash** is a wrapper around Anthropic's official Claude Code CLI that adds auto-mode, version management, and a plugin system — without modifying Claude Code itself.
 
 ### Key Principles
 
@@ -63,7 +63,7 @@ restart-claude "Continue working on the feature"
 ## Repository Structure
 
 ```
-claude-unleashed/
+unleash/
 ├── src/                         # Rust TUI & CLI source (main entry point)
 │   └── main.rs
 ├── Cargo.toml                   # Build configuration + version lists

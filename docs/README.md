@@ -536,6 +536,6 @@ This repository inherits the license from Claude Code. See LICENSE.md for detail
 
 ---
 
-**Last Updated**: 2026-01-13
+**Last Updated**: 2026-03-01
 
 For questions or suggestions about this documentation, please create an issue.

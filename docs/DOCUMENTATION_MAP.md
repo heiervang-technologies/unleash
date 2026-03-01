@@ -199,6 +199,6 @@ If you can't find what you need:
 
 ---
 
-**Documentation Version**: 1.1.0
-**Last Updated**: 2026-01-13
+**Documentation Version**: 1.2.0
+**Last Updated**: 2026-03-01
 **Total Coverage**: 4800+ lines across 5 comprehensive guides
