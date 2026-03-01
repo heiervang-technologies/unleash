@@ -68,15 +68,11 @@ else
 fi
 
 # ─── 3. unleash (no args) ────────────────────────────────────────────
-echo "[3] unleash (no args — should show help)"
+echo "[3] unleash (no args — should show error without TTY)"
 if run_headless "$BIN"; then
-    if echo "$OUT" | grep -q "Unleash"; then
-        pass "no-args shows help"
-    else
-        fail "no-args output" "missing help text"
-    fi
+    fail "no-args output" "should fail in headless environment"
 else
-    fail "no-args" "non-zero exit code"
+    pass "no-args exits non-zero without TTY"
 fi
 
 # ─── 4. unleash version ──────────────────────────────────────────────
@@ -136,19 +132,8 @@ else
     fail "auth --quiet" "unexpected stdout: $OUT"
 fi
 
-# ─── 9. unleash patch --check ────────────────────────────────────────
-echo "[9] unleash patch --check"
-if run_headless "$BIN" patch --check; then
-    pass "patch --check exits 0"
-else
-    # Non-zero is ok if patching is needed or claude not installed
-    pass "patch --check exits non-zero (expected if not patched)"
-fi
-# patch --check may produce no output when patches are already applied
-pass "patch --check ran without crash"
-
-# ─── 10. unleash hooks ───────────────────────────────────────────────
-echo "[10] unleash hooks"
+# ─── 9. unleash hooks ───────────────────────────────────────────────
+echo "[9] unleash hooks"
 # hooks may fail if Claude Code settings.json doesn't exist (e.g. CI)
 run_headless "$BIN" hooks || true
 if [[ -n "$OUT" || -n "$ERR" ]]; then
@@ -157,8 +142,8 @@ else
     pass "hooks subcommand ran (no Claude Code installed)"
 fi
 
-# ─── 11. unleash hooks list ──────────────────────────────────────────
-echo "[11] unleash hooks list"
+# ─── 10. unleash hooks list ──────────────────────────────────────────
+echo "[10] unleash hooks list"
 run_headless "$BIN" hooks list || true
 if [[ -n "$OUT" || -n "$ERR" ]]; then
     pass "hooks list produces output"
@@ -166,8 +151,8 @@ else
     pass "hooks list ran (no Claude Code installed)"
 fi
 
-# ─── 12. unleash agents ──────────────────────────────────────────────
-echo "[12] unleash agents"
+# ─── 11. unleash agents ──────────────────────────────────────────────
+echo "[11] unleash agents"
 if run_headless "$BIN" agents; then
     if echo "$OUT" | grep -qi "claude\|codex\|agent"; then
         pass "agents shows agent info"
@@ -178,8 +163,8 @@ else
     fail "agents" "non-zero exit code"
 fi
 
-# ─── 13. unleash agents list ─────────────────────────────────────────
-echo "[13] unleash agents list"
+# ─── 12. unleash agents list ─────────────────────────────────────────
+echo "[12] unleash agents list"
 if run_headless "$BIN" agents list; then
     if echo "$OUT" | grep -qi "claude\|codex"; then
         pass "agents list shows agents"
@@ -190,8 +175,8 @@ else
     fail "agents list" "non-zero exit code"
 fi
 
-# ─── 14. unleash agents info claude ──────────────────────────────────
-echo "[14] unleash agents info claude"
+# ─── 13. unleash agents info claude ──────────────────────────────────
+echo "[13] unleash agents info claude"
 if run_headless "$BIN" agents info claude; then
     if echo "$OUT" | grep -qi "claude"; then
         pass "agents info claude shows details"
@@ -202,8 +187,8 @@ else
     fail "agents info claude" "non-zero exit code"
 fi
 
-# ─── 15. unleash agents info codex ──────────────────────────────────
-echo "[15] unleash agents info codex"
+# ─── 14. unleash agents info codex ──────────────────────────────────
+echo "[14] unleash agents info codex"
 if run_headless "$BIN" agents info codex; then
     if echo "$OUT" | grep -qi "codex"; then
         pass "agents info codex shows details"
@@ -214,10 +199,10 @@ else
     fail "agents info codex" "non-zero exit code"
 fi
 
-# ─── 16. Binary aliases exist ───────────────────────────────────
-echo "[16] Binary aliases exist"
+# ─── 15. Binary aliases exist ───────────────────────────────────
+echo "[15] Binary aliases exist"
 BIN_DIR=$(dirname "$BIN")
-for alias in unleashi unleashg unleashtx unleashtxg; do
+for alias in unleashed u; do
     if [[ -x "$BIN_DIR/$alias" ]]; then
         pass "$alias binary exists"
     else
@@ -225,44 +210,20 @@ for alias in unleashi unleashg unleashtx unleashtxg; do
     fi
 done
 
-# ─── 17. unleashi --version ─────────────────────────────────────────
-echo "[17] unleashi --version"
-if run_headless "$BIN_DIR/unleashi" --version; then
+# ─── 16. unleashed --version ─────────────────────────────────────────
+echo "[16] unleashed --version"
+if run_headless "$BIN_DIR/unleashed" --version; then
     if echo "$OUT" | grep -q "Unleash: v"; then
-        pass "unleashi --version works"
+        pass "unleashed --version works"
     else
-        fail "unleashi --version" "unexpected output"
+        fail "unleashed --version" "unexpected output"
     fi
 else
-    fail "unleashi --version" "non-zero exit code"
+    fail "unleashed --version" "non-zero exit code"
 fi
 
-# ─── 18. unleashg --version ─────────────────────────────────────────
-echo "[18] unleashg --version"
-if run_headless "$BIN_DIR/unleashg" --version; then
-    if echo "$OUT" | grep -q "Unleash: v"; then
-        pass "unleashg --version works"
-    else
-        fail "unleashg --version" "unexpected output"
-    fi
-else
-    fail "unleashg --version" "non-zero exit code"
-fi
-
-# ─── 19. unleashtx --version ────────────────────────────────────────
-echo "[19] unleashtx --version"
-if run_headless "$BIN_DIR/unleashtx" --version; then
-    if echo "$OUT" | grep -q "Unleash: v"; then
-        pass "unleashtx --version works"
-    else
-        fail "unleashtx --version" "unexpected output"
-    fi
-else
-    fail "unleashtx --version" "non-zero exit code"
-fi
-
-# ─── 20. Invalid subcommand ────────────────────────────────────
-echo "[20] unleash invalid-subcommand"
+# ─── 17. Invalid subcommand ────────────────────────────────────
+echo "[17] unleash invalid-subcommand"
 if run_headless "$BIN" invalid-subcommand; then
     fail "invalid subcommand" "should exit non-zero"
 else

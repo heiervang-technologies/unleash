@@ -17,9 +17,10 @@ pub struct Profile {
     /// Optional description
     #[serde(default)]
     pub description: String,
-    /// Path to agent CLI executable (default: "unleashg" for full unleashed features)
+    /// Path to agent CLI executable (default: "unleashed" for full unleashed features)
     #[serde(default = "default_agent_cli_path", alias = "claude_path")]
     pub agent_cli_path: String,
+
     /// Additional arguments to pass to the agent CLI
     #[serde(default)]
     pub claude_args: Vec<String>,
@@ -125,7 +126,7 @@ fn default_agent_cli_path() -> String {
     // - Restart/resurrection support
     // - Plugin loading
     // - Extended timeouts
-    "unleashg".to_string()
+    "unleashed".to_string()
 }
 
 fn default_env() -> HashMap<String, String> {
@@ -452,7 +453,7 @@ mod tests {
     fn test_profile_with_api_key() {
         let profile = Profile::with_api_key("work", "sk-work-key");
         assert_eq!(profile.name, "work");
-        assert_eq!(profile.agent_cli_path, "unleashg");
+        assert_eq!(profile.agent_cli_path, "unleashed");
         assert_eq!(profile.theme, "orange");
         assert_eq!(profile.get_env("ANTHROPIC_API_KEY"), Some(&"sk-work-key".to_string()));
     }
@@ -475,7 +476,7 @@ mod tests {
     #[test]
     fn test_profile_default_settings() {
         let profile = Profile::default();
-        assert_eq!(profile.agent_cli_path, "unleashg");
+        assert_eq!(profile.agent_cli_path, "unleashed");
         assert_eq!(profile.claude_args, Vec::<String>::new());
         assert_eq!(profile.stop_prompt, None);
         assert_eq!(profile.theme, "orange");
@@ -493,7 +494,7 @@ KEY = "value"
 "#;
         let profile: Profile = toml::from_str(toml_str).unwrap();
         assert_eq!(profile.name, "old-profile");
-        assert_eq!(profile.agent_cli_path, "unleashg");
+        assert_eq!(profile.agent_cli_path, "unleashed");
         assert_eq!(profile.theme, "orange");
         assert_eq!(profile.claude_args, Vec::<String>::new());
         assert_eq!(profile.stop_prompt, None);

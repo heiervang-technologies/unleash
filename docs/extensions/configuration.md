@@ -121,7 +121,7 @@ Removes the custom prompt from config.toml, causing the hook to use its default 
 Launch the TUI and navigate to the Settings screen:
 
 ```bash
-unleashi
+unleash
 ```
 
 Steps:
@@ -230,13 +230,13 @@ The prompt is only shown when:
 - The stop hook is triggered (Claude tries to end turn)
 
 If you're not seeing the prompt:
-- Verify you started Claude with `unleash` or `unleashg` (not `claude` directly)
+- Verify you started Claude with `unleash claude` or `unleashed` (not `claude` directly)
 - Check that auto mode is active (`/auto` was run)
 - Ensure Claude is actually trying to exit
 
 ## TUI Settings
 
-The TUI (`unleashi`) provides a visual interface for managing configuration.
+The TUI (`unleash`) provides a visual interface for managing configuration.
 
 ### Available Settings
 
@@ -269,36 +269,36 @@ Settings are saved immediately to `~/.config/unleash/config.toml`.
 
 ### Command-Line Flags
 
-The `unleash` wrapper accepts several configuration flags:
+The `unleashed` wrapper (or `unleash <agent>`) accepts several configuration flags:
 
 #### Auto Mode
 
 ```bash
-unleash --auto          # Enable auto mode on startup
-unleash -a              # Short form
+unleashed --auto          # Enable auto mode on startup
+unleashed -a              # Short form
 ```
 
 #### Stop Prompt
 
 ```bash
-unleash --stop-prompt="message"    # Set prompt inline
-unleash --stop-prompt "message"    # Alternative syntax
-unleash --stop-prompt-edit         # Edit with $EDITOR
-unleash --stop-prompt-clear        # Reset to default
+unleashed --stop-prompt="message"    # Set prompt inline
+unleashed --stop-prompt "message"    # Alternative syntax
+unleashed --stop-prompt-edit         # Edit with $EDITOR
+unleashed --stop-prompt-clear        # Reset to default
 ```
 
 #### Examples
 
 ```bash
 # Start with auto mode and custom prompt
-unleash --auto --stop-prompt="Complete all tests before stopping."
+unleashed --auto --stop-prompt="Complete all tests before stopping."
 
 # Edit prompt, then start normally
-unleash --stop-prompt-edit
-unleash
+unleashed --stop-prompt-edit
+unleashed
 
 # Clear prompt and start
-unleash --stop-prompt-clear && unleash
+unleashed --stop-prompt-clear && unleashed
 ```
 
 ### Environment Variables

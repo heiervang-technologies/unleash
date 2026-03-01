@@ -3073,8 +3073,8 @@ impl LaunchRequest {
         cmd.env("CLAUDE_WRAPPER_PID", wrapper_pid.to_string());
 
         // Only override arg0 for direct claude invocations.
-        // When launching unleashg/unleash, we must preserve argv[0] so the binary
-        // can detect it was invoked as "unleashg" and run the launcher mode.
+        // When launching unleashed/unleash, we must preserve argv[0] so the binary
+        // can detect it was invoked as "unleashed" and run the launcher mode.
         let cmd_name = std::path::Path::new(&self.profile.agent_cli_path)
             .file_name()
             .and_then(|n| n.to_str())
@@ -3085,7 +3085,7 @@ impl LaunchRequest {
             // Format: "claude:<pid>" - allows correlating with conversation later
             cmd.arg0(format!("claude:{}", wrapper_pid));
         }
-        // For unleashg/unleash, let the binary see its natural argv[0]
+        // For unleashed/unleash, let the binary see its natural argv[0]
 
         cmd.args(&self.profile.claude_args);
         cmd.status()

@@ -26,10 +26,9 @@ This installs/updates both **Claude Code** and **Unleash**.
 
 **After install:**
 ```bash
-unleash          # Show help and available commands
-unleashg         # Start Claude with unleashed features (shorthand for 'unleash go')
-unleashi         # TUI for profiles & version management
-unleashtx        # Headless mode for automation
+unleash          # Launch TUI interface (profiles & version management)
+unleash claude   # Start Claude with unleashed features
+unleashed        # Direct passthrough wrapper (shorthand 'u')
 ```
 
 > **Already have it installed?** Run the same command to update to latest versions.
@@ -146,7 +145,7 @@ curl -fsSL https://raw.githubusercontent.com/heiervang-technologies/unleash/main
 This will:
 - Install Claude Code (native binary preferred, npm fallback)
 - Download the pre-built TUI binary
-- Set up `unleash`, `unleashg`, `unleashtx`, and `unleashi` commands
+- Set up `unleash`, `unleashed`, and `u` commands
 
 ### Installation Options
 
@@ -280,21 +279,19 @@ export PATH="$HOME/.local/bin:$PATH"
 ### Command Overview
 
 ```bash
-unleash                    # Show help and available commands
-unleash go                 # Start Claude with unleashed features
-unleash go --auto          # Start in autonomous mode
-unleashg                   # Shorthand for 'unleash go'
-unleashg --auto            # Shorthand for 'unleash go --auto'
-unleash ui / unleashi           # Launch TUI interface
-unleash tmux / unleashtx        # Headless mode (see below)
+unleash                    # Launch TUI interface (default)
+unleash claude             # Start Claude with unleashed features
+unleash claude --auto      # Start in autonomous mode
+unleashed                  # Direct wrapper without TUI overhead (shorthand 'u')
+unleashed --auto           # Direct wrapper in autonomous mode
 unleash auth               # Check authentication status
 unleash auth -v            # Check with detailed information
 unleash auth -q            # Check quietly (only exit code)
 unleash auth --json        # Output as JSON for scripting
 unleash version            # Show installed version
 unleash version --list     # List available versions
-restart-claude        # Restart Claude (preserves session)
-exit-claude           # Exit Claude cleanly
+restart-claude             # Restart Claude (preserves session)
+exit-claude                # Exit Claude cleanly
 ```
 
 ### Configuration Options
@@ -305,18 +302,18 @@ Customize the message Claude receives when auto-mode blocks it from exiting:
 
 ```bash
 # Set a custom prompt
-unleashg --stop-prompt="Keep working until tests pass!"
+unleashed --stop-prompt="Keep working until tests pass!"
 
 # Edit with your $EDITOR
-unleashg --stop-prompt-edit
+unleashed --stop-prompt-edit
 
 # Reset to default
-unleashg --stop-prompt-clear
+unleashed --stop-prompt-clear
 ```
 
 You can also configure this via the TUI:
 ```bash
-unleashi  # Navigate to Settings > Stop Prompt
+unleash  # Navigate to Settings > Stop Prompt
 ```
 
 The prompt is stored globally in `~/.config/unleash/config.toml` and applies to all future auto-mode sessions.
@@ -348,63 +345,6 @@ Navigate with:
 - `Enter` - Select/Confirm
 - `Esc` - Go back
 - `?` - Help
-
-## Headless Mode (unleashtx)
-
-### Overview
-
-`unleashtx` is a headless mode for Unleash that runs Claude in a tmux session, enabling programmatic access for automation, scripting, and CI/CD pipelines. It provides a command-line interface to start, stop, send messages, and read responses from Claude without requiring an interactive terminal.
-
-### When to Use It
-
-- **CI/CD pipelines**: Integrate Claude into build and deployment workflows
-- **Automation scripts**: Run Claude tasks from shell scripts or cron jobs
-- **Background tasks**: Process files or analyze code without blocking the terminal
-- **Programmatic access**: Build tools that interact with Claude programmatically
-- **Batch processing**: Send multiple queries and collect responses
-
-### Quick Examples
-
-```bash
-# Start a headless session
-unleashtx start
-
-# Send a message to Claude
-unleashtx send "Analyze this code for bugs"
-
-# Wait for Claude to finish responding
-unleashtx wait
-
-# Read the response
-unleashtx read
-
-# Or use the shorthand for quick queries (start, send, wait, read in one command)
-unleashtx "What is 2+2?"
-
-# Attach to the session for interactive use
-unleashtx attach
-
-# Check session status
-unleashtx status
-
-# Stop the session
-unleashtx stop
-```
-
-### Environment Variables
-
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `AUTX_SESSION_NAME` | `unleash` | tmux session name |
-| `AUTX_WAIT_TIMEOUT` | `300` | Default wait timeout in seconds |
-| `AUTX_TERM_WIDTH` | `200` | Terminal width |
-| `AUTX_TERM_HEIGHT` | `50` | Terminal height |
-| `AUTX_STABLE_THRESHOLD` | `3` | Seconds of stable output to consider response complete |
-| `AUTX_INIT_WAIT` | `5` | Seconds to wait for Claude initialization |
-
-### Full Documentation
-
-For detailed usage, advanced options, and integration examples, see [docs/extensions/headless-mode.md](docs/extensions/headless-mode.md).
 
 ## How to Add Plugins
 

@@ -51,10 +51,10 @@ Located in `docs/extensions/`:
    - Profile management and environment variables
    - Global settings and stop prompt customization
 
-3. **[Headless Mode (unleashtx)](./extensions/headless-mode.md)**
-   - Running Claude in tmux sessions for automation
-   - Programmatic access and scripting
-   - Environment variables and session management
+3. **[Core CLI Overview](./extensions/configuration.md)**
+   - Running the agent directly with `unleash claude` (or codex, gemini)
+   - Using the `unleashed` or `u` direct wrappers for faster, no-overhead execution
+   - Configuration options for CLI and TUI
 
 4. **[Restart & Refresh Guide](./extensions/restart-refresh.md)**
    - Process restart capability (resurrection)

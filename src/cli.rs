@@ -3,7 +3,7 @@
 use clap::{Parser, Subcommand};
 use std::process::Command;
 
-/// Get the full version information (both Claude Unleashed and Claude Code)
+/// Get the full version information (both Unleash and Claude Code)
 pub fn get_full_version() -> String {
     let au_version = env!("CARGO_PKG_VERSION");
 
@@ -47,25 +47,24 @@ pub fn get_full_version() -> String {
 #[command(about = "Unleash - Extended CLI for AI Code Agents")]
 #[command(long_about = r#"Unleash - Extended CLI for AI Code Agents
 
-A wrapper for AI code agents (Claude, Codex, etc.) with extended features:
+A wrapper for AI code agents (Claude, Codex, Gemini, OpenCode) with extended features:
   - Self-restart capability for MCP server reloading
   - Plugin system integration (loads from plugins/unleashed/)
   - Automatic onboarding bypass
   - TUI for profile and version management
-  - Headless tmux mode for automation
 
 BINARY STRUCTURE:
-  unleash     - Wrapper script that runs agent with plugins and features
-  unleashi    - TUI for profile and version management
-  unleashtx   - Headless tmux automation mode
+  unleash     - CLI entrypoint. Opens TUI with no args.
+  unleashed   - Direct agent wrapper entrypoint.
+  u           - Alias for unleashed.
 
 USAGE NOTES:
-  When you run 'unleash', you're using a wrapper script that adds functionality
-  to the underlying agent. The wrapper intercepts some flags like --auto and --help.
+  When you run 'unleash', you'll open the TUI by default to manage profiles.
+  You can run an agent directly via 'unleash <agent_name> [args...]'
+  (e.g., 'unleash claude --auto', 'unleash gemini').
 
-  For Claude Code's native help: claude --help
-  For wrapper-specific help: unleash --help
-  For TUI help: unleashi --help (or this command)"#)]
+  Alternatively, use 'unleashed' or 'u' to directly run your active/default
+  profile without TUI overhead (e.g., 'u --auto')."#)]
 pub struct Cli {
     /// Output results as JSON (supported by: auth, version)
     #[arg(long, global = true)]
@@ -77,30 +76,30 @@ pub struct Cli {
 
 #[derive(Subcommand, Debug)]
 pub enum Commands {
-    /// Start Claude with unleashed features
-    Go {
-        /// Enable auto mode (Claude won't wait for confirmations)
-        #[arg(short, long)]
-        auto: bool,
-
-        /// Run in headless mode with this prompt
-        #[arg(short, long)]
-        prompt: Option<String>,
-
+    /// Start Claude Code
+    Claude {
         /// Additional arguments to pass to Claude
         #[arg(trailing_var_arg = true)]
         args: Vec<String>,
     },
 
-    /// Launch the TUI for profile and version management
-    #[cfg(feature = "tui")]
-    #[command(alias = "ui")]
-    Tui,
+    /// Start Codex
+    Codex {
+        /// Additional arguments to pass to Codex
+        #[arg(trailing_var_arg = true)]
+        args: Vec<String>,
+    },
 
-    /// Headless tmux mode for automation
-    #[command(alias = "tx")]
-    Tmux {
-        /// Arguments for tmux subcommand (start, send, read, wait, attach, stop, status)
+    /// Start Gemini CLI
+    Gemini {
+        /// Additional arguments to pass to Gemini
+        #[arg(trailing_var_arg = true)]
+        args: Vec<String>,
+    },
+
+    /// Start OpenCode
+    OpenCode {
+        /// Additional arguments to pass to OpenCode
         #[arg(trailing_var_arg = true)]
         args: Vec<String>,
     },

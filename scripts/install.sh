@@ -303,8 +303,8 @@ if $BUILD_TUI; then
         if cargo build --release; then
             success "CLI built successfully"
 
-            # Install new binaries (unleash, unleashi, unleashg, unleashtx, unleashtxg)
-            for bin in unleash unleashi unleashg unleashtx unleashtxg; do
+            # Install new binaries (unleash, unleashed, u)
+            for bin in unleash unleashed u; do
                 if [[ -f "$REPO_ROOT/target/release/$bin" ]]; then
                     cp "$REPO_ROOT/target/release/$bin" "$BIN_DIR/$bin"
                     chmod +x "$BIN_DIR/$bin"
@@ -358,11 +358,9 @@ echo "│        Installation Complete        │"
 echo "╰─────────────────────────────────────╯"
 echo ""
 echo "CLI Commands:"
-echo "  unleash             - Show help"
-echo "  unleash go / unleashg    - Start agent with unleashed features"
-echo "  unleash ui / unleashi    - TUI for profile/version management"
-echo "  unleash tmux / unleashtx - Headless tmux mode"
-echo "  unleashtx go / unleashtxg - Start tmux session and attach"
+echo "  unleash             - Launch TUI for profile/version management (default)"
+echo "  unleash claude      - Start agent with unleashed features"
+echo "  unleashed           - Direct wrapper without TUI overhead (shorthand 'u')"
 echo "  unleash auth        - Check authentication status"
 echo "  unleash version     - Manage Claude Code versions"
 echo ""
@@ -371,9 +369,8 @@ echo "  restart-claude  - Restart agent (preserves session)"
 echo "  exit-claude     - Exit agent and wrapper"
 echo ""
 echo "Quick start:"
-echo "  unleashg              - Start agent with unleashed features"
-echo "  unleashg --auto       - Start in auto mode"
-echo "  unleashtxg            - Start agent in tmux and attach"
+echo "  unleashed              - Start agent with unleashed features"
+echo "  unleashed --auto       - Start in auto mode"
 echo ""
 
 if ! $BUILD_TUI; then

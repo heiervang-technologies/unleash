@@ -1,15 +1,9 @@
 //! Unleash - Unified CLI for AI Code Agents
 //!
 //! Single binary that handles:
-//! - `unleash` / `unleash` - Launch agent with wrapper features
-//! - `unleash tui` / `unleashi` - TUI for profile/version management
-//! - `unleash tmux` / `unleashtx` - Headless tmux mode
+//! - `unleash` - Entrypoint (TUI by default or runs specific agent subcommands)
+//! - `unleashed` / `u` - Direct agent wrapper entrypoint
 //!
-//! Shorthand aliases:
-//! - `unleashi` - TUI for profile/version management
-//! - `unleashg` - Launch agent wrapper
-//! - `unleashtx` - Headless tmux mode
-//! - `unleashtxg` - Start and attach tmux session
 
 mod agents;
 mod auth;
@@ -26,7 +20,6 @@ mod pixel_art;
 mod text_input;
 #[cfg(feature = "tui")]
 mod theme;
-mod tmux;
 #[cfg(feature = "tui")]
 mod tui;
 mod version;
@@ -64,18 +57,10 @@ pub fn run() -> io::Result<()> {
 
     // Handle symlink invocations
     match invoked_as.as_str() {
-        #[cfg(feature = "tui")]
-        "unleashi" => return tui::run(),
-        #[cfg(not(feature = "tui"))]
-        "unleashi" => {
-            eprintln!("Error: TUI support is not compiled in this build");
-            eprintln!("Rebuild with: cargo build --features tui");
-            std::process::exit(1);
-        }
-        "unleashg" => {
-            // Shorthand for `unleash go` - launch agent wrapper
+        "unleashed" | "u" => {
+            // Direct agent wrapper entrypoint
             let args: Vec<String> = env::args().skip(1).collect();
-            // Parse args for --auto and -p flags
+            // Parse args for --auto and -p flags for backwards compatibility and wrapper features
             let auto = args.iter().any(|a| a == "--auto" || a == "-a");
             let prompt = args
                 .iter()
@@ -88,17 +73,6 @@ pub fn run() -> io::Result<()> {
                 .collect();
             return launcher::run(auto, prompt, pass_args);
         }
-        "unleashtx" => {
-            // Pass remaining args to tmux module
-            let args: Vec<String> = env::args().skip(1).collect();
-            return tmux::run(&args);
-        }
-        "unleashtxg" => {
-            // Shorthand for 'unleashtx go' - start and attach to tmux session
-            let mut args: Vec<String> = vec!["go".to_string()];
-            args.extend(env::args().skip(1));
-            return tmux::run(&args);
-        }
         _ => {}
     }
 
@@ -106,13 +80,34 @@ pub fn run() -> io::Result<()> {
     let cli = Cli::parse();
 
     match cli.command {
-        Some(Commands::Go { auto, prompt, args }) => {
-            // Launch Claude with wrapper features
-            launcher::run(auto, prompt, args)
+        Some(Commands::Claude { args }) => {
+            env::set_var("CLAUDE_CMD", "claude");
+            let auto = args.iter().any(|a| a == "--auto" || a == "-a");
+            let prompt = args.iter().position(|a| a == "-p" || a == "--prompt").and_then(|i| args.get(i + 1).cloned());
+            let pass_args: Vec<String> = args.into_iter().filter(|a| a != "--auto" && a != "-a" && a != "-p" && a != "--prompt").collect();
+            launcher::run(auto, prompt, pass_args)
         }
-        #[cfg(feature = "tui")]
-        Some(Commands::Tui) => tui::run(),
-        Some(Commands::Tmux { args }) => tmux::run(&args),
+        Some(Commands::Codex { args }) => {
+            env::set_var("CLAUDE_CMD", "codex");
+            let auto = args.iter().any(|a| a == "--auto" || a == "-a");
+            let prompt = args.iter().position(|a| a == "-p" || a == "--prompt").and_then(|i| args.get(i + 1).cloned());
+            let pass_args: Vec<String> = args.into_iter().filter(|a| a != "--auto" && a != "-a" && a != "-p" && a != "--prompt").collect();
+            launcher::run(auto, prompt, pass_args)
+        }
+        Some(Commands::Gemini { args }) => {
+            env::set_var("CLAUDE_CMD", "gemini");
+            let auto = args.iter().any(|a| a == "--auto" || a == "-a");
+            let prompt = args.iter().position(|a| a == "-p" || a == "--prompt").and_then(|i| args.get(i + 1).cloned());
+            let pass_args: Vec<String> = args.into_iter().filter(|a| a != "--auto" && a != "-a" && a != "-p" && a != "--prompt").collect();
+            launcher::run(auto, prompt, pass_args)
+        }
+        Some(Commands::OpenCode { args }) => {
+            env::set_var("CLAUDE_CMD", "opencode");
+            let auto = args.iter().any(|a| a == "--auto" || a == "-a");
+            let prompt = args.iter().position(|a| a == "-p" || a == "--prompt").and_then(|i| args.get(i + 1).cloned());
+            let pass_args: Vec<String> = args.into_iter().filter(|a| a != "--auto" && a != "-a" && a != "-p" && a != "--prompt").collect();
+            launcher::run(auto, prompt, pass_args)
+        }
         Some(Commands::Version { list, install }) => {
             if list {
                 version::list_versions(cli.json)
@@ -327,11 +322,16 @@ pub fn run() -> io::Result<()> {
             }
         }
         None => {
-            // No subcommand: show help
-            use clap::CommandFactory;
-            Cli::command().print_help().ok();
-            println!(); // Add newline after help
-            Ok(())
+            #[cfg(feature = "tui")]
+            return tui::run();
+
+            #[cfg(not(feature = "tui"))]
+            {
+                use clap::CommandFactory;
+                Cli::command().print_help().ok();
+                println!();
+                Ok(())
+            }
         }
     }
 }
