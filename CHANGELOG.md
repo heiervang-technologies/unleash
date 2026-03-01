@@ -1,5 +1,12 @@
 # Changelog
 
+## [8.4.0](https://github.com/heiervang-technologies/unleash/compare/v8.3.0...v8.4.0) (2026-03-01)
+
+
+### Features
+
+* squash merge feat/multi-agent-focus-hooks ([e114fe1](https://github.com/heiervang-technologies/unleash/commit/e114fe18fc1c4b2321cbaf0ce23c73851028f4d6))
+
 ## [8.3.0](https://github.com/heiervang-technologies/unleash/compare/v8.2.1...v8.3.0) (2026-03-01)
 
 
