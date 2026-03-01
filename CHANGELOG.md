@@ -1,5 +1,22 @@
 # Changelog
 
+## [8.0.0](https://github.com/heiervang-technologies/agent-unleashed/compare/v7.5.0...v8.0.0) (2026-02-27)
+
+
+### ⚠ BREAKING CHANGES
+
+* remove cli.js patching, switch to native-first install ([#161](https://github.com/heiervang-technologies/agent-unleashed/issues/161))
+
+### Features
+
+* remove cli.js patching, switch to native-first install ([#161](https://github.com/heiervang-technologies/agent-unleashed/issues/161)) ([a03cdf4](https://github.com/heiervang-technologies/agent-unleashed/commit/a03cdf4b66e2baf6ccdec7a8d960b25de5c96cbd))
+* **tui:** revamp version management with drum picker and 4-agent support ([#165](https://github.com/heiervang-technologies/agent-unleashed/issues/165)) ([0cc2246](https://github.com/heiervang-technologies/agent-unleashed/commit/0cc224682ea3fab80c1f6dbbb80cbdd35d03a4e8))
+
+
+### Bug Fixes
+
+* **ci:** update binary name from cu to au in release workflows ([#163](https://github.com/heiervang-technologies/agent-unleashed/issues/163)) ([0369336](https://github.com/heiervang-technologies/agent-unleashed/commit/0369336a91130e952faefac367eb2bd32dbbc9a9))
+
 ## [7.5.0](https://github.com/heiervang-technologies/agent-unleashed/compare/v7.4.0...v7.5.0) (2026-02-19)
 
 
