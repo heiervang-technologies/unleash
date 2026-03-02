@@ -1,0 +1,59 @@
+# Unleash Docker Compose
+#
+# Usage:
+#   docker compose -f docker/docker-compose.yml up claude
+#   docker compose -f docker/docker-compose.yml up codex
+#   docker compose -f docker/docker-compose.yml up gemini
+#   docker compose -f docker/docker-compose.yml up opencode
+#
+# Or just the default (claude):
+#   docker compose -f docker/docker-compose.yml run --rm unleash
+
+services:
+  # Base service - builds the image
+  unleash:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+    image: unleash:latest
+    stdin_open: true
+    tty: true
+    working_dir: /workspace
+    volumes:
+      - workspace:/workspace
+    environment:
+      - ANTHROPIC_API_KEY
+      - OPENAI_API_KEY
+      - GEMINI_API_KEY
+      - CLAUDE_CODE_OAUTH_TOKEN
+
+  # Claude Code agent
+  claude:
+    extends: unleash
+    environment:
+      - AGENT_CMD=claude
+      - ANTHROPIC_API_KEY
+      - CLAUDE_CODE_OAUTH_TOKEN
+
+  # OpenAI Codex agent
+  codex:
+    extends: unleash
+    environment:
+      - AGENT_CMD=codex
+      - OPENAI_API_KEY
+
+  # Google Gemini CLI agent
+  gemini:
+    extends: unleash
+    environment:
+      - AGENT_CMD=gemini
+      - GEMINI_API_KEY
+
+  # OpenCode agent
+  opencode:
+    extends: unleash
+    environment:
+      - AGENT_CMD=opencode
+
+volumes:
+  workspace:
