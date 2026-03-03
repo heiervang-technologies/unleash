@@ -196,6 +196,7 @@ impl TextInput {
     }
 
     /// Get the visible portion of the value within the viewport
+    #[allow(dead_code)]
     pub fn visible_value(&self) -> String {
         if self.value.is_empty() {
             return String::new();
@@ -224,6 +225,40 @@ impl TextInput {
     #[allow(dead_code)]
     pub fn has_right_overflow(&self) -> bool {
         self.value.len() > self.scroll_offset + self.viewport_width
+    }
+
+    /// Get text split at cursor position for rendering.
+    ///
+    /// Returns `(before_cursor, char_at_cursor, after_cursor)` within the visible viewport.
+    /// If the cursor is at the end of text, `char_at_cursor` is `None` — the caller
+    /// should render a block cursor indicator there.
+    ///
+    /// For hidden fields, characters are replaced with `'*'`.
+    pub fn render_parts(&self) -> (String, Option<char>, String) {
+        let display_chars: Vec<char> = if self.hidden {
+            vec!['*'; self.value.len()]
+        } else {
+            self.value.chars().collect()
+        };
+
+        let start = self.scroll_offset.min(display_chars.len());
+        let end = (self.scroll_offset + self.viewport_width).min(display_chars.len());
+        let visible = &display_chars[start..end];
+        let cursor_pos = self.cursor.saturating_sub(self.scroll_offset);
+
+        let before: String = visible[..cursor_pos.min(visible.len())].iter().collect();
+        let at_cursor = if cursor_pos < visible.len() {
+            Some(visible[cursor_pos])
+        } else {
+            None
+        };
+        let after: String = if cursor_pos + 1 < visible.len() {
+            visible[cursor_pos + 1..].iter().collect()
+        } else {
+            String::new()
+        };
+
+        (before, at_cursor, after)
     }
 
     /// Clear the input
@@ -390,5 +425,53 @@ mod tests {
         input.delete_to_start();
         assert_eq!(input.value, "world");
         assert_eq!(input.cursor, 0);
+    }
+
+    #[test]
+    fn test_render_parts_cursor_at_end() {
+        let input = TextInput::new().with_value("hello");
+        let (before, at_cursor, after) = input.render_parts();
+        assert_eq!(before, "hello");
+        assert_eq!(at_cursor, None);
+        assert_eq!(after, "");
+    }
+
+    #[test]
+    fn test_render_parts_cursor_at_start() {
+        let mut input = TextInput::new().with_value("hello");
+        input.cursor = 0;
+        let (before, at_cursor, after) = input.render_parts();
+        assert_eq!(before, "");
+        assert_eq!(at_cursor, Some('h'));
+        assert_eq!(after, "ello");
+    }
+
+    #[test]
+    fn test_render_parts_cursor_in_middle() {
+        let mut input = TextInput::new().with_value("hello");
+        input.cursor = 2;
+        let (before, at_cursor, after) = input.render_parts();
+        assert_eq!(before, "he");
+        assert_eq!(at_cursor, Some('l'));
+        assert_eq!(after, "lo");
+    }
+
+    #[test]
+    fn test_render_parts_empty() {
+        let input = TextInput::new();
+        let (before, at_cursor, after) = input.render_parts();
+        assert_eq!(before, "");
+        assert_eq!(at_cursor, None);
+        assert_eq!(after, "");
+    }
+
+    #[test]
+    fn test_render_parts_hidden() {
+        let mut input = TextInput::new().with_value("secret").hidden();
+        input.cursor = 3;
+        let (before, at_cursor, after) = input.render_parts();
+        assert_eq!(before, "***");
+        assert_eq!(at_cursor, Some('*'));
+        assert_eq!(after, "**");
     }
 }

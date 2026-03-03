@@ -108,6 +108,27 @@ pub fn run() -> io::Result<()> {
     Ok(())
 }
 
+/// Run an external editor on an existing file (e.g., a profile TOML)
+fn run_external_editor_file(path: &std::path::Path) -> io::Result<()> {
+    use std::env;
+    use std::process::Command;
+
+    let editor = env::var("VISUAL")
+        .or_else(|_| env::var("EDITOR"))
+        .unwrap_or_else(|_| "vi".to_string());
+
+    let status = Command::new(&editor).arg(path).status()?;
+
+    if !status.success() {
+        return Err(io::Error::other(format!(
+            "Editor '{}' exited with error",
+            editor
+        )));
+    }
+
+    Ok(())
+}
+
 /// Run an external editor with the given content and return the edited content
 fn run_external_editor(content: &str) -> io::Result<String> {
     use std::env;
@@ -185,6 +206,55 @@ fn run_app(
                         let _ = app.profile_manager.save_profile(profile);
                     }
                     app.status_message = Some("Stop prompt saved".to_string());
+                }
+                Err(e) => {
+                    app.status_message = Some(format!("Editor error: {}", e));
+                }
+            }
+
+            // Force redraw
+            terminal.draw(|f| app.render(f))?;
+            continue;
+        }
+
+        // Check for pending profile file edit (open TOML in editor)
+        if let Some(path) = app.pending_profile_file_edit.take() {
+            // Leave alternate screen and disable raw mode for editor
+            disable_raw_mode()?;
+            execute!(
+                terminal.backend_mut(),
+                LeaveAlternateScreen,
+                DisableMouseCapture
+            )?;
+
+            // Run external editor on the profile file directly
+            let result = run_external_editor_file(&path);
+
+            // Re-enable terminal
+            enable_raw_mode()?;
+            execute!(
+                terminal.backend_mut(),
+                EnterAlternateScreen,
+                EnableMouseCapture
+            )?;
+
+            // Reload profile from disk after editing
+            match result {
+                Ok(()) => {
+                    if let Some(ref profile) = app.editing_profile {
+                        match app.profile_manager.load_profile(&profile.name) {
+                            Ok(reloaded) => {
+                                app.load_profile_for_editing(reloaded);
+                                app.sync_editing_to_selected();
+                                app.status_message =
+                                    Some("Profile reloaded from file".to_string());
+                            }
+                            Err(e) => {
+                                app.status_message =
+                                    Some(format!("Failed to reload profile: {}", e));
+                            }
+                        }
+                    }
                 }
                 Err(e) => {
                     app.status_message = Some(format!("Editor error: {}", e));
