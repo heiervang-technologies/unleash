@@ -86,7 +86,7 @@ impl Profile {
                 name: "claude".to_string(),
                 description: "Claude Code by Anthropic".to_string(),
                 agent_cli_path: "claude".to_string(),
-                agent_args: Vec::new(),
+                agent_args: vec!["--dangerously-skip-permissions".to_string()],
                 stop_prompt: None,
                 theme: "orange".to_string(),
                 env: default_env(),

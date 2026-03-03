@@ -98,10 +98,6 @@ pub fn run(auto_mode: bool, prompt: Option<String>, extra_args: Vec<String>) -> 
         if restart_count > 0 {
             if !args.iter().any(|a| a == "--continue" || a == "--resume") {
                 args.insert(0, "--continue".to_string());
-                // Only Claude Code supports --dangerously-skip-permissions
-                if is_claude && auto_mode {
-                    args.insert(1, "--dangerously-skip-permissions".to_string());
-                }
             }
 
             // Check for custom restart message
@@ -332,15 +328,6 @@ fn run_agent(
     if is_claude {
         // Add plugin arguments
         cmd.args(plugin_args);
-
-        if auto_mode {
-            // Bypass permissions in auto mode (auto mode is differentiated by the Stop hook,
-            // but we only automatically skip permissions when auto mode is actually requested)
-            if !args.iter().any(|a| a == "--dangerously-skip-permissions") {
-                eprintln!("\x1b[33m[Unleash] ⚠ WARNING: Running with --dangerously-skip-permissions automatically enabled for auto-mode.\x1b[0m");
-                cmd.arg("--dangerously-skip-permissions");
-            }
-        }
     }
 
     // Codex native notify hook: end-of-turn => reset opaque + idle sound.
