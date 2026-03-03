@@ -24,8 +24,8 @@ mod theme;
 mod tui;
 mod version;
 
-use clap::Parser;
 use crate::agents::AgentType;
+use clap::Parser;
 use cli::{Cli, Commands};
 use config::ProfileManager;
 use std::env;
@@ -191,7 +191,8 @@ fn run_profile(profile_name: &str, profile_args: Vec<String>) -> io::Result<()> 
     let uses_wrapper = profile_agent_type.is_some() || is_wrapper_command(cmd_name);
 
     if uses_wrapper {
-        let parse_prompt_flags = profile_agent_type == Some(AgentType::Claude) || is_wrapper_command(cmd_name);
+        let parse_prompt_flags =
+            profile_agent_type == Some(AgentType::Claude) || is_wrapper_command(cmd_name);
         let (auto, prompt, pass_args) = parse_wrapper_launch_args(launch_args, parse_prompt_flags);
 
         if profile_agent_type.is_some() {
