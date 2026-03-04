@@ -266,6 +266,8 @@ pub struct App {
     pub pending_screen: Option<Screen>,
     /// Pending external edit - content to edit in external editor
     pub pending_external_edit: Option<String>,
+    /// Pending profile file edit - path to open directly in external editor
+    pub pending_profile_file_edit: Option<std::path::PathBuf>,
     /// Screen to return to when leaving Help (so ? works from any screen)
     pub help_return_screen: Option<Screen>,
     /// Scroll offset for help screen content
@@ -404,6 +406,7 @@ impl App {
             animations_enabled,
             pending_screen: None,
             pending_external_edit: None,
+            pending_profile_file_edit: None,
             help_return_screen: None,
             help_scroll_offset: 0,
             version_focus: VersionFocus::Unleash,
@@ -873,7 +876,7 @@ impl App {
         self.profile_menu.set_items_count(self.profiles.len());
     }
 
-    fn load_profile_for_editing(&mut self, profile: Profile) {
+    pub fn load_profile_for_editing(&mut self, profile: Profile) {
         self.env_vars_list = profile
             .env
             .iter()
@@ -1851,6 +1854,17 @@ impl App {
                     self.status_message = Some(format!("Deleted: {}", key));
                 }
             }
+            NavAction::ExternalEdit => {
+                // Open profile TOML in external editor
+                if let Some(ref profile) = self.editing_profile {
+                    let path = self
+                        .profile_manager
+                        .config_dir()
+                        .join("profiles")
+                        .join(format!("{}.toml", profile.name));
+                    self.pending_profile_file_edit = Some(path);
+                }
+            }
             NavAction::Back | NavAction::Quit => {
                 // Activate the edited profile as current
                 if let Some(ref profile) = self.editing_profile {
@@ -1869,7 +1883,7 @@ impl App {
 
     /// If editing_profile matches selected_profile, copy editing_profile to selected_profile and sync theme.
     /// This is borrow-safe since it doesn't take a reference parameter.
-    fn sync_editing_to_selected(&mut self) {
+    pub fn sync_editing_to_selected(&mut self) {
         if let Some(ref editing) = self.editing_profile {
             if self.selected_profile.as_ref().map(|p| &p.name) == Some(&editing.name) {
                 self.selected_profile = Some(editing.clone());
@@ -2441,14 +2455,34 @@ impl App {
 
         let num_settings = Self::PROFILE_SETTINGS_COUNT;
 
-        // Split area: settings section, then env vars section
-        let chunks = Layout::default()
+        let key_style = Style::default()
+            .fg(self.accent_color())
+            .add_modifier(Modifier::BOLD);
+        let desc_style = Style::default().fg(Color::DarkGray);
+
+        // Split area: hints, settings section, then env vars section
+        let outer_chunks = Layout::default()
             .direction(Direction::Vertical)
             .constraints([
+                Constraint::Length(1),                        // Key hints
                 Constraint::Length(num_settings as u16 + 1), // Settings + separator
                 Constraint::Min(3),                          // Env vars
             ])
             .split(area);
+
+        let hints = Paragraph::new(Line::from(vec![
+            Span::styled(" o", key_style),
+            Span::styled(" open in $EDITOR  ", desc_style),
+            Span::styled("n", key_style),
+            Span::styled(" new env  ", desc_style),
+            Span::styled("d", key_style),
+            Span::styled(" delete  ", desc_style),
+            Span::styled("esc", key_style),
+            Span::styled(" back", desc_style),
+        ]));
+        frame.render_widget(hints, outer_chunks[0]);
+
+        let chunks = [outer_chunks[1], outer_chunks[2]];
 
         // --- Settings fields (indices 0-4) ---
         let settings: Vec<(&str, String)> = vec![
@@ -2500,14 +2534,6 @@ impl App {
             };
             let prefix = if is_selected { "> " } else { "  " };
 
-            let display_value = if is_editing {
-                let visible = self.key_input.visible_value();
-                let cursor = "\u{2588}";
-                format!("{}{}", visible, cursor)
-            } else {
-                value.clone()
-            };
-
             let value_style = if is_editing {
                 Style::default()
                     .fg(Color::Yellow)
@@ -2516,12 +2542,26 @@ impl App {
                 Style::default().fg(Color::Cyan)
             };
 
-            settings_items.push(ListItem::new(Line::from(vec![
+            let mut spans = vec![
                 Span::styled(prefix, style),
                 Span::styled(*name, style),
                 Span::styled(": ", Style::default().fg(Color::DarkGray)),
-                Span::styled(display_value, value_style),
-            ])));
+            ];
+
+            if is_editing {
+                let (before, at_cursor, after) = self.key_input.render_parts();
+                let cursor_style = Style::default().fg(Color::Black).bg(Color::Yellow);
+                spans.push(Span::styled(before, value_style));
+                match at_cursor {
+                    Some(c) => spans.push(Span::styled(c.to_string(), cursor_style)),
+                    None => spans.push(Span::styled(" ", cursor_style)),
+                }
+                spans.push(Span::styled(after, value_style));
+            } else {
+                spans.push(Span::styled(value.clone(), value_style));
+            }
+
+            settings_items.push(ListItem::new(Line::from(spans)));
         }
 
         // Separator line below settings
@@ -2641,53 +2681,75 @@ impl App {
             Style::default()
         };
 
-        let key_display = if self.key_input.is_empty() {
-            Span::styled(
+        let cursor_style = Style::default().fg(Color::Black).bg(Color::Yellow);
+
+        // Build key field spans with proper cursor positioning
+        let mut key_spans = vec![Span::styled("  Key:   ", Style::default())];
+        if self.edit_field == EditField::EnvKey {
+            let (before, at_cursor, after) = self.key_input.render_parts();
+            if before.is_empty() && at_cursor.is_none() && self.key_input.is_empty() {
+                // Show placeholder with cursor
+                key_spans.push(Span::styled(" ", cursor_style));
+                key_spans.push(Span::styled(
+                    &self.key_input.placeholder,
+                    Style::default().fg(Color::DarkGray),
+                ));
+            } else {
+                key_spans.push(Span::styled(before, key_style));
+                match at_cursor {
+                    Some(c) => key_spans.push(Span::styled(c.to_string(), cursor_style)),
+                    None => key_spans.push(Span::styled(" ", cursor_style)),
+                }
+                key_spans.push(Span::styled(after, key_style));
+            }
+        } else if self.key_input.is_empty() {
+            key_spans.push(Span::styled(
                 &self.key_input.placeholder,
                 Style::default().fg(Color::DarkGray),
-            )
+            ));
         } else {
-            Span::styled(&self.key_input.value, key_style)
-        };
+            key_spans.push(Span::styled(&self.key_input.value, key_style));
+        }
 
-        let value_display = if self.value_input.is_empty() {
-            Span::styled(
+        // Build value field spans with proper cursor positioning
+        let mut value_spans = vec![Span::styled("  Value: ", Style::default())];
+        if self.edit_field == EditField::EnvValue {
+            let (before, at_cursor, after) = self.value_input.render_parts();
+            if before.is_empty() && at_cursor.is_none() && self.value_input.is_empty() {
+                // Show placeholder with cursor
+                value_spans.push(Span::styled(" ", cursor_style));
+                value_spans.push(Span::styled(
+                    &self.value_input.placeholder,
+                    Style::default().fg(Color::DarkGray),
+                ));
+            } else {
+                value_spans.push(Span::styled(before, value_style));
+                match at_cursor {
+                    Some(c) => value_spans.push(Span::styled(c.to_string(), cursor_style)),
+                    None => value_spans.push(Span::styled(" ", cursor_style)),
+                }
+                value_spans.push(Span::styled(after, value_style));
+            }
+        } else if self.value_input.is_empty() {
+            value_spans.push(Span::styled(
                 &self.value_input.placeholder,
                 Style::default().fg(Color::DarkGray),
-            )
-        } else if self.value_input.hidden && self.edit_field != EditField::EnvValue {
-            // Show censored when not actively editing
-            Span::styled(censor_sensitive(&self.value_input.value, 7, 4), value_style)
+            ));
         } else if self.value_input.hidden {
-            // Show asterisks when actively editing hidden field
-            Span::styled("*".repeat(self.value_input.value.len()), value_style)
+            // Show censored when not actively editing
+            value_spans.push(Span::styled(
+                censor_sensitive(&self.value_input.value, 7, 4),
+                value_style,
+            ));
         } else {
-            Span::styled(&self.value_input.value, value_style)
-        };
-
-        let cursor_indicator = "█";
+            value_spans.push(Span::styled(&self.value_input.value, value_style));
+        }
 
         let lines = vec![
             Line::from(""),
-            Line::from(vec![
-                Span::styled("  Key:   ", Style::default()),
-                key_display,
-                if self.edit_field == EditField::EnvKey {
-                    Span::styled(cursor_indicator, Style::default().fg(Color::Yellow))
-                } else {
-                    Span::raw("")
-                },
-            ]),
+            Line::from(key_spans),
             Line::from(""),
-            Line::from(vec![
-                Span::styled("  Value: ", Style::default()),
-                value_display,
-                if self.edit_field == EditField::EnvValue {
-                    Span::styled(cursor_indicator, Style::default().fg(Color::Yellow))
-                } else {
-                    Span::raw("")
-                },
-            ]),
+            Line::from(value_spans),
             Line::from(""),
             Line::from(Span::styled(
                 "  [Tab=switch field] [Enter=save] [Esc=cancel]",
@@ -2856,20 +2918,24 @@ impl App {
         let custom_prefix = if custom_selected { "> " } else { "  " };
 
         if self.edit_field == EditField::ThemeHex {
-            // Show hex input inline
-            let cursor = "\u{2588}";
+            // Show hex input inline with proper cursor positioning
+            let hex_style = Style::default()
+                .fg(Color::Yellow)
+                .add_modifier(Modifier::BOLD);
+            let cursor_style = Style::default().fg(Color::Black).bg(Color::Yellow);
+            let (before, at_cursor, after) = self.key_input.render_parts();
+            let mut hex_spans = vec![
+                Span::styled(custom_prefix, custom_style),
+                Span::styled("# ", custom_style),
+                Span::styled(before, hex_style),
+            ];
+            match at_cursor {
+                Some(c) => hex_spans.push(Span::styled(c.to_string(), cursor_style)),
+                None => hex_spans.push(Span::styled(" ", cursor_style)),
+            }
+            hex_spans.push(Span::styled(after, hex_style));
             items.push(ListItem::new(vec![
-                Line::from(vec![
-                    Span::styled(custom_prefix, custom_style),
-                    Span::styled("# ", custom_style),
-                    Span::styled(
-                        &self.key_input.value,
-                        Style::default()
-                            .fg(Color::Yellow)
-                            .add_modifier(Modifier::BOLD),
-                    ),
-                    Span::styled(cursor, Style::default().fg(Color::Yellow)),
-                ]),
+                Line::from(hex_spans),
                 Line::from(Span::styled(
                     "    Enter hex color (RRGGBB), Esc to cancel",
                     Style::default().fg(Color::DarkGray),
@@ -2925,13 +2991,21 @@ impl App {
             Line::from("  e        Edit item"),
             Line::from("  n        New item"),
             Line::from("  d        Delete item"),
+            Line::from("  o        Open profile TOML in $EDITOR"),
             Line::from("  Esc/q    Go back/Quit"),
             Line::from("  ?        This help"),
             Line::from(""),
             Line::from(Span::styled(
-                "In edit dialog:",
+                "In text fields:",
                 Style::default().add_modifier(Modifier::BOLD),
             )),
+            Line::from("  ←/→      Move cursor"),
+            Line::from("  Ctrl+←/→ Move by word"),
+            Line::from("  Ctrl+A   Jump to start"),
+            Line::from("  Ctrl+E   Jump to end"),
+            Line::from("  Ctrl+W   Delete word back"),
+            Line::from("  Ctrl+U   Delete to start"),
+            Line::from("  Ctrl+K   Delete to end"),
             Line::from("  Tab      Switch field"),
             Line::from("  Enter    Save"),
             Line::from("  Esc      Cancel"),
@@ -3522,6 +3596,7 @@ mod tests {
             animations_enabled: true,
             pending_screen: None,
             pending_external_edit: None,
+            pending_profile_file_edit: None,
             help_return_screen: None,
             help_scroll_offset: 0,
             version_focus: VersionFocus::Unleash,
