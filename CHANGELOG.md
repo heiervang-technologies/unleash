@@ -1,5 +1,12 @@
 # Changelog
 
+## [8.5.1](https://github.com/heiervang-technologies/unleash/compare/v8.5.0...v8.5.1) (2026-03-04)
+
+
+### Bug Fixes
+
+* proper cursor positioning in TUI text input fields ([#190](https://github.com/heiervang-technologies/unleash/issues/190)) ([88c9520](https://github.com/heiervang-technologies/unleash/commit/88c95201926024dd7f3a91d6094e46b6fe604adb))
+
 ## [8.5.0](https://github.com/heiervang-technologies/unleash/compare/v8.4.0...v8.5.0) (2026-03-01)
 
 
