@@ -127,7 +127,7 @@ pub enum Commands {
         action: Option<HooksAction>,
     },
 
-    /// Manage code agents (Claude, Codex, Aider)
+    /// Manage code agents (Claude, Codex, Gemini, OpenCode)
     Agents {
         #[command(subcommand)]
         action: Option<AgentsAction>,
@@ -185,19 +185,19 @@ pub enum AgentsAction {
 
     /// Check for updates
     Check {
-        /// Agent to check (claude, codex, aider). If omitted, checks all.
+        /// Agent to check (claude, codex, gemini, opencode). If omitted, checks all.
         agent: Option<String>,
     },
 
     /// Update an agent to latest version
     Update {
-        /// Agent to update (claude, codex, aider)
+        /// Agent to update (claude, codex, gemini, opencode)
         agent: String,
     },
 
     /// Show detailed info about an agent
     Info {
-        /// Agent name (claude, codex, aider)
+        /// Agent name (claude, codex, gemini, opencode)
         agent: String,
     },
 }

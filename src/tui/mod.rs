@@ -28,7 +28,7 @@ pub fn run() -> io::Result<()> {
         return Err(io::Error::new(
             io::ErrorKind::Unsupported,
             "TUI requires a terminal (TTY). This command cannot run in headless environments.\n\
-             Use non-TUI commands instead: unleash auth, unleash version, unleash go",
+             Use non-TUI commands instead: unleash auth, unleash version, unleashed",
         ));
     }
 

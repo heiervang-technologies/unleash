@@ -31,14 +31,14 @@ Shows version information for both Unleash and Claude Code.
 **Output:**
 ```json
 {
-  "claude_unleashed_version": "2.1.1",
+  "unleash_version": "2.1.1",
   "claude_code_version": "2.1.4",
   "claude_code_installed": true
 }
 ```
 
 **Fields:**
-- `claude_unleashed_version` - Version of the Unleash CLI
+- `unleash_version` - Version of the Unleash CLI
 - `claude_code_version` - Version of installed Claude Code (or "not installed")
 - `claude_code_installed` - Boolean indicating if Claude Code is installed
 
@@ -50,25 +50,18 @@ Lists all available Claude Code versions with metadata.
 ```json
 {
   "currently_installed": "2.1.4",
-  "filter_mode": "blacklist",
   "versions": [
     {
       "version": "2.1.6",
-      "is_installed": false,
-      "is_whitelisted": false,
-      "is_blacklisted": false
+      "is_installed": false
     },
     {
       "version": "2.1.5",
-      "is_installed": false,
-      "is_whitelisted": false,
-      "is_blacklisted": true
+      "is_installed": false
     },
     {
       "version": "2.1.4",
-      "is_installed": true,
-      "is_whitelisted": true,
-      "is_blacklisted": false
+      "is_installed": true
     }
   ]
 }
@@ -76,16 +69,9 @@ Lists all available Claude Code versions with metadata.
 
 **Fields:**
 - `currently_installed` - Currently installed version (or null if not installed)
-- `filter_mode` - Current version filter mode: `whitelist` or `blacklist`
 - `versions` - Array of version objects:
   - `version` - Version number
   - `is_installed` - Whether this version is currently installed
-  - `is_whitelisted` - Whether this version is verified to work correctly
-  - `is_blacklisted` - Whether this version has known critical issues
-
-**Filter Mode Behavior:**
-- `whitelist` (default): Only whitelisted versions are recommended for installation
-- `blacklist`: All versions except blacklisted ones are allowed
 
 ### 3. Authentication Check (`unleash auth --json`)
 
@@ -165,8 +151,8 @@ Added `serde_json = "1.0"` to `Cargo.toml` for JSON serialization.
 ### Parse version with jq
 
 ```bash
-unleash version --json | jq -r '.claude_code_version'
-# Output: 2.1.4
+unleash version --json | jq -r '.unleash_version'
+# Output: 2.1.1
 ```
 
 ### Check if authenticated in script
@@ -183,24 +169,6 @@ fi
 
 ```bash
 unleash version --list --json | jq '.versions[] | select(.is_installed == true)'
-```
-
-### Find latest whitelisted version
-
-```bash
-unleash version --list --json | jq -r '.versions[] | select(.is_whitelisted == true) | .version' | head -1
-```
-
-### Find versions that are not blacklisted
-
-```bash
-unleash version --list --json | jq -r '.versions[] | select(.is_blacklisted == false) | .version'
-```
-
-### Check the current filter mode
-
-```bash
-unleash version --list --json | jq -r '.filter_mode'
 ```
 
 ### Monitor authentication status

@@ -220,7 +220,7 @@ fn default_theme() -> String {
 }
 
 fn default_agent_cli_path() -> String {
-    // Default to unleashg (unleash go) for full unleashed features:
+    // Default to unleashed for full unleashed features:
     // - Auto-mode via Stop hook enforcement
     // - Restart/resurrection support
     // - Plugin loading

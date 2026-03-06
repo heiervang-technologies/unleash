@@ -77,7 +77,9 @@ jobs:
         run: chmod +x tests/*.sh
 
       - name: Run headless tests
-        run: ./tests/test-headless.sh
+        run: |
+          ./tests/test-headless.sh
+          ./tests/test_docs_drift.sh
 
   test-plugins:
     name: Test Plugins

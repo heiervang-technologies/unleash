@@ -19,7 +19,7 @@
 # 1. Checks prerequisites (curl/wget, optionally cargo)
 # 2. Installs Claude Code (native binary preferred, npm fallback)
 # 3. Downloads pre-built binary or builds from source
-# 4. Sets up unleash/unleashi/unleashg/unleashtx commands
+# 4. Sets up unleash/unleashed/u commands
 
 set -euo pipefail
 
@@ -83,25 +83,14 @@ detect_platform() {
             ;;
     esac
 
-    # Construct artifact name to match release workflow
-    case "$PLATFORM" in
-        linux)
-            if [[ "$ARCH" == "x86_64" ]]; then
-                ARTIFACT_NAME="unleash-linux-x86_64"
-            else
-                ARTIFACT_NAME="unleash-linux-${ARCH}"
-            fi
-            ;;
-        macos)
-            if [[ "$ARCH" == "x86_64" ]]; then
-                ARTIFACT_NAME="unleash-macos-x86_64"
-            elif [[ "$ARCH" == "aarch64" ]]; then
-                ARTIFACT_NAME="unleash-macos-arm64"
-            else
-                ARTIFACT_NAME="unleash-macos-${ARCH}"
-            fi
-            ;;
-    esac
+    # Construct artifact name to match release workflow (only linux-x86_64 is built in CI)
+    if [[ "$PLATFORM" == "linux" && "$ARCH" == "x86_64" ]]; then
+        ARTIFACT_NAME="unleash-linux-x86_64"
+    else
+        warn "No pre-built binary available for $PLATFORM-$ARCH. Forcing build from source."
+        BUILD_FROM_SOURCE="1"
+        ARTIFACT_NAME=""
+    fi
 
     info "Detected platform: $PLATFORM ($ARCH)"
 }
@@ -630,11 +619,9 @@ download_binary() {
     mv "${temp_dir}/unleash" "${INSTALL_DIR}/unleash"
     rm -rf "$temp_dir"
 
-    # Create symlinks for unleashi, unleashg, unleashtx
-    ln -sf "${INSTALL_DIR}/unleash" "${INSTALL_DIR}/unleashi"
-    ln -sf "${INSTALL_DIR}/unleash" "${INSTALL_DIR}/unleashg"
-    ln -sf "${INSTALL_DIR}/unleash" "${INSTALL_DIR}/unleashtx"
-    ln -sf "${INSTALL_DIR}/unleash" "${INSTALL_DIR}/unleash"
+    # Create symlinks for unleashed and u
+    ln -sf "${INSTALL_DIR}/unleash" "${INSTALL_DIR}/unleashed"
+    ln -sf "${INSTALL_DIR}/unleash" "${INSTALL_DIR}/u"
 
     success "Binary downloaded and installed"
     return 0
@@ -656,16 +643,13 @@ build_from_source() {
     cd "$temp_dir"
     cargo build --release
 
-    # Install all binaries (unleash, unleashi, unleashg, unleashtx, unleashtxg)
-    for bin in unleash unleashi unleashg unleashtx unleashtxg; do
+    # Install all binaries (unleash, unleashed, u)
+    for bin in unleash unleashed u; do
         if [[ -f "target/release/$bin" ]]; then
             cp "target/release/$bin" "${INSTALL_DIR}/$bin"
             chmod +x "${INSTALL_DIR}/$bin"
         fi
     done
-
-    # unleash is an alias for unleash
-    ln -sf "${INSTALL_DIR}/unleash" "${INSTALL_DIR}/unleash"
 
     # Cleanup
     rm -rf "$temp_dir"
@@ -834,16 +818,14 @@ main() {
     echo "╰──────────────────────────────────────────╯"
     echo ""
     echo "Installed commands:"
-    echo "  unleash       - Main CLI (run Claude with unleashed features)"
-    echo "  unleashi      - TUI mode (profile & version management)"
-    echo "  unleashtx     - Headless tmux mode"
+    echo "  unleash       - TUI interface (profiles & version management)"
+    echo "  unleash claude - Start Claude with unleashed features"
+    echo "  unleashed     - Direct passthrough wrapper (shorthand 'u')"
     echo ""
     echo "Quick start:"
-    echo "  unleash                 - Launch Claude directly"
-    echo "  unleash --tui           - Launch TUI"
-    echo "  unleash --auto          - Launch with auto mode"
-    echo "  unleash -p \"prompt\"     - Headless mode with prompt"
-    echo "  unleash tmux start      - Start tmux session"
+    echo "  unleash                 - Launch TUI"
+    echo "  unleash claude          - Launch Claude"
+    echo "  unleashed --auto        - Launch with auto mode"
     echo ""
 
     show_path_instructions
