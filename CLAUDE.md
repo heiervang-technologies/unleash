@@ -46,7 +46,6 @@ restart-claude "Continue working on the feature"
 |------|---------|
 | `scripts/restart-claude` | Restart command |
 | `scripts/exit-claude` | Exit without restart |
-| `scripts/wrapper.sh` | The wrapper script |
 
 ## Repository Overview
 
@@ -65,12 +64,12 @@ restart-claude "Continue working on the feature"
 ```
 unleash/
 ├── src/                         # Rust TUI & CLI source (main entry point)
-│   └── main.rs
+│   ├── bin/                     # CLI entrypoints
+│   └── lib.rs                   # Core logic
 ├── Cargo.toml                   # Build configuration + version lists
 ├── scripts/                     # All shell scripts consolidated here
 │   ├── install.sh              # Installation script
 │   ├── install-remote.sh       # Remote one-line installer
-│   ├── wrapper.sh              # Bash wrapper for self-restart
 │   ├── restart-claude          # Restart command
 │   └── exit-claude             # Exit command
 ├── plugins/unleashed/           # Plugin extensions

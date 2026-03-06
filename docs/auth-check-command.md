@@ -123,7 +123,7 @@ if ! unleash auth -q; then
 fi
 
 # Continue with Claude operations
-unleash --auto "Run the tests"
+unleashed --auto "Run the tests"
 ```
 
 Without quiet mode (shows status message):
@@ -146,7 +146,7 @@ fi
     fi
 
 - name: Run Claude Tasks
-  run: unleash --auto "Analyze the codebase"
+  run: unleashed --auto "Analyze the codebase"
 ```
 
 ### With JSON Output
@@ -187,15 +187,15 @@ fi
 # ...
 
 echo "All checks passed. Starting task..."
-unleash --auto "$@"
+unleashed --auto "$@"
 ```
 
 ## Implementation Details
 
 ### Files Modified
 
-- **src/cli.rs**: Added `AuthCheck` command variant
-- **src/main.rs**: Added auth module and command handler
+- **src/cli.rs**: Added `Auth` command variant
+- **src/lib.rs**: Added auth module and command handler
 - **src/auth.rs**: New module implementing authentication checking logic
 - **src/json_output.rs**: Added `AuthCheckOutput` structure (already existed)
 - **README.md**: Updated documentation with auth examples
@@ -203,7 +203,6 @@ unleash --auto "$@"
 ### Authentication Logic
 
 The implementation reuses the authentication checking logic from:
-- `scripts/unleash` (bash wrapper) - `check_authentication()` function
 - `src/launcher.rs` - `check_authentication()` function
 
 The standalone command provides the same checks without launching Claude, making it faster and suitable for automation.
