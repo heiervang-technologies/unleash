@@ -1,5 +1,12 @@
 # Changelog
 
+## [8.5.2](https://github.com/heiervang-technologies/unleash/compare/v8.5.1...v8.5.2) (2026-03-06)
+
+
+### Bug Fixes
+
+* make overflowing profile list scrollable in TUI ([#194](https://github.com/heiervang-technologies/unleash/issues/194)) ([17fcc7f](https://github.com/heiervang-technologies/unleash/commit/17fcc7f515db0e8c32a1ae0b051d10c619cedc8b)), closes [#192](https://github.com/heiervang-technologies/unleash/issues/192)
+
 ## [8.5.1](https://github.com/heiervang-technologies/unleash/compare/v8.5.0...v8.5.1) (2026-03-04)
 
 
