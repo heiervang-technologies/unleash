@@ -2358,10 +2358,20 @@ impl App {
             .constraints([Constraint::Length(hint_height), Constraint::Min(1)])
             .split(area);
 
+        // Each profile item takes 2 lines, calculate visible count
+        let list_area = chunks[1];
+        let visible_items = (list_area.height / 2) as usize;
+
+        // Ensure selected item is visible (scrolls to keep selection in view)
+        self.profile_menu.ensure_visible(visible_items);
+        let scroll_offset = self.profile_menu.scroll_offset;
+
         let items: Vec<ListItem> = self
             .profiles
             .iter()
             .enumerate()
+            .skip(scroll_offset)
+            .take(visible_items)
             .map(|(i, profile)| {
                 let is_current = self
                     .selected_profile
@@ -2430,21 +2440,22 @@ impl App {
         frame.render_widget(hints, chunks[0]);
 
         // Register clickable areas: each profile item takes 2 rows
-        let list_area = chunks[1];
-        for i in 0..self.profiles.len() {
-            let row = list_area.y + (i as u16 * 2);
+        let visible_count = visible_items.min(self.profiles.len().saturating_sub(scroll_offset));
+        for j in 0..visible_count {
+            let item_idx = scroll_offset + j;
+            let row = list_area.y + (j as u16 * 2);
             if row >= list_area.y + list_area.height {
                 break;
             }
             let height = 2.min(list_area.y + list_area.height - row);
             self.clickable_areas.push((
                 Rect::new(list_area.x, row, list_area.width, height),
-                ClickTarget::ProfileItem(i),
+                ClickTarget::ProfileItem(item_idx),
             ));
         }
 
         let menu = List::new(items);
-        frame.render_widget(menu, chunks[1]);
+        frame.render_widget(menu, list_area);
     }
 
     fn render_profile_edit(&mut self, frame: &mut Frame, area: Rect) {
