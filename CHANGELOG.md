@@ -1,5 +1,12 @@
 # Changelog
 
+## [8.5.3](https://github.com/heiervang-technologies/unleash/compare/v8.5.2...v8.5.3) (2026-03-17)
+
+
+### Bug Fixes
+
+* resolve docs and runtime drift ([#193](https://github.com/heiervang-technologies/unleash/issues/193)) ([#195](https://github.com/heiervang-technologies/unleash/issues/195)) ([f4666ab](https://github.com/heiervang-technologies/unleash/commit/f4666ab4a3cbb073c8648d52472913e39b51295c))
+
 ## [8.5.2](https://github.com/heiervang-technologies/unleash/compare/v8.5.1...v8.5.2) (2026-03-06)
 
 
