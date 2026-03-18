@@ -1,5 +1,12 @@
 # Changelog
 
+## [9.1.1](https://github.com/heiervang-technologies/unleash/compare/v9.1.0...v9.1.1) (2026-03-18)
+
+
+### Bug Fixes
+
+* OpenCode installation and version management broken ([#199](https://github.com/heiervang-technologies/unleash/issues/199)) ([#205](https://github.com/heiervang-technologies/unleash/issues/205)) ([f122d7f](https://github.com/heiervang-technologies/unleash/commit/f122d7f2a020c3ecf025e74392583ef090070f4a))
+
 ## [9.1.0](https://github.com/heiervang-technologies/unleash/compare/v9.0.0...v9.1.0) (2026-03-18)
 
 
