@@ -219,6 +219,10 @@ pub struct App {
     pub profiles: Vec<Profile>,
     pub selected_profile: Option<Profile>,
     pub status_message: Option<String>,
+    /// Profile search/filter query
+    pub profile_search_query: String,
+    /// Whether search input is active
+    pub profile_search_active: bool,
 
     // Profile editing
     pub editing_profile: Option<Profile>,
@@ -380,6 +384,8 @@ impl App {
             profiles,
             selected_profile,
             status_message: None,
+            profile_search_query: String::new(),
+            profile_search_active: false,
             editing_profile: None,
             env_vars_list: Vec::new(),
             env_menu: MenuState::new(0),
@@ -960,7 +966,7 @@ impl App {
             }
             (ClickTarget::ProfileItem(i), Screen::Profiles | Screen::ConfirmDelete) => {
                 if self.profile_menu.selected == i {
-                    self.handle_profiles_input(NavAction::Select);
+                    self.handle_profiles_input(NavAction::Select, KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
                 } else {
                     self.profile_menu.selected = i;
                 }
@@ -1121,7 +1127,7 @@ impl App {
 
             match self.screen {
                 Screen::Main => return self.handle_main_input(action),
-                Screen::Profiles => self.handle_profiles_input(action),
+                Screen::Profiles => self.handle_profiles_input(action, key),
                 Screen::ProfileEdit => self.handle_profile_edit_input(action, key),
                 Screen::EnvVarEdit => self.handle_env_var_edit_input(action, key),
                 Screen::Theme => self.handle_theme_input(action),
@@ -1699,16 +1705,93 @@ impl App {
         }
     }
 
-    fn handle_profiles_input(&mut self, action: NavAction) {
+    /// Resolve the actual profile index from the current filtered selection
+    fn selected_profile_index(&self) -> Option<usize> {
+        let filtered: Vec<usize> = if self.profile_search_query.is_empty() {
+            (0..self.profiles.len()).collect()
+        } else {
+            let query = self.profile_search_query.to_lowercase();
+            self.profiles
+                .iter()
+                .enumerate()
+                .filter(|(_, p)| p.name.to_lowercase().contains(&query) || p.description.to_lowercase().contains(&query))
+                .map(|(i, _)| i)
+                .collect()
+        };
+        filtered.get(self.profile_menu.selected).copied()
+    }
+
+    fn handle_profiles_input(&mut self, action: NavAction, key: KeyEvent) {
+        // Search mode: capture typed characters
+        if self.profile_search_active {
+            match key.code {
+                KeyCode::Esc => {
+                    self.profile_search_active = false;
+                    self.profile_search_query.clear();
+                    self.profile_menu.selected = 0;
+                    self.profile_menu.scroll_offset = 0;
+                    return;
+                }
+                KeyCode::Enter => {
+                    self.profile_search_active = false;
+                    // Keep filter, proceed with selection
+                    return;
+                }
+                KeyCode::Backspace => {
+                    self.profile_search_query.pop();
+                    self.profile_menu.selected = 0;
+                    self.profile_menu.scroll_offset = 0;
+                    return;
+                }
+                KeyCode::Char(c) => {
+                    self.profile_search_query.push(c);
+                    self.profile_menu.selected = 0;
+                    self.profile_menu.scroll_offset = 0;
+                    return;
+                }
+                KeyCode::Up => { self.profile_menu.select_prev(); return; }
+                KeyCode::Down => { self.profile_menu.select_next(); return; }
+                _ => return,
+            }
+        }
+
+        // Activate search with '/'
+        if key.code == KeyCode::Char('/') {
+            self.profile_search_active = true;
+            self.profile_search_query.clear();
+            self.profile_menu.selected = 0;
+            self.profile_menu.scroll_offset = 0;
+            return;
+        }
+
+        // Duplicate with 'D' (uppercase)
+        if key.code == KeyCode::Char('D') {
+            if let Some(idx) = self.selected_profile_index() {
+                if let Some(source) = self.profiles.get(idx).cloned() {
+                    let new_name = format!("{}-copy", source.name);
+                    let mut new_profile = source.clone();
+                    new_profile.name = new_name.clone();
+                    if self.profile_manager.save_profile(&new_profile).is_ok() {
+                        self.refresh_profiles();
+                        self.status_message = Some(format!("Duplicated: {} -> {}", source.name, new_name));
+                    }
+                }
+            }
+            return;
+        }
+
         match action {
             NavAction::Up | NavAction::Down => {
                 self.profile_menu.handle_action(action);
             }
             NavAction::Select | NavAction::Edit => {
-                // Enter opens profile for editing
-                if let Some(profile) = self.profiles.get(self.profile_menu.selected).cloned() {
-                    self.load_profile_for_editing(profile);
-                    self.screen = Screen::ProfileEdit;
+                if let Some(idx) = self.selected_profile_index() {
+                    if let Some(profile) = self.profiles.get(idx).cloned() {
+                        self.profile_search_query.clear();
+                        self.profile_search_active = false;
+                        self.load_profile_for_editing(profile);
+                        self.screen = Screen::ProfileEdit;
+                    }
                 }
             }
             NavAction::New => {
@@ -1720,17 +1803,26 @@ impl App {
                 }
             }
             NavAction::Delete => {
-                if let Some(profile) = self.profiles.get(self.profile_menu.selected) {
-                    if profile.name != "default" {
-                        self.screen = Screen::ConfirmDelete;
-                    } else {
-                        self.status_message = Some("Cannot delete default profile".to_string());
+                if let Some(idx) = self.selected_profile_index() {
+                    if let Some(profile) = self.profiles.get(idx) {
+                        if profile.name != "default" {
+                            self.screen = Screen::ConfirmDelete;
+                        } else {
+                            self.status_message = Some("Cannot delete default profile".to_string());
+                        }
                     }
                 }
             }
             NavAction::Back | NavAction::Quit => {
-                self.trigger_screen_animation(false, Screen::Main);
-                self.pending_screen = Some(Screen::Main);
+                if !self.profile_search_query.is_empty() {
+                    // First Esc clears the search filter
+                    self.profile_search_query.clear();
+                    self.profile_menu.selected = 0;
+                    self.profile_menu.scroll_offset = 0;
+                } else {
+                    self.trigger_screen_animation(false, Screen::Main);
+                    self.pending_screen = Some(Screen::Main);
+                }
             }
             _ => {}
         }
@@ -2351,74 +2443,98 @@ impl App {
 
         // Switch to vertical layout when terminal is too narrow for horizontal hints
         let vertical_hints = area.width < 34;
-        let hint_height = if vertical_hints { 5 } else { 2 };
+        let hint_height = if vertical_hints { 6 } else { 2 };
 
         let chunks = Layout::default()
             .direction(Direction::Vertical)
             .constraints([Constraint::Length(hint_height), Constraint::Min(1)])
             .split(area);
 
+        // Filter profiles by search query
+        let filtered_indices: Vec<usize> = if self.profile_search_query.is_empty() {
+            (0..self.profiles.len()).collect()
+        } else {
+            let query = self.profile_search_query.to_lowercase();
+            self.profiles
+                .iter()
+                .enumerate()
+                .filter(|(_, p)| p.name.to_lowercase().contains(&query) || p.description.to_lowercase().contains(&query))
+                .map(|(i, _)| i)
+                .collect()
+        };
+
+        // Update menu item count to match filtered list
+        self.profile_menu.set_items_count(filtered_indices.len());
+
         // Each profile item takes 2 lines, calculate visible count
         let list_area = chunks[1];
-        let visible_items = (list_area.height / 2) as usize;
+
+        // Reserve lines for search bar and scroll indicators
+        let search_height: u16 = if self.profile_search_active || !self.profile_search_query.is_empty() { 2 } else { 0 };
+        let available_height = list_area.height.saturating_sub(search_height);
+        let visible_items = (available_height / 2) as usize;
 
         // Ensure selected item is visible (scrolls to keep selection in view)
         self.profile_menu.ensure_visible(visible_items);
         let scroll_offset = self.profile_menu.scroll_offset;
 
-        let items: Vec<ListItem> = self
-            .profiles
-            .iter()
-            .enumerate()
-            .skip(scroll_offset)
-            .take(visible_items)
-            .map(|(i, profile)| {
-                let is_current = self
-                    .selected_profile
-                    .as_ref()
-                    .is_some_and(|p| p.name == profile.name);
-                let style = if i == self.profile_menu.selected {
-                    Style::default()
-                        .fg(self.accent_color())
-                        .add_modifier(Modifier::BOLD)
-                } else if is_current {
-                    Style::default().fg(Color::Green)
-                } else {
-                    Style::default()
-                };
-                let prefix = if i == self.profile_menu.selected {
-                    "> "
-                } else {
-                    "  "
-                };
-                let current_marker = if is_current { " *" } else { "" };
-                let env_count = profile.env.len();
-                ListItem::new(vec![
-                    Line::from(Span::styled(
-                        format!("{}{}{}", prefix, profile.name, current_marker),
-                        style,
-                    )),
-                    Line::from(Span::styled(
-                        format!("    {} env vars", env_count),
-                        Style::default().fg(Color::DarkGray),
-                    )),
-                ])
-            })
-            .collect();
+        let total = filtered_indices.len();
+        let has_above = scroll_offset > 0;
+        let has_below = scroll_offset + visible_items < total;
+
+        // Build profile item lines (2 lines per profile: name + env count)
+        let mut item_lines: Vec<(Line, Line)> = Vec::new();
+        for (filter_idx, &profile_idx) in filtered_indices.iter().enumerate().skip(scroll_offset).take(visible_items) {
+            let profile = &self.profiles[profile_idx];
+            let is_current = self
+                .selected_profile
+                .as_ref()
+                .is_some_and(|p| p.name == profile.name);
+            let style = if filter_idx == self.profile_menu.selected {
+                Style::default()
+                    .fg(self.accent_color())
+                    .add_modifier(Modifier::BOLD)
+            } else if is_current {
+                Style::default().fg(Color::Green)
+            } else {
+                Style::default()
+            };
+            let prefix = if filter_idx == self.profile_menu.selected {
+                "> "
+            } else {
+                "  "
+            };
+            let current_marker = if is_current { " *" } else { "" };
+            let env_count = profile.env.len();
+            item_lines.push((
+                Line::from(Span::styled(
+                    format!("{}{}{}", prefix, profile.name, current_marker),
+                    style,
+                )),
+                Line::from(Span::styled(
+                    format!("    {} env vars", env_count),
+                    Style::default().fg(Color::DarkGray),
+                )),
+            ));
+        }
 
         let hints = if vertical_hints {
             Paragraph::new(vec![
                 Line::from(vec![
                     Span::styled(" n", key_style),
-                    Span::styled(" new", desc_style),
+                    Span::styled(" new  ", desc_style),
+                    Span::styled("D", key_style),
+                    Span::styled(" dup", desc_style),
                 ]),
                 Line::from(vec![
                     Span::styled(" e", key_style),
-                    Span::styled(" edit", desc_style),
+                    Span::styled(" edit  ", desc_style),
+                    Span::styled("d", key_style),
+                    Span::styled(" del", desc_style),
                 ]),
                 Line::from(vec![
-                    Span::styled(" d", key_style),
-                    Span::styled(" delete", desc_style),
+                    Span::styled(" /", key_style),
+                    Span::styled(" search", desc_style),
                 ]),
                 Line::from(vec![
                     Span::styled(" esc", key_style),
@@ -2429,33 +2545,83 @@ impl App {
             Paragraph::new(Line::from(vec![
                 Span::styled(" n", key_style),
                 Span::styled(" new  ", desc_style),
+                Span::styled("D", key_style),
+                Span::styled(" dup  ", desc_style),
                 Span::styled("e", key_style),
                 Span::styled(" edit  ", desc_style),
                 Span::styled("d", key_style),
                 Span::styled(" delete  ", desc_style),
+                Span::styled("/", key_style),
+                Span::styled(" search  ", desc_style),
                 Span::styled("esc", key_style),
                 Span::styled(" back", desc_style),
             ]))
         };
         frame.render_widget(hints, chunks[0]);
 
-        // Register clickable areas: each profile item takes 2 rows
-        let visible_count = visible_items.min(self.profiles.len().saturating_sub(scroll_offset));
-        for j in 0..visible_count {
-            let item_idx = scroll_offset + j;
-            let row = list_area.y + (j as u16 * 2);
-            if row >= list_area.y + list_area.height {
-                break;
-            }
-            let height = 2.min(list_area.y + list_area.height - row);
-            self.clickable_areas.push((
-                Rect::new(list_area.x, row, list_area.width, height),
-                ClickTarget::ProfileItem(item_idx),
-            ));
+        // Build lines for rendering (scroll indicators + items + search bar)
+        let mut lines: Vec<Line> = Vec::new();
+
+        if has_above {
+            lines.push(Line::from(Span::styled(
+                format!("  \u{25b2} {} more", scroll_offset),
+                Style::default().fg(Color::DarkGray),
+            )));
+            lines.push(Line::from(""));
         }
 
-        let menu = List::new(items);
-        frame.render_widget(menu, list_area);
+        // Render profile items as raw lines (2 per item)
+        for (name_line, env_line) in &item_lines {
+            lines.push(name_line.clone());
+            lines.push(env_line.clone());
+        }
+
+        if has_below {
+            let remaining = total - scroll_offset - visible_items;
+            lines.push(Line::from(Span::styled(
+                format!("  \u{25bc} {} more", remaining),
+                Style::default().fg(Color::DarkGray),
+            )));
+        }
+
+        // Register clickable areas: each profile item takes 2 rows
+        let click_y_offset: u16 = if has_above { 2 } else { 0 };
+        let visible_count = visible_items.min(total.saturating_sub(scroll_offset));
+        for j in 0..visible_count {
+            let filter_idx = scroll_offset + j;
+            if filter_idx < filtered_indices.len() {
+                let profile_idx = filtered_indices[filter_idx];
+                let row = list_area.y + click_y_offset + (j as u16 * 2);
+                if row >= list_area.y + list_area.height {
+                    break;
+                }
+                let height = 2.min(list_area.y + list_area.height - row);
+                self.clickable_areas.push((
+                    Rect::new(list_area.x, row, list_area.width, height),
+                    ClickTarget::ProfileItem(profile_idx),
+                ));
+            }
+        }
+
+        // Search bar
+        if self.profile_search_active || !self.profile_search_query.is_empty() {
+            lines.push(Line::from(""));
+            let search_prefix = Span::styled(" / ", key_style);
+            let query_text = if self.profile_search_query.is_empty() && self.profile_search_active {
+                Span::styled("type to filter...", Style::default().fg(Color::DarkGray))
+            } else {
+                Span::styled(self.profile_search_query.clone(), Style::default())
+            };
+            let cursor = if self.profile_search_active {
+                Span::styled("\u{2588}", Style::default().fg(self.accent_color()))
+            } else {
+                Span::raw("")
+            };
+            lines.push(Line::from(vec![search_prefix, query_text, cursor]));
+        }
+
+        let content = Paragraph::new(lines);
+        frame.render_widget(content, list_area);
     }
 
     fn render_profile_edit(&mut self, frame: &mut Frame, area: Rect) {
@@ -3581,6 +3747,8 @@ mod tests {
             profiles: profiles.clone(),
             selected_profile: profiles.first().cloned(),
             status_message: None,
+            profile_search_query: String::new(),
+            profile_search_active: false,
             editing_profile: None,
             env_vars_list: Vec::new(),
             env_menu: MenuState::new(0),
@@ -3700,7 +3868,7 @@ mod tests {
         app.tick(); // Complete pending transition
         assert_eq!(app.screen, Screen::Profiles);
 
-        app.handle_profiles_input(NavAction::Back);
+        app.handle_profiles_input(NavAction::Back, KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE));
         app.tick(); // Complete pending transition
         assert_eq!(app.screen, Screen::Main);
     }
