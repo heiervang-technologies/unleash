@@ -31,3 +31,4 @@ build/
 *.egg-info/
 target/
 scripts/cu
+.worktrees
