@@ -112,7 +112,7 @@ if $INTERACTIVE; then
         echo ""
         echo "   ╭─────────────────────────────────────╮"
         echo "   │                                     │"
-        echo "   │      ⚡ AGENT UNLEASHED ⚡          │"
+        echo "   │         ⚡ UNLEASH ⚡               │"
         echo "   │                                     │"
         echo "   │      Breaking free from limits      │"
         echo "   │                                     │"
@@ -166,14 +166,12 @@ if $BUILD_TUI; then
         if cargo build --release; then
             success "CLI built successfully"
 
-            # Install new binaries (unleash, unleashed, u)
-            for bin in unleash unleashed u; do
-                if [[ -f "$REPO_ROOT/target/release/$bin" ]]; then
-                    cp "$REPO_ROOT/target/release/$bin" "$BIN_DIR/$bin"
-                    chmod +x "$BIN_DIR/$bin"
-                    success "Installed: $bin"
-                fi
-            done
+            # Install unleash binary
+            if [[ -f "$REPO_ROOT/target/release/unleash" ]]; then
+                cp "$REPO_ROOT/target/release/unleash" "$BIN_DIR/unleash"
+                chmod +x "$BIN_DIR/unleash"
+                success "Installed: unleash"
+            fi
 
         else
             warn "Build failed, continuing without CLI binaries"
@@ -199,15 +197,15 @@ info "Installing plugins..."
 PLUGINS_DIR="${HOME}/.local/share/unleash/plugins"
 mkdir -p "$PLUGINS_DIR"
 
-if [[ -d "$REPO_ROOT/plugins/unleashed" ]]; then
-    cp -r "$REPO_ROOT/plugins/unleashed/"* "$PLUGINS_DIR/"
+if [[ -d "$REPO_ROOT/plugins/bundled" ]]; then
+    cp -r "$REPO_ROOT/plugins/bundled/"* "$PLUGINS_DIR/"
     success "Plugins installed to $PLUGINS_DIR"
     echo "  • auto-mode"
     echo "  • mcp-refresh"
     echo "  • process-restart"
     echo "  • voice-output"
 else
-    warn "Plugin directory not found: $REPO_ROOT/plugins/unleashed"
+    warn "Plugin directory not found: $REPO_ROOT/plugins/bundled"
 fi
 
 # Step 4: Print summary
@@ -220,15 +218,14 @@ echo "CLI Commands:"
 echo "  unleash              - Launch TUI for profile/version management"
 echo "  unleash <agent>      - Start an agent (claude, codex, gemini, opencode)"
 echo "  unleash agents       - Manage agent CLI installations and versions"
-echo "  unleashed            - Direct wrapper without TUI (shorthand: u)"
 echo ""
 echo "Helper Commands:"
 echo "  restart-claude   - Restart agent (preserves session)"
 echo "  exit-claude      - Exit agent and wrapper"
 echo ""
 echo "Quick start:"
-echo "  unleashed              - Start agent with unleashed features"
-echo "  unleashed --auto       - Start in auto mode"
+echo "  unleash claude         - Start Claude with wrapper features"
+echo "  unleash claude --auto  - Start in auto mode"
 echo ""
 
 if ! $BUILD_TUI; then

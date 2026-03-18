@@ -19,7 +19,7 @@ use std::process::{Command, ExitStatus};
 use which::which;
 
 /// Environment variable set when running under the wrapper
-pub const UNLEASHED_ENV_VAR: &str = "AGENT_UNLEASHED";
+pub const UNLEASHED_ENV_VAR: &str = "AGENT_UNLEASH";
 
 /// Cache directory for restart triggers
 fn cache_dir() -> PathBuf {
@@ -221,7 +221,7 @@ fn load_profile_env() -> io::Result<HashMap<String, String>> {
 
 /// Find plugin directories (returns paths)
 /// Only returns from ONE source to avoid duplicate hooks:
-/// - Prefer repo dev path (plugins/unleashed/) when running from repo
+/// - Prefer repo dev path (plugins/bundled/) when running from repo
 /// - Fall back to installed path (~/.local/share/unleash/plugins/)
 pub fn find_plugin_dirs() -> Vec<PathBuf> {
     let mut dirs = Vec::new();
@@ -229,7 +229,7 @@ pub fn find_plugin_dirs() -> Vec<PathBuf> {
 
     // Check repo location (for development) - PREFERRED when available
     // Canonicalize to absolute path so hook commands in settings.json work from any CWD
-    let repo_plugins = PathBuf::from("plugins/unleashed");
+    let repo_plugins = PathBuf::from("plugins/bundled");
     if repo_plugins.exists() {
         let repo_plugins = fs::canonicalize(&repo_plugins).unwrap_or(repo_plugins);
         if let Ok(entries) = fs::read_dir(&repo_plugins) {

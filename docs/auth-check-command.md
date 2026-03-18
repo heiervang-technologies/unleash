@@ -123,7 +123,7 @@ if ! unleash auth -q; then
 fi
 
 # Continue with Claude operations
-unleashed --auto "Run the tests"
+unleash claude --auto "Run the tests"
 ```
 
 Without quiet mode (shows status message):
@@ -146,7 +146,7 @@ fi
     fi
 
 - name: Run Claude Tasks
-  run: unleashed --auto "Analyze the codebase"
+  run: unleash claude --auto "Analyze the codebase"
 ```
 
 ### With JSON Output
@@ -187,7 +187,7 @@ fi
 # ...
 
 echo "All checks passed. Starting task..."
-unleashed --auto "$@"
+unleash claude --auto "$@"
 ```
 
 ## Implementation Details

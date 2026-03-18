@@ -9,7 +9,7 @@ REPO_ROOT="$(dirname "$SCRIPT_DIR")"
 cd "$REPO_ROOT"
 
 # Check for deprecated binary names
-DEPRECATED="(unleashi|unleashg|unleashtx|claude_unleashed_version)"
+DEPRECATED="(unleashi|unleashg|unleashtx|claude_unleashed_version|\\bunleashed\\b)"
 FILES_TO_CHECK="scripts/install-remote.sh scripts/install.sh README.md CLAUDE.md JSON_OUTPUT.md docs/auth-check-command.md"
 
 FAILED=0

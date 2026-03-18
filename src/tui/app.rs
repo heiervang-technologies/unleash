@@ -727,14 +727,14 @@ impl App {
 
     /// Get the default stop prompt from the hook script (source of truth)
     fn get_default_stop_prompt(&self) -> String {
-        const HOOK_RELATIVE: &str = "plugins/unleashed/auto-mode/hooks/auto-mode-stop.sh";
+        const HOOK_RELATIVE: &str = "plugins/bundled/auto-mode/hooks/auto-mode-stop.sh";
         const FALLBACK_MSG: &str = "You ended your turn, but you are in auto-mode. If you are awaiting a decision, select your recommended decision. If you are done, consider that you have covered all other diligences, testing, documentation, technical debt and cleanup. Use the executables (in PATH) 'restart-claude' if you need to restart yourself, and 'exit-claude' if you are truly done with all your tasks.";
 
         // Build candidate paths to search
         let mut candidates: Vec<String> = Vec::new();
 
-        // 1. AGENT_UNLEASHED_ROOT env var
-        if let Ok(root) = std::env::var("AGENT_UNLEASHED_ROOT") {
+        // 1. AGENT_UNLEASH_ROOT env var
+        if let Ok(root) = std::env::var("AGENT_UNLEASH_ROOT") {
             candidates.push(format!("{}/{}", root, HOOK_RELATIVE));
         }
 
@@ -3486,20 +3486,20 @@ impl LaunchRequest {
 
         // If the profile points to a known agent binary, route through the wrapper
         // so it gets focus, restart, and plugin features automatically.
-        // Unknown CLIs or "unleashed"/"unleash" are launched directly.
+        // Unknown CLIs or "unleash" are launched directly.
         let is_known_agent = self.profile.agent_type().is_some();
         let cmd_name = std::path::Path::new(&self.profile.agent_cli_path)
             .file_name()
             .and_then(|n| n.to_str())
             .unwrap_or("");
-        let is_wrapper = cmd_name == "unleashed" || cmd_name == "unleash" || cmd_name == "u";
+        let is_wrapper = cmd_name == "unleash";
 
         let mut cmd = if is_known_agent && !is_wrapper {
-            // Re-invoke ourselves as "unleashed" with AGENT_CMD pointing to the native binary.
+            // Re-invoke ourselves as "unleash" with AGENT_CMD pointing to the native binary.
             // This gives all agents wrapper features (focus, restart, plugins for Claude).
             let exe = std::env::current_exe()?;
             let mut c = Command::new(&exe);
-            c.arg0("unleashed");
+            c.arg0("unleash");
             c.env("AGENT_CMD", &self.profile.agent_cli_path);
             c
         } else {
@@ -3548,7 +3548,7 @@ impl UpdateRequest {
 
         // Step 3: Re-exec the new binary
         println!("\nRestarting with new binary...\n");
-        let new_binary = tui_dir.join("target/release/unleashed-tui");
+        let new_binary = tui_dir.join("target/release/unleash");
 
         let err = Command::new(&new_binary).exec();
         // exec() only returns on error

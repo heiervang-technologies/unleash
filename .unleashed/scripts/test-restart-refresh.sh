@@ -59,8 +59,8 @@ cleanup() {
   rm -f test-mcp-config.json
 
   # Clear plugin caches
-  rm -rf ~/.cache/claude-unleashed/mcp-refresh/
-  rm -rf ~/.cache/claude-unleashed/process-restart/
+  rm -rf ~/.cache/unleash/mcp-refresh/
+  rm -rf ~/.cache/unleash/process-restart/
 
   echo ""
 }
@@ -77,11 +77,11 @@ print_header "MCP Refresh Plugin Tests"
 
 # Test 1: Plugin structure
 print_test "MCP Refresh plugin structure exists"
-if [[ -f "plugins/unleashed/mcp-refresh/.claude-plugin/plugin.json" ]] && \
-   [[ -f "plugins/unleashed/mcp-refresh/commands/reload-mcps.md" ]] && \
-   [[ -f "plugins/unleashed/mcp-refresh/commands/mcp-status.md" ]] && \
-   [[ -f "plugins/unleashed/mcp-refresh/hooks/hooks.json" ]] && \
-   [[ -x "plugins/unleashed/mcp-refresh/hooks-handlers/check-mcp-changes.sh" ]]; then
+if [[ -f "plugins/bundled/mcp-refresh/.claude-plugin/plugin.json" ]] && \
+   [[ -f "plugins/bundled/mcp-refresh/commands/reload-mcps.md" ]] && \
+   [[ -f "plugins/bundled/mcp-refresh/commands/mcp-status.md" ]] && \
+   [[ -f "plugins/bundled/mcp-refresh/hooks/hooks.json" ]] && \
+   [[ -x "plugins/bundled/mcp-refresh/hooks-handlers/check-mcp-changes.sh" ]]; then
   print_pass "All MCP refresh plugin files exist and are properly configured"
 else
   print_fail "MCP refresh plugin files missing or incorrect permissions"
@@ -89,7 +89,7 @@ fi
 
 # Test 2: Plugin manifest validation
 print_test "MCP Refresh plugin.json is valid JSON"
-if jq empty plugins/unleashed/mcp-refresh/.claude-plugin/plugin.json 2>/dev/null; then
+if jq empty plugins/bundled/mcp-refresh/.claude-plugin/plugin.json 2>/dev/null; then
   print_pass "plugin.json is valid JSON"
 else
   print_fail "plugin.json is invalid JSON"
@@ -97,7 +97,7 @@ fi
 
 # Test 3: Hook script syntax
 print_test "MCP Refresh hook script has valid syntax"
-if bash -n plugins/unleashed/mcp-refresh/hooks-handlers/check-mcp-changes.sh 2>/dev/null; then
+if bash -n plugins/bundled/mcp-refresh/hooks-handlers/check-mcp-changes.sh 2>/dev/null; then
   print_pass "Hook script syntax is valid"
 else
   print_fail "Hook script has syntax errors"
@@ -139,11 +139,11 @@ print_header "Process Restart Plugin Tests"
 
 # Test 6: Plugin structure
 print_test "Process Restart plugin structure exists"
-if [[ -f "plugins/unleashed/process-restart/.claude-plugin/plugin.json" ]] && \
-   [[ -f "plugins/unleashed/process-restart/commands/restart.md" ]] && \
-   [[ -f "plugins/unleashed/process-restart/hooks/hooks.json" ]] && \
-   [[ -x "plugins/unleashed/process-restart/hooks-handlers/restart-handler.sh" ]] && \
-   [[ -x "plugins/unleashed/process-restart/hooks-handlers/session-restore.sh" ]] && \
+if [[ -f "plugins/bundled/process-restart/.claude-plugin/plugin.json" ]] && \
+   [[ -f "plugins/bundled/process-restart/commands/restart.md" ]] && \
+   [[ -f "plugins/bundled/process-restart/hooks/hooks.json" ]] && \
+   [[ -x "plugins/bundled/process-restart/hooks-handlers/restart-handler.sh" ]] && \
+   [[ -x "plugins/bundled/process-restart/hooks-handlers/session-restore.sh" ]] && \
    [[ -x "scripts/trigger-restart.sh" ]]; then
   print_pass "All process-restart plugin files exist and are properly configured"
 else
@@ -152,7 +152,7 @@ fi
 
 # Test 7: Plugin manifest validation
 print_test "Process Restart plugin.json is valid JSON"
-if jq empty plugins/unleashed/process-restart/.claude-plugin/plugin.json 2>/dev/null; then
+if jq empty plugins/bundled/process-restart/.claude-plugin/plugin.json 2>/dev/null; then
   print_pass "plugin.json is valid JSON"
 else
   print_fail "plugin.json is invalid JSON"
@@ -161,10 +161,10 @@ fi
 # Test 8: Hook scripts syntax
 print_test "Process Restart hook scripts have valid syntax"
 SYNTAX_OK=true
-if ! bash -n plugins/unleashed/process-restart/hooks-handlers/restart-handler.sh 2>/dev/null; then
+if ! bash -n plugins/bundled/process-restart/hooks-handlers/restart-handler.sh 2>/dev/null; then
   SYNTAX_OK=false
 fi
-if ! bash -n plugins/unleashed/process-restart/hooks-handlers/session-restore.sh 2>/dev/null; then
+if ! bash -n plugins/bundled/process-restart/hooks-handlers/session-restore.sh 2>/dev/null; then
   SYNTAX_OK=false
 fi
 if ! bash -n scripts/trigger-restart.sh 2>/dev/null; then
@@ -179,9 +179,9 @@ fi
 
 # Test 9: State file creation
 print_test "Process Restart can create state file"
-mkdir -p ~/.cache/claude-unleashed/process-restart/
+mkdir -p ~/.cache/unleash/process-restart/
 
-STATE_FILE="$HOME/.cache/claude-unleashed/process-restart/test-state.json"
+STATE_FILE="$HOME/.cache/unleash/process-restart/test-state.json"
 jq -n \
   --arg version "1.0.0" \
   --arg timestamp "$(date +%s)" \
@@ -268,8 +268,8 @@ print_header "Documentation Tests"
 
 # Test 14: Plugin READMEs exist
 print_test "Plugin README files exist"
-if [[ -f "plugins/unleashed/mcp-refresh/README.md" ]] && \
-   [[ -f "plugins/unleashed/process-restart/README.md" ]]; then
+if [[ -f "plugins/bundled/mcp-refresh/README.md" ]] && \
+   [[ -f "plugins/bundled/process-restart/README.md" ]]; then
   print_pass "Both plugin READMEs exist"
 else
   print_fail "One or both plugin READMEs missing"
@@ -288,7 +288,7 @@ print_test "Documentation cross-references are consistent"
 DOCS_OK=true
 
 # Check if plugin READMEs reference the main guide
-if ! grep -q "restart-refresh.md" plugins/unleashed/mcp-refresh/README.md 2>/dev/null; then
+if ! grep -q "restart-refresh.md" plugins/bundled/mcp-refresh/README.md 2>/dev/null; then
   DOCS_OK=false
 fi
 
@@ -308,17 +308,17 @@ print_test "All plugin commands are documented"
 COMMANDS_OK=true
 
 # Check /reload-mcps command
-if [[ ! -f "plugins/unleashed/mcp-refresh/commands/reload-mcps.md" ]]; then
+if [[ ! -f "plugins/bundled/mcp-refresh/commands/reload-mcps.md" ]]; then
   COMMANDS_OK=false
 fi
 
 # Check /mcp-status command
-if [[ ! -f "plugins/unleashed/mcp-refresh/commands/mcp-status.md" ]]; then
+if [[ ! -f "plugins/bundled/mcp-refresh/commands/mcp-status.md" ]]; then
   COMMANDS_OK=false
 fi
 
 # Check /restart command
-if [[ ! -f "plugins/unleashed/process-restart/commands/restart.md" ]]; then
+if [[ ! -f "plugins/bundled/process-restart/commands/restart.md" ]]; then
   COMMANDS_OK=false
 fi
 
@@ -333,17 +333,17 @@ print_test "All hooks are properly registered"
 HOOKS_OK=true
 
 # Check MCP refresh PreToolUse hook
-if ! jq -e '.PreToolUse' plugins/unleashed/mcp-refresh/hooks/hooks.json >/dev/null 2>&1; then
+if ! jq -e '.PreToolUse' plugins/bundled/mcp-refresh/hooks/hooks.json >/dev/null 2>&1; then
   HOOKS_OK=false
 fi
 
 # Check process-restart Stop hook
-if ! jq -e '.Stop' plugins/unleashed/process-restart/hooks/hooks.json >/dev/null 2>&1; then
+if ! jq -e '.Stop' plugins/bundled/process-restart/hooks/hooks.json >/dev/null 2>&1; then
   HOOKS_OK=false
 fi
 
 # Check process-restart SessionStart hook
-if ! jq -e '.SessionStart' plugins/unleashed/process-restart/hooks/hooks.json >/dev/null 2>&1; then
+if ! jq -e '.SessionStart' plugins/bundled/process-restart/hooks/hooks.json >/dev/null 2>&1; then
   HOOKS_OK=false
 fi
 

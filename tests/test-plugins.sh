@@ -80,7 +80,7 @@ test_auto_mode_hook_output() {
     echo ""
     echo "=== Testing auto-mode stop hook output ==="
 
-    HOOK_FILE="$PLUGINS_DIR/unleashed/auto-mode/hooks/auto-mode-stop.sh"
+    HOOK_FILE="$PLUGINS_DIR/bundled/auto-mode/hooks/auto-mode-stop.sh"
 
     if [[ ! -f "$HOOK_FILE" ]]; then
         fail "auto-mode-stop.sh not found"
@@ -160,7 +160,7 @@ test_plugin_structure() {
 # Run all tests
 main() {
     echo "========================================"
-    echo "Claude Unleashed Plugin Integration Tests"
+    echo "Unleash Plugin Integration Tests"
     echo "========================================"
 
     test_plugin_json_valid

@@ -2,7 +2,7 @@
 //!
 //! Unleash acts as the central hook manager for Claude Code.
 //! It tracks the Claude installation, manages hooks in ~/.claude/settings.json,
-//! and syncs hooks from unleashed plugins.
+//! and syncs hooks from bundled plugins.
 
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
@@ -139,7 +139,7 @@ impl HookEvent {
 pub struct HookManager {
     /// Claude installation info
     pub installation: ClaudeInstallation,
-    /// Path to unleashed hooks directory
+    /// Path to hooks directory
     hooks_dir: PathBuf,
 }
 
@@ -364,7 +364,7 @@ impl HookManager {
         Ok(result)
     }
 
-    /// Install default unleashed hooks
+    /// Install default hooks
     pub fn install_default_hooks(&self) -> io::Result<()> {
         // Install PreCompact hook
         let compact_script = r#"#!/usr/bin/env bash
@@ -393,7 +393,7 @@ EOF
         Ok(())
     }
 
-    /// Sync hooks from unleashed plugins
+    /// Sync hooks from bundled plugins
     pub fn sync_plugin_hooks(&self, plugin_dirs: &[PathBuf]) -> io::Result<()> {
         for plugin_dir in plugin_dirs {
             let hooks_json = plugin_dir.join("hooks/hooks.json");

@@ -43,22 +43,13 @@ pub fn get_full_version() -> String {
 
 A wrapper for AI code agents (Claude, Codex, Gemini, OpenCode) with extended features:
   - Self-restart capability for MCP server reloading
-  - Plugin system integration (loads from plugins/unleashed/)
+  - Plugin system integration (loads from plugins/bundled/)
   - Automatic onboarding bypass
   - TUI for profile and version management
 
-BINARY STRUCTURE:
-  unleash     - CLI entrypoint. Opens TUI with no args.
-  unleashed   - Direct agent wrapper entrypoint.
-  u           - Alias for unleashed.
-
-USAGE NOTES:
-  When you run 'unleash', you'll open the TUI by default to manage profiles.
-  You can run a profile directly via 'unleash <profile_name> [args...]'
-  (e.g., 'unleash claude --auto', 'unleash work').
-
-  Alternatively, use 'unleashed' or 'u' to directly run your active/default
-  profile without TUI overhead (e.g., 'u --auto')."#)]
+USAGE:
+  unleash            Opens TUI for profile and version management.
+  unleash <profile>  Run a profile directly (e.g., 'unleash claude --auto', 'unleash work')."#)]
 pub struct Cli {
     /// Output results as JSON (supported by: auth, version)
     #[arg(long, global = true)]
@@ -143,10 +134,10 @@ pub enum HooksAction {
     /// Show Claude Code installation info and registered hooks
     Status,
 
-    /// Install default unleashed hooks
+    /// Install default hooks
     Install,
 
-    /// Sync hooks from unleashed plugins (use sparingly - plugins loaded via --plugin-dir have their hooks loaded automatically)
+    /// Sync hooks from bundled plugins (use sparingly - plugins loaded via --plugin-dir have their hooks loaded automatically)
     Sync,
 
     /// List all registered hooks

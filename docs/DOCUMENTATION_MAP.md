@@ -74,7 +74,7 @@ docs/
 | Add MCP server | plugin-development.md § MCP Servers | snail-integration.md § Available MCP Servers |
 | Configure CLI | configuration.md § CLI Configuration | - |
 | Configure TUI | configuration.md § TUI Settings | - |
-| Customize stop prompt | configuration.md § Stop Prompt Configuration | plugins/unleashed/auto-mode/README.md |
+| Customize stop prompt | configuration.md § Stop Prompt Configuration | plugins/bundled/auto-mode/README.md |
 | Test locally | testing-guide.md § Local Plugin Testing | - |
 | Test workflows | testing-guide.md § GitHub Workflow Testing | snail-integration.md |
 | Debug issues | testing-guide.md § Debugging Tips | - |

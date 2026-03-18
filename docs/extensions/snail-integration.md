@@ -244,7 +244,7 @@ Plugins significantly enhance what the agent can do in GitHub workflows.
 
 #### 1. Auto Mode Plugin
 
-**Location**: `plugins/unleashed/auto-mode/`
+**Location**: `plugins/bundled/auto-mode/`
 
 **Enhances**: Autonomous operation
 
@@ -257,7 +257,7 @@ Enables Claude to work through multiple steps without requiring user confirmatio
 
 #### 2. Process Restart Plugin
 
-**Location**: `plugins/unleashed/process-restart/`
+**Location**: `plugins/bundled/process-restart/`
 
 **Enhances**: Session stability
 
@@ -269,7 +269,7 @@ Allows Claude to self-restart to apply configuration changes (like new MCP serve
 
 #### 3. MCP Refresh Plugin
 
-**Location**: `plugins/unleashed/mcp-refresh/`
+**Location**: `plugins/bundled/mcp-refresh/`
 
 **Enhances**: MCP configuration management
 

@@ -10,9 +10,9 @@ set -uo pipefail
 CACHE_DIR="${HOME}/.cache/unleash/process-restart"
 
 # Check if running under wrapper
-if [[ -z "${AGENT_UNLEASHED:-}" ]]; then
+if [[ -z "${AGENT_UNLEASH:-}" ]]; then
     echo "Error: Not running under unleash wrapper"
-    echo "Start Claude with: unleash (or unleash)"
+    echo "Start Claude with: unleash claude"
     exit 1
 fi
 

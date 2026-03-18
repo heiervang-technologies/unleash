@@ -21,7 +21,7 @@ Unleash is a wrapper around [Claude Code](https://github.com/anthropic/claude-co
 unleash/
 ├── src/                       # Rust TUI & CLI source
 ├── .github/workflows/         # GitHub Actions for agent automation
-├── plugins/unleashed/         # Custom plugin extensions
+├── plugins/bundled/         # Custom plugin extensions
 ├── docs/                      # This documentation
 │   └── extensions/            # Plugin and extension guides
 ├── CLAUDE.md                  # Agent instructions
@@ -53,7 +53,7 @@ Located in `docs/extensions/`:
 
 3. **[Core CLI Overview](./extensions/configuration.md)**
    - Running the agent directly with `unleash claude` (or codex, gemini)
-   - Using the `unleashed` or `u` direct wrappers for faster, no-overhead execution
+   - Using `unleash claude` for direct execution
    - Configuration options for CLI and TUI
 
 4. **[Restart & Refresh Guide](./extensions/restart-refresh.md)**
@@ -179,10 +179,10 @@ See [Snail Integration Guide](./extensions/snail-integration.md) for details.
 
 ```bash
 # Create plugin structure
-mkdir -p plugins/unleashed/my-plugin/{.claude-plugin,commands,agents}
+mkdir -p plugins/bundled/my-plugin/{.claude-plugin,commands,agents}
 
 # Create manifest
-cat > plugins/unleashed/my-plugin/.claude-plugin/plugin.json <<EOF
+cat > plugins/bundled/my-plugin/.claude-plugin/plugin.json <<EOF
 {
   "name": "my-plugin",
   "version": "1.0.0",
@@ -191,7 +191,7 @@ cat > plugins/unleashed/my-plugin/.claude-plugin/plugin.json <<EOF
 EOF
 
 # Create command
-cat > plugins/unleashed/my-plugin/commands/my-command.md <<EOF
+cat > plugins/bundled/my-plugin/commands/my-command.md <<EOF
 ---
 name: my-command
 description: Does something useful
@@ -201,7 +201,7 @@ Implementation here...
 EOF
 
 # Test locally
-cc --plugin-dir plugins/unleashed/my-plugin
+cc --plugin-dir plugins/bundled/my-plugin
 ```
 
 See full guide: [Plugin Development](./extensions/plugin-development.md)
@@ -359,7 +359,7 @@ See: [Snail Integration - Automated Bug Fix Agent](./extensions/snail-integratio
 
 ## Existing Plugins
 
-The repository includes several pre-built plugins in `plugins/unleashed/`:
+The repository includes several pre-built plugins in `plugins/bundled/`:
 
 | Plugin | Purpose | Components |
 |--------|---------|------------|

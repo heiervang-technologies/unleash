@@ -1,6 +1,6 @@
 # Unleash
 
-<img width="720" height="480" alt="claude-unleashed" src="https://github.com/user-attachments/assets/0b8ff3af-90e8-4d7d-8204-33a159ae0835" />
+<img width="720" height="480" alt="unleash" src="https://github.com/user-attachments/assets/0b8ff3af-90e8-4d7d-8204-33a159ae0835" />
 
 
 <p align="center">
@@ -27,8 +27,7 @@ This installs/updates both **Claude Code** and **Unleash**.
 **After install:**
 ```bash
 unleash          # Launch TUI interface (profiles & version management)
-unleash claude   # Start Claude with unleashed features
-unleashed        # Direct passthrough wrapper (shorthand 'u')
+unleash claude   # Start Claude with unleash features
 ```
 
 > **Already have it installed?** Run the same command to update to latest versions.
@@ -59,7 +58,7 @@ graph TD
         A --> C[scripts/ - Shell Installers/Wrappers]
         A --> D[docs/ - Documentation]
         A --> E[tests/ - Test Scripts]
-        A --> F[plugins/unleashed/ - Extension Layer]
+        A --> F[plugins/bundled/ - Extension Layer]
     end
 
     subgraph Plugins
@@ -145,7 +144,7 @@ curl -fsSL https://raw.githubusercontent.com/heiervang-technologies/unleash/main
 This will:
 - Install Claude Code (native binary preferred, npm fallback)
 - Download the pre-built TUI binary
-- Set up `unleash`, `unleashed`, and `u` commands
+- Set up the `unleash` command
 
 ### Installation Options
 
@@ -280,10 +279,8 @@ export PATH="$HOME/.local/bin:$PATH"
 
 ```bash
 unleash                    # Launch TUI interface (default)
-unleash claude             # Start Claude with unleashed features
+unleash claude             # Start Claude with unleash features
 unleash claude --auto      # Start in autonomous mode
-unleashed                  # Direct wrapper without TUI overhead (shorthand 'u')
-unleashed --auto           # Direct wrapper in autonomous mode
 unleash auth               # Check authentication status
 unleash auth -v            # Check with detailed information
 unleash auth -q            # Check quietly (only exit code)
@@ -302,13 +299,13 @@ Customize the message Claude receives when auto-mode blocks it from exiting:
 
 ```bash
 # Set a custom prompt
-unleashed --stop-prompt="Keep working until tests pass!"
+unleash claude --stop-prompt="Keep working until tests pass!"
 
 # Edit with your $EDITOR
-unleashed --stop-prompt-edit
+unleash claude --stop-prompt-edit
 
 # Reset to default
-unleashed --stop-prompt-clear
+unleash claude --stop-prompt-clear
 ```
 
 You can also configure this via the TUI:
@@ -443,7 +440,7 @@ We welcome contributions to both the plugin ecosystem and the wrapper infrastruc
 git checkout -b feature/my-enhancement
 
 # 2. Make changes
-# - Add plugins in plugins/unleashed/
+# - Add plugins in plugins/bundled/
 # - Modify Rust source in src/
 # - Update configuration
 

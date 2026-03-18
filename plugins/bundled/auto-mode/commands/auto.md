@@ -8,7 +8,7 @@ description: Toggle autonomous mode - Claude continues working until owner conta
 First, check the current state and toggle it by running:
 
 ```bash
-"${AGENT_UNLEASHED_ROOT:-$HOME/unleash}/plugins/unleashed/auto-mode/scripts/toggle-auto-mode.sh"
+"${AGENT_UNLEASH_ROOT:-$HOME/unleash}/plugins/bundled/auto-mode/scripts/toggle-auto-mode.sh"
 ```
 
 Run this command NOW. It will either activate or deactivate auto mode based on current state.

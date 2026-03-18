@@ -8,7 +8,7 @@ license = "MIT"
 
 # Binaries auto-discovered from src/bin/*.rs
 # Each is a thin wrapper calling unleash::run()
-# Behavior determined by argv[0]: unleash, unleashed, u
+# Single binary: unleash
 
 [features]
 default = ["tui"]

@@ -64,7 +64,7 @@ Example:
         "hooks": [
           {
             "type": "command",
-            "command": "$HOME/unleash/plugins/unleashed/auto-mode/hooks/auto-mode-stop.sh"
+            "command": "$HOME/unleash/plugins/bundled/auto-mode/hooks/auto-mode-stop.sh"
           }
         ]
       }
@@ -151,7 +151,7 @@ When determining which stop prompt message to show, the hook checks in this orde
    - Applies to all sessions
 
 3. **Default** (lowest priority)
-   - Hardcoded in: `plugins/unleashed/auto-mode/hooks/auto-mode-stop.sh`
+   - Hardcoded in: `plugins/bundled/auto-mode/hooks/auto-mode-stop.sh`
    - Used when no custom configuration exists
 
 ### Use Cases
@@ -200,7 +200,7 @@ cat ~/.config/unleash/config.toml | grep stop_prompt
 export CLAUDE_WRAPPER_PID=$$
 mkdir -p ~/.cache/unleash/auto-mode
 touch ~/.cache/unleash/auto-mode/active-$$
-~/unleash/plugins/unleashed/auto-mode/hooks/auto-mode-stop.sh
+~/unleash/plugins/bundled/auto-mode/hooks/auto-mode-stop.sh
 ```
 
 ### Troubleshooting
@@ -230,7 +230,7 @@ The prompt is only shown when:
 - The stop hook is triggered (Claude tries to end turn)
 
 If you're not seeing the prompt:
-- Verify you started Claude with `unleash claude` or `unleashed` (not `claude` directly)
+- Verify you started Claude with `unleash claude` (not `claude` directly)
 - Check that auto mode is active (`/auto` was run)
 - Ensure Claude is actually trying to exit
 
@@ -269,36 +269,36 @@ Settings are saved immediately to `~/.config/unleash/config.toml`.
 
 ### Command-Line Flags
 
-The `unleashed` wrapper (or `unleash <agent>`) accepts several configuration flags:
+The `unleash claude` command accepts several configuration flags:
 
 #### Auto Mode
 
 ```bash
-unleashed --auto          # Enable auto mode on startup
-unleashed -a              # Short form
+unleash claude --auto          # Enable auto mode on startup
+unleash claude -a              # Short form
 ```
 
 #### Stop Prompt
 
 ```bash
-unleashed --stop-prompt="message"    # Set prompt inline
-unleashed --stop-prompt "message"    # Alternative syntax
-unleashed --stop-prompt-edit         # Edit with $EDITOR
-unleashed --stop-prompt-clear        # Reset to default
+unleash claude --stop-prompt="message"    # Set prompt inline
+unleash claude --stop-prompt "message"    # Alternative syntax
+unleash claude --stop-prompt-edit         # Edit with $EDITOR
+unleash claude --stop-prompt-clear        # Reset to default
 ```
 
 #### Examples
 
 ```bash
 # Start with auto mode and custom prompt
-unleashed --auto --stop-prompt="Complete all tests before stopping."
+unleash claude --auto --stop-prompt="Complete all tests before stopping."
 
 # Edit prompt, then start normally
-unleashed --stop-prompt-edit
-unleashed
+unleash claude --stop-prompt-edit
+unleash claude
 
 # Clear prompt and start
-unleashed --stop-prompt-clear && unleashed
+unleash claude --stop-prompt-clear && unleash claude
 ```
 
 ### Environment Variables
@@ -307,15 +307,15 @@ The `unleash` wrapper exports these variables:
 
 | Variable | Purpose |
 |----------|---------|
-| `AGENT_UNLEASHED` | Set to `1` when running under wrapper |
+| `AGENT_UNLEASH` | Set to `1` when running under wrapper |
 | `AGENT_WRAPPER_PID` | Process ID of the wrapper |
 | `AGENT_AUTO_MODE` | Set to `1` when auto mode is active |
-| `AGENT_UNLEASHED_ROOT` | Path to unleash repository |
+| `AGENT_UNLEASH_ROOT` | Path to unleash repository |
 
 Check if running under wrapper:
 
 ```bash
-if [[ "$AGENT_UNLEASHED" == "1" ]]; then
+if [[ "$AGENT_UNLEASH" == "1" ]]; then
     echo "Running under unleash wrapper"
 fi
 ```
@@ -358,7 +358,7 @@ fi
 
 ## Related Documentation
 
-- [Auto Mode Plugin README](../../plugins/unleashed/auto-mode/README.md)
+- [Auto Mode Plugin README](../../plugins/bundled/auto-mode/README.md)
 - [Plugin Development Guide](plugin-development.md)
 - [Restart & Refresh Guide](restart-refresh.md)
 

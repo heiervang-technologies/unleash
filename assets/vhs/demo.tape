@@ -47,8 +47,8 @@ Sleep 500ms
 Enter
 Sleep 2s
 
-# Start Claude with unleashed features (show command, don't actually run)
-Type "# Start Claude with unleashed features:"
+# Start Claude with wrapper features (show command, don't actually run)
+Type "# Start Claude with wrapper features:"
 Sleep 500ms
 Enter
 Sleep 500ms

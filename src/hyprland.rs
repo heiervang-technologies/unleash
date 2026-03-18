@@ -165,7 +165,7 @@ pub fn notify_ok(message: &str) -> io::Result<()> {
 /// Checks repo path first (development), then installed path.
 fn focus_script_path() -> Option<PathBuf> {
     let repo_path =
-        PathBuf::from("plugins/unleashed/hyprland-focus/scripts/hypr-window-opacity.sh");
+        PathBuf::from("plugins/bundled/hyprland-focus/scripts/hypr-window-opacity.sh");
     if repo_path.exists() {
         return fs::canonicalize(&repo_path).ok();
     }

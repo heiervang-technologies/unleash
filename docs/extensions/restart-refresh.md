@@ -632,7 +632,7 @@ Current MCP Servers:
 
 The `mcp-refresh` plugin provides automatic detection and reporting of MCP configuration changes.
 
-**Plugin Location**: `<REPO_ROOT>/plugins/unleashed/mcp-refresh/`
+**Plugin Location**: `<REPO_ROOT>/plugins/bundled/mcp-refresh/`
 
 **Components**:
 - PreToolUse hook for automatic detection
@@ -823,7 +823,7 @@ rm -rf ~/.cache/unleash/mcp-refresh/
 - List of removed servers
 - Instructions for applying changes
 
-**Markdown**: See [commands/reload-mcps.md](<REPO_ROOT>/plugins/unleashed/mcp-refresh/commands/reload-mcps.md)
+**Markdown**: See [commands/reload-mcps.md](<REPO_ROOT>/plugins/bundled/mcp-refresh/commands/reload-mcps.md)
 
 #### `/mcp-status [verbose]`
 
@@ -844,7 +844,7 @@ rm -rf ~/.cache/unleash/mcp-refresh/
 - Configuration file sources
 - Error messages (if any)
 
-**Markdown**: See [commands/mcp-status.md](<REPO_ROOT>/plugins/unleashed/mcp-refresh/commands/mcp-status.md)
+**Markdown**: See [commands/mcp-status.md](<REPO_ROOT>/plugins/bundled/mcp-refresh/commands/mcp-status.md)
 
 ### Implementation Details
 
@@ -907,7 +907,7 @@ function read_mcp_config():
 ### Detailed README
 
 For complete plugin documentation, see:
-[<REPO_ROOT>/plugins/unleashed/mcp-refresh/README.md](<REPO_ROOT>/plugins/unleashed/mcp-refresh/README.md)
+[<REPO_ROOT>/plugins/bundled/mcp-refresh/README.md](<REPO_ROOT>/plugins/bundled/mcp-refresh/README.md)
 
 ## Process Restart Plugin
 
@@ -915,7 +915,7 @@ For complete plugin documentation, see:
 
 The `process-restart` plugin enables restarting Claude Code while preserving your session state and conversation history.
 
-**Plugin Location**: `<REPO_ROOT>/plugins/unleashed/process-restart/`
+**Plugin Location**: `<REPO_ROOT>/plugins/bundled/process-restart/`
 
 **Components**:
 - `/restart` command to trigger restart
@@ -1178,7 +1178,7 @@ function on_session_start():
 /restart --force --clean
 ```
 
-**Markdown**: See [commands/restart.md](<REPO_ROOT>/plugins/unleashed/process-restart/commands/restart.md)
+**Markdown**: See [commands/restart.md](<REPO_ROOT>/plugins/bundled/process-restart/commands/restart.md)
 
 ### Implementation Details
 
@@ -1270,7 +1270,7 @@ function restore_state():
 ### Detailed README
 
 For complete plugin documentation, see:
-[<REPO_ROOT>/plugins/unleashed/process-restart/README.md](<REPO_ROOT>/plugins/unleashed/process-restart/README.md)
+[<REPO_ROOT>/plugins/bundled/process-restart/README.md](<REPO_ROOT>/plugins/bundled/process-restart/README.md)
 
 ## Integration
 
@@ -1838,9 +1838,9 @@ claude --resume "$SESSION_ID"
 
 # If this works, hook script has issue
 # Check hook script permissions:
-ls -la <REPO_ROOT>/plugins/unleashed/process-restart/hooks-handlers/
+ls -la <REPO_ROOT>/plugins/bundled/process-restart/hooks-handlers/
 # All .sh files should be executable (755)
-chmod +x <REPO_ROOT>/plugins/unleashed/process-restart/hooks-handlers/*.sh
+chmod +x <REPO_ROOT>/plugins/bundled/process-restart/hooks-handlers/*.sh
 ```
 
 #### Issue 5: Working Directory Not Restored
@@ -1987,7 +1987,7 @@ Enable detailed logging for troubleshooting:
 
 ```bash
 # 1. Enable bash debug mode in hooks
-vim <REPO_ROOT>/plugins/unleashed/mcp-refresh/hooks-handlers/check-mcp-changes.sh
+vim <REPO_ROOT>/plugins/bundled/mcp-refresh/hooks-handlers/check-mcp-changes.sh
 
 # Add after shebang:
 set -x  # Enable debug output
@@ -2011,8 +2011,8 @@ less claude-debug.log
 If issues persist:
 
 1. **Check Plugin README Files**:
-   - [MCP Refresh README](<REPO_ROOT>/plugins/unleashed/mcp-refresh/README.md)
-   - [Process Restart README](<REPO_ROOT>/plugins/unleashed/process-restart/README.md)
+   - [MCP Refresh README](<REPO_ROOT>/plugins/bundled/mcp-refresh/README.md)
+   - [Process Restart README](<REPO_ROOT>/plugins/bundled/process-restart/README.md)
 
 2. **Review Logs**:
    ```bash
@@ -2314,7 +2314,7 @@ When core APIs become available:
 #### MCP Refresh Plugin
 
 ```
-<REPO_ROOT>/plugins/unleashed/mcp-refresh/
+<REPO_ROOT>/plugins/bundled/mcp-refresh/
 ├── .claude-plugin/
 │   └── plugin.json                  # Plugin manifest
 ├── commands/
@@ -2330,7 +2330,7 @@ When core APIs become available:
 #### Process Restart Plugin
 
 ```
-<REPO_ROOT>/plugins/unleashed/process-restart/
+<REPO_ROOT>/plugins/bundled/process-restart/
 ├── .claude-plugin/
 │   └── plugin.json                  # Plugin manifest
 ├── commands/
@@ -2688,8 +2688,8 @@ interface RestartState {
 
 ## Related Documentation
 
-- [MCP Refresh Plugin README](<REPO_ROOT>/plugins/unleashed/mcp-refresh/README.md)
-- [Process Restart Plugin README](<REPO_ROOT>/plugins/unleashed/process-restart/README.md)
+- [MCP Refresh Plugin README](<REPO_ROOT>/plugins/bundled/mcp-refresh/README.md)
+- [Process Restart Plugin README](<REPO_ROOT>/plugins/bundled/process-restart/README.md)
 - [Plugin Development Guide](<REPO_ROOT>/docs/extensions/plugin-development.md)
 - [Snail Integration Guide](<REPO_ROOT>/docs/extensions/snail-integration.md)
 - [Testing Guide](<REPO_ROOT>/docs/extensions/testing-guide.md)

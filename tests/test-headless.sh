@@ -199,31 +199,8 @@ else
     fail "agents info codex" "non-zero exit code"
 fi
 
-# ─── 15. Binary aliases exist ───────────────────────────────────
-echo "[15] Binary aliases exist"
-BIN_DIR=$(dirname "$BIN")
-for alias in unleashed u; do
-    if [[ -x "$BIN_DIR/$alias" ]]; then
-        pass "$alias binary exists"
-    else
-        fail "$alias binary" "not found in $BIN_DIR"
-    fi
-done
-
-# ─── 16. unleashed --version ─────────────────────────────────────────
-echo "[16] unleashed --version"
-if run_headless "$BIN_DIR/unleashed" --version; then
-    if echo "$OUT" | grep -q "Unleash: v"; then
-        pass "unleashed --version works"
-    else
-        fail "unleashed --version" "unexpected output"
-    fi
-else
-    fail "unleashed --version" "non-zero exit code"
-fi
-
-# ─── 17. Invalid subcommand ────────────────────────────────────
-echo "[17] unleash invalid-subcommand"
+# ─── 15. Invalid subcommand ────────────────────────────────────
+echo "[15] unleash invalid-subcommand"
 if run_headless "$BIN" invalid-subcommand; then
     fail "invalid subcommand" "should exit non-zero"
 else

@@ -1,8 +1,7 @@
 //! Unleash - Unified CLI for AI Code Agents
 //!
 //! Single binary that handles:
-//! - `unleash` - Entrypoint (TUI by default or runs specific agent subcommands)
-//! - `unleashed` / `u` - Direct agent wrapper entrypoint
+//! - `unleash` - Entrypoint (TUI by default, or runs agent subcommands / wrapper mode)
 //!
 
 mod agents;
@@ -40,7 +39,7 @@ const FOCUS_TURN_COMPLETE_CMD: &str = "__unleash-focus-turn-complete";
 const FOCUS_ARM_CMD: &str = "__unleash-focus-arm";
 
 fn is_wrapper_command(cmd_name: &str) -> bool {
-    matches!(cmd_name, "unleashed" | "unleash" | "u")
+    matches!(cmd_name, "unleash")
 }
 
 fn parse_wrapper_launch_args(
@@ -263,32 +262,17 @@ pub fn run() -> io::Result<()> {
         return Ok(());
     }
 
-    // Check how we were invoked (argv[0])
-    let invoked_as = env::args()
-        .next()
-        .and_then(|arg| {
-            Path::new(&arg)
-                .file_name()
-                .map(|n| n.to_string_lossy().to_string())
-        })
-        .unwrap_or_default();
+    // If AGENT_CMD is set, enter wrapper mode directly (used by TUI to launch agents)
+    if env::var("AGENT_CMD").is_ok() {
+        let args: Vec<String> = env::args().skip(1).collect();
+        let parse_prompt_flags = env::var("AGENT_CMD")
+            .ok()
+            .and_then(|cmd| detect_agent_type_from_cmd_path(&cmd))
+            .map(|agent| agent == AgentType::Claude)
+            .unwrap_or(true);
 
-    // Handle symlink invocations
-    match invoked_as.as_str() {
-        "unleashed" | "u" => {
-            // Direct agent wrapper entrypoint
-            let args: Vec<String> = env::args().skip(1).collect();
-            // Wrapper prompt flags are Claude-specific. For other agents, keep -p/--prompt untouched.
-            let parse_prompt_flags = env::var("AGENT_CMD")
-                .ok()
-                .and_then(|cmd| detect_agent_type_from_cmd_path(&cmd))
-                .map(|agent| agent == AgentType::Claude)
-                .unwrap_or(true);
-
-            let (auto, prompt, pass_args) = parse_wrapper_launch_args(args, parse_prompt_flags);
-            return launcher::run(auto, prompt, pass_args);
-        }
-        _ => {}
+        let (auto, prompt, pass_args) = parse_wrapper_launch_args(args, parse_prompt_flags);
+        return launcher::run(auto, prompt, pass_args);
     }
 
     // Parse CLI arguments
@@ -602,9 +586,9 @@ mod tests {
 
     #[test]
     fn test_wrapper_command_detection() {
-        assert!(is_wrapper_command("unleashed"));
         assert!(is_wrapper_command("unleash"));
-        assert!(is_wrapper_command("u"));
+        assert!(!is_wrapper_command("unleashed"));
+        assert!(!is_wrapper_command("u"));
         assert!(!is_wrapper_command("claude"));
     }
 

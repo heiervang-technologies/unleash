@@ -10,7 +10,7 @@ This file provides context and instructions for AI agents (including Claude, Git
 
 Check the environment variable:
 ```bash
-echo $AGENT_UNLEASHED
+echo $AGENT_UNLEASH
 ```
 If it returns `1`, you are running under the wrapper and can restart.
 
@@ -72,7 +72,7 @@ unleash/
 │   ├── install-remote.sh       # Remote one-line installer
 │   ├── restart-claude          # Restart command
 │   └── exit-claude             # Exit command
-├── plugins/unleashed/           # Plugin extensions
+├── plugins/bundled/             # Plugin extensions
 │   ├── auto-mode/              # Autonomous operation mode
 │   ├── mcp-refresh/            # MCP config change detection
 │   ├── process-restart/        # Self-restart hooks and commands

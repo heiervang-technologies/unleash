@@ -107,7 +107,7 @@ The Stop hook must be configured in `~/.claude/settings.json`:
         "hooks": [
           {
             "type": "command",
-            "command": "$HOME/unleash/plugins/unleashed/auto-mode/hooks/auto-mode-stop.sh"
+            "command": "$HOME/unleash/plugins/bundled/auto-mode/hooks/auto-mode-stop.sh"
           }
         ]
       }
@@ -129,19 +129,19 @@ You can customize this message globally using either the CLI or TUI.
 
 ```bash
 # Set a custom prompt
-unleashg --stop-prompt="Keep working on the task until complete!"
+unleash claude --stop-prompt="Keep working on the task until complete!"
 
 # Edit with your $EDITOR
-unleashg --stop-prompt-edit
+unleash claude --stop-prompt-edit
 
 # Reset to default
-unleashg --stop-prompt-clear
+unleash claude --stop-prompt-clear
 ```
 
 #### Via TUI
 
 ```bash
-cui  # Launch the TUI
+unleash  # Launch the TUI
 # Navigate to: Settings > Stop Prompt
 # Press Enter to edit, type your custom message, press Enter to save
 ```

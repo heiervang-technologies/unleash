@@ -10,7 +10,7 @@
 #
 # Options (via environment variables):
 #   GH_TOKEN / GH_PAT / GITHUB_TOKEN - GitHub token for private repo access (any of these work)
-#   AGENT_UNLEASHED_VERSION - Specific version to install (default: latest)
+#   UNLEASH_VERSION - Specific version to install (default: latest)
 #   CLAUDE_CODE_VERSION      - Specific Claude Code version (default: latest)
 #   INSTALL_DIR              - Installation directory (default: ~/.local/bin)
 #   BUILD_FROM_SOURCE        - Set to "1" to build from source instead of downloading binary
@@ -19,7 +19,7 @@
 # 1. Checks prerequisites (curl/wget, optionally cargo)
 # 2. Installs Claude Code (native binary preferred, npm fallback)
 # 3. Downloads pre-built binary or builds from source
-# 4. Sets up unleash/unleashed/u commands
+# 4. Sets up unleash command
 
 set -euo pipefail
 
@@ -33,7 +33,7 @@ REPO_URL="https://github.com/${REPO_OWNER}/${REPO_NAME}"
 RAW_URL="https://raw.githubusercontent.com/${REPO_OWNER}/${REPO_NAME}/main"
 INSTALL_DIR="${INSTALL_DIR:-$HOME/.local/bin}"
 BUILD_FROM_SOURCE="${BUILD_FROM_SOURCE:-0}"
-AGENT_UNLEASHED_VERSION="${AGENT_UNLEASHED_VERSION:-latest}"
+UNLEASH_VERSION="${UNLEASH_VERSION:-latest}"
 CLAUDE_CODE_VERSION="${CLAUDE_CODE_VERSION:-latest}"
 
 # GCS bucket for native Claude Code binaries
@@ -619,10 +619,6 @@ download_binary() {
     mv "${temp_dir}/unleash" "${INSTALL_DIR}/unleash"
     rm -rf "$temp_dir"
 
-    # Create symlinks for unleashed and u
-    ln -sf "${INSTALL_DIR}/unleash" "${INSTALL_DIR}/unleashed"
-    ln -sf "${INSTALL_DIR}/unleash" "${INSTALL_DIR}/u"
-
     success "Binary downloaded and installed"
     return 0
 }
@@ -643,13 +639,11 @@ build_from_source() {
     cd "$temp_dir"
     cargo build --release
 
-    # Install all binaries (unleash, unleashed, u)
-    for bin in unleash unleashed u; do
-        if [[ -f "target/release/$bin" ]]; then
-            cp "target/release/$bin" "${INSTALL_DIR}/$bin"
-            chmod +x "${INSTALL_DIR}/$bin"
-        fi
-    done
+    # Install unleash binary
+    if [[ -f "target/release/unleash" ]]; then
+        cp "target/release/unleash" "${INSTALL_DIR}/unleash"
+        chmod +x "${INSTALL_DIR}/unleash"
+    fi
 
     # Cleanup
     rm -rf "$temp_dir"
@@ -781,20 +775,20 @@ main() {
     install_claude_code
 
     # Determine version to install
-    if [[ "$AGENT_UNLEASHED_VERSION" == "latest" ]]; then
-        AGENT_UNLEASHED_VERSION=$(get_latest_version)
-        if [[ -z "$AGENT_UNLEASHED_VERSION" ]]; then
+    if [[ "$UNLEASH_VERSION" == "latest" ]]; then
+        UNLEASH_VERSION=$(get_latest_version)
+        if [[ -z "$UNLEASH_VERSION" ]]; then
             warn "Could not determine latest version, using 'main' branch"
-            AGENT_UNLEASHED_VERSION="main"
+            UNLEASH_VERSION="main"
         fi
     fi
-    info "Installing Unleash ${AGENT_UNLEASHED_VERSION}"
+    info "Installing Unleash ${UNLEASH_VERSION}"
 
     # Install binary (try download first, fall back to source)
     if [[ "$BUILD_FROM_SOURCE" == "1" ]]; then
         build_from_source
     else
-        if ! download_binary "$AGENT_UNLEASHED_VERSION"; then
+        if ! download_binary "$UNLEASH_VERSION"; then
             warn "Binary download failed, building from source..."
             if command -v cargo &> /dev/null; then
                 build_from_source
@@ -818,14 +812,13 @@ main() {
     echo "╰──────────────────────────────────────────╯"
     echo ""
     echo "Installed commands:"
-    echo "  unleash       - TUI interface (profiles & version management)"
-    echo "  unleash claude - Start Claude with unleashed features"
-    echo "  unleashed     - Direct passthrough wrapper (shorthand 'u')"
+    echo "  unleash              - TUI interface (profiles & version management)"
+    echo "  unleash claude       - Start Claude with wrapper features"
     echo ""
     echo "Quick start:"
     echo "  unleash                 - Launch TUI"
     echo "  unleash claude          - Launch Claude"
-    echo "  unleashed --auto        - Launch with auto mode"
+    echo "  unleash claude --auto   - Launch with auto mode"
     echo ""
 
     show_path_instructions

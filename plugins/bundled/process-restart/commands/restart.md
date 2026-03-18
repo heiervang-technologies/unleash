@@ -20,7 +20,7 @@ restart-claude "Continue working on the feature"
 
 ## Requirements
 
-You must be running under the `unleash go` or `unleashg` wrapper (check: `echo $AGENT_UNLEASHED` should return `1`).
+You must be running under the `unleash` wrapper (check: `echo $AGENT_UNLEASH` should return `1`).
 
 ## What Happens
 
