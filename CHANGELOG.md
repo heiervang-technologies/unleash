@@ -1,5 +1,12 @@
 # Changelog
 
+## [9.1.0](https://github.com/heiervang-technologies/unleash/compare/v9.0.0...v9.1.0) (2026-03-18)
+
+
+### Features
+
+* scrollable profile list with search and duplicate ([#202](https://github.com/heiervang-technologies/unleash/issues/202)) ([#203](https://github.com/heiervang-technologies/unleash/issues/203)) ([b1eacd4](https://github.com/heiervang-technologies/unleash/commit/b1eacd48952b801526d4b4dda9a9a4044a16c4f4))
+
 ## [9.0.0](https://github.com/heiervang-technologies/unleash/compare/v8.5.3...v9.0.0) (2026-03-18)
 
 
