@@ -1,5 +1,16 @@
 # Changelog
 
+## [9.0.0](https://github.com/heiervang-technologies/unleash/compare/v8.5.3...v9.0.0) (2026-03-18)
+
+
+### ⚠ BREAKING CHANGES
+
+* drop unleashed/u binaries, consolidate to single unleash binary ([#200](https://github.com/heiervang-technologies/unleash/issues/200))
+
+### Features
+
+* drop unleashed/u binaries, consolidate to single unleash binary ([#200](https://github.com/heiervang-technologies/unleash/issues/200)) ([50b4614](https://github.com/heiervang-technologies/unleash/commit/50b461492aa59024facd40947124e70814cbc369))
+
 ## [8.5.3](https://github.com/heiervang-technologies/unleash/compare/v8.5.2...v8.5.3) (2026-03-17)
 
 
