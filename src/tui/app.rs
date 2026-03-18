@@ -258,6 +258,8 @@ pub struct App {
     // Conflict detection
     pub has_conflicts: bool,
     pub conflict_warning_open: bool,
+    /// Suppress conflict dialog after cleanup attempt (prevents infinite loop)
+    pub conflict_dismissed: bool,
     /// Animation frame counter (increments each tick)
     pub animation_frame: usize,
     /// Art layout preference for main view (non-main views use the opposite)
@@ -406,6 +408,7 @@ impl App {
             install_state: None,
             has_conflicts: false,
             conflict_warning_open: false,
+            conflict_dismissed: false,
             animation_frame: 0,
             art_layout: ArtLayout::ArtRight,
             art_animation: None,
@@ -578,7 +581,7 @@ impl App {
                             self.version_menu.selected = prev_selected;
                         }
                         self.has_conflicts = has_conflicts;
-                        if self.has_conflicts {
+                        if self.has_conflicts && !self.conflict_dismissed {
                             self.conflict_warning_open = true;
                         }
                         self.status_message =
@@ -1435,11 +1438,13 @@ impl App {
                 };
                 let _ = self.version_manager.cleanup_conflicts(agent_str);
                 self.conflict_warning_open = false;
+                self.conflict_dismissed = true;
                 self.has_conflicts = false;
                 self.refresh_versions();
             } else if rejected {
                 // Esc / N: close dialog
                 self.conflict_warning_open = false;
+                self.conflict_dismissed = true;
             }
             return Ok(None);
         }
@@ -1624,6 +1629,7 @@ impl App {
         self.agent_picker_menu.selected = idx;
         self.version_menu.selected = 0;
         self.version_menu.scroll_offset = 0;
+        self.conflict_dismissed = false;
         self.refresh_versions();
         self.status_message = Some(format!("Switched to {}", self.version_agent.display_name()));
     }
@@ -3769,6 +3775,7 @@ mod tests {
             install_state: None,
             has_conflicts: false,
             conflict_warning_open: false,
+            conflict_dismissed: false,
             animation_frame: 0,
             art_layout: ArtLayout::default(),
             art_animation: None,

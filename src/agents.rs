@@ -126,7 +126,9 @@ impl AgentDefinition {
             name: "OpenCode".to_string(),
             binary: "opencode".to_string(),
             description: "AI coding agent for the terminal".to_string(),
-            github_repo: Some("opencode-ai/opencode".to_string()),
+            // GitHub releases use a different version scheme (0.0.x) than npm (1.x.x).
+            // Version management uses npm registry as the source of truth.
+            github_repo: None,
             npm_package: Some("opencode-ai".to_string()),
             enabled: true,
         }
@@ -336,7 +338,7 @@ impl AgentManager {
             AgentType::Claude => self.update_claude(),
             AgentType::Codex => self.update_codex(),
             AgentType::Gemini => self.update_npm_agent("@google/gemini-cli", "Gemini CLI"),
-            AgentType::OpenCode => self.update_npm_agent("opencode-ai", "OpenCode"),
+            AgentType::OpenCode => self.update_opencode(),
         }
     }
 
@@ -436,6 +438,26 @@ impl AgentManager {
                 "Failed to build Codex: {}",
                 String::from_utf8_lossy(&output.stderr)
             )))
+        }
+    }
+
+    /// Update OpenCode using its built-in upgrade command
+    fn update_opencode(&self) -> io::Result<String> {
+        if which::which("opencode").is_ok() {
+            let output = Command::new("opencode")
+                .args(["upgrade", "latest"])
+                .output()?;
+
+            if output.status.success() {
+                Ok("OpenCode updated successfully".to_string())
+            } else {
+                Err(io::Error::other(format!(
+                    "Failed to update OpenCode: {}",
+                    String::from_utf8_lossy(&output.stderr)
+                )))
+            }
+        } else {
+            self.update_npm_agent("opencode-ai", "OpenCode")
         }
     }
 

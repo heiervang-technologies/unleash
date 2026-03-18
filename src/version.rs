@@ -155,13 +155,8 @@ impl VersionManager {
             return install_count > 1;
         }
 
-        // Generic check for other binaries: multiple distinct paths in PATH
-        if let Ok(paths) = which::which_all(binary_name) {
-            let unique_paths: std::collections::HashSet<_> =
-                paths.map(|p| p.canonicalize().unwrap_or(p)).collect();
-            return unique_paths.len() > 1;
-        }
-
+        // For non-Claude agents, multiple PATH entries are normal (symlinks,
+        // package managers, system packages). Don't flag as conflicts.
         false
     }
 
@@ -173,6 +168,28 @@ impl VersionManager {
                 let _ = Command::new("npm")
                     .args(["uninstall", "-g", "@anthropic-ai/claude-code"])
                     .output();
+            }
+        } else if binary_name == "opencode" {
+            // Keep ~/.opencode/bin/opencode (native installer), remove npm global
+            if Self::has_npm() {
+                let _ = Command::new("npm")
+                    .args(["uninstall", "-g", "opencode-ai"])
+                    .output();
+            }
+            // Remove /usr/bin/opencode if it's a stale copy
+            if let Ok(paths) = which::which_all("opencode") {
+                let opencode_home = dirs::home_dir().map(|h| h.join(".opencode/bin/opencode"));
+                for path in paths {
+                    let canonical = path.canonicalize().unwrap_or_else(|_| path.clone());
+                    // Skip the native install path
+                    if opencode_home.as_ref().is_some_and(|h| {
+                        h.canonicalize().unwrap_or_else(|_| h.clone()) == canonical
+                    }) {
+                        continue;
+                    }
+                    // Try to remove other copies (may fail for /usr/bin without sudo, that's ok)
+                    let _ = std::fs::remove_file(&path);
+                }
             }
         }
         Ok(())
@@ -726,60 +743,36 @@ impl VersionManager {
 
     // ── OpenCode ────────────────────────────────────────────
 
-    /// Get available OpenCode versions from GitHub releases + npm
+    /// Get available OpenCode versions from npm registry.
+    /// OpenCode is distributed via npm (`opencode-ai` package). GitHub releases
+    /// for `opencode-ai/opencode` use a different versioning scheme (0.0.x) and
+    /// should not be mixed with npm versions (1.x.x).
     pub fn get_opencode_available_versions(&self) -> io::Result<Vec<String>> {
-        let mut seen = std::collections::HashSet::new();
-        let mut versions = Vec::new();
-
-        // Try GitHub releases first
-        if let Ok(output) = Command::new("gh")
-            .args([
-                "api",
-                "repos/opencode-ai/opencode/releases",
-                "--jq",
-                ".[].tag_name",
-            ])
-            .output()
-        {
-            if output.status.success() {
-                let tag_output = String::from_utf8_lossy(&output.stdout);
-                for line in tag_output.lines() {
-                    let v = line.trim().trim_start_matches('v').to_string();
-                    if !v.is_empty()
-                        && v.starts_with(|c: char| c.is_ascii_digit())
-                        && seen.insert(v.clone())
-                    {
-                        versions.push(v);
-                    }
-                }
-            }
+        if !Self::has_npm() {
+            return Err(io::Error::other(
+                "npm is required to query OpenCode versions",
+            ));
         }
 
-        // Also query npm for additional versions
-        if Self::has_npm() {
-            if let Ok(output) = Command::new("npm")
-                .args(["view", "opencode-ai", "versions", "--json"])
-                .output()
-            {
-                if output.status.success() {
-                    let json_str = String::from_utf8_lossy(&output.stdout);
-                    let npm_versions: Vec<String> = json_str
-                        .trim()
-                        .trim_start_matches('[')
-                        .trim_end_matches(']')
-                        .split(',')
-                        .map(|s| s.trim().trim_matches('"').to_string())
-                        .filter(|s| !s.is_empty())
-                        .collect();
+        let output = Command::new("npm")
+            .args(["view", "opencode-ai", "versions", "--json"])
+            .output()?;
 
-                    for v in npm_versions.into_iter().rev().take(20) {
-                        if seen.insert(v.clone()) {
-                            versions.push(v);
-                        }
-                    }
-                }
-            }
+        if !output.status.success() {
+            return Err(io::Error::other(
+                "Failed to query available versions for OpenCode",
+            ));
         }
+
+        let json_str = String::from_utf8_lossy(&output.stdout);
+        let mut versions: Vec<String> = json_str
+            .trim()
+            .trim_start_matches('[')
+            .trim_end_matches(']')
+            .split(',')
+            .map(|s| s.trim().trim_matches('"').to_string())
+            .filter(|s| !s.is_empty() && s.starts_with(|c: char| c.is_ascii_digit()))
+            .collect();
 
         if versions.is_empty() {
             return Err(io::Error::other(
@@ -808,25 +801,44 @@ impl VersionManager {
         versions
     }
 
-    /// Install a specific OpenCode version via npm
+    /// Install a specific OpenCode version.
+    /// Uses `opencode upgrade <version>` if opencode is already installed (updates in-place),
+    /// otherwise falls back to npm install.
     #[allow(dead_code)]
     pub fn install_opencode_version(&self, version: &str) -> io::Result<InstallResult> {
+        // Prefer `opencode upgrade` if already installed (updates the actual binary in-place)
+        if which::which("opencode").is_ok() {
+            let output = Command::new("opencode")
+                .args(["upgrade", version])
+                .output()?;
+
+            let stdout = String::from_utf8_lossy(&output.stdout).to_string();
+            let stderr = String::from_utf8_lossy(&output.stderr).to_string();
+
+            return Ok(InstallResult {
+                success: output.status.success(),
+                stdout,
+                stderr: stderr.clone(),
+                error: if output.status.success() {
+                    None
+                } else {
+                    Some(format!("Failed to upgrade OpenCode to v{}: {}", version, stderr))
+                },
+            });
+        }
+
+        // Fresh install via npm
         if !Self::has_npm() {
             return Ok(InstallResult {
                 success: false,
                 stdout: String::new(),
-                stderr: "npm is not available".to_string(),
-                error: Some("npm is required to install OpenCode".to_string()),
+                stderr: "Neither opencode nor npm is available".to_string(),
+                error: Some("Install opencode first: curl -fsSL https://opencode.ai/install | bash".to_string()),
             });
         }
 
         let output = Command::new("npm")
-            .args([
-                "install",
-                "-g",
-                "--force",
-                &format!("opencode-ai@{}", version),
-            ])
+            .args(["install", "-g", &format!("opencode-ai@{}", version)])
             .output()?;
 
         let stdout = String::from_utf8_lossy(&output.stdout).to_string();
@@ -839,10 +851,7 @@ impl VersionManager {
             error: if output.status.success() {
                 None
             } else {
-                Some(format!(
-                    "Failed to install OpenCode v{}: {}",
-                    version, stderr
-                ))
+                Some(format!("Failed to install OpenCode v{}: {}", version, stderr))
             },
         })
     }
@@ -1234,18 +1243,40 @@ impl VersionManager {
         })
     }
 
-    /// Install OpenCode with streaming log output
+    /// Install OpenCode with streaming log output.
+    /// Uses `opencode upgrade <version>` if already installed, npm otherwise.
     pub fn install_opencode_version_streaming(
         &self,
         version: &str,
         log_tx: mpsc::Sender<String>,
     ) -> io::Result<InstallResult> {
+        // Prefer `opencode upgrade` if already installed (updates the actual binary in-place)
+        if which::which("opencode").is_ok() {
+            let _ = log_tx.send(format!("Running: opencode upgrade {}", version));
+            let (ok, stdout, stderr) = Self::run_streaming(
+                Command::new("opencode").args(["upgrade", version]),
+                &log_tx,
+            )?;
+
+            return Ok(InstallResult {
+                success: ok,
+                stdout,
+                stderr: stderr.clone(),
+                error: if ok {
+                    None
+                } else {
+                    Some(format!("Failed to upgrade OpenCode to v{}: {}", version, stderr))
+                },
+            });
+        }
+
+        // Fresh install via npm
         if !Self::has_npm() {
             return Ok(InstallResult {
                 success: false,
                 stdout: String::new(),
-                stderr: "npm is not available".to_string(),
-                error: Some("npm is required to install OpenCode".to_string()),
+                stderr: "Neither opencode nor npm is available".to_string(),
+                error: Some("Install opencode first: curl -fsSL https://opencode.ai/install | bash".to_string()),
             });
         }
 
@@ -1254,7 +1285,6 @@ impl VersionManager {
             Command::new("npm").args([
                 "install",
                 "-g",
-                "--force",
                 &format!("opencode-ai@{}", version),
             ]),
             &log_tx,
@@ -1267,10 +1297,7 @@ impl VersionManager {
             error: if ok {
                 None
             } else {
-                Some(format!(
-                    "Failed to install OpenCode v{}: {}",
-                    version, stderr
-                ))
+                Some(format!("Failed to install OpenCode v{}: {}", version, stderr))
             },
         })
     }
