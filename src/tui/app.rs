@@ -2725,6 +2725,10 @@ impl App {
                 Style::default().fg(Color::Cyan)
             };
 
+            // Calculate available width for the value (area width - prefix - label - ": ")
+            let label_width = prefix.len() + name.len() + 2; // 2 for ": "
+            let max_value_width = (area.width as usize).saturating_sub(label_width + 1);
+
             let mut spans = vec![
                 Span::styled(prefix, style),
                 Span::styled(*name, style),
@@ -2732,6 +2736,7 @@ impl App {
             ];
 
             if is_editing {
+                self.key_input.set_viewport_width(max_value_width);
                 let (before, at_cursor, after) = self.key_input.render_parts();
                 let cursor_style = Style::default().fg(Color::Black).bg(Color::Yellow);
                 spans.push(Span::styled(before, value_style));
@@ -2741,7 +2746,14 @@ impl App {
                 }
                 spans.push(Span::styled(after, value_style));
             } else {
-                spans.push(Span::styled(value.clone(), value_style));
+                // Truncate display value to fit available width
+                let display_value = if value.chars().count() > max_value_width && max_value_width > 1 {
+                    let truncated: String = value.chars().take(max_value_width - 1).collect();
+                    format!("{}\u{2026}", truncated)
+                } else {
+                    value.clone()
+                };
+                spans.push(Span::styled(display_value, value_style));
             }
 
             settings_items.push(ListItem::new(Line::from(spans)));
@@ -2783,10 +2795,20 @@ impl App {
             };
             let prefix = if is_selected { "> " } else { "  " };
 
-            let display_value = if is_sensitive_key(key) {
+            let raw_value = if is_sensitive_key(key) {
                 censor_sensitive(value, 7, 4)
             } else {
                 value.clone()
+            };
+
+            // Truncate env var value to fit available width
+            let env_label_width = prefix.len() + key.len() + 1; // 1 for "="
+            let max_env_width = (area.width as usize).saturating_sub(env_label_width + 1);
+            let display_value = if raw_value.chars().count() > max_env_width && max_env_width > 1 {
+                let truncated: String = raw_value.chars().take(max_env_width - 1).collect();
+                format!("{}\u{2026}", truncated)
+            } else {
+                raw_value
             };
 
             env_items.push(ListItem::new(Line::from(vec![
