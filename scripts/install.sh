@@ -127,7 +127,7 @@ fi
 
 echo ""
 echo "╭─────────────────────────────────────╮"
-echo "│     Unleash Installer       │"
+echo "│   Unleash Canary Installer        │"
 echo "╰─────────────────────────────────────╯"
 echo ""
 
@@ -166,11 +166,11 @@ if $BUILD_TUI; then
         if cargo build --release; then
             success "CLI built successfully"
 
-            # Install unleash binary
-            if [[ -f "$REPO_ROOT/target/release/unleash" ]]; then
-                cp "$REPO_ROOT/target/release/unleash" "$BIN_DIR/unleash"
-                chmod +x "$BIN_DIR/unleash"
-                success "Installed: unleash"
+            # Install unleash-canary binary
+            if [[ -f "$REPO_ROOT/target/release/unleash-canary" ]]; then
+                cp "$REPO_ROOT/target/release/unleash-canary" "$BIN_DIR/unleash-canary"
+                chmod +x "$BIN_DIR/unleash-canary"
+                success "Installed: unleash-canary"
             fi
 
         else
@@ -220,9 +220,9 @@ echo "│        Installation Complete        │"
 echo "╰─────────────────────────────────────╯"
 echo ""
 echo "CLI Commands:"
-echo "  unleash              - Launch TUI for profile/version management"
-echo "  unleash <agent>      - Start an agent (claude, codex, gemini, opencode)"
-echo "  unleash agents       - Manage agent CLI installations and versions"
+echo "  unleash-canary              - Launch TUI for profile/version management"
+echo "  unleash-canary <agent>      - Start an agent (claude, codex, gemini, opencode)"
+echo "  unleash-canary agents       - Manage agent CLI installations and versions"
 echo ""
 echo "Helper Commands:"
 echo "  unleash-refresh  - Restart agent (preserves session)"
@@ -230,8 +230,8 @@ echo "  unleash-exit     - Exit agent and wrapper"
 echo "  (old names restart-claude / exit-claude still work)"
 echo ""
 echo "Quick start:"
-echo "  unleash claude         - Start Claude with wrapper features"
-echo "  unleash claude --auto  - Start in auto mode"
+echo "  unleash-canary claude         - Start Claude with wrapper features"
+echo "  unleash-canary claude --auto  - Start in auto mode"
 echo ""
 
 if ! $BUILD_TUI; then

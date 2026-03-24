@@ -6,9 +6,9 @@ description = "Unleash - Extended CLI for AI Code Agents"
 authors = ["Heiervang Technologies"]
 license = "MIT"
 
-# Binaries auto-discovered from src/bin/*.rs
-# Each is a thin wrapper calling unleash::run()
-# Single binary: unleash
+[[bin]]
+name = "unleash-canary"
+path = "src/bin/unleash-canary.rs"
 
 [features]
 default = ["tui"]

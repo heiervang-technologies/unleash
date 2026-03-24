@@ -42,7 +42,7 @@ const FOCUS_TURN_COMPLETE_CMD: &str = "__unleash-focus-turn-complete";
 const FOCUS_ARM_CMD: &str = "__unleash-focus-arm";
 
 fn is_wrapper_command(cmd_name: &str) -> bool {
-    matches!(cmd_name, "unleash")
+    matches!(cmd_name, "unleash" | "unleash-canary")
 }
 
 fn parse_wrapper_launch_args(
@@ -685,6 +685,7 @@ mod tests {
     #[test]
     fn test_wrapper_command_detection() {
         assert!(is_wrapper_command("unleash"));
+        assert!(is_wrapper_command("unleash-canary"));
         assert!(!is_wrapper_command("unleashed"));
         assert!(!is_wrapper_command("u"));
         assert!(!is_wrapper_command("claude"));

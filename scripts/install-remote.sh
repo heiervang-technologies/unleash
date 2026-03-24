@@ -2,11 +2,11 @@
 # install-remote.sh - Remote installer for Unleash
 #
 # Usage (public repo):
-#   curl -fsSL https://raw.githubusercontent.com/heiervang-technologies/unleash/main/scripts/install-remote.sh | bash
+#   curl -fsSL https://raw.githubusercontent.com/heiervang-technologies/unleash/canary/scripts/install-remote.sh | bash
 #
 # Usage (private repo):
 #   GH_TOKEN=ghp_xxx curl -fsSL -H "Authorization: token $GH_TOKEN" \
-#     https://raw.githubusercontent.com/heiervang-technologies/unleash/main/scripts/install-remote.sh | bash
+#     https://raw.githubusercontent.com/heiervang-technologies/unleash/canary/scripts/install-remote.sh | bash
 #
 # Options (via environment variables):
 #   GH_TOKEN / GH_PAT / GITHUB_TOKEN - GitHub token for private repo access (any of these work)
@@ -30,7 +30,7 @@ GITHUB_TOKEN="${GH_TOKEN:-${GH_PAT:-${GITHUB_TOKEN:-}}}"
 REPO_OWNER="heiervang-technologies"
 REPO_NAME="unleash"
 REPO_URL="https://github.com/${REPO_OWNER}/${REPO_NAME}"
-RAW_URL="https://raw.githubusercontent.com/${REPO_OWNER}/${REPO_NAME}/main"
+RAW_URL="https://raw.githubusercontent.com/${REPO_OWNER}/${REPO_NAME}/canary"
 INSTALL_DIR="${INSTALL_DIR:-$HOME/.local/bin}"
 BUILD_FROM_SOURCE="${BUILD_FROM_SOURCE:-0}"
 UNLEASH_VERSION="${UNLEASH_VERSION:-latest}"
@@ -85,7 +85,7 @@ detect_platform() {
 
     # Construct artifact name to match release workflow (only linux-x86_64 is built in CI)
     if [[ "$PLATFORM" == "linux" && "$ARCH" == "x86_64" ]]; then
-        ARTIFACT_NAME="unleash-linux-x86_64"
+        ARTIFACT_NAME="unleash-canary-linux-x86_64"
     else
         warn "No pre-built binary available for $PLATFORM-$ARCH. Forcing build from source."
         BUILD_FROM_SOURCE="1"
@@ -538,7 +538,7 @@ download_binary() {
         asset_id=$(gh api "repos/${REPO_OWNER}/${REPO_NAME}/releases/tags/${version}" --jq ".assets[] | select(.name==\"${ARTIFACT_NAME}\") | .id" 2>/dev/null)
 
         if [[ -n "$asset_id" ]]; then
-            if gh api "repos/${REPO_OWNER}/${REPO_NAME}/releases/assets/${asset_id}" -H "Accept: application/octet-stream" > "${temp_dir}/unleash" 2>/dev/null; then
+            if gh api "repos/${REPO_OWNER}/${REPO_NAME}/releases/assets/${asset_id}" -H "Accept: application/octet-stream" > "${temp_dir}/unleash-canary" 2>/dev/null; then
                 downloaded=true
             fi
         fi
@@ -565,11 +565,11 @@ download_binary() {
                 local asset_api_url="https://api.github.com/repos/${REPO_OWNER}/${REPO_NAME}/releases/assets/${asset_id}"
 
                 if command -v curl &> /dev/null; then
-                    if curl -fsSL -H "Authorization: token $GITHUB_TOKEN" -H "Accept: application/octet-stream" "$asset_api_url" -o "${temp_dir}/unleash" 2>/dev/null; then
+                    if curl -fsSL -H "Authorization: token $GITHUB_TOKEN" -H "Accept: application/octet-stream" "$asset_api_url" -o "${temp_dir}/unleash-canary" 2>/dev/null; then
                         downloaded=true
                     fi
                 elif command -v wget &> /dev/null; then
-                    if wget -q --header="Authorization: token $GITHUB_TOKEN" --header="Accept: application/octet-stream" "$asset_api_url" -O "${temp_dir}/unleash" 2>/dev/null; then
+                    if wget -q --header="Authorization: token $GITHUB_TOKEN" --header="Accept: application/octet-stream" "$asset_api_url" -O "${temp_dir}/unleash-canary" 2>/dev/null; then
                         downloaded=true
                     fi
                 fi
@@ -580,7 +580,7 @@ download_binary() {
     # Method 3: Direct download URL (works for public repos only)
     if [[ "$downloaded" != "true" ]]; then
         local download_url="${REPO_URL}/releases/download/${version}/${ARTIFACT_NAME}"
-        if download "$download_url" "${temp_dir}/unleash" 2>/dev/null; then
+        if download "$download_url" "${temp_dir}/unleash-canary" 2>/dev/null; then
             downloaded=true
         fi
     fi
@@ -591,7 +591,7 @@ download_binary() {
     fi
 
     # Verify we got a real binary, not an error page
-    if [[ ! -s "${temp_dir}/unleash" ]] || file "${temp_dir}/unleash" 2>/dev/null | grep -q "text\|HTML"; then
+    if [[ ! -s "${temp_dir}/unleash-canary" ]] || file "${temp_dir}/unleash-canary" 2>/dev/null | grep -q "text\|HTML"; then
         rm -rf "$temp_dir"
         return 1
     fi
@@ -603,7 +603,7 @@ download_binary() {
         expected_checksum=$(grep "${ARTIFACT_NAME}" "${temp_dir}/checksums.txt" | awk '{print $1}')
         if [[ -n "$expected_checksum" ]]; then
             local actual_checksum
-            actual_checksum=$(sha256sum "${temp_dir}/unleash" 2>/dev/null | cut -d' ' -f1 || shasum -a 256 "${temp_dir}/unleash" 2>/dev/null | cut -d' ' -f1)
+            actual_checksum=$(sha256sum "${temp_dir}/unleash-canary" 2>/dev/null | cut -d' ' -f1 || shasum -a 256 "${temp_dir}/unleash-canary" 2>/dev/null | cut -d' ' -f1)
             if [[ "$actual_checksum" != "$expected_checksum" ]]; then
                 error "Checksum verification failed for ${ARTIFACT_NAME}"
                 error "  Expected: $expected_checksum"
@@ -615,8 +615,8 @@ download_binary() {
         fi
     fi
 
-    chmod +x "${temp_dir}/unleash"
-    mv "${temp_dir}/unleash" "${INSTALL_DIR}/unleash"
+    chmod +x "${temp_dir}/unleash-canary"
+    mv "${temp_dir}/unleash-canary" "${INSTALL_DIR}/unleash-canary"
     rm -rf "$temp_dir"
 
     success "Binary downloaded and installed"
@@ -630,19 +630,19 @@ build_from_source() {
     local temp_dir
     temp_dir=$(mktemp -d)
 
-    # Clone repository
-    info "Cloning repository..."
-    git clone --depth 1 "${REPO_URL}.git" "$temp_dir"
+    # Clone repository (canary branch)
+    info "Cloning repository (canary branch)..."
+    git clone --depth 1 --branch canary "${REPO_URL}.git" "$temp_dir"
 
     # Build
     info "Building with cargo..."
     cd "$temp_dir"
     cargo build --release
 
-    # Install unleash binary
-    if [[ -f "target/release/unleash" ]]; then
-        cp "target/release/unleash" "${INSTALL_DIR}/unleash"
-        chmod +x "${INSTALL_DIR}/unleash"
+    # Install unleash-canary binary
+    if [[ -f "target/release/unleash-canary" ]]; then
+        cp "target/release/unleash-canary" "${INSTALL_DIR}/unleash-canary"
+        chmod +x "${INSTALL_DIR}/unleash-canary"
     fi
 
     # Cleanup
@@ -761,7 +761,7 @@ EOF
 main() {
     echo ""
     echo "╭──────────────────────────────────────────╮"
-    echo "│     Unleash Remote Installer     │"
+    echo "│   Unleash Canary Remote Installer       │"
     echo "╰──────────────────────────────────────────╯"
     echo ""
 
@@ -812,18 +812,18 @@ main() {
     echo "╰──────────────────────────────────────────╯"
     echo ""
     echo "Installed commands:"
-    echo "  unleash              - TUI interface (profiles & version management)"
-    echo "  unleash claude       - Start Claude with wrapper features"
+    echo "  unleash-canary              - TUI interface (profiles & version management)"
+    echo "  unleash-canary claude       - Start Claude with wrapper features"
     echo ""
     echo "Quick start:"
-    echo "  unleash                 - Launch TUI"
-    echo "  unleash claude          - Launch Claude"
-    echo "  unleash claude --auto   - Launch with auto mode"
+    echo "  unleash-canary                 - Launch TUI"
+    echo "  unleash-canary claude          - Launch Claude"
+    echo "  unleash-canary claude --auto   - Launch with auto mode"
     echo ""
 
     show_path_instructions
 
-    success "Done! Run 'unleash' to start Unleash."
+    success "Done! Run 'unleash-canary' to start Unleash Canary."
 }
 
 main "$@"

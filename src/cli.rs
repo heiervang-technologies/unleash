@@ -27,9 +27,9 @@ pub fn get_full_version() -> String {
         .unwrap_or_else(|| "not installed".to_string());
 
     if claude_version == "not installed" {
-        format!("Unleash: v{}\nClaude Code: {}", au_version, claude_version)
+        format!("Unleash Canary: v{}\nClaude Code: {}", au_version, claude_version)
     } else {
-        format!("Unleash: v{}\nClaude Code: v{}", au_version, claude_version)
+        format!("Unleash Canary: v{}\nClaude Code: v{}", au_version, claude_version)
     }
 }
 
@@ -205,11 +205,13 @@ impl PolyfillArgs {
 
 /// Unleash - Extended CLI for AI Code Agents
 #[derive(Parser, Debug)]
-#[command(name = "unleash")]
+#[command(name = "unleash-canary")]
 #[command(author = "Heiervang Technologies")]
 #[command(version)]
-#[command(about = "Unleash - Extended CLI for AI Code Agents\n\nRun a profile:  unleash <profile> [flags] [-- passthrough]\nDefault profiles: claude, codex, gemini, opencode\n\nRun 'unleash <profile> --help' for unified flag details.")]
-#[command(long_about = r#"Unleash - Extended CLI for AI Code Agents
+#[command(about = "Unleash Canary - Experimental CLI for AI Code Agents\n\nRun a profile:  unleash-canary <profile> [flags] [-- passthrough]\nDefault profiles: claude, codex, gemini, opencode\n\nRun 'unleash-canary <profile> --help' for unified flag details.")]
+#[command(long_about = r#"Unleash Canary - Experimental CLI for AI Code Agents
+
+Canary (bleeding-edge) build of Unleash. Same features, latest experiments.
 
 A wrapper for AI code agents (Claude, Codex, Gemini, OpenCode) with extended features:
   - Unified flags that work across all agents (polyfill layer)
@@ -219,16 +221,16 @@ A wrapper for AI code agents (Claude, Codex, Gemini, OpenCode) with extended fea
   - TUI for profile and version management
 
 ARGUMENT LAYERS:
-  Arguments BEFORE '--' are unified flags handled by unleash.
+  Arguments BEFORE '--' are unified flags handled by unleash-canary.
   Arguments AFTER '--' are passed directly to the agent CLI.
 
-  unleash claude -m opus -- --effort high
-         ^^^^^^ ^^^^^^^^    ^^^^^^^^^^^^
-         Profile  Unified   Passthrough (agent-specific)
+  unleash-canary claude -m opus -- --effort high
+                ^^^^^^ ^^^^^^^^    ^^^^^^^^^^^^
+                Profile  Unified   Passthrough (agent-specific)
 
 USAGE:
-  unleash              Opens TUI for profile and version management
-  unleash <profile>    Run a profile (claude, codex, gemini, opencode, or custom)
+  unleash-canary              Opens TUI for profile and version management
+  unleash-canary <profile>    Run a profile (claude, codex, gemini, opencode, or custom)
 
 UNIFIED FLAGS (before --):
   --safe               Restore approval prompts (permissions bypassed by default)
