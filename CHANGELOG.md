@@ -1,5 +1,12 @@
 # Changelog
 
+## [9.1.2](https://github.com/heiervang-technologies/unleash/compare/v9.1.1...v9.1.2) (2026-03-24)
+
+
+### Bug Fixes
+
+* text overflow and UTF-8 panic in profile edit TUI ([#207](https://github.com/heiervang-technologies/unleash/issues/207)) ([11953dd](https://github.com/heiervang-technologies/unleash/commit/11953dde6a8e0fa17e1cd535c225ed10f4131fd7))
+
 ## [9.1.1](https://github.com/heiervang-technologies/unleash/compare/v9.1.0...v9.1.1) (2026-03-18)
 
 
