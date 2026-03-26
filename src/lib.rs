@@ -16,6 +16,8 @@ mod json_output;
 mod launcher;
 mod pixel_art;
 mod polyfill;
+mod progress;
+mod updater;
 #[cfg(feature = "tui")]
 mod text_input;
 #[cfg(feature = "tui")]
@@ -560,6 +562,27 @@ pub fn run() -> io::Result<()> {
                     Ok(())
                 }
             }
+        }
+        Some(Commands::Update { agents, check, update_self }) => {
+            let agent_types = if agents.is_empty() {
+                AgentType::all().to_vec()
+            } else {
+                agents.iter().map(|name| {
+                    AgentType::from_str(name).ok_or_else(|| {
+                        io::Error::new(
+                            io::ErrorKind::InvalidInput,
+                            format!("Unknown agent: {}. Valid: claude, codex, gemini, opencode", name),
+                        )
+                    })
+                }).collect::<io::Result<Vec<_>>>()?
+            };
+
+            updater::run(updater::UpdateConfig {
+                agents: agent_types,
+                check_only: check,
+                include_self: update_self,
+                json: cli.json,
+            })
         }
         None => {
             #[cfg(feature = "tui")]
