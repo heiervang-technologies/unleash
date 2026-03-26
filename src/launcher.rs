@@ -369,7 +369,7 @@ fn run_agent(
 fn check_authentication() {
     // Check OAuth token
     if env::var("CLAUDE_CODE_OAUTH_TOKEN").is_ok() {
-        println!(
+        eprintln!(
             "\x1b[32m✓\x1b[0m Using OAuth token from CLAUDE_CODE_OAUTH_TOKEN environment variable"
         );
         return;
@@ -379,7 +379,7 @@ fn check_authentication() {
     if let Some(home) = dirs::home_dir() {
         let creds_file = home.join(".claude/.credentials.json");
         if creds_file.exists() {
-            println!("\x1b[32m✓\x1b[0m Using credentials from ~/.claude/.credentials.json");
+            eprintln!("\x1b[32m✓\x1b[0m Using credentials from ~/.claude/.credentials.json");
             return;
         }
     }
