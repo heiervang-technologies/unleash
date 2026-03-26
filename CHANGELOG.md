@@ -1,5 +1,12 @@
 # Changelog
 
+## [9.2.1](https://github.com/heiervang-technologies/unleash/compare/v9.2.0...v9.2.1) (2026-03-26)
+
+
+### Bug Fixes
+
+* unleash -h shows own help instead of agent help when AGENT_CMD set ([f396994](https://github.com/heiervang-technologies/unleash/commit/f3969940ab9d23285bae52978a36a4ea41a134d9))
+
 ## [9.2.0](https://github.com/heiervang-technologies/unleash/compare/v9.1.2...v9.2.0) (2026-03-26)
 
 
