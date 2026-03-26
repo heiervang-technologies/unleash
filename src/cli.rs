@@ -184,7 +184,7 @@ impl PolyfillArgs {
 #[command(name = "unleash")]
 #[command(author = "Heiervang Technologies")]
 #[command(version)]
-#[command(about = "Unleash - Extended CLI for AI Code Agents")]
+#[command(about = "Unleash - Extended CLI for AI Code Agents\n\nRun a profile:  unleash <profile> [flags] [-- passthrough]\nDefault profiles: claude, codex, gemini, opencode\n\nRun 'unleash <profile> --help' for unified flag details.")]
 #[command(long_about = r#"Unleash - Extended CLI for AI Code Agents
 
 A wrapper for AI code agents (Claude, Codex, Gemini, OpenCode) with extended features:
