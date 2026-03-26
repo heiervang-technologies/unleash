@@ -1,5 +1,13 @@
 # Changelog
 
+## [9.2.0](https://github.com/heiervang-technologies/unleash/compare/v9.1.2...v9.2.0) (2026-03-26)
+
+
+### Features
+
+* unified argument polyfill layer for agent CLIs ([113d5b3](https://github.com/heiervang-technologies/unleash/commit/113d5b3c31b78215400b3c1ae91463d0e0db8de5)), closes [#210](https://github.com/heiervang-technologies/unleash/issues/210)
+* unified argument polyfill layer for agent CLIs ([#211](https://github.com/heiervang-technologies/unleash/issues/211)) ([113d5b3](https://github.com/heiervang-technologies/unleash/commit/113d5b3c31b78215400b3c1ae91463d0e0db8de5))
+
 ## [9.1.2](https://github.com/heiervang-technologies/unleash/compare/v9.1.1...v9.1.2) (2026-03-24)
 
 
