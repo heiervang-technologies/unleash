@@ -1,5 +1,12 @@
 # Changelog
 
+## [9.2.2](https://github.com/heiervang-technologies/unleash/compare/v9.2.1...v9.2.2) (2026-03-26)
+
+
+### Bug Fixes
+
+* improve help text and fix --help interception ([51a397d](https://github.com/heiervang-technologies/unleash/commit/51a397d47f113f3e6055a10541ece48f9ad118b4))
+
 ## [9.2.1](https://github.com/heiervang-technologies/unleash/compare/v9.2.0...v9.2.1) (2026-03-26)
 
 
