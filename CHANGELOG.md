@@ -1,5 +1,12 @@
 # Changelog
 
+## [9.2.4](https://github.com/heiervang-technologies/unleash/compare/v9.2.3...v9.2.4) (2026-03-26)
+
+
+### Bug Fixes
+
+* prevent stale AGENT_CMD from hijacking profile selection ([b57fb31](https://github.com/heiervang-technologies/unleash/commit/b57fb3160508f3735738d5bfcda369ac733aee6f))
+
 ## [9.2.3](https://github.com/heiervang-technologies/unleash/compare/v9.2.2...v9.2.3) (2026-03-26)
 
 
