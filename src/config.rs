@@ -10,6 +10,30 @@ use std::fs;
 use std::io;
 use std::path::PathBuf;
 
+/// Per-agent settings override
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
+pub struct AgentOverrides {
+    /// Additional arguments to pass only to this agent
+    #[serde(default)]
+    pub extra_args: Vec<String>,
+    /// Environment variables to set only for this agent
+    #[serde(default)]
+    pub env: HashMap<String, String>,
+}
+
+/// Profile-level overrides for different agents
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
+pub struct ProfileOverrides {
+    #[serde(default)]
+    pub claude: AgentOverrides,
+    #[serde(default)]
+    pub codex: AgentOverrides,
+    #[serde(default)]
+    pub gemini: AgentOverrides,
+    #[serde(default)]
+    pub opencode: AgentOverrides,
+}
+
 /// A profile containing agent settings and environment variables for a session
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct Profile {
@@ -25,6 +49,9 @@ pub struct Profile {
     /// Additional arguments to pass to the agent CLI
     #[serde(default, alias = "claude_args")]
     pub agent_args: Vec<String>,
+    /// Per-agent override blocks
+    #[serde(default)]
+    pub agents: ProfileOverrides,
     /// Custom stop-hook prompt for auto-mode (None = use default)
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub stop_prompt: Option<String>,
@@ -43,6 +70,7 @@ impl Default for Profile {
             description: "Claude Code by Anthropic".to_string(),
             agent_cli_path: default_agent_cli_path(),
             agent_args: Vec::new(),
+            agents: ProfileOverrides::default(),
             stop_prompt: None,
             theme: default_theme(),
             env: default_env(),
@@ -57,6 +85,7 @@ impl Profile {
             description: String::new(),
             agent_cli_path: default_agent_cli_path(),
             agent_args: Vec::new(),
+            agents: ProfileOverrides::default(),
             stop_prompt: None,
             theme: default_theme(),
             env: default_env(),
@@ -73,6 +102,7 @@ impl Profile {
             description: format!("API key profile: {}", name),
             agent_cli_path: default_agent_cli_path(),
             agent_args: Vec::new(),
+            agents: ProfileOverrides::default(),
             stop_prompt: None,
             theme: default_theme(),
             env,
@@ -87,6 +117,7 @@ impl Profile {
                 description: "Claude Code by Anthropic".to_string(),
                 agent_cli_path: "claude".to_string(),
                 agent_args: Vec::new(),
+                agents: ProfileOverrides::default(),
                 stop_prompt: None,
                 theme: "orange".to_string(),
                 env: default_env(),
@@ -96,6 +127,7 @@ impl Profile {
                 description: "Codex by OpenAI".to_string(),
                 agent_cli_path: "codex".to_string(),
                 agent_args: Vec::new(),
+                agents: ProfileOverrides::default(),
                 stop_prompt: None,
                 theme: "#aaaaaa".to_string(),
                 env: default_env(),
@@ -105,6 +137,7 @@ impl Profile {
                 description: "Gemini CLI by Google".to_string(),
                 agent_cli_path: "gemini".to_string(),
                 agent_args: Vec::new(),
+                agents: ProfileOverrides::default(),
                 stop_prompt: None,
                 theme: "#4285f4".to_string(),
                 env: default_env(),
@@ -114,6 +147,7 @@ impl Profile {
                 description: "OpenCode".to_string(),
                 agent_cli_path: "opencode".to_string(),
                 agent_args: Vec::new(),
+                agents: ProfileOverrides::default(),
                 stop_prompt: None,
                 theme: "#10b981".to_string(),
                 env: default_env(),
@@ -149,7 +183,7 @@ impl Profile {
 }
 
 /// Auto-update settings for Unleash and agent CLIs
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
 pub struct AutoUpdateConfig {
     /// Auto-update Unleash TUI on launch
     #[serde(default)]
@@ -157,15 +191,6 @@ pub struct AutoUpdateConfig {
     /// Per-agent auto-update settings (keys: "claude", "codex", "gemini", "opencode")
     #[serde(default)]
     pub agents: HashMap<String, bool>,
-}
-
-impl Default for AutoUpdateConfig {
-    fn default() -> Self {
-        Self {
-            unleash: false,
-            agents: HashMap::new(),
-        }
-    }
 }
 
 impl AutoUpdateConfig {

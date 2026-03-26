@@ -14,7 +14,7 @@ use std::collections::HashMap;
 use std::env;
 use std::fs;
 use std::io;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process::{Command, ExitStatus};
 use which::which;
 
@@ -29,7 +29,7 @@ fn cache_dir() -> PathBuf {
 }
 
 /// Detect agent type from the command path
-fn detect_agent_type(cmd: &PathBuf) -> Option<AgentType> {
+fn detect_agent_type(cmd: &Path) -> Option<AgentType> {
     let name = cmd.file_name()?.to_str()?;
     AgentType::from_str(name)
 }
@@ -333,12 +333,15 @@ fn run_agent(
         // Add plugin arguments
         cmd.args(plugin_args);
 
-        // Bypass permissions (auto mode is differentiated by the Stop hook,
-        // not by a custom permission mode — native binaries don't support patched modes)
-        if !args.iter().any(|a| a == "--dangerously-skip-permissions") {
-            eprintln!("\x1b[33m[Unleash] ⚠ WARNING: Running with --dangerously-skip-permissions automatically enabled.\x1b[0m");
+        // Bypass permissions — skip if polyfill already handled yolo/safe
+        let polyfill_handled = env::var("UNLEASH_POLYFILL_ACTIVE").ok().as_deref() == Some("1");
+        if !polyfill_handled {
+            // Legacy path (run_profile without polyfill) — always add yolo
+            if !args.iter().any(|a| a == "--dangerously-skip-permissions") {
+                eprintln!("\x1b[33m[Unleash] WARNING: Running with --dangerously-skip-permissions automatically enabled.\x1b[0m");
+            }
+            cmd.arg("--dangerously-skip-permissions");
         }
-        cmd.arg("--dangerously-skip-permissions");
     }
 
     // Codex native notify hook: end-of-turn => reset opaque + idle sound.

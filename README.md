@@ -280,16 +280,72 @@ export PATH="$HOME/.local/bin:$PATH"
 ```bash
 unleash                    # Launch TUI interface (default)
 unleash claude             # Start Claude with unleash features
-unleash claude --auto      # Start in autonomous mode
+unleash codex              # Start Codex with unleash features
+unleash gemini             # Start Gemini CLI with unleash features
+unleash opencode           # Start OpenCode with unleash features
+unleash <profile>          # Run a custom profile by name
 unleash auth               # Check authentication status
-unleash auth -v            # Check with detailed information
-unleash auth -q            # Check quietly (only exit code)
-unleash auth --json        # Output as JSON for scripting
 unleash version            # Show installed version
 unleash version --list     # List available versions
 restart-claude             # Restart Claude (preserves session)
 exit-claude                # Exit Claude cleanly
 ```
+
+### Unified Flags (Polyfill Layer)
+
+Unleash provides a set of **unified flags** that work identically across all four agent CLIs. These flags are translated ("polyfilled") into the correct agent-specific syntax automatically.
+
+```
+unleash <agent> [UNIFIED FLAGS] [-- PASSTHROUGH ARGS]
+```
+
+**Before `--`** (unified flags — handled by unleash):
+
+| Flag | Short | Description | Default |
+|------|-------|-------------|---------|
+| `--yolo` | | Bypass all permission/approval checks | **on** |
+| `--safe` | | Restore approval prompts (inverse of `--yolo`) | off |
+| `--prompt <prompt>` | `-p` | Run non-interactively with the given prompt | |
+| `--model <model>` | `-m` | Model to use for the session | |
+| `--continue` | `-c` | Continue the most recent session | |
+| `--resume [id]` | `-r` | Resume a session by ID, or open picker | |
+| `--fork` | | Fork the session (use with `--continue` or `--resume`) | |
+
+**After `--`** (passthrough — sent directly to the agent CLI unchanged):
+
+Any arguments after `--` bypass unleash entirely and are passed as-is to the underlying agent CLI. Use this for agent-specific flags that unleash doesn't polyfill.
+
+#### Examples
+
+```bash
+# Unified flags (work with any agent):
+unleash claude -p "fix the tests"           # Headless mode
+unleash codex -m o3 -c                      # Continue with specific model
+unleash gemini --safe                       # Run with approval prompts
+unleash opencode -r abc123                  # Resume specific session
+
+# Passthrough for agent-specific flags:
+unleash claude -- --effort high --verbose   # Claude-specific flags
+unleash codex -- --full-auto                # Codex-specific flags
+unleash gemini -- --sandbox                 # Gemini-specific flags
+
+# Combined: unified + passthrough:
+unleash claude -m opus -- --effort max      # Model (unified) + effort (Claude-specific)
+```
+
+#### How Polyfill Translation Works
+
+The same unified flag maps to different agent-specific syntax:
+
+| Unified | Claude | Codex | Gemini | OpenCode |
+|---------|--------|-------|--------|----------|
+| `--yolo` | `--dangerously-skip-permissions` | `--dangerously-bypass-approvals-and-sandbox` | `--yolo` | *(no-op)* |
+| `-p <prompt>` | `-p <prompt>` | `exec <prompt>` | `-p <prompt>` | `run <prompt>` |
+| `-c` | `--continue` | `resume --last` | `--resume latest` | `--continue` |
+| `-r [id]` | `--resume [id]` | `resume [id]` | `--resume [id]` | `--session <id>` |
+| `--fork` | `--fork-session` | `fork` subcommand | *(unsupported)* | `--fork` |
+
+> **Note:** For Codex and OpenCode, headless mode (`-p`) and resume (`-r`) translate into subcommands (`codex exec`, `opencode run`, `codex resume`), not just flags. Unleash handles this restructuring automatically.
 
 ### Configuration Options
 

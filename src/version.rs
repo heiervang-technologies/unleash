@@ -17,7 +17,6 @@ const CLAUDE_GCS_BUCKET: &str = "https://storage.googleapis.com/claude-code-dist
 
 /// Embedded version lists, compiled into the binary for instant display.
 /// Updated periodically and committed to the repo.
-
 pub fn get_versions_file_path() -> PathBuf {
     // 1. Check if we are in the repo (or have the data file in CWD)
     let local_path = PathBuf::from("data/versions.json");
@@ -231,12 +230,11 @@ impl VersionManager {
         };
 
         // Check for musl on Linux
-        if gcs_os == "linux" {
-            if std::path::Path::new("/lib/libc.musl-x86_64.so.1").exists()
-                || std::path::Path::new("/lib/libc.musl-aarch64.so.1").exists()
-            {
-                return format!("{}-{}-musl", gcs_os, gcs_arch);
-            }
+        if gcs_os == "linux"
+            && (std::path::Path::new("/lib/libc.musl-x86_64.so.1").exists()
+                || std::path::Path::new("/lib/libc.musl-aarch64.so.1").exists())
+        {
+            return format!("{}-{}-musl", gcs_os, gcs_arch);
         }
 
         format!("{}-{}", gcs_os, gcs_arch)
@@ -872,7 +870,7 @@ impl VersionManager {
         let stdout_thread = thread::spawn(move || {
             let mut acc = String::new();
             if let Some(pipe) = stdout_pipe {
-                for line in io::BufReader::new(pipe).lines().flatten() {
+                for line in io::BufReader::new(pipe).lines().map_while(Result::ok) {
                     let _ = tx_clone.send(line.clone());
                     acc.push_str(&line);
                     acc.push('\n');
@@ -883,7 +881,7 @@ impl VersionManager {
 
         let mut stderr_acc = String::new();
         if let Some(pipe) = stderr_pipe {
-            for line in io::BufReader::new(pipe).lines().flatten() {
+            for line in io::BufReader::new(pipe).lines().map_while(Result::ok) {
                 let _ = log_tx.send(line.clone());
                 stderr_acc.push_str(&line);
                 stderr_acc.push('\n');
@@ -923,7 +921,7 @@ impl VersionManager {
 
         // Fallback: try npm
         if Self::has_npm() {
-            let _ = log_tx.send(format!("Native install failed, trying npm fallback..."));
+            let _ = log_tx.send("Native install failed, trying npm fallback...".to_string());
             let _ = log_tx.send(format!(
                 "Running: npm install -g @anthropic-ai/claude-code@{}",
                 version

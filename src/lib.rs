@@ -15,6 +15,7 @@ mod input;
 mod json_output;
 mod launcher;
 mod pixel_art;
+mod polyfill;
 #[cfg(feature = "tui")]
 mod text_input;
 #[cfg(feature = "tui")]
@@ -153,7 +154,34 @@ fn ensure_profile_cli_available(profile_name: &str, cli_path: &str) -> io::Resul
     ))
 }
 
-fn run_profile(profile_name: &str, profile_args: Vec<String>) -> io::Result<()> {
+fn print_profile_help(profile_name: &str) {
+    println!("Run the '{}' profile with unified flags\n", profile_name);
+    println!("Usage: unleash {} [FLAGS] [-- PASSTHROUGH]\n", profile_name);
+    println!("Unified flags (translated to agent-specific syntax):");
+    println!("      --safe               Restore approval prompts (permissions bypassed by default)");
+    println!("  -p, --prompt <PROMPT>    Run non-interactively with the given prompt");
+    println!("  -m, --model <MODEL>      Model to use for the session");
+    println!("  -c, --continue           Continue the most recent session");
+    println!("  -r, --resume [ID]        Resume a session by ID, or open picker");
+    println!("      --fork               Fork the session (use with --continue or --resume)");
+    println!("  -a, --auto               Enable auto-mode (autonomous operation)");
+    println!("  -h, --help               Print this help message");
+    println!();
+    println!("Passthrough (after --):");
+    println!("  Any arguments after '--' are passed directly to the agent CLI unchanged.");
+    println!("  Use this for agent-specific flags that unleash doesn't polyfill.");
+    println!();
+    println!("Examples:");
+    println!("  unleash {} -m opus -c              Continue with model override", profile_name);
+    println!("  unleash {} -p \"fix the tests\"       Run headless", profile_name);
+    println!("  unleash {} --safe -- --verbose      Safe mode + agent-specific flag", profile_name);
+}
+
+fn run_agent_with_polyfill(
+    profile_name: &str,
+    polyfill_args: cli::PolyfillArgs,
+    extra_args: Vec<String>,
+) -> io::Result<()> {
     let manager = ProfileManager::new()?;
     let profile = manager.load_profile(profile_name).map_err(|e| {
         if e.kind() == io::ErrorKind::NotFound {
@@ -180,45 +208,43 @@ fn run_profile(profile_name: &str, profile_args: Vec<String>) -> io::Result<()> 
         manager.save_app_config(&app_config)?;
     }
 
-    let mut launch_args = profile.agent_args.clone();
-    launch_args.extend(profile_args);
-    let cmd_name = Path::new(&profile.agent_cli_path)
-        .file_name()
-        .and_then(|n| n.to_str())
-        .unwrap_or("");
-    let profile_agent_type = profile.agent_type();
-    let uses_wrapper = profile_agent_type.is_some() || is_wrapper_command(cmd_name);
+    // Determine the agent type for polyfill resolution
+    let agent_type = profile.agent_type().unwrap_or(AgentType::Claude);
+    let agent_def = agents::AgentDefinition::from_type(agent_type);
 
-    if uses_wrapper {
-        let parse_prompt_flags = profile_agent_type == Some(AgentType::Claude) || is_wrapper_command(cmd_name);
-        let (auto, prompt, pass_args) = parse_wrapper_launch_args(launch_args, parse_prompt_flags);
+    // Resolve polyfill flags into agent-specific args
+    let flags = polyfill_args.to_polyfill_flags();
+    let resolved = polyfill::resolve(&agent_def.polyfill, &flags, &profile.agent_args);
 
-        if profile_agent_type.is_some() {
-            env::set_var("AGENT_CMD", &profile.agent_cli_path);
-        }
-        return launcher::run(auto, prompt, pass_args);
+    // Build the launch args: subcommand prefix + polyfill args + profile args + extra args
+    let mut launch_args = resolved.subcommand_prefix;
+    launch_args.extend(resolved.args);
+    launch_args.extend(profile.agent_args.clone());
+    launch_args.extend(extra_args);
+
+    // Auto mode from polyfill flag or from legacy args
+    let auto = polyfill_args.auto || launch_args.iter().any(|a| a == "--auto" || a == "-a");
+    let launch_args: Vec<String> = launch_args
+        .into_iter()
+        .filter(|a| a != "--auto" && a != "-a")
+        .collect();
+
+    // Set AGENT_CMD so the launcher knows which binary to use
+    env::set_var("AGENT_CMD", &profile.agent_cli_path);
+
+    // Signal to launcher that polyfill handled yolo/permissions
+    env::set_var("UNLEASH_POLYFILL_ACTIVE", "1");
+
+    // Set polyfill-resolved env vars
+    for (key, value) in &resolved.env {
+        env::set_var(key, value);
     }
 
-    let mut cmd = Command::new(&profile.agent_cli_path);
-    for (key, value) in &profile.env {
-        cmd.env(key, value);
-    }
-    cmd.args(&launch_args);
-    let status = cmd.status().map_err(|e| {
-        if e.kind() == io::ErrorKind::NotFound {
-            io::Error::new(
-                io::ErrorKind::NotFound,
-                format!(
-                    "Profile '{}' uses '{}', but it could not be started. Make sure that binary is installed and executable.",
-                    profile.name, profile.agent_cli_path
-                ),
-            )
-        } else {
-            e
-        }
-    })?;
-    std::process::exit(status.code().unwrap_or(1));
+    // Headless prompt is handled by the polyfill (adds -p/exec/run to args)
+    // Don't pass prompt separately to launcher since it would double-add for Claude
+    launcher::run(auto, None, launch_args)
 }
+
 
 pub fn run() -> io::Result<()> {
     // Check for --version or -V flag before clap processing
@@ -279,10 +305,7 @@ pub fn run() -> io::Result<()> {
     let cli = Cli::parse();
 
     match cli.command {
-        Some(Commands::Claude { args }) => run_profile("claude", args),
-        Some(Commands::Codex { args }) => run_profile("codex", args),
-        Some(Commands::Gemini { args }) => run_profile("gemini", args),
-        Some(Commands::OpenCode { args }) => run_profile("opencode", args),
+        // `unleash <profile> [polyfill flags] [-- passthrough]`
         Some(Commands::Profile(args)) => {
             if args.is_empty() {
                 return Err(io::Error::new(
@@ -290,7 +313,17 @@ pub fn run() -> io::Result<()> {
                     "Profile name is required",
                 ));
             }
-            run_profile(&args[0], args[1..].to_vec())
+            let profile_name = &args[0];
+
+            // Intercept --help / -h since clap can't render help for external_subcommand
+            if args[1..].iter().any(|a| a == "--help" || a == "-h") {
+                print_profile_help(profile_name);
+                return Ok(());
+            }
+
+            let (polyfill_args, passthrough) =
+                cli::PolyfillArgs::parse_from_raw(&args[1..]);
+            run_agent_with_polyfill(profile_name, polyfill_args, passthrough)
         }
         Some(Commands::Version { list, install }) => {
             if list {

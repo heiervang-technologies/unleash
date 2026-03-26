@@ -25,11 +25,9 @@ LOCK_FILE="${QUEUE_DIR}/lock-${WRAPPER_PID}"
 # Get the hook event type from environment
 HOOK_EVENT="${HOOK_EVENT:-unknown}"
 
-# Read hook input from stdin (may be empty for some hooks)
-HOOK_INPUT=""
+# Drain stdin to prevent blocking (hook input not needed by this handler)
 if [[ ! -t 0 ]]; then
-  # shellcheck disable=SC2034
-  HOOK_INPUT=$(cat 2>/dev/null || echo "")
+  exec 0</dev/null
 fi
 
 # Ensure queue directory exists
@@ -41,7 +39,7 @@ read_and_clear_queue() {
 
   # Use file locking to prevent race conditions
   (
-    flock -x 200 2>/dev/null || true
+    flock -x -w 2 200 2>/dev/null || true
 
     if [[ -f "${QUEUE_FILE}" ]] && [[ -s "${QUEUE_FILE}" ]]; then
       # Read the first message (messages are newline-separated JSON)

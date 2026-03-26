@@ -53,6 +53,104 @@ impl AgentType {
     }
 }
 
+/// Headless mode strategy
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum HeadlessStrategy {
+    /// Use a flag (e.g., -p)
+    Flag(String),
+    /// Use a subcommand (e.g., exec)
+    Subcommand(String),
+}
+
+/// Fork strategy
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum ForkStrategy {
+    /// Use a flag (e.g., --fork)
+    Flag(String),
+    /// Use a subcommand (e.g., fork)
+    Subcommand(String),
+    /// Not supported by this agent
+    Unsupported,
+}
+
+/// Session management strategy
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SessionStrategy {
+    /// Argument for continuing last session (e.g., "-c", "resume --last")
+    pub continue_arg: String,
+    /// Argument for resuming specific session (e.g., "-r", "resume")
+    pub resume_arg: String,
+}
+
+/// Polyfill configuration for an agent
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AgentPolyfillConfig {
+    /// Strategy for headless mode
+    pub headless: HeadlessStrategy,
+    /// Strategy for session management
+    pub session: SessionStrategy,
+    /// Strategy for session forking
+    pub fork: ForkStrategy,
+    /// Flag name for YOLO mode (permission bypass), if any
+    pub yolo_flag: Option<String>,
+    /// Flag name for model selection
+    pub model_flag: String,
+}
+
+impl AgentPolyfillConfig {
+    /// Get the yolo flag for this agent
+    pub fn get_yolo_flag(&self) -> Option<String> {
+        self.yolo_flag.clone()
+    }
+
+    /// Get the model flag for this agent
+    pub fn get_model_flag(&self) -> String {
+        self.model_flag.clone()
+    }
+
+    /// Get args for continuing the latest session
+    pub fn get_continue_args(&self) -> Vec<String> {
+        self.session
+            .continue_arg
+            .split_whitespace()
+            .map(|s| s.to_string())
+            .collect()
+    }
+
+    /// Get args for resuming a specific session
+    pub fn get_resume_args(&self, session_id: Option<&str>) -> Vec<String> {
+        let mut args: Vec<String> = self
+            .session
+            .resume_arg
+            .split_whitespace()
+            .map(|s| s.to_string())
+            .collect();
+        if let Some(id) = session_id {
+            args.push(id.to_string());
+        }
+        args
+    }
+
+    /// Get headless strategy and associated args/subcommand
+    pub fn get_headless_invocation(&self, prompt: &str) -> (Vec<String>, Vec<String>) {
+        match &self.headless {
+            HeadlessStrategy::Flag(f) => (vec![f.clone(), prompt.to_string()], vec![]),
+            HeadlessStrategy::Subcommand(s) => (vec![prompt.to_string()], vec![s.clone()]),
+        }
+    }
+
+    /// Get fork strategy and associated args/subcommand
+    pub fn get_fork_invocation(&self) -> (Vec<String>, Vec<String>, bool) {
+        match &self.fork {
+            ForkStrategy::Flag(f) => (vec![f.clone()], vec![], true),
+            ForkStrategy::Subcommand(s) => (vec![], vec![s.clone()], true),
+            ForkStrategy::Unsupported => (vec![], vec![], false),
+        }
+    }
+}
+
 /// Agent definition with installation and version info
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AgentDefinition {
@@ -64,6 +162,8 @@ pub struct AgentDefinition {
     pub binary: String,
     /// Description
     pub description: String,
+    /// Polyfill configuration
+    pub polyfill: AgentPolyfillConfig,
     /// GitHub repository (owner/repo)
     #[serde(skip_serializing_if = "Option::is_none")]
     pub github_repo: Option<String>,
@@ -80,6 +180,16 @@ fn default_true() -> bool {
 }
 
 impl AgentDefinition {
+    /// Create an agent definition from an agent type
+    pub fn from_type(agent_type: AgentType) -> Self {
+        match agent_type {
+            AgentType::Claude => Self::claude(),
+            AgentType::Codex => Self::codex(),
+            AgentType::Gemini => Self::gemini(),
+            AgentType::OpenCode => Self::opencode(),
+        }
+    }
+
     /// Create Claude Code agent definition
     pub fn claude() -> Self {
         Self {
@@ -87,6 +197,16 @@ impl AgentDefinition {
             name: "Claude Code".to_string(),
             binary: "claude".to_string(),
             description: "Anthropic's Claude Code CLI".to_string(),
+            polyfill: AgentPolyfillConfig {
+                headless: HeadlessStrategy::Flag("-p".to_string()),
+                session: SessionStrategy {
+                    continue_arg: "--continue".to_string(),
+                    resume_arg: "--resume".to_string(),
+                },
+                fork: ForkStrategy::Flag("--fork-session".to_string()),
+                yolo_flag: Some("--dangerously-skip-permissions".to_string()),
+                model_flag: "-m".to_string(),
+            },
             github_repo: Some("anthropics/claude-code".to_string()),
             npm_package: Some("@anthropic-ai/claude-code".to_string()),
             enabled: true,
@@ -100,6 +220,16 @@ impl AgentDefinition {
             name: "Codex".to_string(),
             binary: "codex".to_string(),
             description: "OpenAI Codex CLI".to_string(),
+            polyfill: AgentPolyfillConfig {
+                headless: HeadlessStrategy::Subcommand("exec".to_string()),
+                session: SessionStrategy {
+                    continue_arg: "resume --last".to_string(),
+                    resume_arg: "resume".to_string(),
+                },
+                fork: ForkStrategy::Subcommand("fork".to_string()),
+                yolo_flag: Some("--dangerously-bypass-approvals-and-sandbox".to_string()),
+                model_flag: "-m".to_string(),
+            },
             github_repo: Some("openai/codex".to_string()),
             npm_package: None,
             enabled: true,
@@ -113,6 +243,16 @@ impl AgentDefinition {
             name: "Gemini CLI".to_string(),
             binary: "gemini".to_string(),
             description: "Google's Gemini CLI".to_string(),
+            polyfill: AgentPolyfillConfig {
+                headless: HeadlessStrategy::Flag("-p".to_string()),
+                session: SessionStrategy {
+                    continue_arg: "--resume latest".to_string(),
+                    resume_arg: "--resume".to_string(),
+                },
+                fork: ForkStrategy::Unsupported,
+                yolo_flag: Some("--yolo".to_string()),
+                model_flag: "-m".to_string(),
+            },
             github_repo: Some("google-gemini/gemini-cli".to_string()),
             npm_package: Some("@anthropic-ai/gemini-cli".to_string()),
             enabled: true,
@@ -126,6 +266,16 @@ impl AgentDefinition {
             name: "OpenCode".to_string(),
             binary: "opencode".to_string(),
             description: "AI coding agent for the terminal".to_string(),
+            polyfill: AgentPolyfillConfig {
+                headless: HeadlessStrategy::Subcommand("run".to_string()),
+                session: SessionStrategy {
+                    continue_arg: "--continue".to_string(),
+                    resume_arg: "--session".to_string(),
+                },
+                fork: ForkStrategy::Flag("--fork".to_string()),
+                yolo_flag: None,
+                model_flag: "-m".to_string(),
+            },
             // GitHub releases use a different version scheme (0.0.x) than npm (1.x.x).
             // Version management uses npm registry as the source of truth.
             github_repo: None,

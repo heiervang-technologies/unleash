@@ -78,7 +78,7 @@ jobs:
         run: |
           PR_NUMBER=$(echo '${{ needs.release-please.outputs.pr }}' | jq -r '.number')
           echo "Auto-merging PR #$PR_NUMBER (minor/patch release)"
-          gh pr merge $PR_NUMBER --squash --auto
+          gh pr merge $PR_NUMBER --squash || echo "Auto-merge failed, PR may need manual merge"
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 

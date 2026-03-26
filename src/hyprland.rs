@@ -31,8 +31,7 @@ pub fn hyprctl(args: &[&str]) -> io::Result<String> {
 
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr);
-        return Err(io::Error::new(
-            io::ErrorKind::Other,
+        return Err(io::Error::other(
             format!("hyprctl {} failed: {}", args.join(" "), stderr),
         ));
     }
@@ -91,8 +90,7 @@ pub fn apply_agent_window_rules() -> io::Result<()> {
 
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr);
-        return Err(io::Error::new(
-            io::ErrorKind::Other,
+        return Err(io::Error::other(
             format!("hyprctl --batch window rules failed: {}", stderr),
         ));
     }

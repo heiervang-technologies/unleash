@@ -1367,9 +1367,9 @@ impl App {
                     0 => {
                         // Start Session
                         if let Some(profile) = &self.selected_profile {
-                            return Ok(Some(AppAction::Launch(LaunchRequest {
+                            return Ok(Some(AppAction::Launch(Box::new(LaunchRequest {
                                 profile: profile.clone(),
-                            })));
+                            }))));
                         } else {
                             self.status_message = Some("No profile selected!".to_string());
                         }
@@ -3492,12 +3492,10 @@ impl App {
 
         // Calculate window start to center the selection
         let half = max_visible / 2;
-        let start = if total <= max_visible {
-            0
-        } else if selected <= half {
+        let start = if total <= max_visible || selected <= half {
             0
         } else if selected >= total - half {
-            total.saturating_sub(max_visible)
+            total - max_visible
         } else {
             selected - half
         };
@@ -3658,7 +3656,7 @@ impl App {
 /// Actions that can be returned from the app
 #[derive(Debug, Clone)]
 pub enum AppAction {
-    Launch(LaunchRequest),
+    Launch(Box<LaunchRequest>),
     Update(UpdateRequest),
 }
 
