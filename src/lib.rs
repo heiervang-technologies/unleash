@@ -563,7 +563,11 @@ pub fn run() -> io::Result<()> {
                 }
             }
         }
-        Some(Commands::Update { agents, check, update_self }) => {
+        Some(Commands::Update {
+            agents,
+            check,
+            update_self,
+        }) => {
             let agent_types = if agents.is_empty() {
                 AgentType::all().to_vec()
             } else {

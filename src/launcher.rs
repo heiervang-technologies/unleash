@@ -77,6 +77,11 @@ pub fn run(auto_mode: bool, prompt: Option<String>, extra_args: Vec<String>) -> 
     // Check authentication on first run
     check_authentication();
 
+    // Check for updates if enabled in config
+    if let Some(at) = agent_type {
+        let _ = check_for_updates_on_launch(at);
+    }
+
     // Hyprland integration: set window rules and notify on start
     if hyprland::is_hyprland() {
         if let Err(e) = hyprland::apply_agent_window_rules() {
@@ -428,6 +433,34 @@ pub fn trigger_exit(wrapper_pid: u32) -> io::Result<()> {
     use nix::unistd::Pid;
 
     kill(Pid::from_raw(wrapper_pid as i32), Signal::SIGTERM).map_err(io::Error::other)?;
+
+    Ok(())
+}
+
+/// Check for updates on launch (non-blocking)
+fn check_for_updates_on_launch(agent_type: AgentType) -> io::Result<()> {
+    let profile_manager = ProfileManager::new()?;
+    let config = profile_manager.load_app_config().unwrap_or_default();
+
+    if !config.auto_update.auto_update_for_agent(&agent_type) {
+        return Ok(());
+    }
+
+    // Print immediate notice if cache already knows about an update
+    let mut agent_manager = crate::agents::AgentManager::new()?;
+    let summary = agent_manager.status_summary();
+    let status = summary.iter().find(|(at, _, _, _)| *at == agent_type);
+
+    if let Some((_, installed, latest, update_available)) = status {
+        if *update_available {
+            eprintln!(
+                "\x1b[33m[Unleash] Update available: {} {} → {} (run 'unleash update' to install)\x1b[0m",
+                agent_type.display_name(),
+                installed.as_deref().unwrap_or("?"),
+                latest.as_deref().unwrap_or("?")
+            );
+        }
+    }
 
     Ok(())
 }
