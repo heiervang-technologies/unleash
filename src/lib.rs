@@ -288,10 +288,14 @@ pub fn run() -> io::Result<()> {
         return Ok(());
     }
 
-    // If AGENT_CMD is set, enter wrapper mode directly (used by TUI to launch agents)
+    // If AGENT_CMD is set AND we're running under the wrapper (AGENT_UNLEASH=1),
+    // enter wrapper mode directly. This prevents stale AGENT_CMD from a previous
+    // session from hijacking a fresh `unleash codex` invocation.
     // Skip wrapper mode for help/version flags — let clap handle those
     let has_meta_flag = args.iter().skip(1).any(|a| matches!(a.as_str(), "-h" | "--help" | "-V" | "--version"));
-    if env::var("AGENT_CMD").is_ok() && !has_meta_flag {
+    let is_wrapper_reentry = env::var("AGENT_CMD").is_ok()
+        && env::var(launcher::UNLEASHED_ENV_VAR).ok().as_deref() == Some("1");
+    if is_wrapper_reentry && !has_meta_flag {
         let args: Vec<String> = env::args().skip(1).collect();
         let parse_prompt_flags = env::var("AGENT_CMD")
             .ok()
