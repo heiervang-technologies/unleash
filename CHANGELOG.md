@@ -1,5 +1,12 @@
 # Changelog
 
+## [9.2.3](https://github.com/heiervang-technologies/unleash/compare/v9.2.2...v9.2.3) (2026-03-26)
+
+
+### Bug Fixes
+
+* send auth status messages to stderr instead of stdout ([63b136d](https://github.com/heiervang-technologies/unleash/commit/63b136d0cb23d8ab97da22897344bf24b9a77ad6))
+
 ## [9.2.2](https://github.com/heiervang-technologies/unleash/compare/v9.2.1...v9.2.2) (2026-03-26)
 
 
