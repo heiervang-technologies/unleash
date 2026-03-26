@@ -289,7 +289,10 @@ pub fn run() -> io::Result<()> {
     }
 
     // If AGENT_CMD is set, enter wrapper mode directly (used by TUI to launch agents)
-    if env::var("AGENT_CMD").is_ok() {
+    // Skip wrapper mode for help/version flags — let clap handle those
+    let first_arg = args.get(1).map(String::as_str);
+    let is_meta_flag = matches!(first_arg, Some("-h" | "--help" | "-V" | "--version"));
+    if env::var("AGENT_CMD").is_ok() && !is_meta_flag {
         let args: Vec<String> = env::args().skip(1).collect();
         let parse_prompt_flags = env::var("AGENT_CMD")
             .ok()
