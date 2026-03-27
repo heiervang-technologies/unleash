@@ -534,28 +534,43 @@ fn update_gemini(tx: &mpsc::Sender<(usize, LineState)>, index: usize) -> io::Res
 }
 
 /// Update OpenCode via its built-in upgrade command.
+/// Gets the target version from npm first, then passes it explicitly to `opencode upgrade`.
 fn update_opencode(tx: &mpsc::Sender<(usize, LineState)>, index: usize) -> io::Result<String> {
+    // Get the target version from npm (source of truth)
+    let target = get_latest_npm_version("opencode-ai")?
+        .unwrap_or_else(|| "latest".to_string());
+
     let _ = tx.send((
         index,
         LineState::Building {
             version: String::new(),
-            phase: "upgrading...".into(),
+            phase: format!("upgrading to {}...", target),
         },
     ));
 
     let output = Command::new("opencode")
-        .args(["upgrade", "latest"])
+        .args(["upgrade", &target])
         .output()?;
 
     if output.status.success() {
         let version =
-            get_installed_version(AgentType::OpenCode).unwrap_or_else(|| "latest".into());
+            get_installed_version(AgentType::OpenCode).unwrap_or_else(|| target.clone());
         Ok(version)
     } else {
-        Err(io::Error::other(format!(
-            "opencode upgrade failed: {}",
-            String::from_utf8_lossy(&output.stderr)
-        )))
+        // Fallback: try npm install if opencode upgrade fails
+        eprintln!("opencode upgrade failed, trying npm install...");
+        let npm_output = Command::new("npm")
+            .args(["install", "-g", &format!("opencode-ai@{}", target)])
+            .output()?;
+
+        if npm_output.status.success() {
+            Ok(target)
+        } else {
+            Err(io::Error::other(format!(
+                "opencode upgrade failed: {}",
+                String::from_utf8_lossy(&output.stderr)
+            )))
+        }
     }
 }
 

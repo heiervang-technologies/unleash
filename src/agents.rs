@@ -276,9 +276,7 @@ impl AgentDefinition {
                 yolo_flag: None,
                 model_flag: "-m".to_string(),
             },
-            // GitHub releases use a different version scheme (0.0.x) than npm (1.x.x).
-            // Version management uses npm registry as the source of truth.
-            github_repo: None,
+            github_repo: Some("anomalyco/opencode".to_string()),
             npm_package: Some("opencode-ai".to_string()),
             enabled: true,
         }
