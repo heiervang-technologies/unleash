@@ -3,7 +3,7 @@
 //! Checks and updates multiple agents concurrently using one thread per agent,
 //! with real-time progress reporting via mpsc channels.
 
-use std::io::{self, Write as _};
+use std::io;
 use std::process::Command;
 use std::sync::mpsc;
 use std::thread;
@@ -162,7 +162,7 @@ fn phase_check(agents: &[AgentType], json: bool) -> io::Result<Vec<CheckResult>>
                 return Err(e);
             }
             Err(_) => {
-                return Err(io::Error::new(io::ErrorKind::Other, "Thread panicked"));
+                return Err(io::Error::other("Thread panicked"));
             }
         }
     }
@@ -424,7 +424,7 @@ fn get_latest_github_version(repo: &str) -> io::Result<Option<String>> {
     Ok(json
         .get("tag_name")
         .and_then(|t| t.as_str())
-        .map(|s| sanitize_version(s)))
+        .map(sanitize_version))
 }
 
 /// Strip version prefixes like "v", "rust-v" to get a clean semver string.

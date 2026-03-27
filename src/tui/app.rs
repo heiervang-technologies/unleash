@@ -26,6 +26,9 @@ use std::sync::mpsc::{self, Receiver};
 use std::thread::{self, JoinHandle};
 use std::time::{Duration, Instant};
 
+/// Receiver type for async version-list fetches.
+type VersionListReceiver = Receiver<(AgentType, Vec<VersionInfo>, Vec<ConflictEntry>)>;
+
 /// Width of the ANSI art sidebar (both left and right versions are the same width)
 const ART_WIDTH: u16 = 53;
 
@@ -251,7 +254,7 @@ pub struct App {
     /// Receiver for async installed-version fetch at startup (None once done)
     version_fetch_receiver: Option<Receiver<(AgentType, Option<String>)>>,
     /// Receiver for async version-list fetch (None when not fetching)
-    version_list_receiver: Option<Receiver<(AgentType, Vec<VersionInfo>, Vec<ConflictEntry>)>>,
+    version_list_receiver: Option<VersionListReceiver>,
     /// Async installation state
     pub install_state: Option<InstallState>,
 
