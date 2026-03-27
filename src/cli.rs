@@ -260,18 +260,27 @@ pub enum Commands {
         action: Option<AgentsAction>,
     },
 
-    /// Update agent CLIs to latest versions with parallel progress
+    /// Update unleash and/or agent CLIs
+    ///
+    /// No args: update unleash itself
+    /// -c/--clis: update all agent CLIs
+    /// -a/--all: update unleash + all agent CLIs
+    /// Positional args: update specific agents (e.g. 'unleash update claude codex')
     Update {
-        /// Specific agents to update (omit for all installed agents)
+        /// Specific agents to update (e.g. claude, codex, gemini, opencode)
         agents: Vec<String>,
+
+        /// Update all agent CLIs (not unleash itself)
+        #[arg(short, long)]
+        clis: bool,
+
+        /// Update everything (unleash + all agent CLIs)
+        #[arg(short, long)]
+        all: bool,
 
         /// Only check for updates, don't install
         #[arg(long)]
         check: bool,
-
-        /// Also update unleash itself
-        #[arg(long = "self")]
-        update_self: bool,
     },
 
     /// Run a profile by name (catches any unknown subcommand as a profile name)
