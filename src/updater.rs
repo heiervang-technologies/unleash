@@ -410,9 +410,15 @@ fn get_latest_npm_version(package: &str) -> io::Result<Option<String>> {
 
 fn get_latest_github_version(repo: &str) -> io::Result<Option<String>> {
     let url = format!("https://api.github.com/repos/{}/releases/latest", repo);
-    let output = Command::new("curl")
-        .args(["-s", "-H", "Accept: application/vnd.github.v3+json", &url])
-        .output()?;
+    let mut cmd = Command::new("curl");
+    cmd.args(["-s", "-H", "Accept: application/vnd.github.v3+json"]);
+
+    // Add auth for private repos — try GH_TOKEN, GITHUB_TOKEN, or `gh auth token`
+    if let Some(token) = github_token() {
+        cmd.arg("-H").arg(format!("Authorization: token {}", token));
+    }
+
+    let output = cmd.arg(&url).output()?;
 
     if !output.status.success() {
         return Ok(None);
@@ -425,6 +431,25 @@ fn get_latest_github_version(repo: &str) -> io::Result<Option<String>> {
         .get("tag_name")
         .and_then(|t| t.as_str())
         .map(sanitize_version))
+}
+
+/// Get a GitHub token for API auth (needed for private repos).
+/// Tries GH_TOKEN, GITHUB_TOKEN env vars, then `gh auth token`.
+fn github_token() -> Option<String> {
+    if let Ok(token) = std::env::var("GH_TOKEN") {
+        return Some(token);
+    }
+    if let Ok(token) = std::env::var("GITHUB_TOKEN") {
+        return Some(token);
+    }
+    // Try gh CLI
+    Command::new("gh")
+        .args(["auth", "token"])
+        .output()
+        .ok()
+        .filter(|o| o.status.success())
+        .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string())
+        .filter(|s| !s.is_empty())
 }
 
 /// Strip version prefixes like "v", "rust-v" to get a clean semver string.

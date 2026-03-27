@@ -406,6 +406,23 @@ impl AgentManager {
         Some(tag.trim_start_matches("rust-v").trim_start_matches('v').to_string())
     }
 
+    /// Get a GitHub token for API auth (needed for private repos).
+    fn github_token() -> Option<String> {
+        if let Ok(token) = std::env::var("GH_TOKEN") {
+            return Some(token);
+        }
+        if let Ok(token) = std::env::var("GITHUB_TOKEN") {
+            return Some(token);
+        }
+        Command::new("gh")
+            .args(["auth", "token"])
+            .output()
+            .ok()
+            .filter(|o| o.status.success())
+            .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string())
+            .filter(|s| !s.is_empty())
+    }
+
     /// Parse version string from command output
     fn parse_version(output: &str) -> Option<String> {
         // Handle various version formats:
@@ -445,9 +462,13 @@ impl AgentManager {
         // Use GitHub API to get latest release
         let url = format!("https://api.github.com/repos/{}/releases/latest", repo);
 
-        let output = Command::new("curl")
-            .args(["-s", "-H", "Accept: application/vnd.github.v3+json", &url])
-            .output()?;
+        let mut cmd = Command::new("curl");
+        cmd.args(["-s", "-H", "Accept: application/vnd.github.v3+json"]);
+        // Add auth for private repos
+        if let Some(token) = Self::github_token() {
+            cmd.arg("-H").arg(format!("Authorization: token {}", token));
+        }
+        let output = cmd.arg(&url).output()?;
 
         if !output.status.success() {
             return Ok(None);
