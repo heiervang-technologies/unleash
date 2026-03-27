@@ -440,99 +440,22 @@ fn update_claude(tx: &mpsc::Sender<(usize, LineState)>, index: usize) -> io::Res
     }
 }
 
-/// Update Codex by cloning the repo and building from source with cargo.
+/// Update Codex — prebuilt binary preferred, source build fallback.
+/// Delegates to AgentManager which handles the download/build logic.
 fn update_codex(tx: &mpsc::Sender<(usize, LineState)>, index: usize) -> io::Result<String> {
-    let cache_dir = dirs::cache_dir()
-        .unwrap_or_else(|| std::path::PathBuf::from("/tmp"))
-        .join("unleash/codex-source");
-
-    // Clone or update repo.
     let _ = tx.send((
         index,
         LineState::Building {
             version: String::new(),
-            phase: "fetching source...".into(),
+            phase: "downloading prebuilt binary...".into(),
         },
     ));
 
-    if cache_dir.join(".git").exists() {
-        let pull = Command::new("git")
-            .args(["pull", "--ff-only"])
-            .current_dir(&cache_dir)
-            .output()?;
-
-        if !pull.status.success() {
-            // Re-clone on failure.
-            std::fs::remove_dir_all(&cache_dir)?;
-        }
-    }
-
-    if !cache_dir.join(".git").exists() {
-        std::fs::create_dir_all(cache_dir.parent().unwrap())?;
-        let clone = Command::new("git")
-            .args([
-                "clone",
-                "--depth",
-                "1",
-                "https://github.com/openai/codex.git",
-                &cache_dir.to_string_lossy(),
-            ])
-            .output()?;
-
-        if !clone.status.success() {
-            return Err(io::Error::other(format!(
-                "git clone failed: {}",
-                String::from_utf8_lossy(&clone.stderr)
-            )));
-        }
-    }
-
-    let codex_rs_dir = cache_dir.join("codex-rs");
-    if !codex_rs_dir.exists() {
-        return Err(io::Error::new(
-            io::ErrorKind::NotFound,
-            "codex-rs directory not found in cloned repo",
-        ));
-    }
-
-    // Build with cargo. Stream stderr to parse progress.
-    let _ = tx.send((
-        index,
-        LineState::Building {
-            version: String::new(),
-            phase: "compiling (cargo build)...".into(),
-        },
-    ));
-
-    let build = Command::new("cargo")
-        .args(["build", "--release", "-p", "codex-cli"])
-        .current_dir(&codex_rs_dir)
-        .output()?;
-
-    if !build.status.success() {
-        return Err(io::Error::other(format!(
-            "cargo build failed: {}",
-            String::from_utf8_lossy(&build.stderr)
-        )));
-    }
-
-    // Install binary.
-    let _ = tx.send((
-        index,
-        LineState::Building {
-            version: String::new(),
-            phase: "installing binary...".into(),
-        },
-    ));
-
-    let binary_src = codex_rs_dir.join("target/release/codex");
-    let install_dir = dirs::home_dir()
-        .ok_or_else(|| io::Error::new(io::ErrorKind::NotFound, "Home dir not found"))?
-        .join(".local/bin");
-    std::fs::create_dir_all(&install_dir)?;
-    std::fs::copy(&binary_src, install_dir.join("codex"))?;
+    let mut manager = crate::agents::AgentManager::new()?;
+    let result = manager.update_agent(AgentType::Codex)?;
 
     let version = get_installed_version(AgentType::Codex).unwrap_or_else(|| "latest".into());
+    eprintln!("{}", result);
     Ok(version)
 }
 
