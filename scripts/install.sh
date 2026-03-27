@@ -187,10 +187,15 @@ fi
 # Step 2: Create symlinks for additional commands
 info "Creating symlinks..."
 
-# Helper commands (bash scripts)
-ln -sf "$SCRIPT_DIR/restart-claude" "$BIN_DIR/restart-claude"
-ln -sf "$SCRIPT_DIR/exit-claude" "$BIN_DIR/exit-claude"
-success "Symlink: restart-claude, exit-claude"
+# Helper commands (new canonical names)
+ln -sf "$SCRIPT_DIR/unleash-refresh" "$BIN_DIR/unleash-refresh"
+ln -sf "$SCRIPT_DIR/unleash-exit" "$BIN_DIR/unleash-exit"
+success "Symlink: unleash-refresh, unleash-exit"
+
+# Backward-compat aliases (old names point to new scripts)
+ln -sf "$BIN_DIR/unleash-refresh" "$BIN_DIR/restart-claude"
+ln -sf "$BIN_DIR/unleash-exit" "$BIN_DIR/exit-claude"
+success "Symlink (compat): restart-claude -> unleash-refresh, exit-claude -> unleash-exit"
 
 # Step 3: Install plugins globally
 info "Installing plugins..."
@@ -220,8 +225,9 @@ echo "  unleash <agent>      - Start an agent (claude, codex, gemini, opencode)"
 echo "  unleash agents       - Manage agent CLI installations and versions"
 echo ""
 echo "Helper Commands:"
-echo "  restart-claude   - Restart agent (preserves session)"
-echo "  exit-claude      - Exit agent and wrapper"
+echo "  unleash-refresh  - Restart agent (preserves session)"
+echo "  unleash-exit     - Exit agent and wrapper"
+echo "  (old names restart-claude / exit-claude still work)"
 echo ""
 echo "Quick start:"
 echo "  unleash claude         - Start Claude with wrapper features"
