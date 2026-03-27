@@ -379,6 +379,7 @@ impl VersionManager {
         json.get(platform)?
             .get("checksum")?
             .as_str()
+            .filter(|s| s.len() == 64 && s.chars().all(|c| c.is_ascii_hexdigit()))
             .map(|s| s.to_string())
     }
 
@@ -1425,20 +1426,26 @@ impl Default for VersionManager {
 /// Canonically compare two version strings (semver-like).
 ///
 /// - Strips known prefixes ("v", "rust-v") from both inputs.
-/// - Ignores pre-release suffixes (everything after the first `-`).
+/// - Pre-release versions (with `-` suffix) are less than the same base version.
 /// - Splits on `.` and compares each segment as `u32`.
 /// - Zero-pads shorter versions so "1.2" == "1.2.0".
 pub(crate) fn version_compare(a: &str, b: &str) -> std::cmp::Ordering {
-    fn parse(s: &str) -> Vec<u32> {
-        let s = s.trim_start_matches("rust-v").trim_start_matches('v');
-        let s = s.split('-').next().unwrap_or(s);
-        s.split('.')
-            .map(|p| p.parse::<u32>().unwrap_or(0))
-            .collect()
+    fn strip_prefix(s: &str) -> &str {
+        s.trim_start_matches("rust-v").trim_start_matches('v')
     }
 
-    let a_parts = parse(a);
-    let b_parts = parse(b);
+    fn parse_parts(s: &str) -> (Vec<u32>, bool) {
+        let has_pre = s.contains('-');
+        let base = s.split('-').next().unwrap_or(s);
+        let parts = base
+            .split('.')
+            .map(|p| p.parse::<u32>().unwrap_or(0))
+            .collect();
+        (parts, has_pre)
+    }
+
+    let (a_parts, a_pre) = parse_parts(strip_prefix(a));
+    let (b_parts, b_pre) = parse_parts(strip_prefix(b));
 
     for i in 0..a_parts.len().max(b_parts.len()) {
         let pa = a_parts.get(i).copied().unwrap_or(0);
@@ -1449,7 +1456,12 @@ pub(crate) fn version_compare(a: &str, b: &str) -> std::cmp::Ordering {
         }
     }
 
-    std::cmp::Ordering::Equal
+    // Same base version: pre-release < release (per semver)
+    match (a_pre, b_pre) {
+        (true, false) => std::cmp::Ordering::Less,
+        (false, true) => std::cmp::Ordering::Greater,
+        _ => std::cmp::Ordering::Equal,
+    }
 }
 
 /// Convenience wrapper: returns `true` if version `a` is strictly less than `b`.
@@ -1597,9 +1609,12 @@ mod tests {
         assert_eq!(version_compare("v1.2.3", "1.2.3"), Ordering::Equal);
         assert_eq!(version_compare("rust-v0.116.0", "0.116.0"), Ordering::Equal);
 
-        // Pre-release suffix ignored
-        assert_eq!(version_compare("1.2.3-beta", "1.2.3"), Ordering::Equal);
-        assert_eq!(version_compare("1.2.3-beta.1", "1.2.3"), Ordering::Equal);
+        // Pre-release is less than release (per semver)
+        assert_eq!(version_compare("1.2.3-beta", "1.2.3"), Ordering::Less);
+        assert_eq!(version_compare("1.2.3-beta.1", "1.2.3"), Ordering::Less);
+        assert_eq!(version_compare("1.2.3", "1.2.3-beta"), Ordering::Greater);
+        // Two pre-releases with same base are equal (no sub-ordering)
+        assert_eq!(version_compare("1.2.3-alpha", "1.2.3-beta"), Ordering::Equal);
 
         // Single component
         assert_eq!(version_compare("2", "1"), Ordering::Greater);
@@ -1616,6 +1631,9 @@ mod tests {
         assert!(!version_less_than("1.2.4", "1.2.3"));
         assert!(!version_less_than("1.2.3", "1.2.3"));
         assert!(version_less_than("v1.0.0", "2.0.0"));
+        // Pre-release is less than stable
+        assert!(version_less_than("1.2.3-beta", "1.2.3"));
+        assert!(!version_less_than("1.2.3", "1.2.3-beta"));
     }
 
     #[test]

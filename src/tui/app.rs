@@ -1301,13 +1301,13 @@ impl App {
                                             new_name
                                         ));
                                     } else {
-                                        // Delete old profile file
-                                        let _ =
-                                            self.profile_manager.delete_profile(&old_name);
-                                        // Save with new name
+                                        // Save with new name FIRST, then delete old
                                         profile.name = new_name.clone();
                                         match self.profile_manager.save_profile(profile) {
                                             Ok(()) => {
+                                                // Now safe to delete the old file
+                                                let _ =
+                                                    self.profile_manager.delete_profile(&old_name);
                                                 // Update app config if this was the active profile
                                                 if self.app_config.current_profile == old_name {
                                                     self.app_config.current_profile =
@@ -1323,7 +1323,7 @@ impl App {
                                                 ));
                                             }
                                             Err(e) => {
-                                                // Restore old name on save failure
+                                                // Restore old name — old file still on disk
                                                 profile.name = old_name;
                                                 self.status_message = Some(format!(
                                                     "Failed to save profile: {}",
@@ -1389,7 +1389,8 @@ impl App {
 
         // Re-sort and update menu
         self.env_vars_list.sort_by(|a, b| a.0.cmp(&b.0));
-        self.env_menu.set_items_count(self.env_vars_list.len() + 1);
+        self.env_menu
+            .set_items_count(Self::PROFILE_SETTINGS_COUNT + self.env_vars_list.len() + 1);
 
         // Save to file
         let _ = self.save_editing_profile();
