@@ -226,10 +226,10 @@ fn run_agent_with_polyfill(
         full_args.extend(resolved.args.clone());
         full_args.extend(profile.agent_args.clone());
         full_args.extend(extra_args.clone());
-        eprintln!("Would execute: {} {}", binary, full_args.join(" "));
+        println!("Would execute: {} {}", binary, full_args.join(" "));
         if !resolved.env.is_empty() {
             for (k, v) in &resolved.env {
-                eprintln!("  env: {}={}", k, v);
+                println!("  env: {}={}", k, v);
             }
         }
         return Ok(());

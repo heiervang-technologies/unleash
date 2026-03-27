@@ -225,25 +225,46 @@ impl VersionManager {
 
     /// Get the version string from a specific binary path.
     fn version_at_path(path: &std::path::Path) -> String {
-        Command::new(path)
+        use std::time::Duration;
+
+        // Spawn with timeout to avoid hanging on broken binaries
+        let mut child = match Command::new(path)
             .arg("--version")
-            .output()
-            .ok()
-            .and_then(|o| {
-                if o.status.success() {
-                    let s = String::from_utf8_lossy(&o.stdout).to_string();
-                    Some(
-                        s.lines()
-                            .next()
-                            .unwrap_or("")
-                            .trim()
-                            .replace(" (Claude Code)", ""),
-                    )
-                } else {
-                    None
+            .stdout(std::process::Stdio::piped())
+            .stderr(std::process::Stdio::null())
+            .spawn()
+        {
+            Ok(c) => c,
+            Err(_) => return String::new(),
+        };
+
+        // Wait with 5 second timeout
+        let start = std::time::Instant::now();
+        loop {
+            match child.try_wait() {
+                Ok(Some(_)) => break,
+                Ok(None) => {
+                    if start.elapsed() > Duration::from_secs(5) {
+                        let _ = child.kill();
+                        return String::new();
+                    }
+                    std::thread::sleep(Duration::from_millis(50));
                 }
-            })
-            .unwrap_or_default()
+                Err(_) => return String::new(),
+            }
+        }
+
+        match child.wait_with_output() {
+            Ok(o) if o.status.success() => {
+                let s = String::from_utf8_lossy(&o.stdout).to_string();
+                s.lines()
+                    .next()
+                    .unwrap_or("")
+                    .trim()
+                    .replace(" (Claude Code)", "")
+            }
+            _ => String::new(),
+        }
     }
 
     /// Locate the npm global binary for a given command name.
