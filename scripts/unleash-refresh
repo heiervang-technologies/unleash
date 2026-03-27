@@ -1,9 +1,10 @@
 #!/usr/bin/env bash
-# restart-claude - Simple command to trigger Claude self-restart
+# unleash-refresh - Trigger agent self-restart (preserves session)
 #
-# Usage: restart-claude [message]
+# Usage: unleash-refresh [message]
 #
 # Requires: Running under unleash wrapper
+# Note: Also available as 'restart-claude' (backward compat)
 
 set -uo pipefail
 

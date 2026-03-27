@@ -3,6 +3,7 @@ use std::io::{self, Write};
 use std::time::Duration;
 
 /// State of a single agent line in the progress display.
+#[allow(dead_code)]
 pub enum LineState {
     Checking,
     UpToDate(String),
@@ -99,6 +100,7 @@ impl ProgressRenderer {
     }
 
     /// Print a final summary line after all updates are done.
+    #[allow(dead_code)]
     pub fn finish(&self) {
         let mut updated = 0u32;
         let mut up_to_date = 0u32;
@@ -248,10 +250,7 @@ fn format_bar_line(
     let filled = (progress * bar_width as f32) as usize;
     let empty = bar_width.saturating_sub(filled);
 
-    let bar: String = std::iter::repeat(BAR_FILLED)
-        .take(filled)
-        .chain(std::iter::repeat(BAR_EMPTY).take(empty))
-        .collect();
+    let bar: String = BAR_FILLED.to_string().repeat(filled) + &BAR_EMPTY.to_string().repeat(empty);
 
     if color {
         format!(

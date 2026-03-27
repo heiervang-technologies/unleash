@@ -18,13 +18,15 @@ If it returns `1`, you are running under the wrapper and can restart.
 
 Run this command via Bash:
 ```bash
-restart-claude
+unleash-refresh
 ```
 
 Or with a custom message to receive after restart:
 ```bash
-restart-claude "Continue working on the feature"
+unleash-refresh "Continue working on the feature"
 ```
+
+> **Note:** The old names `restart-claude` and `exit-claude` still work as aliases.
 
 ### What Happens When You Restart
 
@@ -44,8 +46,10 @@ restart-claude "Continue working on the feature"
 
 | File | Purpose |
 |------|---------|
-| `scripts/restart-claude` | Restart command |
-| `scripts/exit-claude` | Exit without restart |
+| `scripts/unleash-refresh` | Restart command (canonical) |
+| `scripts/unleash-exit` | Exit without restart (canonical) |
+| `scripts/restart-claude` | Backward-compat alias for unleash-refresh |
+| `scripts/exit-claude` | Backward-compat alias for unleash-exit |
 
 ## Repository Overview
 
@@ -70,8 +74,10 @@ unleash/
 ├── scripts/                     # All shell scripts consolidated here
 │   ├── install.sh              # Installation script
 │   ├── install-remote.sh       # Remote one-line installer
-│   ├── restart-claude          # Restart command
-│   └── exit-claude             # Exit command
+│   ├── unleash-refresh         # Restart command (canonical)
+│   ├── unleash-exit            # Exit command (canonical)
+│   ├── restart-claude          # Backward-compat alias
+│   └── exit-claude             # Backward-compat alias
 ├── plugins/bundled/             # Plugin extensions
 │   ├── auto-mode/              # Autonomous operation mode
 │   ├── mcp-refresh/            # MCP config change detection

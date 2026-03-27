@@ -1,10 +1,11 @@
 #!/usr/bin/env bash
-# exit-claude - Exit Claude without triggering restart
+# unleash-exit - Exit agent without triggering restart
 #
-# Usage: exit-claude
+# Usage: unleash-exit
 #
-# Kills the current Claude process without creating a restart trigger,
+# Kills the current agent process without creating a restart trigger,
 # so the wrapper will exit cleanly instead of restarting.
+# Note: Also available as 'exit-claude' (backward compat)
 
 set -uo pipefail
 

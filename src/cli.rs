@@ -67,6 +67,10 @@ pub struct PolyfillArgs {
     /// Enable auto-mode (autonomous operation)
     #[arg(short, long)]
     pub auto: bool,
+
+    /// Show the resolved command without executing it
+    #[arg(long)]
+    pub dry_run: bool,
 }
 
 impl PolyfillArgs {
@@ -83,9 +87,11 @@ impl PolyfillArgs {
             resume: None,
             fork: false,
             auto: false,
+            dry_run: false,
         };
         let mut passthrough = Vec::new();
         let mut hit_separator = false;
+        let mut last_value_flag: Option<String> = None;
 
         let mut i = 0;
         while i < args.len() {
@@ -103,22 +109,30 @@ impl PolyfillArgs {
                 continue;
             }
 
+            last_value_flag = None;
             match arg.as_str() {
                 "--safe" => polyfill.safe = true,
                 "--yolo" => polyfill.yolo = true,
                 "--fork" => polyfill.fork = true,
                 "-c" | "--continue" => polyfill.continue_session = true,
                 "-a" | "--auto" => polyfill.auto = true,
+                "--dry-run" => polyfill.dry_run = true,
                 "-p" | "--prompt" => {
                     if let Some(val) = args.get(i + 1) {
                         polyfill.prompt = Some(val.clone());
                         i += 1;
+                        last_value_flag = None;
+                    } else {
+                        last_value_flag = Some(arg.clone());
                     }
                 }
                 "-m" | "--model" => {
                     if let Some(val) = args.get(i + 1) {
                         polyfill.model = Some(val.clone());
                         i += 1;
+                        last_value_flag = None;
+                    } else {
+                        last_value_flag = Some(arg.clone());
                     }
                 }
                 "-r" | "--resume" => {
@@ -149,6 +163,16 @@ impl PolyfillArgs {
                 }
             }
             i += 1;
+        }
+
+        // Validate: warn if a value-taking flag was the last arg without a value
+        if let Some(ref flag) = last_value_flag {
+            eprintln!("Warning: {} requires a value (e.g. {} <value>)", flag, flag);
+        }
+
+        // Validate: --fork has no effect without --continue or --resume
+        if polyfill.fork && !polyfill.continue_session && polyfill.resume.is_none() {
+            eprintln!("Warning: --fork has no effect without --continue or --resume");
         }
 
         (polyfill, passthrough)
@@ -451,6 +475,15 @@ mod tests {
     }
 
     #[test]
+    fn test_parse_dry_run() {
+        let args: Vec<String> = vec!["--dry-run".into(), "-m".into(), "opus".into()];
+        let (polyfill, passthrough) = PolyfillArgs::parse_from_raw(&args);
+        assert!(polyfill.dry_run);
+        assert_eq!(polyfill.model, Some("opus".to_string()));
+        assert!(passthrough.is_empty());
+    }
+
+    #[test]
     fn test_parse_passthrough_separator() {
         let args: Vec<String> = vec![
             "-m".into(), "opus".into(), "--".into(), "--effort".into(), "high".into(),
@@ -494,5 +527,49 @@ mod tests {
         let flags = polyfill.to_polyfill_flags();
         assert!(flags.yolo);
         assert!(!flags.safe);
+    }
+
+    // --- Validation warning tests ---
+
+    #[test]
+    fn test_fork_without_continue_or_resume_is_noop() {
+        // --fork alone should still parse but the flag has no effect
+        let args: Vec<String> = vec!["--fork".into()];
+        let (polyfill, _) = PolyfillArgs::parse_from_raw(&args);
+        assert!(polyfill.fork);
+        assert!(!polyfill.continue_session);
+        assert!(polyfill.resume.is_none());
+    }
+
+    #[test]
+    fn test_fork_with_continue_is_valid() {
+        let args: Vec<String> = vec!["--fork".into(), "-c".into()];
+        let (polyfill, _) = PolyfillArgs::parse_from_raw(&args);
+        assert!(polyfill.fork);
+        assert!(polyfill.continue_session);
+    }
+
+    #[test]
+    fn test_fork_with_resume_is_valid() {
+        let args: Vec<String> = vec!["--fork".into(), "--resume".into(), "abc".into()];
+        let (polyfill, _) = PolyfillArgs::parse_from_raw(&args);
+        assert!(polyfill.fork);
+        assert!(polyfill.resume.is_some());
+    }
+
+    #[test]
+    fn test_model_without_value_leaves_none() {
+        // -m at end of args with no value
+        let args: Vec<String> = vec!["-m".into()];
+        let (polyfill, _) = PolyfillArgs::parse_from_raw(&args);
+        assert!(polyfill.model.is_none());
+    }
+
+    #[test]
+    fn test_prompt_without_value_leaves_none() {
+        // -p at end of args with no value
+        let args: Vec<String> = vec!["-p".into()];
+        let (polyfill, _) = PolyfillArgs::parse_from_raw(&args);
+        assert!(polyfill.prompt.is_none());
     }
 }

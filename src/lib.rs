@@ -167,6 +167,7 @@ fn print_profile_help(profile_name: &str) {
     println!("  -r, --resume [ID]        Resume a session by ID, or open picker");
     println!("      --fork               Fork the session (use with --continue or --resume)");
     println!("  -a, --auto               Enable auto-mode (autonomous operation)");
+    println!("      --dry-run            Show the resolved command without executing it");
     println!("  -h, --help               Print this help message");
     println!();
     println!("Passthrough (after --):");
@@ -217,6 +218,22 @@ fn run_agent_with_polyfill(
     // Resolve polyfill flags into agent-specific args
     let flags = polyfill_args.to_polyfill_flags();
     let resolved = polyfill::resolve(&agent_def.polyfill, &flags, &profile.agent_args);
+
+    // --dry-run: print the resolved command and exit without executing
+    if polyfill_args.dry_run {
+        let binary = &profile.agent_cli_path;
+        let mut full_args = resolved.subcommand_prefix.clone();
+        full_args.extend(resolved.args.clone());
+        full_args.extend(profile.agent_args.clone());
+        full_args.extend(extra_args.clone());
+        println!("Would execute: {} {}", binary, full_args.join(" "));
+        if !resolved.env.is_empty() {
+            for (k, v) in &resolved.env {
+                println!("  env: {}={}", k, v);
+            }
+        }
+        return Ok(());
+    }
 
     // Build the launch args: subcommand prefix + polyfill args + profile args + extra args
     let mut launch_args = resolved.subcommand_prefix;

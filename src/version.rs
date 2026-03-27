@@ -84,6 +84,19 @@ pub struct VersionInfo {
     pub is_installed: bool,
 }
 
+/// A single conflicting binary installation found on the system
+#[derive(Debug, Clone)]
+pub struct ConflictEntry {
+    /// Filesystem path to the binary
+    pub path: PathBuf,
+    /// Version string reported by the binary (empty if detection failed)
+    pub version: String,
+    /// Human-readable install source (e.g. "native", "npm", "PATH")
+    pub source: String,
+    /// Whether this is the binary that would be invoked (first in PATH)
+    pub active: bool,
+}
+
 /// Result of an installation attempt
 #[derive(Debug, Clone)]
 pub struct InstallResult {
@@ -123,40 +136,148 @@ impl VersionManager {
     }
 
     /// Check if there are conflicting installations (e.g. native + npm for Claude Code)
+    #[allow(dead_code)]
     pub fn has_conflicts(&self, binary_name: &str) -> bool {
+        self.detect_conflicts(binary_name).len() > 1
+    }
+
+    /// Detect all conflicting installations and return structured details.
+    ///
+    /// Returns a list of [`ConflictEntry`] describing each distinct installation
+    /// found on the system. When the list has more than one entry, the
+    /// installations are in conflict. The first entry is marked `active = true`
+    /// (it is the one that would win in PATH).
+    pub fn detect_conflicts(&self, binary_name: &str) -> Vec<ConflictEntry> {
         if binary_name == "claude" {
-            let mut install_count = 0;
-
-            // Check native
-            let native_dir = dirs::home_dir().map(|h| h.join(".local/share/claude/versions"));
-            if let Some(dir) = native_dir {
-                if dir.exists() && dir.read_dir().is_ok_and(|mut d| d.next().is_some()) {
-                    install_count += 1;
-                }
-            }
-
-            // Check NPM
-            if Self::has_npm() {
-                if let Ok(out) = Command::new("npm")
-                    .args(["list", "-g", "@anthropic-ai/claude-code"])
-                    .output()
-                {
-                    let stdout = String::from_utf8_lossy(&out.stdout);
-                    if out.status.success()
-                        && !stdout.contains("empty")
-                        && stdout.contains("@anthropic-ai/claude-code")
-                    {
-                        install_count += 1;
-                    }
-                }
-            }
-
-            return install_count > 1;
+            return self.detect_claude_conflicts();
         }
-
         // For non-Claude agents, multiple PATH entries are normal (symlinks,
         // package managers, system packages). Don't flag as conflicts.
-        false
+        Vec::new()
+    }
+
+    /// Internal: detect conflicting Claude Code installations.
+    fn detect_claude_conflicts(&self) -> Vec<ConflictEntry> {
+        let mut entries: Vec<ConflictEntry> = Vec::new();
+
+        // Determine the first-in-PATH binary so we can mark it active
+        let active_path: Option<PathBuf> = which::which("claude")
+            .ok()
+            .and_then(|p| p.canonicalize().ok().or(Some(p)));
+
+        // Check native installation
+        let native_dir = dirs::home_dir().map(|h| h.join(".local/share/claude/versions"));
+        if let Some(ref dir) = native_dir {
+            if dir.exists() && dir.read_dir().is_ok_and(|mut d| d.next().is_some()) {
+                // Find the actual binary path for native
+                let bin_path = dirs::home_dir()
+                    .map(|h| h.join(".local/bin/claude"))
+                    .unwrap_or_else(|| PathBuf::from("/usr/local/bin/claude"));
+                let version = Self::version_at_path(&bin_path);
+                let canonical = bin_path.canonicalize().ok().unwrap_or_else(|| bin_path.clone());
+                let is_active = active_path.as_ref().is_some_and(|a| *a == canonical);
+                entries.push(ConflictEntry {
+                    path: bin_path,
+                    version,
+                    source: "native".to_string(),
+                    active: is_active,
+                });
+            }
+        }
+
+        // Check NPM global installation
+        if Self::has_npm() {
+            if let Ok(out) = Command::new("npm")
+                .args(["list", "-g", "@anthropic-ai/claude-code"])
+                .output()
+            {
+                let stdout = String::from_utf8_lossy(&out.stdout);
+                if out.status.success()
+                    && !stdout.contains("empty")
+                    && stdout.contains("@anthropic-ai/claude-code")
+                {
+                    // Locate the npm global binary
+                    let npm_bin = Self::npm_global_bin("claude");
+                    let version = npm_bin
+                        .as_ref()
+                        .map(|p| Self::version_at_path(p))
+                        .unwrap_or_default();
+                    let path = npm_bin.unwrap_or_else(|| PathBuf::from("npm:@anthropic-ai/claude-code"));
+                    let canonical = path.canonicalize().ok().unwrap_or_else(|| path.clone());
+                    let is_active = active_path.as_ref().is_some_and(|a| *a == canonical);
+                    entries.push(ConflictEntry {
+                        path,
+                        version,
+                        source: "npm".to_string(),
+                        active: is_active,
+                    });
+                }
+            }
+        }
+
+        // If no entry was marked active but we have entries, mark the first one
+        if !entries.is_empty() && !entries.iter().any(|e| e.active) {
+            entries[0].active = true;
+        }
+
+        entries
+    }
+
+    /// Get the version string from a specific binary path.
+    fn version_at_path(path: &std::path::Path) -> String {
+        use std::time::Duration;
+
+        // Spawn with timeout to avoid hanging on broken binaries
+        let mut child = match Command::new(path)
+            .arg("--version")
+            .stdout(std::process::Stdio::piped())
+            .stderr(std::process::Stdio::null())
+            .spawn()
+        {
+            Ok(c) => c,
+            Err(_) => return String::new(),
+        };
+
+        // Wait with 5 second timeout
+        let start = std::time::Instant::now();
+        loop {
+            match child.try_wait() {
+                Ok(Some(_)) => break,
+                Ok(None) => {
+                    if start.elapsed() > Duration::from_secs(5) {
+                        let _ = child.kill();
+                        return String::new();
+                    }
+                    std::thread::sleep(Duration::from_millis(50));
+                }
+                Err(_) => return String::new(),
+            }
+        }
+
+        match child.wait_with_output() {
+            Ok(o) if o.status.success() => {
+                let s = String::from_utf8_lossy(&o.stdout).to_string();
+                s.lines()
+                    .next()
+                    .unwrap_or("")
+                    .trim()
+                    .replace(" (Claude Code)", "")
+            }
+            _ => String::new(),
+        }
+    }
+
+    /// Locate the npm global binary for a given command name.
+    fn npm_global_bin(name: &str) -> Option<PathBuf> {
+        let out = Command::new("npm").args(["bin", "-g"]).output().ok()?;
+        if out.status.success() {
+            let dir = String::from_utf8_lossy(&out.stdout).trim().to_string();
+            let p = PathBuf::from(dir).join(name);
+            if p.exists() {
+                return Some(p);
+            }
+        }
+        None
     }
 
     /// Cleanup conflicting installations
