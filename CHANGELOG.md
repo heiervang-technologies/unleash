@@ -1,5 +1,13 @@
 # Changelog
 
+## [9.5.1](https://github.com/heiervang-technologies/unleash/compare/v9.5.0...v9.5.1) (2026-03-27)
+
+
+### Bug Fixes
+
+* batch fix 12 bugs found during code review ([6038d6a](https://github.com/heiervang-technologies/unleash/commit/6038d6ad6c7e7a8d5bfd3ffa399bda1b3bf86184))
+* batch fix 12 bugs found during code review ([#249](https://github.com/heiervang-technologies/unleash/issues/249)) ([6038d6a](https://github.com/heiervang-technologies/unleash/commit/6038d6ad6c7e7a8d5bfd3ffa399bda1b3bf86184))
+
 ## [9.5.0](https://github.com/heiervang-technologies/unleash/compare/v9.4.0...v9.5.0) (2026-03-27)
 
 
