@@ -1,5 +1,13 @@
 # Changelog
 
+## [9.5.0](https://github.com/heiervang-technologies/unleash/compare/v9.4.0...v9.5.0) (2026-03-27)
+
+
+### Features
+
+* --dry-run, flag validation, command rename, conflict detail, TUI refresh ([#229](https://github.com/heiervang-technologies/unleash/issues/229)) ([eb0bb49](https://github.com/heiervang-technologies/unleash/commit/eb0bb491f29498fd64957e55ecc12d6593732904))
+* --dry-run, flag validation, command rename, conflict detail, TUI refresh, auth fix ([eb0bb49](https://github.com/heiervang-technologies/unleash/commit/eb0bb491f29498fd64957e55ecc12d6593732904))
+
 ## [9.4.0](https://github.com/heiervang-technologies/unleash/compare/v9.3.0...v9.4.0) (2026-03-27)
 
 
