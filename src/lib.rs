@@ -569,12 +569,18 @@ pub fn run() -> io::Result<()> {
         }
         Some(Commands::Update {
             agents,
+            clis,
+            all,
             check,
-            update_self,
         }) => {
-            let agent_types = if agents.is_empty() {
+            // Determine what to update:
+            // - no args, no flags: update unleash itself
+            // - -c/--clis: update all agent CLIs
+            // - -a/--all: update unleash + all agent CLIs
+            // - positional args: update specific agents
+            let agent_types = if all || clis {
                 AgentType::all().to_vec()
-            } else {
+            } else if !agents.is_empty() {
                 agents.iter().map(|name| {
                     AgentType::from_str(name).ok_or_else(|| {
                         io::Error::new(
@@ -583,12 +589,17 @@ pub fn run() -> io::Result<()> {
                         )
                     })
                 }).collect::<io::Result<Vec<_>>>()?
+            } else {
+                // No args: self-update only
+                vec![]
             };
+
+            let include_self = all || (!clis && agents.is_empty());
 
             updater::run(updater::UpdateConfig {
                 agents: agent_types,
                 check_only: check,
-                include_self: update_self,
+                include_self,
                 json: cli.json,
             })
         }

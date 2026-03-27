@@ -57,11 +57,17 @@ struct UpdateOutcome {
 /// 2. Unless `check_only`, update agents that have updates (parallel).
 /// 3. Print a summary.
 pub fn run(config: UpdateConfig) -> io::Result<()> {
-    let agents = if config.agents.is_empty() {
-        AgentType::all().to_vec()
-    } else {
-        config.agents.clone()
-    };
+    // Handle unleash self-update
+    if config.include_self {
+        check_or_update_self(config.check_only)?;
+    }
+
+    // If no agents specified, we're done (self-update only)
+    if config.agents.is_empty() {
+        return Ok(());
+    }
+
+    let agents = config.agents.clone();
 
     // ------------------------------------------------------------------
     // Phase 1 – parallel version checks
@@ -303,6 +309,42 @@ fn print_summary(check_results: &[CheckResult], outcomes: &[UpdateOutcome]) {
 // Per-agent check logic (runs in worker thread)
 // ---------------------------------------------------------------------------
 
+/// Check or update unleash itself.
+fn check_or_update_self(check_only: bool) -> io::Result<()> {
+    let current = env!("CARGO_PKG_VERSION");
+
+    // Check latest release from GitHub
+    eprintln!("Checking unleash...");
+    let latest = get_latest_github_version("heiervang-technologies/unleash")?;
+
+    match latest {
+        Some(ref ver) if ver != current => {
+            if check_only {
+                println!("  Unleash          {} -> {} (update available)", current, ver);
+            } else {
+                println!("  Unleash          updating {} -> {}...", current, ver);
+                // Self-update: re-run install script
+                let output = Command::new("bash")
+                    .args(["-c", "gh repo clone heiervang-technologies/unleash /tmp/unleash-update 2>/dev/null && bash /tmp/unleash-update/scripts/install.sh && rm -rf /tmp/unleash-update"])
+                    .output()?;
+                if output.status.success() {
+                    println!("  Unleash          {} -> {} (updated)", current, ver);
+                } else {
+                    eprintln!("  Unleash          update failed: {}", String::from_utf8_lossy(&output.stderr));
+                }
+            }
+        }
+        Some(_) => {
+            println!("  Unleash          {} (up to date)", current);
+        }
+        None => {
+            println!("  Unleash          {} (could not check latest)", current);
+        }
+    }
+
+    Ok(())
+}
+
 /// Check a single agent's installed vs latest version.
 fn check_agent(agent_type: AgentType) -> io::Result<CheckResult> {
     let installed = get_installed_version(agent_type);
@@ -382,7 +424,14 @@ fn get_latest_github_version(repo: &str) -> io::Result<Option<String>> {
     Ok(json
         .get("tag_name")
         .and_then(|t| t.as_str())
-        .map(|s| s.trim_start_matches('v').to_string()))
+        .map(|s| sanitize_version(s)))
+}
+
+/// Strip version prefixes like "v", "rust-v" to get a clean semver string.
+fn sanitize_version(s: &str) -> String {
+    s.trim_start_matches("rust-v")
+        .trim_start_matches('v')
+        .to_string()
 }
 
 // ---------------------------------------------------------------------------
@@ -485,28 +534,43 @@ fn update_gemini(tx: &mpsc::Sender<(usize, LineState)>, index: usize) -> io::Res
 }
 
 /// Update OpenCode via its built-in upgrade command.
+/// Gets the target version from npm first, then passes it explicitly to `opencode upgrade`.
 fn update_opencode(tx: &mpsc::Sender<(usize, LineState)>, index: usize) -> io::Result<String> {
+    // Get the target version from npm (source of truth)
+    let target = get_latest_npm_version("opencode-ai")?
+        .unwrap_or_else(|| "latest".to_string());
+
     let _ = tx.send((
         index,
         LineState::Building {
             version: String::new(),
-            phase: "upgrading...".into(),
+            phase: format!("upgrading to {}...", target),
         },
     ));
 
     let output = Command::new("opencode")
-        .args(["upgrade", "latest"])
+        .args(["upgrade", &target])
         .output()?;
 
     if output.status.success() {
         let version =
-            get_installed_version(AgentType::OpenCode).unwrap_or_else(|| "latest".into());
+            get_installed_version(AgentType::OpenCode).unwrap_or_else(|| target.clone());
         Ok(version)
     } else {
-        Err(io::Error::other(format!(
-            "opencode upgrade failed: {}",
-            String::from_utf8_lossy(&output.stderr)
-        )))
+        // Fallback: try npm install if opencode upgrade fails
+        eprintln!("opencode upgrade failed, trying npm install...");
+        let npm_output = Command::new("npm")
+            .args(["install", "-g", &format!("opencode-ai@{}", target)])
+            .output()?;
+
+        if npm_output.status.success() {
+            Ok(target)
+        } else {
+            Err(io::Error::other(format!(
+                "opencode upgrade failed: {}",
+                String::from_utf8_lossy(&output.stderr)
+            )))
+        }
     }
 }
 
@@ -546,14 +610,14 @@ fn print_check_json(results: &[CheckResult]) {
 fn parse_version(output: &str) -> Option<String> {
     let line = output.lines().next()?;
     for part in line.split_whitespace() {
-        let cleaned = part.trim_start_matches('v').trim_end_matches(')');
+        let cleaned = sanitize_version(part).trim_end_matches(')').to_string();
         if cleaned
             .chars()
             .next()
             .map(|c| c.is_ascii_digit())
             .unwrap_or(false)
         {
-            return Some(cleaned.to_string());
+            return Some(cleaned);
         }
     }
     None

@@ -420,8 +420,29 @@ impl ProfileManager {
             .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e.to_string()))
     }
 
+    /// Names reserved for unleash subcommands — cannot be used as profile names
+    const RESERVED_NAMES: &[&str] = &[
+        "version", "auth", "auth-check", "hooks", "agents", "update", "help",
+        "config", "plugins",
+    ];
+
+    /// Check if a profile name conflicts with a reserved subcommand
+    pub fn is_reserved_name(name: &str) -> bool {
+        Self::RESERVED_NAMES.contains(&name)
+    }
+
     /// Save a profile
     pub fn save_profile(&self, profile: &Profile) -> io::Result<()> {
+        if Self::is_reserved_name(&profile.name) {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                format!(
+                    "Cannot use '{}' as a profile name — it conflicts with a built-in command.\nReserved names: {}",
+                    profile.name,
+                    Self::RESERVED_NAMES.join(", ")
+                ),
+            ));
+        }
         let path = self.profile_path(&profile.name);
         let content = toml::to_string_pretty(profile)
             .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e.to_string()))?;
