@@ -44,13 +44,13 @@ test_plugin_json_valid() {
     echo ""
     echo "=== Testing plugin.json validity ==="
 
-    find "$PLUGINS_DIR" -name "plugin.json" 2>/dev/null | while read -r json_file; do
+    while read -r json_file; do
         if python3 -c "import json; json.load(open('$json_file'))" 2>/dev/null; then
             pass "Valid JSON: $json_file"
         else
             fail "Invalid JSON: $json_file"
         fi
-    done
+    done < <(find "$PLUGINS_DIR" -name "plugin.json" 2>/dev/null)
 }
 
 # Test 2: Validate all hook scripts have valid bash syntax
@@ -58,21 +58,21 @@ test_hook_scripts_syntax() {
     echo ""
     echo "=== Testing hook script syntax ==="
 
-    find "$PLUGINS_DIR" -type f -name "*.sh" -path "*/hooks/*" 2>/dev/null | while read -r hook_file; do
+    while read -r hook_file; do
         if bash -n "$hook_file" 2>/dev/null; then
             pass "Valid bash: $hook_file"
         else
             fail "Invalid bash syntax: $hook_file"
         fi
-    done
+    done < <(find "$PLUGINS_DIR" -type f -name "*.sh" -path "*/hooks/*" 2>/dev/null)
 
-    find "$PLUGINS_DIR" -type f -name "*.sh" -path "*/hooks-handlers/*" 2>/dev/null | while read -r hook_file; do
+    while read -r hook_file; do
         if bash -n "$hook_file" 2>/dev/null; then
             pass "Valid bash: $hook_file"
         else
             fail "Invalid bash syntax: $hook_file"
         fi
-    done
+    done < <(find "$PLUGINS_DIR" -type f -name "*.sh" -path "*/hooks-handlers/*" 2>/dev/null)
 }
 
 # Test 3: Test auto-mode stop hook produces valid JSON when active
@@ -88,7 +88,7 @@ test_auto_mode_hook_output() {
     fi
 
     # Test 1: Without wrapper PID, should exit cleanly (allow stop)
-    output=$(CLAUDE_WRAPPER_PID="" bash "$HOOK_FILE" 2>&1) || true
+    output=$(AGENT_WRAPPER_PID="" bash "$HOOK_FILE" 2>&1) || true
     if [[ -z "$output" ]]; then
         pass "Hook allows stop when no wrapper PID"
     else
@@ -96,7 +96,7 @@ test_auto_mode_hook_output() {
     fi
 
     # Test 2: With wrapper PID but no flag file, should exit cleanly
-    output=$(CLAUDE_WRAPPER_PID="99999" bash "$HOOK_FILE" 2>&1) || true
+    output=$(AGENT_WRAPPER_PID="99999" bash "$HOOK_FILE" 2>&1) || true
     if [[ -z "$output" ]]; then
         pass "Hook allows stop when no flag file"
     else
@@ -109,7 +109,7 @@ test_auto_mode_hook_output() {
     TEST_PID="$$"
     touch "$FLAG_DIR/active-$TEST_PID"
 
-    output=$(CLAUDE_WRAPPER_PID="$TEST_PID" bash "$HOOK_FILE" 2>&1)
+    output=$(AGENT_WRAPPER_PID="$TEST_PID" bash "$HOOK_FILE" 2>&1)
     rm -f "$FLAG_DIR/active-$TEST_PID"
 
     if echo "$output" | python3 -c "import json,sys; d=json.load(sys.stdin); exit(0 if d.get('decision')=='block' else 1)" 2>/dev/null; then
@@ -124,13 +124,13 @@ test_commands_exist() {
     echo ""
     echo "=== Testing command files ==="
 
-    find "$PLUGINS_DIR" -path "*/commands/*.md" 2>/dev/null | while read -r cmd_file; do
+    while read -r cmd_file; do
         if [[ -s "$cmd_file" ]]; then
             pass "Command exists: $cmd_file"
         else
             fail "Empty command file: $cmd_file"
         fi
-    done
+    done < <(find "$PLUGINS_DIR" -path "*/commands/*.md" 2>/dev/null)
 }
 
 # Test 5: Verify plugin structure
@@ -139,7 +139,7 @@ test_plugin_structure() {
     echo "=== Testing plugin structure ==="
 
     # Each plugin with plugin.json should have required fields
-    find "$PLUGINS_DIR" -name "plugin.json" 2>/dev/null | while read -r json_file; do
+    while read -r json_file; do
         plugin_name=$(python3 -c "import json; print(json.load(open('$json_file')).get('name', ''))" 2>/dev/null)
 
         if [[ -n "$plugin_name" ]]; then
@@ -154,7 +154,7 @@ test_plugin_structure() {
         else
             warn "Plugin missing version: $plugin_name"
         fi
-    done
+    done < <(find "$PLUGINS_DIR" -name "plugin.json" 2>/dev/null)
 }
 
 # Run all tests

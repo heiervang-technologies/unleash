@@ -6,9 +6,9 @@ set -uo pipefail
 AUTO_MODE_DIR="${HOME}/.cache/unleash/auto-mode"
 
 # Use wrapper-specific flag file for session isolation
-WRAPPER_PID="${CLAUDE_WRAPPER_PID:-}"
+WRAPPER_PID="${AGENT_WRAPPER_PID:-${CLAUDE_WRAPPER_PID:-}}"
 if [[ -z "${WRAPPER_PID}" ]]; then
-    echo "Error: CLAUDE_WRAPPER_PID not set. Run under unleash wrapper."
+    echo "Error: AGENT_WRAPPER_PID not set. Run under unleash wrapper."
     exit 1
 fi
 

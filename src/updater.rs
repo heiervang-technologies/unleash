@@ -11,6 +11,7 @@ use std::time::{Duration, Instant};
 
 use crate::agents::{AgentDefinition, AgentType};
 use crate::progress::{LineState, ProgressRenderer};
+use crate::version::version_less_than;
 
 // ---------------------------------------------------------------------------
 // Public types
@@ -199,25 +200,35 @@ fn phase_update(
         .collect();
     let mut renderer = ProgressRenderer::new(&names);
 
-    let mut handles = Vec::new();
+    let mut handles: Vec<(AgentType, thread::JoinHandle<UpdateOutcome>)> = Vec::new();
     for (idx, agent_type, from_version) in agents {
         let tx = tx.clone();
-        handles.push(thread::spawn(move || {
+        let handle = thread::spawn(move || {
             let start = Instant::now();
-            update_agent(agent_type, &tx, idx);
+            let result = update_agent(agent_type, &tx, idx);
             let duration = start.elapsed();
 
-            // Re-check installed version after update.
-            let to_version = get_installed_version(agent_type);
-
-            UpdateOutcome {
-                agent_type,
-                from_version,
-                to_version,
-                duration,
-                error: None,
+            match result {
+                Ok(_) => {
+                    let to_version = get_installed_version(agent_type);
+                    UpdateOutcome {
+                        agent_type,
+                        from_version,
+                        to_version,
+                        duration,
+                        error: None,
+                    }
+                }
+                Err(e) => UpdateOutcome {
+                    agent_type,
+                    from_version,
+                    to_version: None,
+                    duration,
+                    error: Some(e.to_string()),
+                },
             }
-        }));
+        });
+        handles.push((agent_type, handle));
     }
 
     drop(tx);
@@ -228,12 +239,12 @@ fn phase_update(
     }
 
     let mut outcomes = Vec::new();
-    for handle in handles {
+    for (agent_type, handle) in handles {
         match handle.join() {
             Ok(outcome) => outcomes.push(outcome),
             Err(_) => {
                 outcomes.push(UpdateOutcome {
-                    agent_type: AgentType::Claude, // placeholder; thread panicked
+                    agent_type,
                     from_version: None,
                     to_version: None,
                     duration: Duration::ZERO,
@@ -464,7 +475,12 @@ fn sanitize_version(s: &str) -> String {
 // ---------------------------------------------------------------------------
 
 /// Run the actual update for an agent, sending progress events via the channel.
-fn update_agent(agent_type: AgentType, tx: &mpsc::Sender<(usize, LineState)>, index: usize) {
+/// Returns Ok(version) on success or Err on failure.
+fn update_agent(
+    agent_type: AgentType,
+    tx: &mpsc::Sender<(usize, LineState)>,
+    index: usize,
+) -> io::Result<String> {
     let result = match agent_type {
         AgentType::Claude => update_claude(tx, index),
         AgentType::Codex => update_codex(tx, index),
@@ -472,13 +488,13 @@ fn update_agent(agent_type: AgentType, tx: &mpsc::Sender<(usize, LineState)>, in
         AgentType::OpenCode => update_opencode(tx, index),
     };
 
-    match result {
+    match &result {
         Ok(version) => {
             let _ = tx.send((
                 index,
                 LineState::Complete {
                     from: String::new(), // filled by caller from CheckResult
-                    to: version,
+                    to: version.clone(),
                     duration: Duration::ZERO, // filled by caller
                 },
             ));
@@ -487,6 +503,8 @@ fn update_agent(agent_type: AgentType, tx: &mpsc::Sender<(usize, LineState)>, in
             let _ = tx.send((index, LineState::Error(e.to_string())));
         }
     }
+
+    result
 }
 
 /// Update Claude Code via npm.
@@ -648,20 +666,4 @@ fn parse_version(output: &str) -> Option<String> {
     None
 }
 
-/// Return true if version `a` is strictly less than `b` (semver-ish).
-fn version_less_than(a: &str, b: &str) -> bool {
-    let parse = |s: &str| -> Vec<u32> { s.split('.').filter_map(|p| p.parse().ok()).collect() };
-    let va = parse(a);
-    let vb = parse(b);
-    for i in 0..va.len().max(vb.len()) {
-        let pa = va.get(i).copied().unwrap_or(0);
-        let pb = vb.get(i).copied().unwrap_or(0);
-        if pa < pb {
-            return true;
-        }
-        if pa > pb {
-            return false;
-        }
-    }
-    false
-}
+// version_less_than and version_compare are imported from crate::version

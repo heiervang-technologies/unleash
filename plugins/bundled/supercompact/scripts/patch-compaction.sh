@@ -9,7 +9,7 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 # Supercompact installation directory
-SUPERCOMPACT_DIR="${SUPERCOMPACT_DIR:-/home/me/ht/supercompact}"
+SUPERCOMPACT_DIR="${SUPERCOMPACT_DIR:-$HOME/ht/supercompact}"
 
 if [[ ! -f "$SUPERCOMPACT_DIR/compact.py" ]]; then
     echo "Error: supercompact not found at $SUPERCOMPACT_DIR/compact.py"

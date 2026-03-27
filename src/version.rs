@@ -18,10 +18,14 @@ const CLAUDE_GCS_BUCKET: &str = "https://storage.googleapis.com/claude-code-dist
 /// Embedded version lists, compiled into the binary for instant display.
 /// Updated periodically and committed to the repo.
 pub fn get_versions_file_path() -> PathBuf {
-    // 1. Check if we are in the repo (or have the data file in CWD)
-    let local_path = PathBuf::from("data/versions.json");
-    if local_path.exists() {
-        return local_path;
+    // 1. Check relative to the executable's directory (works regardless of CWD)
+    if let Some(exe_local) = std::env::current_exe()
+        .ok()
+        .and_then(|p| p.parent().map(|d| d.join("data/versions.json")))
+    {
+        if exe_local.exists() {
+            return exe_local;
+        }
     }
 
     // 2. Fallback to user's config directory
@@ -371,24 +375,12 @@ impl VersionManager {
 
     /// Extract SHA256 checksum from manifest JSON for a given platform
     fn extract_checksum_from_manifest(manifest: &str, platform: &str) -> Option<String> {
-        // Simple parsing without serde_json
-        let platform_key = format!("\"{}\"", platform);
-        if let Some(platform_pos) = manifest.find(&platform_key) {
-            let rest = &manifest[platform_pos..];
-            if let Some(checksum_pos) = rest.find("\"checksum\"") {
-                let after_key = &rest[checksum_pos + 10..];
-                if let Some(start) = after_key.find('"') {
-                    let value_start = start + 1;
-                    if let Some(end) = after_key[value_start..].find('"') {
-                        let checksum = &after_key[value_start..value_start + end];
-                        if checksum.len() == 64 && checksum.chars().all(|c| c.is_ascii_hexdigit()) {
-                            return Some(checksum.to_string());
-                        }
-                    }
-                }
-            }
-        }
-        None
+        let json: serde_json::Value = serde_json::from_str(manifest).ok()?;
+        json.get(platform)?
+            .get("checksum")?
+            .as_str()
+            .filter(|s| s.len() == 64 && s.chars().all(|c| c.is_ascii_hexdigit()))
+            .map(|s| s.to_string())
     }
 
     /// Get available Claude Code versions from GCS + npm registry
@@ -411,14 +403,8 @@ impl VersionManager {
             {
                 if output.status.success() {
                     let json_str = String::from_utf8_lossy(&output.stdout);
-                    let npm_versions: Vec<String> = json_str
-                        .trim()
-                        .trim_start_matches('[')
-                        .trim_end_matches(']')
-                        .split(',')
-                        .map(|s| s.trim().trim_matches('"').to_string())
-                        .filter(|s| !s.is_empty())
-                        .collect();
+                    let npm_versions: Vec<String> =
+                        serde_json::from_str(json_str.trim()).unwrap_or_default();
 
                     for v in npm_versions.into_iter().rev().take(20) {
                         if seen.insert(v.clone()) {
@@ -786,14 +772,8 @@ impl VersionManager {
 
         if output.status.success() {
             let json_str = String::from_utf8_lossy(&output.stdout);
-            let mut versions: Vec<String> = json_str
-                .trim()
-                .trim_start_matches('[')
-                .trim_end_matches(']')
-                .split(',')
-                .map(|s| s.trim().trim_matches('"').to_string())
-                .filter(|s| !s.is_empty())
-                .collect();
+            let mut versions: Vec<String> =
+                serde_json::from_str(json_str.trim()).unwrap_or_default();
 
             versions.sort_by(|a, b| version_compare(b, a));
             versions.truncate(20);
@@ -884,14 +864,9 @@ impl VersionManager {
         }
 
         let json_str = String::from_utf8_lossy(&output.stdout);
-        let mut versions: Vec<String> = json_str
-            .trim()
-            .trim_start_matches('[')
-            .trim_end_matches(']')
-            .split(',')
-            .map(|s| s.trim().trim_matches('"').to_string())
-            .filter(|s| !s.is_empty() && s.starts_with(|c: char| c.is_ascii_digit()))
-            .collect();
+        let mut versions: Vec<String> = serde_json::from_str(json_str.trim())
+            .unwrap_or_default();
+        versions.retain(|s| s.starts_with(|c: char| c.is_ascii_digit()));
 
         if versions.is_empty() {
             return Err(io::Error::other(
@@ -1448,25 +1423,50 @@ impl Default for VersionManager {
     }
 }
 
-/// Compare version strings (semver-like)
+/// Canonically compare two version strings (semver-like).
+///
+/// - Strips known prefixes ("v", "rust-v") from both inputs.
+/// - Pre-release versions (with `-` suffix) are less than the same base version.
+/// - Splits on `.` and compares each segment as `u32`.
+/// - Zero-pads shorter versions so "1.2" == "1.2.0".
 pub(crate) fn version_compare(a: &str, b: &str) -> std::cmp::Ordering {
-    let parse = |s: &str| -> Vec<u32> {
-        s.split('.')
+    fn strip_prefix(s: &str) -> &str {
+        s.trim_start_matches("rust-v").trim_start_matches('v')
+    }
+
+    fn parse_parts(s: &str) -> (Vec<u32>, bool) {
+        let has_pre = s.contains('-');
+        let base = s.split('-').next().unwrap_or(s);
+        let parts = base
+            .split('.')
             .map(|p| p.parse::<u32>().unwrap_or(0))
-            .collect()
-    };
+            .collect();
+        (parts, has_pre)
+    }
 
-    let a_parts = parse(a);
-    let b_parts = parse(b);
+    let (a_parts, a_pre) = parse_parts(strip_prefix(a));
+    let (b_parts, b_pre) = parse_parts(strip_prefix(b));
 
-    for (a_part, b_part) in a_parts.iter().zip(b_parts.iter()) {
-        match a_part.cmp(b_part) {
+    for i in 0..a_parts.len().max(b_parts.len()) {
+        let pa = a_parts.get(i).copied().unwrap_or(0);
+        let pb = b_parts.get(i).copied().unwrap_or(0);
+        match pa.cmp(&pb) {
             std::cmp::Ordering::Equal => continue,
             other => return other,
         }
     }
 
-    a_parts.len().cmp(&b_parts.len())
+    // Same base version: pre-release < release (per semver)
+    match (a_pre, b_pre) {
+        (true, false) => std::cmp::Ordering::Less,
+        (false, true) => std::cmp::Ordering::Greater,
+        _ => std::cmp::Ordering::Equal,
+    }
+}
+
+/// Convenience wrapper: returns `true` if version `a` is strictly less than `b`.
+pub(crate) fn version_less_than(a: &str, b: &str) -> bool {
+    version_compare(a, b) == std::cmp::Ordering::Less
 }
 
 // CLI commands for version management
@@ -1585,16 +1585,55 @@ mod tests {
 
     #[test]
     fn test_version_compare() {
-        assert_eq!(
-            version_compare("2.1.5", "2.1.4"),
-            std::cmp::Ordering::Greater
-        );
-        assert_eq!(version_compare("2.1.5", "2.1.5"), std::cmp::Ordering::Equal);
-        assert_eq!(version_compare("2.0.0", "2.1.0"), std::cmp::Ordering::Less);
-        assert_eq!(
-            version_compare("2.10.0", "2.9.0"),
-            std::cmp::Ordering::Greater
-        );
+        use std::cmp::Ordering;
+
+        // Basic comparisons
+        assert_eq!(version_compare("2.1.5", "2.1.4"), Ordering::Greater);
+        assert_eq!(version_compare("2.1.5", "2.1.5"), Ordering::Equal);
+        assert_eq!(version_compare("2.0.0", "2.1.0"), Ordering::Less);
+        assert_eq!(version_compare("2.10.0", "2.9.0"), Ordering::Greater);
+
+        // Equal versions
+        assert_eq!(version_compare("1.2.3", "1.2.3"), Ordering::Equal);
+
+        // Zero-padding (the old bug: "1.2" vs "1.2.0")
+        assert_eq!(version_compare("1.2", "1.2.0"), Ordering::Equal);
+        assert_eq!(version_compare("1.2", "1.2.1"), Ordering::Less);
+        assert_eq!(version_compare("1.2.1", "1.2"), Ordering::Greater);
+
+        // Less / Greater
+        assert_eq!(version_compare("1.2.3", "1.2.4"), Ordering::Less);
+        assert_eq!(version_compare("2.0.0", "1.9.9"), Ordering::Greater);
+
+        // Prefix stripping
+        assert_eq!(version_compare("v1.2.3", "1.2.3"), Ordering::Equal);
+        assert_eq!(version_compare("rust-v0.116.0", "0.116.0"), Ordering::Equal);
+
+        // Pre-release is less than release (per semver)
+        assert_eq!(version_compare("1.2.3-beta", "1.2.3"), Ordering::Less);
+        assert_eq!(version_compare("1.2.3-beta.1", "1.2.3"), Ordering::Less);
+        assert_eq!(version_compare("1.2.3", "1.2.3-beta"), Ordering::Greater);
+        // Two pre-releases with same base are equal (no sub-ordering)
+        assert_eq!(version_compare("1.2.3-alpha", "1.2.3-beta"), Ordering::Equal);
+
+        // Single component
+        assert_eq!(version_compare("2", "1"), Ordering::Greater);
+        assert_eq!(version_compare("1", "2"), Ordering::Less);
+
+        // Large numbers
+        assert_eq!(version_compare("0.116.0", "0.115.9"), Ordering::Greater);
+        assert_eq!(version_compare("9.4.0", "9.3.0"), Ordering::Greater);
+    }
+
+    #[test]
+    fn test_version_less_than() {
+        assert!(version_less_than("1.2.3", "1.2.4"));
+        assert!(!version_less_than("1.2.4", "1.2.3"));
+        assert!(!version_less_than("1.2.3", "1.2.3"));
+        assert!(version_less_than("v1.0.0", "2.0.0"));
+        // Pre-release is less than stable
+        assert!(version_less_than("1.2.3-beta", "1.2.3"));
+        assert!(!version_less_than("1.2.3", "1.2.3-beta"));
     }
 
     #[test]

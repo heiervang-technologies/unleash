@@ -254,7 +254,7 @@ impl AgentDefinition {
                 model_flag: "-m".to_string(),
             },
             github_repo: Some("google-gemini/gemini-cli".to_string()),
-            npm_package: Some("@anthropic-ai/gemini-cli".to_string()),
+            npm_package: Some("@google/gemini-cli".to_string()),
             enabled: true,
         }
     }
@@ -508,29 +508,9 @@ impl AgentManager {
         let latest = self.get_latest_version(agent_type)?;
 
         match (installed, latest) {
-            (Some(i), Some(l)) => Ok(Self::version_compare(&i, &l) < 0),
+            (Some(i), Some(l)) => Ok(crate::version::version_less_than(&i, &l)),
             _ => Ok(false),
         }
-    }
-
-    /// Compare version strings (returns -1, 0, or 1)
-    fn version_compare(a: &str, b: &str) -> i32 {
-        let parse = |s: &str| -> Vec<u32> { s.split('.').filter_map(|p| p.parse().ok()).collect() };
-
-        let va = parse(a);
-        let vb = parse(b);
-
-        for i in 0..va.len().max(vb.len()) {
-            let pa = va.get(i).copied().unwrap_or(0);
-            let pb = vb.get(i).copied().unwrap_or(0);
-            if pa < pb {
-                return -1;
-            }
-            if pa > pb {
-                return 1;
-            }
-        }
-        0
     }
 
     /// Update an agent to latest version
@@ -751,6 +731,12 @@ impl AgentManager {
                     String::from_utf8_lossy(&output.stderr)
                 )));
             }
+
+            // Fetch tags so `git describe --tags` works on shallow clones
+            let _ = Command::new("git")
+                .args(["fetch", "--tags", "--depth=1"])
+                .current_dir(&cache_dir)
+                .output();
         }
 
         let codex_rs_dir = cache_dir.join("codex-rs");
@@ -857,12 +843,71 @@ impl AgentManager {
                 .get(&agent_type)
                 .and_then(|v| v.latest.clone());
             let update_available = match (&installed, &latest) {
-                (Some(i), Some(l)) => Self::version_compare(i, l) < 0,
+                (Some(i), Some(l)) => crate::version::version_less_than(i, l),
                 _ => false,
             };
             results.push((agent_type, installed, latest, update_available));
         }
 
         results
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn gemini_npm_package_is_google() {
+        let gemini = AgentDefinition::gemini();
+        assert_eq!(
+            gemini.npm_package.as_deref(),
+            Some("@google/gemini-cli"),
+            "Gemini npm_package must reference @google, not @anthropic-ai"
+        );
+    }
+
+    #[test]
+    fn no_non_anthropic_agent_uses_anthropic_npm_scope() {
+        for agent_type in AgentType::all() {
+            let def = AgentDefinition::from_type(*agent_type);
+            if *agent_type != AgentType::Claude {
+                if let Some(ref pkg) = def.npm_package {
+                    assert!(
+                        !pkg.starts_with("@anthropic-ai/"),
+                        "Non-Anthropic agent {:?} incorrectly uses @anthropic-ai scope: {}",
+                        agent_type,
+                        pkg
+                    );
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn claude_npm_package_is_anthropic() {
+        let claude = AgentDefinition::claude();
+        assert_eq!(
+            claude.npm_package.as_deref(),
+            Some("@anthropic-ai/claude-code")
+        );
+    }
+
+    // Version comparison tests moved to src/version.rs (canonical implementation)
+
+    #[test]
+    fn parse_version_various_formats() {
+        assert_eq!(
+            AgentManager::parse_version("claude 2.1.22"),
+            Some("2.1.22".to_string())
+        );
+        assert_eq!(
+            AgentManager::parse_version("codex 0.1.0"),
+            Some("0.1.0".to_string())
+        );
+        assert_eq!(
+            AgentManager::parse_version("v1.2.3"),
+            Some("1.2.3".to_string())
+        );
     }
 }
