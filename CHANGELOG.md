@@ -1,5 +1,13 @@
 # Changelog
 
+## [9.4.0](https://github.com/heiervang-technologies/unleash/compare/v9.3.0...v9.4.0) (2026-03-27)
+
+
+### Features
+
+* redesign update command + block reserved profile names ([#224](https://github.com/heiervang-technologies/unleash/issues/224)) ([add0555](https://github.com/heiervang-technologies/unleash/commit/add0555ad9e3207fad62d155838b77bfcc650618))
+* redesign update command + reserved profile names + fixes ([add0555](https://github.com/heiervang-technologies/unleash/commit/add0555ad9e3207fad62d155838b77bfcc650618))
+
 ## [9.3.0](https://github.com/heiervang-technologies/unleash/compare/v9.2.4...v9.3.0) (2026-03-27)
 
 
