@@ -6,7 +6,7 @@ use crate::input::{key_to_action, MenuState, NavAction};
 use crate::pixel_art::mascots;
 use crate::text_input::{censor_sensitive, is_sensitive_key, TextInput};
 use crate::theme::{ThemeColor, ThemePreset};
-use crate::version::{InstallResult, VersionInfo, VersionManager};
+use crate::version::{ConflictEntry, InstallResult, VersionInfo, VersionManager};
 
 use crossterm::event::{
     Event, KeyCode, KeyEvent, KeyModifiers, MouseButton, MouseEvent, MouseEventKind,
@@ -251,12 +251,12 @@ pub struct App {
     /// Receiver for async installed-version fetch at startup (None once done)
     version_fetch_receiver: Option<Receiver<(AgentType, Option<String>)>>,
     /// Receiver for async version-list fetch (None when not fetching)
-    version_list_receiver: Option<Receiver<(AgentType, Vec<VersionInfo>, bool)>>,
+    version_list_receiver: Option<Receiver<(AgentType, Vec<VersionInfo>, Vec<ConflictEntry>)>>,
     /// Async installation state
     pub install_state: Option<InstallState>,
 
     // Conflict detection
-    pub has_conflicts: bool,
+    pub conflict_entries: Vec<ConflictEntry>,
     pub conflict_warning_open: bool,
     /// Suppress conflict dialog after cleanup attempt (prevents infinite loop)
     pub conflict_dismissed: bool,
@@ -406,7 +406,7 @@ impl App {
             version_fetch_receiver: Some(version_rx),
             version_list_receiver: None,
             install_state: None,
-            has_conflicts: false,
+            conflict_entries: Vec::new(),
             conflict_warning_open: false,
             conflict_dismissed: false,
             animation_frame: 0,
@@ -565,7 +565,7 @@ impl App {
         // Poll async version list fetch
         if let Some(ref receiver) = self.version_list_receiver {
             match receiver.try_recv() {
-                Ok((agent_type, versions, has_conflicts)) => {
+                Ok((agent_type, versions, conflict_entries)) => {
                     self.cached_version_lists
                         .insert(agent_type, versions.clone());
                     crate::version::save_embedded_versions(&self.cached_version_lists);
@@ -580,8 +580,8 @@ impl App {
                         if prev_selected < self.versions.len() {
                             self.version_menu.selected = prev_selected;
                         }
-                        self.has_conflicts = has_conflicts;
-                        if self.has_conflicts && !self.conflict_dismissed {
+                        self.conflict_entries = conflict_entries;
+                        if self.conflict_entries.len() > 1 && !self.conflict_dismissed {
                             self.conflict_warning_open = true;
                         }
                         self.status_message =
@@ -662,8 +662,25 @@ impl App {
 
                 self.install_state = None;
                 self.installing_version_index = None;
-                self.refresh_versions();
+
+                // Refresh cached installed version BEFORE refreshing the version
+                // list so the async fetch thread picks up the correct installed
+                // version (important for non-Claude agents where the installed
+                // version is passed as a parameter to the list builder).
                 self.refresh_cached_version_for(agent_type);
+
+                // Update is_installed flags in the cached version list so
+                // the interim cache shown while the async fetch is in-flight
+                // already reflects the newly installed version.
+                if install_ok {
+                    if let Some(list) = self.cached_version_lists.get_mut(&agent_type) {
+                        for vi in list.iter_mut() {
+                            vi.is_installed = vi.version == version;
+                        }
+                    }
+                }
+
+                self.refresh_versions();
             }
         }
     }
@@ -827,7 +844,7 @@ impl App {
                 thread::spawn(move || {
                     let vm = VersionManager::new();
                     let versions = vm.get_version_list();
-                    let conflicts = vm.has_conflicts("claude");
+                    let conflicts = vm.detect_conflicts("claude");
                     let _ = tx.send((AgentType::Claude, versions, conflicts));
                 });
             }
@@ -835,7 +852,7 @@ impl App {
                 thread::spawn(move || {
                     let vm = VersionManager::new();
                     let versions = vm.get_codex_version_list(installed.as_deref());
-                    let conflicts = vm.has_conflicts("codex");
+                    let conflicts = vm.detect_conflicts("codex");
                     let _ = tx.send((AgentType::Codex, versions, conflicts));
                 });
             }
@@ -843,7 +860,7 @@ impl App {
                 thread::spawn(move || {
                     let vm = VersionManager::new();
                     let versions = vm.get_gemini_version_list(installed.as_deref());
-                    let conflicts = vm.has_conflicts("gemini");
+                    let conflicts = vm.detect_conflicts("gemini");
                     let _ = tx.send((AgentType::Gemini, versions, conflicts));
                 });
             }
@@ -851,7 +868,7 @@ impl App {
                 thread::spawn(move || {
                     let vm = VersionManager::new();
                     let versions = vm.get_opencode_version_list(installed.as_deref());
-                    let conflicts = vm.has_conflicts("opencode");
+                    let conflicts = vm.detect_conflicts("opencode");
                     let _ = tx.send((AgentType::OpenCode, versions, conflicts));
                 });
             }
@@ -1439,7 +1456,7 @@ impl App {
                 let _ = self.version_manager.cleanup_conflicts(agent_str);
                 self.conflict_warning_open = false;
                 self.conflict_dismissed = true;
-                self.has_conflicts = false;
+                self.conflict_entries.clear();
                 self.refresh_versions();
             } else if rejected {
                 // Esc / N: close dialog
@@ -3005,8 +3022,33 @@ impl App {
     }
 
     fn render_conflict_dialog(&mut self, frame: &mut Frame, area: Rect) {
-        let dialog_width = 60.min(area.width.saturating_sub(4));
-        let dialog_height = 11;
+        // Build the conflict entry lines dynamically
+        let mut entry_lines: Vec<Line<'static>> = Vec::new();
+        for entry in &self.conflict_entries {
+            let path_str = entry.path.display().to_string();
+            let ver = if entry.version.is_empty() {
+                "unknown".to_string()
+            } else {
+                entry.version.clone()
+            };
+            let active_marker = if entry.active { " (active)" } else { "" };
+            entry_lines.push(Line::from(vec![
+                Span::raw("  "),
+                Span::styled(
+                    entry.source.clone(),
+                    Style::default()
+                        .fg(Color::Cyan)
+                        .add_modifier(Modifier::BOLD),
+                ),
+                Span::raw(format!(" v{} {}{}", ver, path_str, active_marker)),
+            ]));
+        }
+
+        // Total height: 1 blank + 1 title + 1 subtitle + 1 blank
+        //             + N entries + 1 blank + 1 prompt + 1 blank + 1 buttons + 2 border = 9 + N
+        let entry_count = entry_lines.len() as u16;
+        let dialog_width = 72.min(area.width.saturating_sub(4));
+        let dialog_height = (9 + entry_count).min(area.height.saturating_sub(2));
         let dialog_x = (area.width.saturating_sub(dialog_width)) / 2;
         let dialog_y = (area.height.saturating_sub(dialog_height)) / 2;
 
@@ -3014,34 +3056,40 @@ impl App {
 
         frame.render_widget(Clear, dialog_area);
 
-        let lines = vec![
+        let mut lines: Vec<Line<'static>> = vec![
             Line::from(""),
             Line::from(Span::styled(
-                "  Warning: Multiple conflicting versions detected!",
+                "  Warning: Multiple conflicting installations detected!",
                 Style::default()
                     .add_modifier(Modifier::BOLD)
                     .fg(Color::Yellow),
             )),
             Line::from("  Different install methods may collide and cause issues."),
             Line::from(""),
-            Line::from("  Do you want to clean up the mess?"),
-            Line::from(""),
-            Line::from(""),
-            Line::from(vec![
-                Span::raw("  "),
-                Span::styled(
-                    "[Y] Yes (Clean up)",
-                    Style::default()
-                        .fg(Color::Green)
-                        .add_modifier(Modifier::BOLD),
-                ),
-                Span::raw("    "),
-                Span::styled(
-                    "[N] No (Ignore)",
-                    Style::default().fg(Color::Red).add_modifier(Modifier::BOLD),
-                ),
-            ]),
         ];
+
+        // Append each conflict entry
+        lines.append(&mut entry_lines);
+
+        lines.push(Line::from(""));
+        lines.push(Line::from(
+            "  Do you want to clean up the conflicting installs?",
+        ));
+        lines.push(Line::from(""));
+        lines.push(Line::from(vec![
+            Span::raw("  "),
+            Span::styled(
+                "[Y] Yes (Clean up)",
+                Style::default()
+                    .fg(Color::Green)
+                    .add_modifier(Modifier::BOLD),
+            ),
+            Span::raw("    "),
+            Span::styled(
+                "[N] No (Ignore)",
+                Style::default().fg(Color::Red).add_modifier(Modifier::BOLD),
+            ),
+        ]));
 
         let dialog = Paragraph::new(lines).block(
             Block::default()
@@ -3053,10 +3101,10 @@ impl App {
         frame.render_widget(dialog, dialog_area);
 
         // Register clickable areas for Yes/No buttons
-        // "Yes" button is at row 7, cols 3..21 relative to inside dialog
-        let yes_rect = Rect::new(dialog_x + 3, dialog_y + 8, 18, 1);
-        // "No" button is at row 7, cols 25..40
-        let no_rect = Rect::new(dialog_x + 25, dialog_y + 8, 15, 1);
+        // Buttons are on the last content line before the bottom border
+        let button_row = dialog_y + dialog_height - 2;
+        let yes_rect = Rect::new(dialog_x + 3, button_row, 18, 1);
+        let no_rect = Rect::new(dialog_x + 25, button_row, 15, 1);
 
         self.clickable_areas
             .push((yes_rect, ClickTarget::DialogYes));
@@ -3793,7 +3841,7 @@ mod tests {
             version_fetch_receiver: None,
             version_list_receiver: None,
             install_state: None,
-            has_conflicts: false,
+            conflict_entries: Vec::new(),
             conflict_warning_open: false,
             conflict_dismissed: false,
             animation_frame: 0,
