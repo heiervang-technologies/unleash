@@ -647,16 +647,22 @@ impl AgentManager {
             )));
         }
 
-        // Find the codex binary in extracted files
-        let extracted_binary = tmp_dir.join("codex");
-        if !extracted_binary.exists() {
-            return Err(io::Error::other(
-                "Extracted archive does not contain 'codex' binary"
-            ));
-        }
+        // Find the codex binary — named codex-<triple> inside the archive
+        let extracted_binary = tmp_dir.join(format!("codex-{}", triple));
+        let extracted_fallback = tmp_dir.join("codex");
+        let binary_path = if extracted_binary.exists() {
+            &extracted_binary
+        } else if extracted_fallback.exists() {
+            &extracted_fallback
+        } else {
+            return Err(io::Error::other(format!(
+                "Extracted archive does not contain 'codex-{}' or 'codex' binary",
+                triple
+            )));
+        };
 
         // Install
-        fs::copy(&extracted_binary, install_path)?;
+        fs::copy(binary_path, install_path)?;
 
         // Make executable
         #[cfg(unix)]
