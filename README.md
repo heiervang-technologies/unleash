@@ -2,553 +2,299 @@
 
 <img width="720" height="480" alt="unleash" src="https://github.com/user-attachments/assets/0b8ff3af-90e8-4d7d-8204-33a159ae0835" />
 
-
 <p align="center">
   <img src="demo-animation.gif" alt="Unleash - Smooth menu animations" width="900">
 </p>
 
-A powerful extension framework for Claude Code with auto-mode, version management, and plugin support.
+A unified CLI manager for AI code agents. Version management, unified interface, and extended capabilities for Claude Code, Codex, Gemini CLI, and OpenCode.
+
+## What Unleash Does
+
+Unleash is three things:
+
+**1. Multi-Agent Version Manager** — Install, update, and switch between versions of Claude Code, Codex, Gemini CLI, and OpenCode. Parallel updates with progress bars. Whitelist/blacklist filtering for known-bad versions.
+
+**2. Unified CLI Interface** — One set of flags that works across all agents. `-p` for headless mode, `-m` for model selection, `-c` to continue a session — regardless of whether you're running Claude, Codex, Gemini, or OpenCode. Unleash translates these into each agent's native syntax.
+
+**3. Capability Extension Layer** — Features that the agent CLIs don't have natively: self-restart with session preservation, auto-mode for autonomous operation, plugin system for custom integrations, and more on the roadmap (portable conversation histories, directory navigation, PTY middleware).
 
 ## Quick Install
 
 ```bash
-# Using gh CLI (recommended - handles auth automatically)
+# Using gh CLI (recommended)
 gh repo clone heiervang-technologies/unleash /tmp/unleash && bash /tmp/unleash/scripts/install.sh && rm -rf /tmp/unleash
 ```
-Or with GitHub token if repo is still private:
-```bash
-# export GH_TOKEN=ghp_xxx
-curl -fsSL -H "Authorization: token $GH_TOKEN" \
-  https://raw.githubusercontent.com/heiervang-technologies/unleash/main/scripts/install-remote.sh | bash
-```
-
-This installs/updates both **Claude Code** and **Unleash**.
 
 **After install:**
 ```bash
-unleash          # Launch TUI interface (profiles & version management)
+unleash          # Launch TUI (profiles, versions, settings)
 unleash claude   # Start Claude with unleash features
+unleash codex    # Start Codex with unleash features
+unleash gemini   # Start Gemini CLI with unleash features
+unleash opencode # Start OpenCode with unleash features
 ```
 
-> **Already have it installed?** Run the same command to update to latest versions.
+> Run the same install command again to update to the latest version.
 
 ---
 <p align="center">
   <img src="demo-tui.gif" alt="Unleash TUI Demo" width="800">
 </p>
+
 ---
-
-## Overview
-
-**Unleash** is a wrapper around Anthropic's official [Claude Code](https://github.com/anthropics/claude-code) CLI that adds auto-mode, version management, and a plugin system — without modifying Claude Code itself.
-
-This approach provides:
-- **Zero upstream conflicts**: Uses Claude Code as-is via native binary or npm install
-- **Auto-mode**: Stop hook + flag file system for autonomous operation (no cli.js patching)
-- **Plugin ecosystem**: Add custom features, integrations, and workflows as plugins
-- **Version management**: Install, switch, and manage Claude Code versions with whitelist/blacklist filtering
-- **Team collaboration**: Share plugins across your organization
-
-## Architecture
-
-```mermaid
-graph TD
-    subgraph Unleash
-        A[src/ - Rust TUI & CLI] --> B[Cargo.toml - Config & Versions]
-        A --> C[scripts/ - Shell Installers/Wrappers]
-        A --> D[docs/ - Documentation]
-        A --> E[tests/ - Test Scripts]
-        A --> F[plugins/bundled/ - Extension Layer]
-    end
-
-    subgraph Plugins
-        F --> G[auto-mode]
-        F --> H[mcp-refresh]
-        F --> I[process-restart]
-        F --> J[voice-output]
-    end
-```
-
-### How It Works
-
-Unleash wraps Claude Code (installed separately via native binary or npm) and extends it through:
-
-```mermaid
-graph LR
-    subgraph Wrapper Layer
-        W1[Rust TUI Profile/Version Manager]
-        W2[Launch with --dangerously-skip-permissions]
-        W3[Auto-mode via Stop Hook + Flags]
-        W4[Plugin Loading via --plugin-dir]
-    end
-
-    subgraph Extension Layer
-        E1[Custom functionality as plugins]
-        E2[Organization Integrations]
-        E3[Team Workflows & Automations]
-    end
-
-    WrapperLayer --> ExtensionLayer
-```
-
-## Extension Approach: Plugin-First
-
-All customizations are implemented as plugins. This keeps the core clean and makes features:
-- **Modular**: Enable/disable features independently
-- **Portable**: Share plugins across repositories
-- **Maintainable**: Update plugins without touching core code
-- **Testable**: Each plugin is isolated and testable
-
-### Available Plugins
-
-- **auto-mode**: Autonomous operation mode for Claude
-- **mcp-refresh**: Automatically detect MCP configuration changes and notify for reload
-- **process-restart**: Restart Claude Code while preserving session state and conversation history
-- **voice-output**: Multi-provider text-to-speech for Claude's responses (VibeVoice, OpenAI, ElevenLabs)
-
-## Version Management
-
-Unleash manages Claude Code versions with configurable filtering:
-
-- **Blacklist mode** (default for Claude): All versions allowed except known-bad ones
-- **Whitelist mode** (default for Codex): Only verified versions allowed
-- Version lists are maintained in `Cargo.toml` and compiled into the binary
-
-## Quick Start
-
-### Prerequisites
-
-- curl (for native Claude Code binary download) or Node.js/npm (fallback)
-- Git
-- Rust/Cargo (optional, for building TUI from source)
-- Claude Pro or Max subscription (required for authentication)
-
-### Headless Environments
-
-If you're running in a headless environment (Docker containers, Kubernetes pods, CI/CD pipelines), build without TUI support to avoid terminal dependencies:
-
-```bash
-cargo build --release --no-default-features
-```
-
-This creates a minimal binary without crossterm/ratatui dependencies that works perfectly in non-interactive environments. All commands (`auth`, `version`, `go`) work normally - only the `tui` command is disabled.
-
-### One-Line Installation (Recommended)
-
-Install everything with a single command:
-
-```bash
-curl -fsSL https://raw.githubusercontent.com/heiervang-technologies/unleash/main/scripts/install-remote.sh | bash
-```
-
-This will:
-- Install Claude Code (native binary preferred, npm fallback)
-- Download the pre-built TUI binary
-- Set up the `unleash` command
-
-### Installation Options
-
-#### Option 1: gh CLI (recommended for private repo)
-```bash
-# Clone, install, cleanup
-gh repo clone heiervang-technologies/unleash /tmp/unleash && \
-  bash /tmp/unleash/scripts/install.sh && \
-  rm -rf /tmp/unleash
-
-# With specific Claude Code version
-gh repo clone heiervang-technologies/unleash /tmp/unleash && \
-  bash /tmp/unleash/scripts/install.sh --claude-version 2.1.5 && \
-  rm -rf /tmp/unleash
-```
-
-#### Option 2: curl with GitHub token
-```bash
-# Set your GitHub token (needs repo access)
-export GH_TOKEN=ghp_xxxxxxxxxxxx
-
-# Install latest
-curl -fsSL -H "Authorization: token $GH_TOKEN" \
-  https://raw.githubusercontent.com/heiervang-technologies/unleash/main/scripts/install-remote.sh | bash
-
-# Install specific Claude Code version
-CLAUDE_CODE_VERSION=2.1.5 curl -fsSL -H "Authorization: token $GH_TOKEN" \
-  https://raw.githubusercontent.com/heiervang-technologies/unleash/main/scripts/install-remote.sh | bash
-```
-
-#### Option 3: Clone and build from source
-```bash
-# Clone (SSH for private repo)
-git clone git@github.com:heiervang-technologies/unleash.git
-cd unleash
-
-# Build TUI and install
-cargo build --release
-./scripts/install.sh
-
-# Or without TUI
-./scripts/install.sh --no-build
-```
-
-### Authentication Setup
-
-Unleash requires authentication with Claude Code. You have two options:
-
-#### Option 1: OAuth Token (Recommended for Automation)
-
-Generate a long-lived OAuth token and set it as an environment variable:
-
-```bash
-# Generate the token
-claude setup-token
-
-# Copy the output token and export it
-export CLAUDE_CODE_OAUTH_TOKEN=<your-token-here>
-
-# Add to your shell profile for persistence
-echo 'export CLAUDE_CODE_OAUTH_TOKEN=<your-token-here>' >> ~/.bashrc
-# or ~/.zshrc for zsh
-```
-
-**Advantages:**
-- Works in headless/non-interactive environments
-- Suitable for CI/CD pipelines and containers
-- No browser authentication needed
-- Token persists across sessions when exported in shell profile
-
-**Note:** The OAuth token takes precedence over credentials stored in `~/.claude/.credentials.json`.
-
-#### Option 2: Interactive Authentication
-
-Run Claude Code once to authenticate via browser:
-
-```bash
-claude
-# Follow the browser authentication flow
-# Credentials will be stored in ~/.claude/.credentials.json (Linux/Ubuntu)
-# or macOS Keychain (macOS)
-```
-
-#### Verifying Authentication
-
-Unleash automatically checks for authentication on startup. You can also verify authentication status manually:
-
-```bash
-# Quick check
-unleash auth
-# ✓ Authentication configured
-
-# Detailed check
-unleash auth --verbose
-# ✓ Authentication configured
-#
-# Authentication method:
-#   • OAuth token from CLAUDE_CODE_OAUTH_TOKEN environment variable
-#   • Token preview: sk-ant-oat...g-1JzO1QAA
-#
-# Status: Ready to use Claude Code
-
-# JSON output (for scripting)
-unleash auth --json
-# {"authenticated":true,"method":"oauth_token","details":null}
-
-# Quiet mode (only exit code, no output)
-unleash auth -q
-# (no output, only exit code: 0=success, 1=failure)
-```
-
-The auth command verifies authentication without launching Claude, making it perfect for:
-- CI/CD pipelines and automation scripts
-- Pre-flight checks before running Claude
-- Debugging authentication issues
-- Integration with other tools
-
-For more details, see the [Claude Code IAM documentation](https://code.claude.com/docs/en/iam).
-
-### Add to PATH
-
-After installation, add `~/.local/bin` to your PATH if not already:
-
-```bash
-export PATH="$HOME/.local/bin:$PATH"
-# Add to your shell profile (~/.bashrc or ~/.zshrc) for persistence
-```
 
 ## CLI Usage
 
-### Command Overview
+### Running Agents
 
 ```bash
-unleash                    # Launch TUI interface (default)
-unleash claude             # Start Claude with unleash features
-unleash codex              # Start Codex with unleash features
-unleash gemini             # Start Gemini CLI with unleash features
-unleash opencode           # Start OpenCode with unleash features
-unleash <profile>          # Run a custom profile by name
-unleash auth               # Check authentication status
-unleash version            # Show installed version
-unleash version --list     # List available versions
-restart-claude             # Restart Claude (preserves session)
-exit-claude                # Exit Claude cleanly
+unleash <profile> [unified flags] [-- agent-specific flags]
 ```
 
-### Unified Flags (Polyfill Layer)
+The first argument is always a **profile name**. The four default profiles (`claude`, `codex`, `gemini`, `opencode`) map to their respective agents. Custom profiles can target any agent with custom settings.
 
-Unleash provides a set of **unified flags** that work identically across all four agent CLIs. These flags are translated ("polyfilled") into the correct agent-specific syntax automatically.
-
+```bash
+unleash claude -m opus -c              # Continue last Claude session with Opus
+unleash codex --safe                   # Run Codex with approval prompts
+unleash gemini -p "fix the tests"     # Gemini headless mode
+unleash work                           # Run a custom "work" profile
 ```
-unleash <agent> [UNIFIED FLAGS] [-- PASSTHROUGH ARGS]
-```
 
-**Before `--`** (unified flags — handled by unleash):
+### Unified Flags
+
+These flags work identically across all agents. Unleash translates them into the correct native syntax.
 
 | Flag | Short | Description | Default |
 |------|-------|-------------|---------|
-| `--yolo` | | Bypass all permission/approval checks | **on** |
-| `--safe` | | Restore approval prompts (inverse of `--yolo`) | off |
+| `--safe` | | Restore approval prompts (permissions bypassed by default) | off |
 | `--prompt <prompt>` | `-p` | Run non-interactively with the given prompt | |
 | `--model <model>` | `-m` | Model to use for the session | |
 | `--continue` | `-c` | Continue the most recent session | |
 | `--resume [id]` | `-r` | Resume a session by ID, or open picker | |
 | `--fork` | | Fork the session (use with `--continue` or `--resume`) | |
+| `--auto` | `-a` | Enable auto-mode (autonomous operation) | |
 
-**After `--`** (passthrough — sent directly to the agent CLI unchanged):
-
-Any arguments after `--` bypass unleash entirely and are passed as-is to the underlying agent CLI. Use this for agent-specific flags that unleash doesn't polyfill.
-
-#### Examples
+Anything after `--` is passed directly to the agent CLI unchanged:
 
 ```bash
-# Unified flags (work with any agent):
-unleash claude -p "fix the tests"           # Headless mode
-unleash codex -m o3 -c                      # Continue with specific model
-unleash gemini --safe                       # Run with approval prompts
-unleash opencode -r abc123                  # Resume specific session
-
-# Passthrough for agent-specific flags:
-unleash claude -- --effort high --verbose   # Claude-specific flags
-unleash codex -- --full-auto                # Codex-specific flags
-unleash gemini -- --sandbox                 # Gemini-specific flags
-
-# Combined: unified + passthrough:
-unleash claude -m opus -- --effort max      # Model (unified) + effort (Claude-specific)
+unleash claude -m opus -- --effort max --verbose
+#      ^^^^^^ ^^^^^^^^    ^^^^^^^^^^^^^^^^^^^^^^^^^
+#      Profile  Unified    Passthrough (Claude-specific)
 ```
 
-#### How Polyfill Translation Works
+### How Translation Works
 
-The same unified flag maps to different agent-specific syntax:
-
-| Unified | Claude | Codex | Gemini | OpenCode |
+| Unleash | Claude | Codex | Gemini | OpenCode |
 |---------|--------|-------|--------|----------|
-| `--yolo` | `--dangerously-skip-permissions` | `--dangerously-bypass-approvals-and-sandbox` | `--yolo` | *(no-op)* |
 | `-p <prompt>` | `-p <prompt>` | `exec <prompt>` | `-p <prompt>` | `run <prompt>` |
 | `-c` | `--continue` | `resume --last` | `--resume latest` | `--continue` |
 | `-r [id]` | `--resume [id]` | `resume [id]` | `--resume [id]` | `--session <id>` |
 | `--fork` | `--fork-session` | `fork` subcommand | *(unsupported)* | `--fork` |
+| *(default)* | `--dangerously-skip-permissions` | `--dangerously-bypass-approvals-and-sandbox` | `--yolo` | *(no-op)* |
 
-> **Note:** For Codex and OpenCode, headless mode (`-p`) and resume (`-r`) translate into subcommands (`codex exec`, `opencode run`, `codex resume`), not just flags. Unleash handles this restructuring automatically.
-
-### Configuration Options
-
-#### Stop Prompt Customization
-
-Customize the message Claude receives when auto-mode blocks it from exiting:
+### Management Commands
 
 ```bash
-# Set a custom prompt
-unleash claude --stop-prompt="Keep working until tests pass!"
-
-# Edit with your $EDITOR
-unleash claude --stop-prompt-edit
-
-# Reset to default
-unleash claude --stop-prompt-clear
+unleash                    # Launch TUI
+unleash update             # Update all agents (parallel progress bars)
+unleash update --check     # Check for updates without installing
+unleash update codex       # Update a specific agent
+unleash version            # Show installed versions
+unleash version --list     # List available versions
+unleash auth               # Check authentication status
+unleash agents status      # Show all agent versions and update status
 ```
 
-You can also configure this via the TUI:
+## Version Management
+
+Unleash manages versions for all four agent CLIs:
+
+- **Claude Code**: Native binary (GCS) or npm install
+- **Codex**: Prebuilt binary from GitHub releases, cargo build fallback
+- **Gemini CLI**: npm install
+- **OpenCode**: Built-in `opencode upgrade` command
+
+Version filtering:
+- **Blacklist mode** (default for Claude): All versions allowed except known-bad ones
+- **Whitelist mode** (default for Codex): Only verified versions allowed
+- Version lists are maintained in `Cargo.toml` and compiled into the binary
+
+## Extended Capabilities
+
+Features that unleash adds on top of the base agent CLIs:
+
+### Available Now
+
+- **Self-restart**: Restart the agent while preserving session state (`restart-claude`)
+- **Auto-mode**: Autonomous operation via Stop hook + flag file system
+- **Plugin system**: Custom functionality loaded via `--plugin-dir`
+- **MCP refresh**: Detect MCP configuration changes and trigger reload
+- **Voice output**: Multi-provider TTS for agent responses (VibeVoice, OpenAI, ElevenLabs)
+- **Profile system**: Named configurations with per-agent settings, env vars, and themes
+- **Parallel updates**: Update all agents simultaneously with progress visualization
+
+### On the Roadmap
+
+- Custom agent CLI support (bring your own agent binary with unified flag mapping)
+- Portable conversation histories across agents
+- Directory navigation and workspace management
+- PTY terminal middleware for session scripting
+- Cross-agent session migration
+
+## Profiles
+
+Profiles are TOML files in `~/.config/unleash/profiles/`. Each profile specifies an agent CLI, arguments, environment variables, and theme.
+
+```toml
+# ~/.config/unleash/profiles/work.toml
+name = "work"
+description = "Work profile with Claude"
+agent_cli_path = "claude"
+agent_args = []
+theme = "blue"
+
+[env]
+ANTHROPIC_API_KEY = "sk-..."
+```
+
+Per-agent overrides allow a single profile to customize behavior for different agents:
+
+```toml
+[agents.claude]
+extra_args = ["--effort", "high"]
+
+[agents.codex]
+extra_args = ["--full-auto"]
+```
+
+## TUI
+
+The TUI (`unleash` with no arguments) provides:
+
+- **Profile management**: Create, edit, duplicate, search profiles
+- **Version management**: Browse, install, and switch agent versions
+- **Settings**: Auto-update toggles, theme selection, animations
+
+Navigate with `j/k` or arrows, `Enter` to select, `Esc` to go back, `?` for help.
+
+## Plugins
+
+All extended functionality is implemented as plugins in `plugins/bundled/`:
+
+| Plugin | Description |
+|--------|-------------|
+| **auto-mode** | Autonomous operation via Stop hook enforcement |
+| **mcp-refresh** | Detect MCP config changes and notify for reload |
+| **process-restart** | Self-restart with session preservation |
+| **voice-output** | Text-to-speech for agent responses |
+| **hyprland-focus** | Window transparency on Hyprland during agent work |
+| **omnihook** | Unified hook handler with voice input integration |
+| **supercompact** | Entity-aware context compaction |
+
+### Creating Plugins
+
 ```bash
-unleash  # Navigate to Settings > Stop Prompt
+mkdir -p plugins/my-plugin
 ```
 
-The prompt is stored globally in `~/.config/unleash/config.toml` and applies to all future auto-mode sessions.
+```json
+// plugins/my-plugin/plugin.json
+{
+  "name": "my-plugin",
+  "version": "1.0.0",
+  "description": "What it does",
+  "hooks": {
+    "Stop": "./hooks/stop.sh"
+  }
+}
+```
 
-**Priority order:**
-1. Session-specific override (programmatic)
-2. Global config (CLI/TUI)
-3. Default hardcoded message
+See `docs/extensions/` for the full plugin development guide.
 
-For detailed configuration options, see [docs/extensions/configuration.md](docs/extensions/configuration.md).
+## Installation
 
-## TUI Features
+### Prerequisites
 
-The TUI (`unleash`) provides a graphical interface for managing Unleash:
+- curl or wget
+- Git
+- Node.js/npm (for Claude and Gemini)
+- Rust/Cargo (optional, for building from source)
 
-### Profile Management
-- Create and manage environment profiles
-- Store API keys and environment variables securely
-- Switch between profiles quickly
+### Options
 
-### Claude Code Version Management
-- View currently installed Claude Code version
-- Browse available versions from npm registry and GCS
-- **Switch between versions** with a single selection
-- Whitelist/blacklist filtering to avoid known-bad versions
+```bash
+# Option 1: gh CLI (recommended)
+gh repo clone heiervang-technologies/unleash /tmp/unleash && \
+  bash /tmp/unleash/scripts/install.sh && rm -rf /tmp/unleash
 
-Navigate with:
-- `j/k` or `↑/↓` - Move selection
-- `Enter` - Select/Confirm
-- `Esc` - Go back
-- `?` - Help
+# Option 2: curl with token
+export GH_TOKEN=ghp_xxx
+curl -fsSL -H "Authorization: token $GH_TOKEN" \
+  https://raw.githubusercontent.com/heiervang-technologies/unleash/main/scripts/install-remote.sh | bash
 
-## How to Add Plugins
+# Option 3: Build from source
+git clone git@github.com:heiervang-technologies/unleash.git
+cd unleash && cargo build --release && ./scripts/install.sh
+```
 
-### Creating a New Plugin
+### Headless Environments
 
-1. **Create plugin directory**
-   ```bash
-   mkdir -p plugins/my-plugin
-   cd plugins/my-plugin
-   ```
+Build without TUI for Docker/CI:
 
-2. **Add plugin manifest** (`plugin.json`)
-   ```json
-   {
-     "name": "my-plugin",
-     "version": "1.0.0",
-     "description": "Description of what your plugin does",
-     "author": "Your Name",
-     "main": "index.js",
-     "hooks": {
-       "pre-command": "./hooks/pre-command.js",
-       "post-command": "./hooks/post-command.js"
-     }
-   }
-   ```
+```bash
+cargo build --release --no-default-features
+```
 
-3. **Implement plugin logic** (`index.js`)
-   ```javascript
-   module.exports = {
-     name: 'my-plugin',
+### Authentication
 
-     async initialize(context) {
-       // Setup code
-       console.log('Plugin initialized');
-     },
+```bash
+# OAuth token (recommended for automation)
+claude setup-token
+export CLAUDE_CODE_OAUTH_TOKEN=<token>
 
-     async execute(command, args) {
-       // Main plugin logic
-       return { success: true };
-     }
-   };
-   ```
+# Or interactive browser auth
+claude
+```
 
-4. **Enable in configuration**
+Verify: `unleash auth` or `unleash auth --verbose`
 
-   Add to `.claude/settings.json`:
-   ```json
-   {
-     "plugins": {
-       "enabled": ["my-plugin"]
-     }
-   }
-   ```
+## Architecture
 
-### Plugin Development Best Practices
-
-- Keep plugins focused on a single responsibility
-- Document all configuration options
-- Include tests for your plugin
-- Follow semantic versioning
-- Add a README.md to your plugin directory
-
-See `docs/extensions/` for detailed plugin development guides.
-
-## Documentation
-
-- **Plugin Development**: `docs/extensions/plugin-development.md`
-- **MCP Refresh & Process Restart**: `docs/extensions/restart-refresh.md`
-- **GitHub Integration**: `docs/extensions/snail-integration.md`
-- **Agent Instructions**: `CLAUDE.md`
+```
+unleash/
+├── src/                    # Rust CLI & TUI
+│   ├── cli.rs             # Argument parsing + polyfill flags
+│   ├── polyfill.rs        # Unified flag → agent-specific translation
+│   ├── launcher.rs        # Agent wrapper with restart/auto-mode
+│   ├── updater.rs         # Parallel update orchestrator
+│   ├── progress.rs        # Terminal progress bar renderer
+│   ├── agents.rs          # Agent definitions + version management
+│   ├── config.rs          # Profile + settings management
+│   └── tui/               # Terminal UI (ratatui)
+├── plugins/bundled/        # Plugin extensions
+├── scripts/                # Install/uninstall scripts
+└── docs/                   # Specs and guides
+```
 
 ## Contributing
 
-We welcome contributions to both the plugin ecosystem and the wrapper infrastructure!
-
-### Contribution Guidelines
-
-1. **For new plugins:**
-   - Create a new directory in `plugins/`
-   - Include a README.md with usage instructions
-   - Add tests for your plugin
-   - Submit a PR with the plugin
-
-2. **For wrapper/TUI improvements:**
-   - Focus on the Rust source in `src/`
-   - Update documentation
-   - Add tests for new functionality
-
-3. **For upstream improvements:**
-   - Contribute directly to [anthropics/claude-code](https://github.com/anthropics/claude-code)
-
-### Development Workflow
-
 ```bash
-# 1. Create feature branch
 git checkout -b feature/my-enhancement
-
-# 2. Make changes
-# - Add plugins in plugins/bundled/
-# - Modify Rust source in src/
-# - Update configuration
-
-# 3. Test your changes
-cargo test
-
-# 4. Commit with conventional commits
-git commit -m "feat: add new plugin for X"
-
-# 5. Push and create PR
-git push origin feature/my-enhancement
+cargo test                  # Run tests
+cargo clippy                # Lint
+git commit -m "feat: ..."   # Conventional commits
 ```
 
-### Code of Conduct
-
-- Be respectful and inclusive
-- Provide constructive feedback
-- Help others learn and grow
-- Maintain professional communication
-
-## Troubleshooting
-
-### Plugin not loading
-
-1. Check `.claude/settings.json` - is it in `enabled` array?
-2. Verify plugin structure - does it have `plugin.json` and `index.js`?
-3. Check plugin logs for errors
-
-## Organization
-
-This repository is maintained by **Heiervang Technologies**.
-
-- **Organization**: heiervang-technologies
-- **GitHub**: [@heiervang-technologies](https://github.com/heiervang-technologies)
-
-## License
-
-This project maintains the same license as the upstream Claude Code project. See `LICENSE.md` for details.
-
-## Acknowledgments
-
-- **Anthropic** for creating and maintaining Claude Code
-- **Heiervang Technologies** for the plugin architecture and wrapper infrastructure
-- All contributors to the plugin ecosystem
+- **New features**: Create or modify plugins in `plugins/bundled/`
+- **Core changes**: Modify Rust source in `src/`
+- **Upstream improvements**: Contribute to [anthropics/claude-code](https://github.com/anthropics/claude-code) directly
 
 ## Links
 
-- [Upstream Repository (anthropics/claude-code)](https://github.com/anthropics/claude-code)
-- [Plugin Development Guide](docs/extensions/plugin-development.md)
 - [Issue Tracker](https://github.com/heiervang-technologies/unleash/issues)
-- [Discussions](https://github.com/heiervang-technologies/unleash/discussions)
+- [Plugin Development Guide](docs/extensions/plugin-development.md)
+- [Claude Code](https://github.com/anthropics/claude-code) | [Codex](https://github.com/openai/codex) | [Gemini CLI](https://github.com/google-gemini/gemini-cli) | [OpenCode](https://github.com/opencode-ai/opencode)
 
 ---
 
-**Ready to extend Claude Code?** Start by exploring the available plugins or create your own!
+Built by [Heiervang Technologies](https://github.com/heiervang-technologies)

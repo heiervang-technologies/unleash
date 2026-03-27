@@ -363,7 +363,12 @@ impl AgentManager {
         match output {
             Ok(out) if out.status.success() => {
                 let version_str = String::from_utf8_lossy(&out.stdout);
-                let version = Self::parse_version(&version_str);
+                let mut version = Self::parse_version(&version_str);
+
+                // Codex reports "0.0.0" from source builds — fall back to git tag
+                if agent_type == AgentType::Codex && version.as_deref() == Some("0.0.0") {
+                    version = Self::codex_version_from_git_tag();
+                }
 
                 // Update cache
                 let entry = self.versions.entry(agent_type).or_default();
@@ -374,6 +379,33 @@ impl AgentManager {
             }
             _ => Ok(None),
         }
+    }
+
+    /// Get codex version from git tag in the cached source repo.
+    /// Codex uses workspace version "0.0.0" so --version is useless;
+    /// the real version comes from git tags like "rust-v0.116.0".
+    fn codex_version_from_git_tag() -> Option<String> {
+        let cache_dir = dirs::cache_dir()
+            .unwrap_or_else(|| PathBuf::from("/tmp"))
+            .join("unleash/codex-source");
+
+        if !cache_dir.join(".git").exists() {
+            return None;
+        }
+
+        let output = Command::new("git")
+            .args(["describe", "--tags", "--abbrev=0"])
+            .current_dir(&cache_dir)
+            .output()
+            .ok()?;
+
+        if !output.status.success() {
+            return None;
+        }
+
+        let tag = String::from_utf8_lossy(&output.stdout).trim().to_string();
+        // Tags are like "rust-v0.116.0" — strip "rust-v" prefix
+        Some(tag.trim_start_matches("rust-v").trim_start_matches('v').to_string())
     }
 
     /// Parse version string from command output
@@ -429,7 +461,12 @@ impl AgentManager {
         let tag = json
             .get("tag_name")
             .and_then(|t| t.as_str())
-            .map(|s| s.trim_start_matches('v').to_string());
+            .map(|s| {
+                // Handle tags like "rust-v0.116.0" (Codex) and "v1.2.3" (others)
+                s.trim_start_matches("rust-v")
+                    .trim_start_matches('v')
+                    .to_string()
+            });
 
         // Update cache
         if let Some(ref version) = tag {
@@ -508,8 +545,154 @@ impl AgentManager {
         }
     }
 
-    /// Update Codex - clone from GitHub and build from source
+    /// Update Codex — prefer prebuilt binary, fall back to source build
     fn update_codex(&self) -> io::Result<String> {
+        let install_path = dirs::home_dir()
+            .ok_or_else(|| io::Error::new(io::ErrorKind::NotFound, "Home dir not found"))?
+            .join(".local/bin/codex");
+        fs::create_dir_all(install_path.parent().unwrap())?;
+
+        // Try prebuilt binary first
+        match Self::install_codex_binary(&install_path) {
+            Ok(msg) => return Ok(msg),
+            Err(e) => {
+                eprintln!("Prebuilt binary install failed ({}), falling back to source build...", e);
+            }
+        }
+
+        // Fallback: build from source (requires cargo)
+        if which::which("cargo").is_err() {
+            return Err(io::Error::other(
+                "No prebuilt Codex binary for this platform and cargo is not installed. \
+                 Install Rust (rustup.rs) or download Codex manually from https://github.com/openai/codex/releases"
+            ));
+        }
+
+        Self::build_codex_from_source(&install_path)
+    }
+
+    /// Download and install prebuilt Codex binary from GitHub releases
+    fn install_codex_binary(install_path: &std::path::Path) -> io::Result<String> {
+        // Detect platform triple
+        let triple = Self::detect_platform_triple()
+            .ok_or_else(|| io::Error::other("Unsupported platform for prebuilt binary"))?;
+
+        let asset_name = format!("codex-{}.tar.gz", triple);
+
+        // Get latest release tag
+        let tag_output = Command::new("curl")
+            .args([
+                "-s", "-H", "Accept: application/vnd.github.v3+json",
+                "https://api.github.com/repos/openai/codex/releases/latest",
+            ])
+            .output()?;
+
+        let json: serde_json::Value = serde_json::from_slice(&tag_output.stdout)
+            .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e.to_string()))?;
+
+        let tag = json.get("tag_name")
+            .and_then(|t| t.as_str())
+            .ok_or_else(|| io::Error::other("Could not determine latest Codex release tag"))?;
+
+        let version = tag.trim_start_matches("rust-v").trim_start_matches('v');
+
+        // Check if asset exists in this release
+        let has_asset = json.get("assets")
+            .and_then(|a| a.as_array())
+            .map(|assets| assets.iter().any(|a| {
+                a.get("name").and_then(|n| n.as_str()) == Some(&asset_name)
+            }))
+            .unwrap_or(false);
+
+        if !has_asset {
+            return Err(io::Error::other(format!(
+                "No prebuilt binary '{}' found in release {}", asset_name, tag
+            )));
+        }
+
+        let download_url = format!(
+            "https://github.com/openai/codex/releases/download/{}/{}",
+            tag, asset_name
+        );
+
+        // Download to temp file
+        let tmp_dir = dirs::cache_dir()
+            .unwrap_or_else(|| PathBuf::from("/tmp"))
+            .join("unleash/codex-download");
+        fs::create_dir_all(&tmp_dir)?;
+        let tmp_archive = tmp_dir.join(&asset_name);
+
+        eprintln!("Downloading Codex {} ({})...", version, asset_name);
+        let dl_output = Command::new("curl")
+            .args(["-fsSL", "-o", &tmp_archive.to_string_lossy(), &download_url])
+            .output()?;
+
+        if !dl_output.status.success() {
+            return Err(io::Error::other(format!(
+                "Download failed: {}",
+                String::from_utf8_lossy(&dl_output.stderr)
+            )));
+        }
+
+        // Extract — codex binary is at the root of the tar.gz
+        eprintln!("Extracting...");
+        let extract_output = Command::new("tar")
+            .args(["xzf", &tmp_archive.to_string_lossy(), "-C", &tmp_dir.to_string_lossy()])
+            .output()?;
+
+        if !extract_output.status.success() {
+            return Err(io::Error::other(format!(
+                "Extraction failed: {}",
+                String::from_utf8_lossy(&extract_output.stderr)
+            )));
+        }
+
+        // Find the codex binary — named codex-<triple> inside the archive
+        let extracted_binary = tmp_dir.join(format!("codex-{}", triple));
+        let extracted_fallback = tmp_dir.join("codex");
+        let binary_path = if extracted_binary.exists() {
+            &extracted_binary
+        } else if extracted_fallback.exists() {
+            &extracted_fallback
+        } else {
+            return Err(io::Error::other(format!(
+                "Extracted archive does not contain 'codex-{}' or 'codex' binary",
+                triple
+            )));
+        };
+
+        // Install
+        fs::copy(binary_path, install_path)?;
+
+        // Make executable
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            fs::set_permissions(install_path, fs::Permissions::from_mode(0o755))?;
+        }
+
+        // Cleanup
+        let _ = fs::remove_dir_all(&tmp_dir);
+
+        Ok(format!("Codex {} installed from prebuilt binary", version))
+    }
+
+    /// Detect the platform triple for prebuilt binary downloads
+    fn detect_platform_triple() -> Option<&'static str> {
+        #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+        { return Some("x86_64-unknown-linux-gnu"); }
+        #[cfg(all(target_os = "linux", target_arch = "aarch64"))]
+        { return Some("aarch64-unknown-linux-gnu"); }
+        #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+        { return Some("aarch64-apple-darwin"); }
+        #[cfg(all(target_os = "macos", target_arch = "x86_64"))]
+        { return Some("x86_64-apple-darwin"); }
+        #[allow(unreachable_code)]
+        None
+    }
+
+    /// Build Codex from source (fallback when no prebuilt binary available)
+    fn build_codex_from_source(install_path: &std::path::Path) -> io::Result<String> {
         let cache_dir = dirs::cache_dir()
             .unwrap_or_else(|| PathBuf::from("/tmp"))
             .join("unleash/codex-source");
@@ -525,7 +708,6 @@ impl AgentManager {
                 .output()?;
 
             if !output.status.success() {
-                // If pull fails, remove and re-clone
                 fs::remove_dir_all(&cache_dir)?;
                 progress.push("Pull failed, re-cloning...".to_string());
             }
@@ -552,7 +734,6 @@ impl AgentManager {
             }
         }
 
-        // The Rust code is in codex-rs subdirectory
         let codex_rs_dir = cache_dir.join("codex-rs");
         if !codex_rs_dir.exists() {
             return Err(io::Error::new(
@@ -561,25 +742,18 @@ impl AgentManager {
             ));
         }
 
-        // Build codex CLI (package is codex-cli, binary is codex)
-        progress.push("Building codex (this may take a while)...".to_string());
+        progress.push("Building codex from source (this may take a while)...".to_string());
         let output = Command::new("cargo")
             .args(["build", "--release", "-p", "codex-cli"])
             .current_dir(&codex_rs_dir)
             .output()?;
 
         if output.status.success() {
-            // Install the binary
             let binary_path = codex_rs_dir.join("target/release/codex");
-            let install_path = dirs::home_dir()
-                .ok_or_else(|| io::Error::new(io::ErrorKind::NotFound, "Home dir not found"))?
-                .join(".local/bin/codex");
-
-            fs::create_dir_all(install_path.parent().unwrap())?;
-            fs::copy(&binary_path, &install_path)?;
+            fs::copy(&binary_path, install_path)?;
 
             progress.push(format!(
-                "Codex updated and installed to {}",
+                "Codex built and installed to {}",
                 install_path.display()
             ));
             Ok(progress.join("\n"))

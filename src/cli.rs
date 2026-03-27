@@ -260,6 +260,20 @@ pub enum Commands {
         action: Option<AgentsAction>,
     },
 
+    /// Update agent CLIs to latest versions with parallel progress
+    Update {
+        /// Specific agents to update (omit for all installed agents)
+        agents: Vec<String>,
+
+        /// Only check for updates, don't install
+        #[arg(long)]
+        check: bool,
+
+        /// Also update unleash itself
+        #[arg(long = "self")]
+        update_self: bool,
+    },
+
     /// Run a profile by name (catches any unknown subcommand as a profile name)
     #[command(external_subcommand)]
     Profile(Vec<String>),

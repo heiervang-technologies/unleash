@@ -16,6 +16,8 @@ mod json_output;
 mod launcher;
 mod pixel_art;
 mod polyfill;
+mod progress;
+mod updater;
 #[cfg(feature = "tui")]
 mod text_input;
 #[cfg(feature = "tui")]
@@ -293,9 +295,13 @@ pub fn run() -> io::Result<()> {
     // session from hijacking a fresh `unleash codex` invocation.
     // Skip wrapper mode for help/version flags — let clap handle those
     let has_meta_flag = args.iter().skip(1).any(|a| matches!(a.as_str(), "-h" | "--help" | "-V" | "--version"));
+    let first_arg_is_subcommand = matches!(
+        args.get(1).map(String::as_str),
+        Some("version" | "auth" | "auth-check" | "hooks" | "agents" | "update" | "help")
+    );
     let is_wrapper_reentry = env::var("AGENT_CMD").is_ok()
         && env::var(launcher::UNLEASHED_ENV_VAR).ok().as_deref() == Some("1");
-    if is_wrapper_reentry && !has_meta_flag {
+    if is_wrapper_reentry && !has_meta_flag && !first_arg_is_subcommand {
         let args: Vec<String> = env::args().skip(1).collect();
         let parse_prompt_flags = env::var("AGENT_CMD")
             .ok()
@@ -560,6 +566,31 @@ pub fn run() -> io::Result<()> {
                     Ok(())
                 }
             }
+        }
+        Some(Commands::Update {
+            agents,
+            check,
+            update_self,
+        }) => {
+            let agent_types = if agents.is_empty() {
+                AgentType::all().to_vec()
+            } else {
+                agents.iter().map(|name| {
+                    AgentType::from_str(name).ok_or_else(|| {
+                        io::Error::new(
+                            io::ErrorKind::InvalidInput,
+                            format!("Unknown agent: {}. Valid: claude, codex, gemini, opencode", name),
+                        )
+                    })
+                }).collect::<io::Result<Vec<_>>>()?
+            };
+
+            updater::run(updater::UpdateConfig {
+                agents: agent_types,
+                check_only: check,
+                include_self: update_self,
+                json: cli.json,
+            })
         }
         None => {
             #[cfg(feature = "tui")]
