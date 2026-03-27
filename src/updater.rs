@@ -382,7 +382,14 @@ fn get_latest_github_version(repo: &str) -> io::Result<Option<String>> {
     Ok(json
         .get("tag_name")
         .and_then(|t| t.as_str())
-        .map(|s| s.trim_start_matches('v').to_string()))
+        .map(|s| sanitize_version(s)))
+}
+
+/// Strip version prefixes like "v", "rust-v" to get a clean semver string.
+fn sanitize_version(s: &str) -> String {
+    s.trim_start_matches("rust-v")
+        .trim_start_matches('v')
+        .to_string()
 }
 
 // ---------------------------------------------------------------------------
@@ -546,14 +553,14 @@ fn print_check_json(results: &[CheckResult]) {
 fn parse_version(output: &str) -> Option<String> {
     let line = output.lines().next()?;
     for part in line.split_whitespace() {
-        let cleaned = part.trim_start_matches('v').trim_end_matches(')');
+        let cleaned = sanitize_version(part).trim_end_matches(')').to_string();
         if cleaned
             .chars()
             .next()
             .map(|c| c.is_ascii_digit())
             .unwrap_or(false)
         {
-            return Some(cleaned.to_string());
+            return Some(cleaned);
         }
     }
     None
