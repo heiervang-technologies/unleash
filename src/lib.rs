@@ -578,9 +578,7 @@ pub fn run() -> io::Result<()> {
             // - -c/--clis: update all agent CLIs
             // - -a/--all: update unleash + all agent CLIs
             // - positional args: update specific agents
-            let agent_types = if all {
-                AgentType::all().to_vec()
-            } else if clis {
+            let agent_types = if all || clis {
                 AgentType::all().to_vec()
             } else if !agents.is_empty() {
                 agents.iter().map(|name| {

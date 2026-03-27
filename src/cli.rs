@@ -268,14 +268,15 @@ pub enum Commands {
     /// Positional args: update specific agents (e.g. 'unleash update claude codex')
     Update {
         /// Specific agents to update (e.g. claude, codex, gemini, opencode)
+        #[arg(conflicts_with_all = ["clis", "all"])]
         agents: Vec<String>,
 
         /// Update all agent CLIs (not unleash itself)
-        #[arg(short, long)]
+        #[arg(short, long, conflicts_with = "all")]
         clis: bool,
 
         /// Update everything (unleash + all agent CLIs)
-        #[arg(short, long)]
+        #[arg(short, long, conflicts_with = "clis")]
         all: bool,
 
         /// Only check for updates, don't install

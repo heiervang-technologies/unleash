@@ -423,6 +423,7 @@ impl ProfileManager {
     /// Names reserved for unleash subcommands — cannot be used as profile names
     const RESERVED_NAMES: &[&str] = &[
         "version", "auth", "auth-check", "hooks", "agents", "update", "help",
+        "config", "plugins",
     ];
 
     /// Check if a profile name conflicts with a reserved subcommand
