@@ -363,7 +363,12 @@ impl AgentManager {
         match output {
             Ok(out) if out.status.success() => {
                 let version_str = String::from_utf8_lossy(&out.stdout);
-                let version = Self::parse_version(&version_str);
+                let mut version = Self::parse_version(&version_str);
+
+                // Codex reports "0.0.0" from source builds — fall back to git tag
+                if agent_type == AgentType::Codex && version.as_deref() == Some("0.0.0") {
+                    version = Self::codex_version_from_git_tag();
+                }
 
                 // Update cache
                 let entry = self.versions.entry(agent_type).or_default();
@@ -374,6 +379,33 @@ impl AgentManager {
             }
             _ => Ok(None),
         }
+    }
+
+    /// Get codex version from git tag in the cached source repo.
+    /// Codex uses workspace version "0.0.0" so --version is useless;
+    /// the real version comes from git tags like "rust-v0.116.0".
+    fn codex_version_from_git_tag() -> Option<String> {
+        let cache_dir = dirs::cache_dir()
+            .unwrap_or_else(|| PathBuf::from("/tmp"))
+            .join("unleash/codex-source");
+
+        if !cache_dir.join(".git").exists() {
+            return None;
+        }
+
+        let output = Command::new("git")
+            .args(["describe", "--tags", "--abbrev=0"])
+            .current_dir(&cache_dir)
+            .output()
+            .ok()?;
+
+        if !output.status.success() {
+            return None;
+        }
+
+        let tag = String::from_utf8_lossy(&output.stdout).trim().to_string();
+        // Tags are like "rust-v0.116.0" — strip "rust-v" prefix
+        Some(tag.trim_start_matches("rust-v").trim_start_matches('v').to_string())
     }
 
     /// Parse version string from command output
@@ -429,7 +461,12 @@ impl AgentManager {
         let tag = json
             .get("tag_name")
             .and_then(|t| t.as_str())
-            .map(|s| s.trim_start_matches('v').to_string());
+            .map(|s| {
+                // Handle tags like "rust-v0.116.0" (Codex) and "v1.2.3" (others)
+                s.trim_start_matches("rust-v")
+                    .trim_start_matches('v')
+                    .to_string()
+            });
 
         // Update cache
         if let Some(ref version) = tag {
