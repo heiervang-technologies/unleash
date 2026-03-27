@@ -14,7 +14,7 @@ AUTO_MODE_DIR="${HOME}/.cache/unleash/auto-mode"
 CONFIG_FILE="${HOME}/.config/unleash/config.toml"
 
 # Get wrapper PID - if not set, allow stop (not running under wrapper)
-WRAPPER_PID="${CLAUDE_WRAPPER_PID:-}"
+WRAPPER_PID="${AGENT_WRAPPER_PID:-${CLAUDE_WRAPPER_PID:-}}"
 if [[ -z "${WRAPPER_PID}" ]]; then
     exit 0
 fi

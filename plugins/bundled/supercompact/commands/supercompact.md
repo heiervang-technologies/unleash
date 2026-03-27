@@ -21,7 +21,7 @@ The user can override these via arguments: `/supercompact 120000 --method setcov
 ## Step 1: Find the conversation JSONL
 
 ```bash
-PROJECT_DIR=$(echo "$PWD" | sed 's|/|-|g; s|^|/home/me/.claude/projects/|')
+PROJECT_DIR=$(echo "$PWD" | sed "s|/|-|g; s|^|$HOME/.claude/projects/|")
 JSONL_FILE=$(ls -t "$PROJECT_DIR"/*.jsonl 2>/dev/null | head -1)
 echo "JSONL: $JSONL_FILE"
 wc -l "$JSONL_FILE"
@@ -41,7 +41,7 @@ for arg in $ARGUMENTS; do
   prev="$arg"
 done
 echo "Method: $METHOD, Budget: $BUDGET"
-cd /home/me/ht/supercompact && uv run python compact.py "$JSONL_FILE" --method "$METHOD" --budget "$BUDGET" --output /tmp/supercompact-output.jsonl --verbose
+cd "${SUPERCOMPACT_DIR:-$HOME/ht/supercompact}" && uv run python compact.py "$JSONL_FILE" --method "$METHOD" --budget "$BUDGET" --output /tmp/supercompact-output.jsonl --verbose
 ```
 
 ## Step 3: Replace the session JSONL

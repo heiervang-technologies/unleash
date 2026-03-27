@@ -1294,20 +1294,44 @@ impl App {
                             if let Some(ref mut profile) = self.editing_profile {
                                 let old_name = profile.name.clone();
                                 if new_name != old_name {
-                                    // Delete old profile file
-                                    let _ = self.profile_manager.delete_profile(&old_name);
-                                    // Save with new name
-                                    profile.name = new_name.clone();
-                                    let _ = self.profile_manager.save_profile(profile);
-                                    // Update app config if this was the active profile
-                                    if self.app_config.current_profile == old_name {
-                                        self.app_config.current_profile = new_name.clone();
+                                    // Check reserved name BEFORE deleting old profile
+                                    if ProfileManager::is_reserved_name(&new_name) {
+                                        self.status_message = Some(format!(
+                                            "Cannot rename to '{}': reserved name",
+                                            new_name
+                                        ));
+                                    } else {
+                                        // Delete old profile file
                                         let _ =
-                                            self.profile_manager.save_app_config(&self.app_config);
+                                            self.profile_manager.delete_profile(&old_name);
+                                        // Save with new name
+                                        profile.name = new_name.clone();
+                                        match self.profile_manager.save_profile(profile) {
+                                            Ok(()) => {
+                                                // Update app config if this was the active profile
+                                                if self.app_config.current_profile == old_name {
+                                                    self.app_config.current_profile =
+                                                        new_name.clone();
+                                                    let _ = self
+                                                        .profile_manager
+                                                        .save_app_config(&self.app_config);
+                                                }
+                                                self.refresh_profiles();
+                                                self.status_message = Some(format!(
+                                                    "Renamed: {} -> {}",
+                                                    old_name, new_name
+                                                ));
+                                            }
+                                            Err(e) => {
+                                                // Restore old name on save failure
+                                                profile.name = old_name;
+                                                self.status_message = Some(format!(
+                                                    "Failed to save profile: {}",
+                                                    e
+                                                ));
+                                            }
+                                        }
                                     }
-                                    self.refresh_profiles();
-                                    self.status_message =
-                                        Some(format!("Renamed: {} -> {}", old_name, new_name));
                                 }
                             }
                         }
@@ -1831,10 +1855,16 @@ impl App {
             NavAction::Delete => {
                 if let Some(idx) = self.selected_profile_index() {
                     if let Some(profile) = self.profiles.get(idx) {
-                        if profile.name != "default" {
+                        let is_default = Profile::default_profiles()
+                            .iter()
+                            .any(|p| p.name == profile.name);
+                        if !is_default {
                             self.screen = Screen::ConfirmDelete;
                         } else {
-                            self.status_message = Some("Cannot delete default profile".to_string());
+                            self.status_message = Some(format!(
+                                "Cannot delete default profile '{}'",
+                                profile.name
+                            ));
                         }
                     }
                 }

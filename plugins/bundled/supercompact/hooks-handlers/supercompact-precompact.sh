@@ -18,7 +18,7 @@
 
 set -euo pipefail
 
-SUPERCOMPACT_DIR="/home/me/ht/supercompact"
+SUPERCOMPACT_DIR="${SUPERCOMPACT_DIR:-$HOME/ht/supercompact}"
 METHOD="${PLUGIN_SETTING_METHOD:-eitf}"
 BUDGET="${PLUGIN_SETTING_BUDGET:-80000}"
 LOG_DIR="${HOME}/.cache/unleash/supercompact"

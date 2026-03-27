@@ -313,7 +313,9 @@ pub fn is_sensitive_key(key: &str) -> bool {
         || key_lower.contains("secret")
         || key_lower.contains("token")
         || key_lower.contains("password")
-        || key_lower.contains("pat")
+        || key_lower == "pat"
+        || key_lower.ends_with("_pat")
+        || key_lower.starts_with("pat_")
         || key_lower.contains("credential")
 }
 
@@ -454,6 +456,18 @@ mod tests {
         assert_eq!(before, "he");
         assert_eq!(at_cursor, Some('l'));
         assert_eq!(after, "lo");
+    }
+
+    #[test]
+    fn test_is_sensitive_key_pat_not_path() {
+        // PAT (Personal Access Token) variants should be sensitive
+        assert!(is_sensitive_key("GITHUB_PAT"));
+        assert!(is_sensitive_key("GH_PAT"));
+        assert!(is_sensitive_key("PAT"));
+        // PATH variants should NOT be sensitive
+        assert!(!is_sensitive_key("PATH"));
+        assert!(!is_sensitive_key("GOPATH"));
+        assert!(!is_sensitive_key("CLASSPATH"));
     }
 
     #[test]
