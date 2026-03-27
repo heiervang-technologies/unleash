@@ -57,11 +57,17 @@ struct UpdateOutcome {
 /// 2. Unless `check_only`, update agents that have updates (parallel).
 /// 3. Print a summary.
 pub fn run(config: UpdateConfig) -> io::Result<()> {
-    let agents = if config.agents.is_empty() {
-        AgentType::all().to_vec()
-    } else {
-        config.agents.clone()
-    };
+    // Handle unleash self-update
+    if config.include_self {
+        check_or_update_self(config.check_only)?;
+    }
+
+    // If no agents specified, we're done (self-update only)
+    if config.agents.is_empty() {
+        return Ok(());
+    }
+
+    let agents = config.agents.clone();
 
     // ------------------------------------------------------------------
     // Phase 1 – parallel version checks
@@ -302,6 +308,42 @@ fn print_summary(check_results: &[CheckResult], outcomes: &[UpdateOutcome]) {
 // ---------------------------------------------------------------------------
 // Per-agent check logic (runs in worker thread)
 // ---------------------------------------------------------------------------
+
+/// Check or update unleash itself.
+fn check_or_update_self(check_only: bool) -> io::Result<()> {
+    let current = env!("CARGO_PKG_VERSION");
+
+    // Check latest release from GitHub
+    eprintln!("Checking unleash...");
+    let latest = get_latest_github_version("heiervang-technologies/unleash")?;
+
+    match latest {
+        Some(ref ver) if ver != current => {
+            if check_only {
+                println!("  Unleash          {} -> {} (update available)", current, ver);
+            } else {
+                println!("  Unleash          updating {} -> {}...", current, ver);
+                // Self-update: re-run install script
+                let output = Command::new("bash")
+                    .args(["-c", "gh repo clone heiervang-technologies/unleash /tmp/unleash-update 2>/dev/null && bash /tmp/unleash-update/scripts/install.sh && rm -rf /tmp/unleash-update"])
+                    .output()?;
+                if output.status.success() {
+                    println!("  Unleash          {} -> {} (updated)", current, ver);
+                } else {
+                    eprintln!("  Unleash          update failed: {}", String::from_utf8_lossy(&output.stderr));
+                }
+            }
+        }
+        Some(_) => {
+            println!("  Unleash          {} (up to date)", current);
+        }
+        None => {
+            println!("  Unleash          {} (could not check latest)", current);
+        }
+    }
+
+    Ok(())
+}
 
 /// Check a single agent's installed vs latest version.
 fn check_agent(agent_type: AgentType) -> io::Result<CheckResult> {
