@@ -1,5 +1,13 @@
 # Changelog
 
+## [9.3.0](https://github.com/heiervang-technologies/unleash/compare/v9.2.4...v9.3.0) (2026-03-27)
+
+
+### Features
+
+* unleash update with parallel progress bars ([#221](https://github.com/heiervang-technologies/unleash/issues/221)) ([8b8abe2](https://github.com/heiervang-technologies/unleash/commit/8b8abe2464a93c5273c7d3c53e97697683821d83))
+* unleash update with parallel progress bars + codex prebuilt binaries ([8b8abe2](https://github.com/heiervang-technologies/unleash/commit/8b8abe2464a93c5273c7d3c53e97697683821d83)), closes [#220](https://github.com/heiervang-technologies/unleash/issues/220)
+
 ## [9.2.4](https://github.com/heiervang-technologies/unleash/compare/v9.2.3...v9.2.4) (2026-03-26)
 
 
