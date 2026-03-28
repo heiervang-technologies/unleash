@@ -1,0 +1,94 @@
+name: Docker Publish
+
+# Builds and pushes the Docker image to Docker Hub on release and manual trigger.
+# Requires org secrets: DOCKERHUB_USERNAME, DOCKERHUB_TOKEN
+
+on:
+  release:
+    types: [published]
+  push:
+    branches: [main]
+    paths:
+      - 'docker/**'
+      - 'src/**'
+      - 'Cargo.toml'
+      - 'Cargo.lock'
+      - 'plugins/**'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  publish:
+    name: Build & Push to Docker Hub
+    runs-on: self-hosted
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Log in to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Extract metadata
+        id: meta
+        run: |
+          VERSION=$(grep '^version' Cargo.toml | head -1 | sed 's/.*"\(.*\)"/\1/')
+          echo "version=${VERSION}" >> $GITHUB_OUTPUT
+
+          # Tags: latest + version on release, just latest on push to main
+          if [[ "${{ github.event_name }}" == "release" ]]; then
+            echo "tags=heiervang/unleash:latest,heiervang/unleash:v${VERSION}" >> $GITHUB_OUTPUT
+          else
+            echo "tags=heiervang/unleash:latest" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Build Docker image
+        run: |
+          docker build -f docker/Dockerfile \
+            --label "org.opencontainers.image.version=${{ steps.meta.outputs.version }}" \
+            --label "org.opencontainers.image.source=https://github.com/heiervang-technologies/unleash" \
+            -t unleash:local .
+
+      - name: Verify all CLIs
+        run: |
+          FAILED=0
+          for cli in claude codex gemini opencode unleash gh; do
+            VERSION=$(docker run --rm unleash:local $cli --version 2>&1 | head -1) || true
+            if [ -n "$VERSION" ] && ! echo "$VERSION" | grep -qi "error\|not found"; then
+              echo "  ✓ $cli: $VERSION"
+            else
+              echo "  ✗ $cli: FAILED"
+              FAILED=1
+            fi
+          done
+          if [ "$FAILED" -eq 1 ]; then
+            echo "CLI verification failed — not pushing"
+            exit 1
+          fi
+
+      - name: Tag and push
+        run: |
+          IFS=',' read -ra TAGS <<< "${{ steps.meta.outputs.tags }}"
+          for tag in "${TAGS[@]}"; do
+            docker tag unleash:local "$tag"
+            docker push "$tag"
+            echo "Pushed: $tag"
+          done
+
+      - name: Summary
+        run: |
+          echo "## Docker Image Published" >> $GITHUB_STEP_SUMMARY
+          echo "- Version: ${{ steps.meta.outputs.version }}" >> $GITHUB_STEP_SUMMARY
+          echo "- Tags: ${{ steps.meta.outputs.tags }}" >> $GITHUB_STEP_SUMMARY
+
+      - name: Cleanup
+        if: always()
+        run: |
+          docker rmi unleash:local 2>/dev/null || true
+          docker builder prune -f --filter "until=1h" 2>/dev/null || true

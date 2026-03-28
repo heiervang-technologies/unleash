@@ -1,0 +1,60 @@
+# Unleash Docker Compose
+#
+# Usage (mount your project directory):
+#   docker compose -f docker/docker-compose.yml run --rm claude
+#   docker compose -f docker/docker-compose.yml run --rm codex
+#   docker compose -f docker/docker-compose.yml run --rm gemini
+#   docker compose -f docker/docker-compose.yml run --rm opencode
+#
+# By default, mounts the current directory as /workspace.
+# Override WORKSPACE_DIR to mount a different directory:
+#   WORKSPACE_DIR=/path/to/project docker compose -f docker/docker-compose.yml run --rm claude
+
+services:
+  # Base service - builds the image
+  # Uses sysbox-runc for enhanced sandboxing (if installed).
+  # Remove runtime line if sysbox is not available.
+  unleash:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+    image: unleash:latest
+    runtime: ${CONTAINER_RUNTIME:-runc}
+    stdin_open: true
+    tty: true
+    working_dir: /workspace
+    volumes:
+      - ${WORKSPACE_DIR:-.}:/workspace
+    environment:
+      - ANTHROPIC_API_KEY
+      - OPENAI_API_KEY
+      - GEMINI_API_KEY
+      - CLAUDE_CODE_OAUTH_TOKEN
+
+  # Claude Code agent
+  claude:
+    extends: unleash
+    environment:
+      - AGENT_CMD=claude
+      - ANTHROPIC_API_KEY
+      - CLAUDE_CODE_OAUTH_TOKEN
+
+  # OpenAI Codex agent
+  codex:
+    extends: unleash
+    environment:
+      - AGENT_CMD=codex
+      - OPENAI_API_KEY
+
+  # Google Gemini CLI agent
+  gemini:
+    extends: unleash
+    environment:
+      - AGENT_CMD=gemini
+      - GEMINI_API_KEY
+
+  # OpenCode agent
+  opencode:
+    extends: unleash
+    environment:
+      - AGENT_CMD=opencode

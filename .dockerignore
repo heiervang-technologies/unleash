@@ -1,0 +1,11 @@
+target/
+.git/
+.branches
+node_modules/
+*.log
+logs/
+.env
+.env.*
+.DS_Store
+.idea/
+.vscode/

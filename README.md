@@ -276,6 +276,36 @@ unleash/
 └── docs/                   # Specs and guides
 ```
 
+## Running in Docker
+
+Unleash provides a sandboxed Docker container with all 4 coder CLIs pre-installed to their latest versions:
+
+- **Claude Code** (Anthropic) — `claude`
+- **Codex** (OpenAI) — `codex`
+- **Gemini CLI** (Google) — `gemini`
+- **OpenCode** — `opencode`
+
+One image, all agents ready to go.
+
+```bash
+# Build the image
+docker build -f docker/Dockerfile -t unleash .
+
+# Run with TUI (interactive mode)
+docker run -it --rm \
+  -e CLAUDE_CODE_OAUTH_TOKEN \
+  -v $(pwd):/workspace \
+  unleash
+
+# Or launch Claude Code directly
+docker run -it --rm \
+  -e CLAUDE_CODE_OAUTH_TOKEN \
+  -v $(pwd):/workspace \
+  unleash claude
+```
+
+See [docker/](docker/) for Docker Compose usage and detailed configuration.
+
 ## Contributing
 
 ```bash
