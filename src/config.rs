@@ -225,15 +225,11 @@ pub struct AppConfig {
     #[serde(default = "default_profile_name")]
     pub current_profile: String,
     /// Whether TUI animations are enabled
-    #[serde(default = "default_true")]
+    #[serde(default)]
     pub animations: bool,
     /// Auto-update settings for Unleash and agent CLIs
     #[serde(default)]
     pub auto_update: AutoUpdateConfig,
-}
-
-fn default_true() -> bool {
-    true
 }
 
 fn default_profile_name() -> String {
@@ -263,7 +259,7 @@ impl Default for AppConfig {
     fn default() -> Self {
         Self {
             current_profile: default_profile_name(),
-            animations: true,
+            animations: false,
             auto_update: AutoUpdateConfig::default(),
         }
     }

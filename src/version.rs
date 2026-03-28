@@ -12,6 +12,17 @@ use std::process::{Command, Stdio};
 use std::sync::mpsc;
 use std::thread;
 
+/// Result of a checksum verification attempt.
+#[derive(Debug)]
+enum ChecksumResult {
+    /// Checksum matched.
+    Verified,
+    /// Checksum did not match.
+    Mismatch { expected: String, actual: String },
+    /// Verification was skipped (no manifest, no tool, etc.).
+    Skipped(String),
+}
+
 /// GCS bucket base URL for Claude Code native releases
 const CLAUDE_GCS_BUCKET: &str = "https://storage.googleapis.com/claude-code-dist-86c565f3-f756-42ad-8dfa-d59b1c096819/claude-code-releases";
 
@@ -284,6 +295,44 @@ impl VersionManager {
         None
     }
 
+    /// Silently remove npm-installed Claude Code if present.
+    /// Called after a successful native install to prevent conflicts.
+    fn remove_npm_claude_if_present() {
+        if !Self::has_npm() {
+            return;
+        }
+        // Check if npm package is installed
+        if let Ok(out) = Command::new("npm")
+            .args(["list", "-g", "@anthropic-ai/claude-code"])
+            .output()
+        {
+            let stdout = String::from_utf8_lossy(&out.stdout);
+            if out.status.success()
+                && !stdout.contains("empty")
+                && stdout.contains("@anthropic-ai/claude-code")
+            {
+                eprintln!("  Removing conflicting npm installation...");
+                match Command::new("npm")
+                    .args(["uninstall", "-g", "@anthropic-ai/claude-code"])
+                    .output()
+                {
+                    Ok(o) if o.status.success() => {
+                        eprintln!("  \x1b[32m+\x1b[0m npm package removed");
+                    }
+                    Ok(o) => {
+                        eprintln!(
+                            "  \x1b[31mx\x1b[0m npm uninstall failed: {}",
+                            String::from_utf8_lossy(&o.stderr).trim()
+                        );
+                    }
+                    Err(e) => {
+                        eprintln!("  \x1b[31mx\x1b[0m npm uninstall failed: {}", e);
+                    }
+                }
+            }
+        }
+    }
+
     /// Cleanup conflicting installations
     pub fn cleanup_conflicts(&self, binary_name: &str) -> io::Result<()> {
         if binary_name == "claude" {
@@ -383,6 +432,51 @@ impl VersionManager {
             .map(|s| s.to_string())
     }
 
+    /// Verify SHA-256 checksum of a downloaded file against the manifest.
+    fn verify_checksum_for_file(
+        file_path: &std::path::Path,
+        manifest_url: &str,
+        platform: &str,
+    ) -> ChecksumResult {
+        let manifest_output = match Command::new("curl").args(["-fsSL", manifest_url]).output() {
+            Ok(o) if o.status.success() => o,
+            _ => return ChecksumResult::Skipped("manifest not available".into()),
+        };
+
+        let manifest = String::from_utf8_lossy(&manifest_output.stdout);
+        let expected = match Self::extract_checksum_from_manifest(&manifest, platform) {
+            Some(e) => e,
+            None => return ChecksumResult::Skipped("no checksum in manifest".into()),
+        };
+
+        let checksum_cmd = if cfg!(target_os = "macos") {
+            "shasum"
+        } else {
+            "sha256sum"
+        };
+        let mut cmd = Command::new(checksum_cmd);
+        if cfg!(target_os = "macos") {
+            cmd.args(["-a", "256"]);
+        }
+        cmd.arg(file_path.to_str().unwrap_or(""));
+
+        match cmd.output() {
+            Ok(o) if o.status.success() => {
+                let actual = String::from_utf8_lossy(&o.stdout);
+                let actual_checksum = actual.split_whitespace().next().unwrap_or("").to_string();
+                if actual_checksum == expected {
+                    ChecksumResult::Verified
+                } else {
+                    ChecksumResult::Mismatch {
+                        expected,
+                        actual: actual_checksum,
+                    }
+                }
+            }
+            _ => ChecksumResult::Skipped("sha256sum failed".into()),
+        }
+    }
+
     /// Get available Claude Code versions from GCS + npm registry
     pub fn get_available_versions(&self) -> io::Result<Vec<String>> {
         let mut seen = std::collections::HashSet::new();
@@ -452,6 +546,8 @@ impl VersionManager {
         // Try native (GCS) first
         let native_result = self.install_version_native(version)?;
         if native_result.success {
+            // Clean up npm installation if present to avoid conflicts
+            Self::remove_npm_claude_if_present();
             return Ok(native_result);
         }
 
@@ -541,41 +637,23 @@ impl VersionManager {
         }
 
         // Download manifest for checksum verification
-        if let Ok(manifest_output) = Command::new("curl").args(["-fsSL", &manifest_url]).output() {
-            if manifest_output.status.success() {
-                let manifest = String::from_utf8_lossy(&manifest_output.stdout);
-                if let Some(expected) = Self::extract_checksum_from_manifest(&manifest, &platform) {
-                    // Verify checksum
-                    let checksum_cmd = if cfg!(target_os = "macos") {
-                        "shasum"
-                    } else {
-                        "sha256sum"
-                    };
-                    let mut cmd = Command::new(checksum_cmd);
-                    if cfg!(target_os = "macos") {
-                        cmd.args(["-a", "256"]);
-                    }
-                    cmd.arg(temp_path.to_str().unwrap_or(""));
-
-                    if let Ok(checksum_output) = cmd.output() {
-                        if checksum_output.status.success() {
-                            let actual = String::from_utf8_lossy(&checksum_output.stdout);
-                            let actual_checksum = actual.split_whitespace().next().unwrap_or("");
-                            if actual_checksum != expected {
-                                let _ = std::fs::remove_file(&temp_path);
-                                return Ok(InstallResult {
-                                    success: false,
-                                    stdout: String::new(),
-                                    stderr: format!(
-                                        "Checksum mismatch: expected {}, got {}",
-                                        expected, actual_checksum
-                                    ),
-                                    error: Some("Checksum verification failed".to_string()),
-                                });
-                            }
-                        }
-                    }
-                }
+        let checksum_status = Self::verify_checksum_for_file(&temp_path, &manifest_url, &platform);
+        match checksum_status {
+            ChecksumResult::Verified => {
+                eprintln!("  \x1b[32m+\x1b[0m Checksum verified (SHA-256)");
+            }
+            ChecksumResult::Mismatch { expected, actual } => {
+                let _ = std::fs::remove_file(&temp_path);
+                eprintln!("  \x1b[31mx\x1b[0m Checksum FAILED: expected {}, got {}", expected, actual);
+                return Ok(InstallResult {
+                    success: false,
+                    stdout: String::new(),
+                    stderr: format!("Checksum mismatch: expected {}, got {}", expected, actual),
+                    error: Some("Checksum verification failed".to_string()),
+                });
+            }
+            ChecksumResult::Skipped(reason) => {
+                eprintln!("  \x1b[33m-\x1b[0m Checksum skipped ({})", reason);
             }
         }
 
@@ -1012,6 +1090,8 @@ impl VersionManager {
         ));
         let native_result = self.install_version_native_streaming(version, &log_tx)?;
         if native_result.success {
+            // Clean up npm installation if present to avoid conflicts
+            Self::remove_npm_claude_if_present();
             return Ok(native_result);
         }
 
@@ -1108,47 +1188,27 @@ impl VersionManager {
         }
 
         // Verify checksum
-        let _ = log_tx.send("Downloading manifest for checksum verification...".to_string());
-        if let Ok(manifest_output) = Command::new("curl").args(["-fsSL", &manifest_url]).output() {
-            if manifest_output.status.success() {
-                let manifest = String::from_utf8_lossy(&manifest_output.stdout);
-                if let Some(expected) = Self::extract_checksum_from_manifest(&manifest, &platform) {
-                    let _ = log_tx.send("Verifying checksum...".to_string());
-                    let checksum_cmd = if cfg!(target_os = "macos") {
-                        "shasum"
-                    } else {
-                        "sha256sum"
-                    };
-                    let mut cmd = Command::new(checksum_cmd);
-                    if cfg!(target_os = "macos") {
-                        cmd.args(["-a", "256"]);
-                    }
-                    cmd.arg(temp_path.to_str().unwrap_or(""));
-
-                    if let Ok(checksum_output) = cmd.output() {
-                        if checksum_output.status.success() {
-                            let actual = String::from_utf8_lossy(&checksum_output.stdout);
-                            let actual_checksum = actual.split_whitespace().next().unwrap_or("");
-                            if actual_checksum != expected {
-                                let _ = fs::remove_file(&temp_path);
-                                let _ = log_tx.send(format!(
-                                    "Checksum mismatch: expected {}, got {}",
-                                    expected, actual_checksum
-                                ));
-                                return Ok(InstallResult {
-                                    success: false,
-                                    stdout: String::new(),
-                                    stderr: format!(
-                                        "Checksum mismatch: expected {}, got {}",
-                                        expected, actual_checksum
-                                    ),
-                                    error: Some("Checksum verification failed".to_string()),
-                                });
-                            }
-                            let _ = log_tx.send("Checksum verified.".to_string());
-                        }
-                    }
-                }
+        let _ = log_tx.send("Verifying checksum...".to_string());
+        let checksum_status = Self::verify_checksum_for_file(&temp_path, &manifest_url, &platform);
+        match checksum_status {
+            ChecksumResult::Verified => {
+                let _ = log_tx.send("\x1b[32m+\x1b[0m Checksum verified (SHA-256)".to_string());
+            }
+            ChecksumResult::Mismatch { expected, actual } => {
+                let _ = fs::remove_file(&temp_path);
+                let _ = log_tx.send(format!(
+                    "\x1b[31mx\x1b[0m Checksum FAILED: expected {}, got {}",
+                    expected, actual
+                ));
+                return Ok(InstallResult {
+                    success: false,
+                    stdout: String::new(),
+                    stderr: format!("Checksum mismatch: expected {}, got {}", expected, actual),
+                    error: Some("Checksum verification failed".to_string()),
+                });
+            }
+            ChecksumResult::Skipped(reason) => {
+                let _ = log_tx.send(format!("\x1b[33m-\x1b[0m Checksum skipped ({})", reason));
             }
         }
 
@@ -1434,19 +1494,23 @@ pub(crate) fn version_compare(a: &str, b: &str) -> std::cmp::Ordering {
         s.trim_start_matches("rust-v").trim_start_matches('v')
     }
 
-    fn parse_parts(s: &str) -> (Vec<u32>, bool) {
-        let has_pre = s.contains('-');
+    /// Split a version string into (base numeric parts, optional pre-release suffix).
+    fn parse_parts(s: &str) -> (Vec<u32>, Option<&str>) {
+        let pre = s.split_once('-').map(|(_, rest)| rest);
         let base = s.split('-').next().unwrap_or(s);
         let parts = base
             .split('.')
             .map(|p| p.parse::<u32>().unwrap_or(0))
             .collect();
-        (parts, has_pre)
+        (parts, pre)
     }
 
-    let (a_parts, a_pre) = parse_parts(strip_prefix(a));
-    let (b_parts, b_pre) = parse_parts(strip_prefix(b));
+    let a_stripped = strip_prefix(a);
+    let b_stripped = strip_prefix(b);
+    let (a_parts, a_pre) = parse_parts(a_stripped);
+    let (b_parts, b_pre) = parse_parts(b_stripped);
 
+    // Compare base numeric parts
     for i in 0..a_parts.len().max(b_parts.len()) {
         let pa = a_parts.get(i).copied().unwrap_or(0);
         let pb = b_parts.get(i).copied().unwrap_or(0);
@@ -1458,10 +1522,40 @@ pub(crate) fn version_compare(a: &str, b: &str) -> std::cmp::Ordering {
 
     // Same base version: pre-release < release (per semver)
     match (a_pre, b_pre) {
-        (true, false) => std::cmp::Ordering::Less,
-        (false, true) => std::cmp::Ordering::Greater,
-        _ => std::cmp::Ordering::Equal,
+        (Some(_), None) => std::cmp::Ordering::Less,
+        (None, Some(_)) => std::cmp::Ordering::Greater,
+        (Some(a_suffix), Some(b_suffix)) => compare_prerelease(a_suffix, b_suffix),
+        (None, None) => std::cmp::Ordering::Equal,
     }
+}
+
+/// Compare pre-release suffixes per SemVer 11.4:
+/// split on `.`, numeric segments compare as integers, otherwise lexicographic.
+fn compare_prerelease(a: &str, b: &str) -> std::cmp::Ordering {
+    let a_parts: Vec<&str> = a.split('.').collect();
+    let b_parts: Vec<&str> = b.split('.').collect();
+
+    for i in 0..a_parts.len().max(b_parts.len()) {
+        let ap = a_parts.get(i);
+        let bp = b_parts.get(i);
+        match (ap, bp) {
+            (None, Some(_)) => return std::cmp::Ordering::Less,  // fewer fields = lower precedence
+            (Some(_), None) => return std::cmp::Ordering::Greater,
+            (Some(a_seg), Some(b_seg)) => {
+                let ord = match (a_seg.parse::<u64>(), b_seg.parse::<u64>()) {
+                    (Ok(an), Ok(bn)) => an.cmp(&bn),
+                    (Ok(_), Err(_)) => std::cmp::Ordering::Less,   // numeric < alphanumeric
+                    (Err(_), Ok(_)) => std::cmp::Ordering::Greater,
+                    (Err(_), Err(_)) => a_seg.cmp(b_seg),
+                };
+                if ord != std::cmp::Ordering::Equal {
+                    return ord;
+                }
+            }
+            (None, None) => break,
+        }
+    }
+    std::cmp::Ordering::Equal
 }
 
 /// Convenience wrapper: returns `true` if version `a` is strictly less than `b`.
@@ -1613,8 +1707,19 @@ mod tests {
         assert_eq!(version_compare("1.2.3-beta", "1.2.3"), Ordering::Less);
         assert_eq!(version_compare("1.2.3-beta.1", "1.2.3"), Ordering::Less);
         assert_eq!(version_compare("1.2.3", "1.2.3-beta"), Ordering::Greater);
-        // Two pre-releases with same base are equal (no sub-ordering)
-        assert_eq!(version_compare("1.2.3-alpha", "1.2.3-beta"), Ordering::Equal);
+        // Pre-release suffixes are compared lexicographically
+        assert_eq!(version_compare("1.2.3-alpha", "1.2.3-beta"), Ordering::Less);
+        assert_eq!(version_compare("1.2.3-beta", "1.2.3-alpha"), Ordering::Greater);
+        // Gemini-style preview versions sort correctly
+        assert_eq!(version_compare("0.36.0-preview.0", "0.36.0-preview.2"), Ordering::Less);
+        assert_eq!(version_compare("0.36.0-preview.5", "0.36.0-preview.6"), Ordering::Less);
+        assert_eq!(version_compare("0.36.0-nightly.20260318", "0.36.0-nightly.20260325"), Ordering::Less);
+        // nightly < preview (lexicographic)
+        assert_eq!(version_compare("0.36.0-nightly.1", "0.36.0-preview.0"), Ordering::Less);
+        // Multi-digit numeric segments (SemVer 11.4 — numeric comparison, not lexicographic)
+        assert_eq!(version_compare("0.36.0-preview.2", "0.36.0-preview.10"), Ordering::Less);
+        assert_eq!(version_compare("0.36.0-preview.10", "0.36.0-preview.2"), Ordering::Greater);
+        assert_eq!(version_compare("0.36.0-preview.15", "0.36.0-preview.15"), Ordering::Equal);
 
         // Single component
         assert_eq!(version_compare("2", "1"), Ordering::Greater);

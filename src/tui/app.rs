@@ -12,7 +12,7 @@ use crossterm::event::{
     Event, KeyCode, KeyEvent, KeyModifiers, MouseButton, MouseEvent, MouseEventKind,
 };
 use ratatui::{
-    layout::{Constraint, Direction, Layout, Rect},
+    layout::{Alignment, Constraint, Direction, Layout, Rect},
     style::{Color, Modifier, Style},
     text::{Line, Span},
     widgets::{Block, Borders, Clear, List, ListItem, Paragraph, Wrap},
@@ -376,7 +376,8 @@ impl App {
             .and_then(|p| ThemeColor::from_config(&p.theme))
             .unwrap_or(ThemeColor::Preset(ThemePreset::Orange));
 
-        let animations_enabled = app_config.animations;
+        let animations_enabled = app_config.animations
+            || std::env::var("UNLEASH_ANIMATIONS").map_or(false, |v| v == "1");
 
         Ok(Self {
             running: true,
@@ -3125,12 +3126,16 @@ impl App {
             ),
         ]));
 
-        let dialog = Paragraph::new(lines).block(
-            Block::default()
-                .borders(Borders::ALL)
-                .border_style(Style::default().fg(Color::Yellow))
-                .style(Style::default().bg(Color::Black)),
-        );
+        let dialog = Paragraph::new(lines)
+            .wrap(Wrap { trim: false })
+            .block(
+                Block::default()
+                    .title(" Conflict Warning — [Y]es / [N]o ")
+                    .title_alignment(Alignment::Center)
+                    .borders(Borders::ALL)
+                    .border_style(Style::default().fg(Color::Yellow))
+                    .style(Style::default().bg(Color::Black)),
+            );
 
         frame.render_widget(dialog, dialog_area);
 
