@@ -1,5 +1,13 @@
 # Changelog
 
+## [9.6.0](https://github.com/heiervang-technologies/unleash/compare/v9.5.3...v9.6.0) (2026-03-28)
+
+
+### Features
+
+* config restructure, effort polyfill, version poll TTL ([#261](https://github.com/heiervang-technologies/unleash/issues/261)) ([509ce01](https://github.com/heiervang-technologies/unleash/commit/509ce017a2438a005563392b224a836a91253ca3))
+* restructure profile config, add effort polyfill, version poll TTL ([509ce01](https://github.com/heiervang-technologies/unleash/commit/509ce017a2438a005563392b224a836a91253ca3))
+
 ## [9.5.3](https://github.com/heiervang-technologies/unleash/compare/v9.5.2...v9.5.3) (2026-03-28)
 
 
