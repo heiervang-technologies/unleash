@@ -1,5 +1,13 @@
 # Changelog
 
+## [9.7.1](https://github.com/heiervang-technologies/unleash/compare/v9.7.0...v9.7.1) (2026-03-28)
+
+
+### Bug Fixes
+
+* prepend sudo to npm global installs when prefix is root-owned ([abf069c](https://github.com/heiervang-technologies/unleash/commit/abf069c1de512deb31755c77a0e47f141f2e9ccc)), closes [#263](https://github.com/heiervang-technologies/unleash/issues/263)
+* prepend sudo to npm global installs when prefix is root-owned ([#264](https://github.com/heiervang-technologies/unleash/issues/264)) ([abf069c](https://github.com/heiervang-technologies/unleash/commit/abf069c1de512deb31755c77a0e47f141f2e9ccc))
+
 ## [9.7.0](https://github.com/heiervang-technologies/unleash/compare/v9.6.0...v9.7.0) (2026-03-28)
 
 
