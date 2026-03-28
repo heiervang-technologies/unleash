@@ -1495,44 +1495,6 @@ impl App {
             return Ok(None);
         }
 
-        // Handle 'a' key for toggling auto-update on any focused section
-        if key.code == KeyCode::Char('a') {
-            match self.version_focus {
-                VersionFocus::Unleash => {
-                    self.app_config.auto_update.unleash = !self.app_config.auto_update.unleash;
-                    let state = if self.app_config.auto_update.unleash {
-                        "On"
-                    } else {
-                        "Off"
-                    };
-                    self.status_message = Some(format!("Unleash auto-update: {}", state));
-                    let _ = self.profile_manager.save_app_config(&self.app_config);
-                }
-                VersionFocus::AgentPicker => {
-                    self.app_config
-                        .auto_update
-                        .toggle_agent(&self.version_agent);
-                    let state = if self
-                        .app_config
-                        .auto_update
-                        .auto_update_for_agent(&self.version_agent)
-                    {
-                        "On"
-                    } else {
-                        "Off"
-                    };
-                    self.status_message = Some(format!(
-                        "{} auto-update: {}",
-                        self.version_agent.display_name(),
-                        state
-                    ));
-                    let _ = self.profile_manager.save_app_config(&self.app_config);
-                }
-                VersionFocus::VersionList => {} // no toggle on version list
-            }
-            return Ok(None);
-        }
-
         // Handle 'gg' two-key sequence for jump-to-top
         if self.g_pending {
             self.g_pending = false;
@@ -2202,7 +2164,7 @@ impl App {
                 40
             }
             Screen::VersionManagement => {
-                // Wider to fit agent versions + auto-update toggles
+                // Wider to fit agent versions
                 55
             }
             Screen::ProfileEdit | Screen::EnvVarEdit => {
@@ -3399,12 +3361,6 @@ impl App {
         let inner = block.inner(area);
         frame.render_widget(block, area);
 
-        let auto_update = if self.app_config.auto_update.unleash {
-            "On"
-        } else {
-            "Off"
-        };
-
         let version_line = Line::from(vec![
             Span::styled("  ", Style::default()),
             Span::styled(
@@ -3413,20 +3369,13 @@ impl App {
                     .fg(Color::White)
                     .add_modifier(Modifier::BOLD),
             ),
-            Span::raw("    "),
-            Span::styled(
-                format!("Auto-update: [{}]", auto_update),
-                Style::default().fg(Color::DarkGray),
-            ),
         ]);
 
         let hints_line = if is_focused {
             Line::from(vec![
                 Span::styled("  ", Style::default()),
                 Span::styled("[Enter] ", Style::default().fg(self.accent_color())),
-                Span::styled("Update  ", Style::default().fg(Color::DarkGray)),
-                Span::styled("[a] ", Style::default().fg(self.accent_color())),
-                Span::styled("Toggle auto-update", Style::default().fg(Color::DarkGray)),
+                Span::styled("Update", Style::default().fg(Color::DarkGray)),
             ])
         } else {
             Line::from("")
@@ -3483,30 +3432,14 @@ impl App {
                 .map(|v| format!("  v{}", v))
                 .unwrap_or_default();
 
-            // Show auto-update status
-            let auto_update = if self.app_config.auto_update.auto_update_for_agent(agent) {
-                "On"
-            } else {
-                "Off"
-            };
-
-            let mut spans = vec![
+            let spans = vec![
                 Span::styled(prefix, style),
                 Span::styled(format!("{:<12}", agent.display_name()), style),
                 Span::styled(
                     format!("{:<12}", version_str),
                     Style::default().fg(Color::Green),
                 ),
-                Span::styled(
-                    format!("Auto: {}", auto_update),
-                    Style::default().fg(Color::DarkGray),
-                ),
             ];
-
-            // Show [a] hint when focused on this agent
-            if is_selected && self.version_focus == VersionFocus::AgentPicker {
-                spans.push(Span::raw(" "));
-            }
 
             lines.push(Line::from(spans));
         }
