@@ -437,7 +437,13 @@ pub fn trigger_exit(wrapper_pid: u32) -> io::Result<()> {
     Ok(())
 }
 
-/// Check for updates on launch (non-blocking)
+/// Check for updates on launch and optionally install them.
+///
+/// Currently this only prints a notice. To make auto-update real:
+/// - TODO: Actually run the update when auto-update is enabled (not just notify)
+/// - TODO: Respect a check interval (e.g. 24h) to avoid API spam
+/// - TODO: Run updates non-blocking so agent startup isn't delayed
+/// - TODO: Handle errors gracefully (network down, rate limited, etc.)
 fn check_for_updates_on_launch(agent_type: AgentType) -> io::Result<()> {
     let profile_manager = ProfileManager::new()?;
     let config = profile_manager.load_app_config().unwrap_or_default();
