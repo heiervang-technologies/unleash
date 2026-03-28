@@ -804,7 +804,7 @@ impl AgentManager {
 
     /// Update an npm-based agent to latest version
     fn update_npm_agent(&self, package: &str, name: &str) -> io::Result<String> {
-        let output = Command::new("npm")
+        let output = crate::version::VersionManager::npm_global_command()
             .args(["install", "-g", &format!("{}@latest", package)])
             .output()?;
 

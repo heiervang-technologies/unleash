@@ -589,7 +589,7 @@ fn update_gemini(tx: &mpsc::Sender<(usize, LineState)>, index: usize) -> io::Res
         },
     ));
 
-    let output = Command::new("npm")
+    let output = crate::version::VersionManager::npm_global_command()
         .args(["install", "-g", "@google/gemini-cli@latest"])
         .output()?;
 
@@ -630,7 +630,7 @@ fn update_opencode(tx: &mpsc::Sender<(usize, LineState)>, index: usize) -> io::R
     } else {
         // Fallback: try npm install if opencode upgrade fails
         eprintln!("opencode upgrade failed, trying npm install...");
-        let npm_output = Command::new("npm")
+        let npm_output = crate::version::VersionManager::npm_global_command()
             .args(["install", "-g", &format!("opencode-ai@{}", target)])
             .output()?;
 

@@ -312,7 +312,7 @@ impl VersionManager {
                 && stdout.contains("@anthropic-ai/claude-code")
             {
                 eprintln!("  Removing conflicting npm installation...");
-                match Command::new("npm")
+                match Self::npm_global_command()
                     .args(["uninstall", "-g", "@anthropic-ai/claude-code"])
                     .output()
                 {
@@ -338,14 +338,14 @@ impl VersionManager {
         if binary_name == "claude" {
             // Keep native, uninstall npm
             if Self::has_npm() {
-                let _ = Command::new("npm")
+                let _ = Self::npm_global_command()
                     .args(["uninstall", "-g", "@anthropic-ai/claude-code"])
                     .output();
             }
         } else if binary_name == "opencode" {
             // Keep ~/.opencode/bin/opencode (native installer), remove npm global
             if Self::has_npm() {
-                let _ = Command::new("npm")
+                let _ = Self::npm_global_command()
                     .args(["uninstall", "-g", "opencode-ai"])
                     .output();
             }
@@ -420,6 +420,56 @@ impl VersionManager {
             .arg("--version")
             .output()
             .is_ok_and(|o| o.status.success())
+    }
+
+    /// Check whether `npm install -g` needs `sudo` on this system.
+    ///
+    /// Returns `true` when the npm global prefix directory (e.g. `/usr/lib`)
+    /// is not owned by the current user, which is the default on Arch Linux.
+    /// The result is cached for the lifetime of the process since the npm
+    /// prefix won't change mid-run.
+    pub fn npm_global_needs_sudo() -> bool {
+        use std::sync::OnceLock;
+        static NEEDS_SUDO: OnceLock<bool> = OnceLock::new();
+        *NEEDS_SUDO.get_or_init(|| {
+            let prefix = Command::new("npm")
+                .args(["config", "get", "prefix"])
+                .output()
+                .ok()
+                .and_then(|o| {
+                    if o.status.success() {
+                        Some(String::from_utf8_lossy(&o.stdout).trim().to_string())
+                    } else {
+                        None
+                    }
+                });
+
+            match prefix {
+                Some(p) => {
+                    use std::os::unix::fs::MetadataExt;
+                    let path = std::path::Path::new(&p);
+                    let uid = nix::unistd::getuid().as_raw();
+                    path.metadata()
+                        .map(|m| m.uid() != uid)
+                        .unwrap_or(false)
+                }
+                None => false,
+            }
+        })
+    }
+
+    /// Create a `Command` for npm global operations, prepending `sudo -n`
+    /// (non-interactive) if the prefix is root-owned. Using `-n` avoids
+    /// silent hangs when called from background threads where no TTY is
+    /// available for a password prompt.
+    pub fn npm_global_command() -> Command {
+        if Self::npm_global_needs_sudo() {
+            let mut cmd = Command::new("sudo");
+            cmd.args(["-n", "npm"]);
+            cmd
+        } else {
+            Command::new("npm")
+        }
     }
 
     /// Extract SHA256 checksum from manifest JSON for a given platform
@@ -891,7 +941,7 @@ impl VersionManager {
             });
         }
 
-        let output = Command::new("npm")
+        let output = Self::npm_global_command()
             .args([
                 "install",
                 "-g",
@@ -1009,7 +1059,7 @@ impl VersionManager {
             });
         }
 
-        let output = Command::new("npm")
+        let output = Self::npm_global_command()
             .args(["install", "-g", &format!("opencode-ai@{}", version)])
             .output()?;
 
@@ -1368,12 +1418,14 @@ impl VersionManager {
             });
         }
 
+        let use_sudo = Self::npm_global_needs_sudo();
         let _ = log_tx.send(format!(
-            "Running: npm install -g @google/gemini-cli@{}",
+            "Running: {}npm install -g @google/gemini-cli@{}",
+            if use_sudo { "sudo " } else { "" },
             version
         ));
         let (ok, stdout, stderr) = Self::run_streaming(
-            Command::new("npm").args([
+            Self::npm_global_command().args([
                 "install",
                 "-g",
                 "--force",
@@ -1434,9 +1486,14 @@ impl VersionManager {
             });
         }
 
-        let _ = log_tx.send(format!("Running: npm install -g opencode-ai@{}", version));
+        let use_sudo = Self::npm_global_needs_sudo();
+        let _ = log_tx.send(format!(
+            "Running: {}npm install -g opencode-ai@{}",
+            if use_sudo { "sudo " } else { "" },
+            version
+        ));
         let (ok, stdout, stderr) = Self::run_streaming(
-            Command::new("npm").args([
+            Self::npm_global_command().args([
                 "install",
                 "-g",
                 &format!("opencode-ai@{}", version),
