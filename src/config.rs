@@ -34,6 +34,24 @@ pub struct ProfileOverrides {
     pub opencode: AgentOverrides,
 }
 
+/// Profile-level defaults for polyfill-managed flags.
+/// CLI flags override these when provided.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
+pub struct ProfileDefaults {
+    /// Default model for this profile (e.g., "opus", "sonnet")
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub model: Option<String>,
+    /// Whether to restore approval prompts (default: false = yolo mode)
+    #[serde(default)]
+    pub safe: bool,
+    /// Whether to enable auto-mode by default
+    #[serde(default)]
+    pub auto: bool,
+    /// Default reasoning effort level (e.g., "high", "low")
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub effort: Option<String>,
+}
+
 /// A profile containing agent settings and environment variables for a session
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct Profile {
@@ -46,9 +64,14 @@ pub struct Profile {
     #[serde(default = "default_agent_cli_path", alias = "claude_path")]
     pub agent_cli_path: String,
 
-    /// Additional arguments to pass to the agent CLI
-    #[serde(default, alias = "claude_args")]
-    pub agent_args: Vec<String>,
+    /// Raw arguments passed directly to the agent CLI (not polyfill-managed).
+    /// Use `defaults` for polyfill-managed flags like model, safe, effort.
+    #[serde(default, alias = "agent_args", alias = "claude_args")]
+    pub agent_cli_args: Vec<String>,
+    /// Profile-level defaults for polyfill-managed flags (model, safe, auto, effort).
+    /// CLI flags override these at runtime.
+    #[serde(default)]
+    pub defaults: ProfileDefaults,
     /// Per-agent override blocks
     #[serde(default)]
     pub agents: ProfileOverrides,
@@ -69,7 +92,8 @@ impl Default for Profile {
             name: "claude".to_string(),
             description: "Claude Code by Anthropic".to_string(),
             agent_cli_path: default_agent_cli_path(),
-            agent_args: Vec::new(),
+            agent_cli_args: Vec::new(),
+            defaults: ProfileDefaults::default(),
             agents: ProfileOverrides::default(),
             stop_prompt: None,
             theme: default_theme(),
@@ -84,7 +108,8 @@ impl Profile {
             name: name.to_string(),
             description: String::new(),
             agent_cli_path: default_agent_cli_path(),
-            agent_args: Vec::new(),
+            agent_cli_args: Vec::new(),
+            defaults: ProfileDefaults::default(),
             agents: ProfileOverrides::default(),
             stop_prompt: None,
             theme: default_theme(),
@@ -101,7 +126,8 @@ impl Profile {
             name: name.to_string(),
             description: format!("API key profile: {}", name),
             agent_cli_path: default_agent_cli_path(),
-            agent_args: Vec::new(),
+            agent_cli_args: Vec::new(),
+            defaults: ProfileDefaults::default(),
             agents: ProfileOverrides::default(),
             stop_prompt: None,
             theme: default_theme(),
@@ -116,7 +142,8 @@ impl Profile {
                 name: "claude".to_string(),
                 description: "Claude Code by Anthropic".to_string(),
                 agent_cli_path: "claude".to_string(),
-                agent_args: Vec::new(),
+                agent_cli_args: Vec::new(),
+                defaults: ProfileDefaults::default(),
                 agents: ProfileOverrides::default(),
                 stop_prompt: None,
                 theme: "orange".to_string(),
@@ -126,7 +153,8 @@ impl Profile {
                 name: "codex".to_string(),
                 description: "Codex by OpenAI".to_string(),
                 agent_cli_path: "codex".to_string(),
-                agent_args: Vec::new(),
+                agent_cli_args: Vec::new(),
+                defaults: ProfileDefaults::default(),
                 agents: ProfileOverrides::default(),
                 stop_prompt: None,
                 theme: "#aaaaaa".to_string(),
@@ -136,7 +164,8 @@ impl Profile {
                 name: "gemini".to_string(),
                 description: "Gemini CLI by Google".to_string(),
                 agent_cli_path: "gemini".to_string(),
-                agent_args: Vec::new(),
+                agent_cli_args: Vec::new(),
+                defaults: ProfileDefaults::default(),
                 agents: ProfileOverrides::default(),
                 stop_prompt: None,
                 theme: "#4285f4".to_string(),
@@ -146,7 +175,8 @@ impl Profile {
                 name: "opencode".to_string(),
                 description: "OpenCode".to_string(),
                 agent_cli_path: "opencode".to_string(),
-                agent_args: Vec::new(),
+                agent_cli_args: Vec::new(),
+                defaults: ProfileDefaults::default(),
                 agents: ProfileOverrides::default(),
                 stop_prompt: None,
                 theme: "#10b981".to_string(),
@@ -346,7 +376,7 @@ impl ProfileManager {
             profile.agent_cli_path = path;
         }
         if let Some(args) = legacy.claude_args {
-            profile.agent_args = args;
+            profile.agent_cli_args = args;
         }
         if let Some(prompt) = legacy.stop_prompt {
             profile.stop_prompt = Some(prompt);
@@ -673,7 +703,7 @@ mod tests {
     fn test_profile_default_settings() {
         let profile = Profile::default();
         assert_eq!(profile.agent_cli_path, "unleash");
-        assert_eq!(profile.agent_args, Vec::<String>::new());
+        assert_eq!(profile.agent_cli_args, Vec::<String>::new());
         assert_eq!(profile.stop_prompt, None);
         assert_eq!(profile.theme, "orange");
     }
@@ -692,7 +722,7 @@ KEY = "value"
         assert_eq!(profile.name, "old-profile");
         assert_eq!(profile.agent_cli_path, "unleash");
         assert_eq!(profile.theme, "orange");
-        assert_eq!(profile.agent_args, Vec::<String>::new());
+        assert_eq!(profile.agent_cli_args, Vec::<String>::new());
         assert_eq!(profile.stop_prompt, None);
         assert_eq!(profile.get_env("KEY"), Some(&"value".to_string()));
     }
@@ -710,6 +740,19 @@ theme = "blue"
         let profile: Profile = toml::from_str(toml_str).unwrap();
         assert_eq!(profile.agent_cli_path, "custom-claude");
         assert_eq!(profile.theme, "blue");
+    }
+
+    #[test]
+    fn test_agent_args_alias_deserialization() {
+        // Old profile format with agent_args should deserialize via alias
+        let toml_str = r#"
+name = "alias-test"
+agent_args = ["--verbose", "--debug"]
+
+[env]
+"#;
+        let profile: Profile = toml::from_str(toml_str).unwrap();
+        assert_eq!(profile.agent_cli_args, vec!["--verbose", "--debug"]);
     }
 
     #[test]
@@ -754,7 +797,7 @@ SOME_KEY = "some_value"
         // Verify profile now has the migrated settings
         let profile = manager.load_profile("default").unwrap();
         assert_eq!(profile.agent_cli_path, "cug");
-        assert_eq!(profile.agent_args, vec!["--verbose".to_string()]);
+        assert_eq!(profile.agent_cli_args, vec!["--verbose".to_string()]);
         assert_eq!(profile.theme, "#ffff00");
         assert_eq!(profile.get_env("SOME_KEY"), Some(&"some_value".to_string()));
     }
@@ -792,7 +835,7 @@ theme = "#ffff00"
 
         let mut profile = Profile::new("full");
         profile.agent_cli_path = "/usr/local/bin/claude".to_string();
-        profile.agent_args = vec![
+        profile.agent_cli_args = vec![
             "--dangerously-skip-permissions".to_string(),
             "--timeout".to_string(),
             "300".to_string(),
@@ -806,7 +849,7 @@ theme = "#ffff00"
         let loaded = manager.load_profile("full").unwrap();
         assert_eq!(loaded.agent_cli_path, "/usr/local/bin/claude");
         assert_eq!(
-            loaded.agent_args,
+            loaded.agent_cli_args,
             vec!["--dangerously-skip-permissions", "--timeout", "300"]
         );
         assert_eq!(

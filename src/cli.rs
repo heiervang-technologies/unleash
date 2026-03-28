@@ -68,6 +68,10 @@ pub struct PolyfillArgs {
     #[arg(short, long)]
     pub auto: bool,
 
+    /// Reasoning effort level (e.g., "high", "low")
+    #[arg(short = 'e', long)]
+    pub effort: Option<String>,
+
     /// Show the resolved command without executing it
     #[arg(long)]
     pub dry_run: bool,
@@ -87,6 +91,7 @@ impl PolyfillArgs {
             resume: None,
             fork: false,
             auto: false,
+            effort: None,
             dry_run: false,
         };
         let mut passthrough = Vec::new();
@@ -135,6 +140,15 @@ impl PolyfillArgs {
                         last_value_flag = Some(arg.clone());
                     }
                 }
+                "-e" | "--effort" => {
+                    if let Some(val) = args.get(i + 1) {
+                        polyfill.effort = Some(val.clone());
+                        i += 1;
+                        last_value_flag = None;
+                    } else {
+                        last_value_flag = Some(arg.clone());
+                    }
+                }
                 "-r" | "--resume" => {
                     // Check if next arg is a value (not a flag)
                     if let Some(val) = args.get(i + 1) {
@@ -156,6 +170,8 @@ impl PolyfillArgs {
                         polyfill.model = Some(val.to_string());
                     } else if let Some(val) = arg.strip_prefix("--resume=") {
                         polyfill.resume = Some(val.to_string());
+                    } else if let Some(val) = arg.strip_prefix("--effort=") {
+                        polyfill.effort = Some(val.to_string());
                     } else {
                         // Unrecognized — pass through to agent
                         passthrough.push(arg.clone());
@@ -178,8 +194,12 @@ impl PolyfillArgs {
         (polyfill, passthrough)
     }
 
-    /// Convert CLI args into polyfill flags for the resolver
-    pub fn to_polyfill_flags(&self) -> crate::polyfill::PolyfillFlags {
+    /// Convert CLI args into polyfill flags for the resolver, merging with profile defaults.
+    /// CLI flags always override profile defaults. An info message is logged when an override occurs.
+    pub fn to_polyfill_flags(
+        &self,
+        profile_defaults: &crate::config::ProfileDefaults,
+    ) -> crate::polyfill::PolyfillFlags {
         let resume = if let Some(ref id) = self.resume {
             if id.is_empty() {
                 Some(None) // picker mode
@@ -190,15 +210,57 @@ impl PolyfillArgs {
             None
         };
 
+        // Resolve model: CLI > profile default
+        let model = if let Some(ref m) = self.model {
+            if let Some(ref default_model) = profile_defaults.model {
+                if m != default_model {
+                    eprintln!(
+                        "\x1b[34minfo:\x1b[0m overriding profile model '{}' with CLI flag '{}'",
+                        default_model, m
+                    );
+                }
+            }
+            Some(m.clone())
+        } else {
+            profile_defaults.model.clone()
+        };
+
+        // Resolve effort: CLI > profile default
+        let effort = if let Some(ref e) = self.effort {
+            if let Some(ref default_effort) = profile_defaults.effort {
+                if e != default_effort {
+                    eprintln!(
+                        "\x1b[34minfo:\x1b[0m overriding profile effort '{}' with CLI flag '{}'",
+                        default_effort, e
+                    );
+                }
+            }
+            Some(e.clone())
+        } else {
+            profile_defaults.effort.clone()
+        };
+
+        // Resolve safe/yolo: CLI flags override profile default
+        let safe = if self.safe {
+            true
+        } else if self.yolo && profile_defaults.safe {
+            eprintln!(
+                "\x1b[34minfo:\x1b[0m overriding profile safe mode with CLI flag '--yolo'"
+            );
+            false
+        } else {
+            profile_defaults.safe
+        };
+
         crate::polyfill::PolyfillFlags {
-            // yolo is true by default unless --safe is passed
-            yolo: !self.safe,
-            safe: self.safe,
+            yolo: !safe,
+            safe,
             headless: self.prompt.clone(),
-            model: self.model.clone(),
+            model,
             continue_session: self.continue_session,
             resume,
             fork: self.fork,
+            effort,
         }
     }
 }
@@ -237,7 +299,8 @@ UNIFIED FLAGS (before --):
   -c, --continue       Continue most recent session
   -r, --resume [id]    Resume session by ID or open picker
   --fork               Fork the session
-  -a, --auto           Enable auto-mode"#)]
+  -a, --auto           Enable auto-mode
+  -e, --effort <LEVEL> Reasoning effort level (e.g., high, low)"#)]
 pub struct Cli {
     /// Output results as JSON (supported by: auth, version)
     #[arg(long, global = true)]
@@ -511,11 +574,15 @@ mod tests {
         assert_eq!(polyfill.prompt, Some("fix bug".to_string()));
     }
 
+    fn no_defaults() -> crate::config::ProfileDefaults {
+        crate::config::ProfileDefaults::default()
+    }
+
     #[test]
     fn test_safe_to_polyfill_flags() {
         let args: Vec<String> = vec!["--safe".into()];
         let (polyfill, _) = PolyfillArgs::parse_from_raw(&args);
-        let flags = polyfill.to_polyfill_flags();
+        let flags = polyfill.to_polyfill_flags(&no_defaults());
         assert!(!flags.yolo);
         assert!(flags.safe);
     }
@@ -524,9 +591,86 @@ mod tests {
     fn test_default_is_yolo() {
         let args: Vec<String> = vec![];
         let (polyfill, _) = PolyfillArgs::parse_from_raw(&args);
-        let flags = polyfill.to_polyfill_flags();
+        let flags = polyfill.to_polyfill_flags(&no_defaults());
         assert!(flags.yolo);
         assert!(!flags.safe);
+    }
+
+    #[test]
+    fn test_effort_flag() {
+        let args: Vec<String> = vec!["-e".into(), "high".into()];
+        let (polyfill, passthrough) = PolyfillArgs::parse_from_raw(&args);
+        assert_eq!(polyfill.effort, Some("high".to_string()));
+        assert!(passthrough.is_empty());
+    }
+
+    #[test]
+    fn test_effort_equals_syntax() {
+        let args: Vec<String> = vec!["--effort=low".into()];
+        let (polyfill, _) = PolyfillArgs::parse_from_raw(&args);
+        assert_eq!(polyfill.effort, Some("low".to_string()));
+    }
+
+    #[test]
+    fn test_profile_defaults_model_used_when_no_cli_flag() {
+        let args: Vec<String> = vec![];
+        let (polyfill, _) = PolyfillArgs::parse_from_raw(&args);
+        let defaults = crate::config::ProfileDefaults {
+            model: Some("opus".to_string()),
+            ..Default::default()
+        };
+        let flags = polyfill.to_polyfill_flags(&defaults);
+        assert_eq!(flags.model, Some("opus".to_string()));
+    }
+
+    #[test]
+    fn test_cli_model_overrides_profile_default() {
+        let args: Vec<String> = vec!["-m".into(), "sonnet".into()];
+        let (polyfill, _) = PolyfillArgs::parse_from_raw(&args);
+        let defaults = crate::config::ProfileDefaults {
+            model: Some("opus".to_string()),
+            ..Default::default()
+        };
+        let flags = polyfill.to_polyfill_flags(&defaults);
+        assert_eq!(flags.model, Some("sonnet".to_string()));
+    }
+
+    #[test]
+    fn test_profile_defaults_effort_used_when_no_cli_flag() {
+        let args: Vec<String> = vec![];
+        let (polyfill, _) = PolyfillArgs::parse_from_raw(&args);
+        let defaults = crate::config::ProfileDefaults {
+            effort: Some("high".to_string()),
+            ..Default::default()
+        };
+        let flags = polyfill.to_polyfill_flags(&defaults);
+        assert_eq!(flags.effort, Some("high".to_string()));
+    }
+
+    #[test]
+    fn test_profile_safe_default() {
+        let args: Vec<String> = vec![];
+        let (polyfill, _) = PolyfillArgs::parse_from_raw(&args);
+        let defaults = crate::config::ProfileDefaults {
+            safe: true,
+            ..Default::default()
+        };
+        let flags = polyfill.to_polyfill_flags(&defaults);
+        assert!(flags.safe);
+        assert!(!flags.yolo);
+    }
+
+    #[test]
+    fn test_yolo_overrides_profile_safe() {
+        let args: Vec<String> = vec!["--yolo".into()];
+        let (polyfill, _) = PolyfillArgs::parse_from_raw(&args);
+        let defaults = crate::config::ProfileDefaults {
+            safe: true,
+            ..Default::default()
+        };
+        let flags = polyfill.to_polyfill_flags(&defaults);
+        assert!(!flags.safe);
+        assert!(flags.yolo);
     }
 
     // --- Validation warning tests ---

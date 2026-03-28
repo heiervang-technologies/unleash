@@ -167,6 +167,7 @@ fn print_profile_help(profile_name: &str) {
     println!("  -r, --resume [ID]        Resume a session by ID, or open picker");
     println!("      --fork               Fork the session (use with --continue or --resume)");
     println!("  -a, --auto               Enable auto-mode (autonomous operation)");
+    println!("  -e, --effort <LEVEL>     Reasoning effort level (e.g., high, low)");
     println!("      --dry-run            Show the resolved command without executing it");
     println!("  -h, --help               Print this help message");
     println!();
@@ -215,16 +216,16 @@ fn run_agent_with_polyfill(
     let agent_type = profile.agent_type().unwrap_or(AgentType::Claude);
     let agent_def = agents::AgentDefinition::from_type(agent_type);
 
-    // Resolve polyfill flags into agent-specific args
-    let flags = polyfill_args.to_polyfill_flags();
-    let resolved = polyfill::resolve(&agent_def.polyfill, &flags, &profile.agent_args);
+    // Resolve polyfill flags into agent-specific args (CLI overrides profile defaults)
+    let flags = polyfill_args.to_polyfill_flags(&profile.defaults);
+    let resolved = polyfill::resolve(&agent_def.polyfill, &flags, &profile.agent_cli_args);
 
     // --dry-run: print the resolved command and exit without executing
     if polyfill_args.dry_run {
         let binary = &profile.agent_cli_path;
         let mut full_args = resolved.subcommand_prefix.clone();
         full_args.extend(resolved.args.clone());
-        full_args.extend(profile.agent_args.clone());
+        full_args.extend(profile.agent_cli_args.clone());
         full_args.extend(extra_args.clone());
         println!("Would execute: {} {}", binary, full_args.join(" "));
         if !resolved.env.is_empty() {
@@ -238,11 +239,18 @@ fn run_agent_with_polyfill(
     // Build the launch args: subcommand prefix + polyfill args + profile args + extra args
     let mut launch_args = resolved.subcommand_prefix;
     launch_args.extend(resolved.args);
-    launch_args.extend(profile.agent_args.clone());
+    launch_args.extend(profile.agent_cli_args.clone());
     launch_args.extend(extra_args);
 
-    // Auto mode from polyfill flag or from legacy args
-    let auto = polyfill_args.auto || launch_args.iter().any(|a| a == "--auto" || a == "-a");
+    // Auto mode from polyfill flag, profile default, or legacy args
+    let auto = polyfill_args.auto
+        || profile.defaults.auto
+        || launch_args.iter().any(|a| a == "--auto" || a == "-a");
+    if polyfill_args.auto && !profile.defaults.auto {
+        // CLI explicitly enabled auto — no need to log, it's additive
+    } else if profile.defaults.auto && !polyfill_args.auto {
+        eprintln!("\x1b[34minfo:\x1b[0m auto-mode enabled by profile default");
+    }
     let launch_args: Vec<String> = launch_args
         .into_iter()
         .filter(|a| a != "--auto" && a != "-a")

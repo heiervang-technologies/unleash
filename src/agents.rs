@@ -97,6 +97,9 @@ pub struct AgentPolyfillConfig {
     pub yolo_flag: Option<String>,
     /// Flag name for model selection
     pub model_flag: String,
+    /// Flag name for reasoning effort, if supported
+    #[serde(default)]
+    pub effort_flag: Option<String>,
 }
 
 impl AgentPolyfillConfig {
@@ -108,6 +111,11 @@ impl AgentPolyfillConfig {
     /// Get the model flag for this agent
     pub fn get_model_flag(&self) -> String {
         self.model_flag.clone()
+    }
+
+    /// Get the effort flag for this agent, if supported
+    pub fn get_effort_flag(&self) -> Option<String> {
+        self.effort_flag.clone()
     }
 
     /// Get args for continuing the latest session
@@ -206,6 +214,7 @@ impl AgentDefinition {
                 fork: ForkStrategy::Flag("--fork-session".to_string()),
                 yolo_flag: Some("--dangerously-skip-permissions".to_string()),
                 model_flag: "-m".to_string(),
+                effort_flag: Some("--effort".to_string()),
             },
             github_repo: Some("anthropics/claude-code".to_string()),
             npm_package: Some("@anthropic-ai/claude-code".to_string()),
@@ -229,6 +238,7 @@ impl AgentDefinition {
                 fork: ForkStrategy::Subcommand("fork".to_string()),
                 yolo_flag: Some("--dangerously-bypass-approvals-and-sandbox".to_string()),
                 model_flag: "-m".to_string(),
+                effort_flag: None,
             },
             github_repo: Some("openai/codex".to_string()),
             npm_package: None,
@@ -252,6 +262,7 @@ impl AgentDefinition {
                 fork: ForkStrategy::Unsupported,
                 yolo_flag: Some("--yolo".to_string()),
                 model_flag: "-m".to_string(),
+                effort_flag: None,
             },
             github_repo: Some("google-gemini/gemini-cli".to_string()),
             npm_package: Some("@google/gemini-cli".to_string()),
@@ -275,6 +286,7 @@ impl AgentDefinition {
                 fork: ForkStrategy::Flag("--fork".to_string()),
                 yolo_flag: None,
                 model_flag: "-m".to_string(),
+                effort_flag: None,
             },
             github_repo: Some("anomalyco/opencode".to_string()),
             npm_package: Some("opencode-ai".to_string()),

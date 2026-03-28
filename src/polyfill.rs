@@ -30,6 +30,8 @@ pub struct PolyfillFlags {
     pub resume: Option<Option<String>>,
     /// Fork the current/resumed session.
     pub fork: bool,
+    /// Reasoning effort level (e.g., "high", "low").
+    pub effort: Option<String>,
 }
 
 impl Default for PolyfillFlags {
@@ -42,6 +44,7 @@ impl Default for PolyfillFlags {
             continue_session: false,
             resume: None,
             fork: false,
+            effort: None,
         }
     }
 }
@@ -97,6 +100,18 @@ pub fn resolve(
             let (h_args, h_sub) = config.get_headless_invocation(prompt);
             args.extend(h_args);
             subcommand_prefix.extend(h_sub);
+        }
+    }
+
+    // --- Effort ---
+    if let Some(ref effort) = flags.effort {
+        if let Some(effort_flag) = config.get_effort_flag() {
+            if !is_dup(&effort_flag) {
+                args.push(effort_flag);
+                args.push(effort.clone());
+            }
+        } else {
+            eprintln!("Warning: Agent does not support reasoning effort flag");
         }
     }
 

@@ -255,6 +255,8 @@ pub struct App {
     version_fetch_receiver: Option<Receiver<(AgentType, Option<String>)>>,
     /// Receiver for async version-list fetch (None when not fetching)
     version_list_receiver: Option<VersionListReceiver>,
+    /// Last time we polled version lists per agent (for 10-minute TTL)
+    last_version_poll: HashMap<AgentType, std::time::Instant>,
     /// Async installation state
     pub install_state: Option<InstallState>,
 
@@ -409,6 +411,7 @@ impl App {
             cached_installed_version: None, // Will be populated async
             version_fetch_receiver: Some(version_rx),
             version_list_receiver: None,
+            last_version_poll: HashMap::new(),
             install_state: None,
             conflict_entries: Vec::new(),
             conflict_warning_open: false,
@@ -573,6 +576,10 @@ impl App {
                     self.cached_version_lists
                         .insert(agent_type, versions.clone());
                     crate::version::save_embedded_versions(&self.cached_version_lists);
+
+                    // Record successful poll timestamp
+                    self.last_version_poll
+                        .insert(agent_type, std::time::Instant::now());
 
                     // Update displayed list if we're still viewing this agent
                     if self.screen == Screen::VersionManagement && self.version_agent == agent_type
@@ -804,36 +811,60 @@ impl App {
     }
 
     /// Show cached version list immediately, then fetch fresh data async.
+    /// Respects the 10-minute TTL (use `force_refresh_versions` to bypass).
     pub fn refresh_versions(&mut self) {
         self.clear_and_refresh_versions();
     }
 
+    /// Force refresh versions, bypassing the TTL cache.
+    /// Used when the user explicitly requests a rescan (e.g., pressing 's').
+    pub fn force_refresh_versions(&mut self) {
+        // Invalidate the poll timestamp so clear_and_refresh_versions will fetch
+        self.last_version_poll.remove(&self.version_agent);
+        self.clear_and_refresh_versions();
+    }
+
+    /// Version poll TTL: only re-fetch from network if >10 minutes since last poll.
+    const VERSION_POLL_TTL: std::time::Duration = std::time::Duration::from_secs(10 * 60);
+
     /// Clear version list and show loading state, then fetch fresh data.
     /// Prevents stale data from a previous agent being shown after switching.
+    /// Respects a 10-minute TTL to avoid excessive network polling.
     fn clear_and_refresh_versions(&mut self) {
         let agent = self.version_agent;
 
-        // Clear displayed list immediately to prevent stale data
+        // Clear displayed list immediately to prevent stale data from wrong agent
         self.versions.clear();
         self.version_menu.set_items_count(0);
         self.version_menu.selected = 0;
         self.version_menu.scroll_offset = 0;
 
-        // Show loading indicator
-        self.status_message = Some(format!("Loading {} versions...", agent.display_name()));
-
-        // Check cache for the CORRECT agent only
+        // Always show cached data immediately if available
         if let Some(cached) = self.cached_version_lists.get(&agent) {
             if !cached.is_empty() {
                 self.versions = cached.clone();
                 self.version_menu.set_items_count(self.versions.len());
-                self.status_message =
-                    Some(format!("{} (cached, refreshing...)", agent.display_name()));
             }
         }
 
-        // Always kick off async refresh
-        self.start_async_version_fetch(agent);
+        // Check if we need to poll (TTL expired or never polled)
+        let should_poll = self
+            .last_version_poll
+            .get(&agent)
+            .map(|last| last.elapsed() > Self::VERSION_POLL_TTL)
+            .unwrap_or(true);
+
+        if should_poll {
+            self.status_message = if self.versions.is_empty() {
+                Some(format!("Loading {} versions...", agent.display_name()))
+            } else {
+                Some(format!("Syncing {} versions...", agent.display_name()))
+            };
+            self.start_async_version_fetch(agent);
+        } else {
+            self.status_message =
+                Some(format!("{} versions (cached)", agent.display_name()));
+        }
     }
 
     /// Spawn a background thread to fetch the version list for an agent
@@ -1244,9 +1275,9 @@ impl App {
                         self.edit_field = EditField::None;
                     }
                     EditField::ClaudeArgs => {
-                        // Save agent_args (space-separated) to editing profile
+                        // Save agent_cli_args (space-separated) to editing profile (raw agent-specific args)
                         if let Some(ref mut profile) = self.editing_profile {
-                            profile.agent_args = self
+                            profile.agent_cli_args = self
                                 .key_input
                                 .value
                                 .split_whitespace()
@@ -1513,8 +1544,8 @@ impl App {
         // Handle raw key shortcuts that don't map to NavAction
         match key.code {
             KeyCode::Char('s') if self.version_focus != VersionFocus::Unleash => {
-                // Rescan versions for current agent
-                self.refresh_versions();
+                // Manual rescan — bypass TTL cache
+                self.force_refresh_versions();
                 return Ok(None);
             }
             KeyCode::Char('G') => {
@@ -1888,7 +1919,7 @@ impl App {
                         let current = self
                             .editing_profile
                             .as_ref()
-                            .map(|p| p.agent_args.join(" "))
+                            .map(|p| p.agent_cli_args.join(" "))
                             .unwrap_or_default();
                         self.key_input = TextInput::new().with_value(&current);
                         self.edit_field = EditField::ClaudeArgs;
@@ -2687,10 +2718,10 @@ impl App {
             ("Agent CLI", profile.agent_cli_path.clone()),
             (
                 "Arguments",
-                if profile.agent_args.is_empty() {
+                if profile.agent_cli_args.is_empty() {
                     "(none)".to_string()
                 } else {
-                    profile.agent_args.join(" ")
+                    profile.agent_cli_args.join(" ")
                 },
             ),
             ("Theme", {
@@ -3538,9 +3569,14 @@ impl App {
             let version_info = &self.versions[i];
             let is_selected = i == selected;
 
-            let style = if is_selected {
+            let is_focused = self.version_focus == VersionFocus::VersionList;
+            let style = if is_selected && is_focused {
                 Style::default()
                     .fg(self.accent_color())
+                    .add_modifier(Modifier::BOLD)
+            } else if is_selected {
+                Style::default()
+                    .fg(Color::DarkGray)
                     .add_modifier(Modifier::BOLD)
             } else if version_info.is_installed {
                 Style::default().fg(Color::Green)
@@ -3549,7 +3585,11 @@ impl App {
             };
 
             let is_installing = self.installing_version_index == Some(i);
-            let prefix = if is_selected { "> " } else { "  " };
+            let prefix = if is_selected && is_focused {
+                "> "
+            } else {
+                "  "
+            };
             let installed_marker = if version_info.is_installed {
                 " [installed]"
             } else {
@@ -3722,7 +3762,7 @@ impl LaunchRequest {
             cmd.env(key, value);
         }
 
-        cmd.args(&self.profile.agent_args);
+        cmd.args(&self.profile.agent_cli_args);
         cmd.status()
     }
 }
@@ -3812,6 +3852,7 @@ mod tests {
             cached_installed_version: None,
             version_fetch_receiver: None,
             version_list_receiver: None,
+            last_version_poll: HashMap::new(),
             install_state: None,
             conflict_entries: Vec::new(),
             conflict_warning_open: false,
