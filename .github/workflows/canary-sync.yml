@@ -1,0 +1,116 @@
+name: Canary Sync
+
+on:
+  push:
+    branches:
+      - main
+  schedule:
+    - cron: '0 6 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  issues: write
+
+concurrency:
+  group: canary-sync
+  cancel-in-progress: false
+
+jobs:
+  rebase-canary:
+    runs-on: self-hosted
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: canary
+          fetch-depth: 0
+
+      - name: Configure git
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+      - name: Check for existing conflict issue
+        id: check-conflict
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          EXISTING=$(gh issue list --label "canary-conflict" --state open --json number --jq ".[0].number // empty")
+          if [ -n "$EXISTING" ]; then
+            echo "conflict_exists=true" >> $GITHUB_OUTPUT
+            echo "::warning::Found open conflict issue #$EXISTING. Skipping rebase."
+          else
+            echo "conflict_exists=false" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Rebase canary onto main
+        id: rebase
+        if: steps.check-conflict.outputs.conflict_exists == 'false'
+        run: |
+          git fetch origin main
+
+          # Check if canary is already up to date
+          MAIN_SHA=$(git rev-parse origin/main)
+          MERGE_BASE=$(git merge-base HEAD origin/main)
+          if [ "$MAIN_SHA" = "$MERGE_BASE" ]; then
+            echo "status=up-to-date" >> $GITHUB_OUTPUT
+            echo "Canary is already up to date with main"
+            exit 0
+          fi
+
+          CANARY_COMMITS=$(git rev-list --count origin/main..HEAD)
+          echo "Canary has $CANARY_COMMITS commits on top of main"
+
+          REBASE_OUTPUT=$(git rebase origin/main 2>&1) && REBASE_OK=true || REBASE_OK=false
+
+          if [ "$REBASE_OK" = 'true' ]; then
+            echo "status=success" >> $GITHUB_OUTPUT
+            echo "Rebase successful ($CANARY_COMMITS commits replayed)"
+          else
+            git rebase --abort || true
+            echo "status=conflict" >> $GITHUB_OUTPUT
+
+            CONFLICTS=$(echo "$REBASE_OUTPUT" | grep -E "^CONFLICT" | head -20 || true)
+            echo "conflicts<<EOF" >> $GITHUB_OUTPUT
+            echo "$CONFLICTS" >> $GITHUB_OUTPUT
+            echo "EOF" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Force-push rebased canary
+        if: steps.rebase.outputs.status == 'success'
+        run: git push --force-with-lease origin canary
+
+      - name: Create conflict issue
+        if: steps.rebase.outputs.status == 'conflict'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          CONFLICTS: ${{ steps.rebase.outputs.conflicts }}
+        run: |
+          gh label create "canary-conflict" --color "d73a4a" --description "Canary rebase conflict" 2>/dev/null || true
+          gh issue create \
+            --title "Canary rebase conflict ($(date +%Y-%m-%d))" \
+            --label "canary-conflict" \
+            --body "$(cat <<'BODY'
+          ## Rebase Conflict: canary onto main
+
+          The automated rebase of \`canary\` onto \`main\` failed.
+
+          ### Conflicts
+          \`\`\`
+          ${{ steps.rebase.outputs.conflicts }}
+          \`\`\`
+
+          ### Manual Resolution
+          \`\`\`bash
+          git fetch origin
+          git checkout canary
+          git rebase origin/main
+          # Resolve conflicts...
+          git rebase --continue
+          git push --force-with-lease origin canary
+          \`\`\`
+
+          ### Workflow Run
+          [${{ github.run_id }}](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})
+          BODY
+          )"
