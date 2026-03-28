@@ -1,5 +1,12 @@
 # Changelog
 
+## [9.5.3](https://github.com/heiervang-technologies/unleash/compare/v9.5.2...v9.5.3) (2026-03-28)
+
+
+### Bug Fixes
+
+* remove cosmetic auto-update feature (config, TUI toggle, launch check) ([#256](https://github.com/heiervang-technologies/unleash/issues/256)) ([a9f6217](https://github.com/heiervang-technologies/unleash/commit/a9f6217bfa9fdd0921fabe6f02d3fb46f9b851ce))
+
 ## [9.5.2](https://github.com/heiervang-technologies/unleash/compare/v9.5.1...v9.5.2) (2026-03-28)
 
 
