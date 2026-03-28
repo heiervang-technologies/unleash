@@ -1,5 +1,13 @@
 # Changelog
 
+## [9.7.0](https://github.com/heiervang-technologies/unleash/compare/v9.6.0...v9.7.0) (2026-03-28)
+
+
+### Features
+
+* sandboxed Docker container with all 4 coder CLIs ([1d16fd6](https://github.com/heiervang-technologies/unleash/commit/1d16fd63fa5f6cc839ebcf7bce26946b3c221580))
+* sandboxed Docker container with all 4 coder CLIs ([#185](https://github.com/heiervang-technologies/unleash/issues/185)) ([1d16fd6](https://github.com/heiervang-technologies/unleash/commit/1d16fd63fa5f6cc839ebcf7bce26946b3c221580))
+
 ## [9.6.0](https://github.com/heiervang-technologies/unleash/compare/v9.5.3...v9.6.0) (2026-03-28)
 
 
