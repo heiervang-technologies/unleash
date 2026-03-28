@@ -272,21 +272,33 @@ fn print_summary(check_results: &[CheckResult], outcomes: &[UpdateOutcome]) {
     for outcome in outcomes {
         if let Some(ref err) = outcome.error {
             println!(
-                "  x {}    {} ({})",
+                "  x {}    {} (FAILED: {})",
                 outcome.agent_type.display_name(),
                 outcome.from_version.as_deref().unwrap_or("?"),
                 err,
             );
             errors += 1;
         } else {
-            println!(
-                "  + {}    {} -> {} ({:.1}s)",
-                outcome.agent_type.display_name(),
-                outcome.from_version.as_deref().unwrap_or("?"),
-                outcome.to_version.as_deref().unwrap_or("?"),
-                outcome.duration.as_secs_f64(),
-            );
-            updated += 1;
+            // Check if version actually changed
+            let from = outcome.from_version.as_deref().unwrap_or("?");
+            let to = outcome.to_version.as_deref().unwrap_or("?");
+            if from == to || (from != "?" && to != "?" && !version_less_than(from, to)) {
+                println!(
+                    "  x {}    {} (FAILED: version unchanged after update attempt)",
+                    outcome.agent_type.display_name(),
+                    from,
+                );
+                errors += 1;
+            } else {
+                println!(
+                    "  + {}    {} -> {} ({:.1}s)",
+                    outcome.agent_type.display_name(),
+                    from,
+                    to,
+                    outcome.duration.as_secs_f64(),
+                );
+                updated += 1;
+            }
         }
     }
 
@@ -329,7 +341,7 @@ fn check_or_update_self(check_only: bool) -> io::Result<()> {
     let latest = get_latest_github_version("heiervang-technologies/unleash")?;
 
     match latest {
-        Some(ref ver) if ver != current => {
+        Some(ref ver) if version_less_than(current, ver) => {
             if check_only {
                 println!("  Unleash          {} -> {} (update available)", current, ver);
             } else {
@@ -507,28 +519,38 @@ fn update_agent(
     result
 }
 
-/// Update Claude Code via npm.
+/// Update Claude Code — native GCS binary first, npm fallback.
 fn update_claude(tx: &mpsc::Sender<(usize, LineState)>, index: usize) -> io::Result<String> {
+    // Get the target version first
+    let target = get_latest_npm_version("@anthropic-ai/claude-code")?
+        .unwrap_or_else(|| "latest".to_string());
+
     let _ = tx.send((
         index,
         LineState::Building {
-            version: String::new(),
-            phase: "installing via npm...".into(),
+            version: target.clone(),
+            phase: "installing native binary...".into(),
         },
     ));
 
-    let output = Command::new("npm")
-        .args(["install", "-g", "@anthropic-ai/claude-code@latest"])
-        .output()?;
+    let vm = crate::version::VersionManager::new();
+    let result = vm.install_version(&target)?;
 
-    if output.status.success() {
-        let version = get_installed_version(AgentType::Claude).unwrap_or_else(|| "latest".into());
+    if result.success {
+        let version = get_installed_version(AgentType::Claude).unwrap_or(target);
         Ok(version)
     } else {
-        Err(io::Error::other(format!(
-            "npm install failed: {}",
-            String::from_utf8_lossy(&output.stderr)
-        )))
+        let err_msg = result
+            .error
+            .or_else(|| {
+                if !result.stderr.is_empty() {
+                    Some(result.stderr.clone())
+                } else {
+                    None
+                }
+            })
+            .unwrap_or_else(|| "install failed (no details)".into());
+        Err(io::Error::other(err_msg))
     }
 }
 
