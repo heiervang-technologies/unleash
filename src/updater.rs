@@ -282,7 +282,7 @@ fn print_summary(check_results: &[CheckResult], outcomes: &[UpdateOutcome]) {
             // Check if version actually changed
             let from = outcome.from_version.as_deref().unwrap_or("?");
             let to = outcome.to_version.as_deref().unwrap_or("?");
-            if from == to || (from != "?" && to != "?" && !version_less_than(from, to)) {
+            if from != "?" && to != "?" && from == to {
                 println!(
                     "  x {}    {} (FAILED: version unchanged after update attempt)",
                     outcome.agent_type.display_name(),
@@ -521,9 +521,15 @@ fn update_agent(
 
 /// Update Claude Code — native GCS binary first, npm fallback.
 fn update_claude(tx: &mpsc::Sender<(usize, LineState)>, index: usize) -> io::Result<String> {
-    // Get the target version first
+    // Get the target version — try npm registry first, fall back to GCS version list
     let target = get_latest_npm_version("@anthropic-ai/claude-code")?
-        .unwrap_or_else(|| "latest".to_string());
+        .or_else(|| {
+            crate::version::VersionManager::new()
+                .get_available_versions()
+                .ok()
+                .and_then(|v| v.into_iter().next())
+        })
+        .ok_or_else(|| io::Error::other("Could not determine latest Claude Code version"))?;
 
     let _ = tx.send((
         index,

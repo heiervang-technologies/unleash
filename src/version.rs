@@ -13,6 +13,7 @@ use std::sync::mpsc;
 use std::thread;
 
 /// Result of a checksum verification attempt.
+#[derive(Debug)]
 enum ChecksumResult {
     /// Checksum matched.
     Verified,
@@ -311,9 +312,23 @@ impl VersionManager {
                 && stdout.contains("@anthropic-ai/claude-code")
             {
                 eprintln!("  Removing conflicting npm installation...");
-                let _ = Command::new("npm")
+                match Command::new("npm")
                     .args(["uninstall", "-g", "@anthropic-ai/claude-code"])
-                    .output();
+                    .output()
+                {
+                    Ok(o) if o.status.success() => {
+                        eprintln!("  \x1b[32m+\x1b[0m npm package removed");
+                    }
+                    Ok(o) => {
+                        eprintln!(
+                            "  \x1b[31mx\x1b[0m npm uninstall failed: {}",
+                            String::from_utf8_lossy(&o.stderr).trim()
+                        );
+                    }
+                    Err(e) => {
+                        eprintln!("  \x1b[31mx\x1b[0m npm uninstall failed: {}", e);
+                    }
+                }
             }
         }
     }
@@ -1509,9 +1524,38 @@ pub(crate) fn version_compare(a: &str, b: &str) -> std::cmp::Ordering {
     match (a_pre, b_pre) {
         (Some(_), None) => std::cmp::Ordering::Less,
         (None, Some(_)) => std::cmp::Ordering::Greater,
-        (Some(a_suffix), Some(b_suffix)) => a_suffix.cmp(b_suffix),
+        (Some(a_suffix), Some(b_suffix)) => compare_prerelease(a_suffix, b_suffix),
         (None, None) => std::cmp::Ordering::Equal,
     }
+}
+
+/// Compare pre-release suffixes per SemVer 11.4:
+/// split on `.`, numeric segments compare as integers, otherwise lexicographic.
+fn compare_prerelease(a: &str, b: &str) -> std::cmp::Ordering {
+    let a_parts: Vec<&str> = a.split('.').collect();
+    let b_parts: Vec<&str> = b.split('.').collect();
+
+    for i in 0..a_parts.len().max(b_parts.len()) {
+        let ap = a_parts.get(i);
+        let bp = b_parts.get(i);
+        match (ap, bp) {
+            (None, Some(_)) => return std::cmp::Ordering::Less,  // fewer fields = lower precedence
+            (Some(_), None) => return std::cmp::Ordering::Greater,
+            (Some(a_seg), Some(b_seg)) => {
+                let ord = match (a_seg.parse::<u64>(), b_seg.parse::<u64>()) {
+                    (Ok(an), Ok(bn)) => an.cmp(&bn),
+                    (Ok(_), Err(_)) => std::cmp::Ordering::Less,   // numeric < alphanumeric
+                    (Err(_), Ok(_)) => std::cmp::Ordering::Greater,
+                    (Err(_), Err(_)) => a_seg.cmp(b_seg),
+                };
+                if ord != std::cmp::Ordering::Equal {
+                    return ord;
+                }
+            }
+            (None, None) => break,
+        }
+    }
+    std::cmp::Ordering::Equal
 }
 
 /// Convenience wrapper: returns `true` if version `a` is strictly less than `b`.
@@ -1672,6 +1716,10 @@ mod tests {
         assert_eq!(version_compare("0.36.0-nightly.20260318", "0.36.0-nightly.20260325"), Ordering::Less);
         // nightly < preview (lexicographic)
         assert_eq!(version_compare("0.36.0-nightly.1", "0.36.0-preview.0"), Ordering::Less);
+        // Multi-digit numeric segments (SemVer 11.4 — numeric comparison, not lexicographic)
+        assert_eq!(version_compare("0.36.0-preview.2", "0.36.0-preview.10"), Ordering::Less);
+        assert_eq!(version_compare("0.36.0-preview.10", "0.36.0-preview.2"), Ordering::Greater);
+        assert_eq!(version_compare("0.36.0-preview.15", "0.36.0-preview.15"), Ordering::Equal);
 
         // Single component
         assert_eq!(version_compare("2", "1"), Ordering::Greater);
