@@ -1,5 +1,12 @@
 # Changelog
 
+## [9.5.2](https://github.com/heiervang-technologies/unleash/compare/v9.5.1...v9.5.2) (2026-03-28)
+
+
+### Bug Fixes
+
+* update bugs, version sorting, animations, checksum, conflict cleanup ([#254](https://github.com/heiervang-technologies/unleash/issues/254)) ([42e0eb0](https://github.com/heiervang-technologies/unleash/commit/42e0eb081e6df806cc03d957be78d60c5e7e1f99))
+
 ## [9.5.1](https://github.com/heiervang-technologies/unleash/compare/v9.5.0...v9.5.1) (2026-03-27)
 
 
