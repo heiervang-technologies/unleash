@@ -1,5 +1,12 @@
 # Changelog
 
+## [9.10.3](https://github.com/heiervang-technologies/unleash/compare/v9.10.2...v9.10.3) (2026-03-29)
+
+
+### Performance Improvements
+
+* eliminate blocking subprocess calls from startup path ([#282](https://github.com/heiervang-technologies/unleash/issues/282)) ([0ae3ca7](https://github.com/heiervang-technologies/unleash/commit/0ae3ca7400544bcd858ec703e757a0fc1894fca5)), closes [#209](https://github.com/heiervang-technologies/unleash/issues/209)
+
 ## [9.10.2](https://github.com/heiervang-technologies/unleash/compare/v9.10.1...v9.10.2) (2026-03-29)
 
 
