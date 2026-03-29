@@ -379,7 +379,7 @@ impl App {
             .unwrap_or(ThemeColor::Preset(ThemePreset::Orange));
 
         let animations_enabled = app_config.animations
-            || std::env::var("UNLEASH_ANIMATIONS").map_or(false, |v| v == "1");
+            || std::env::var("UNLEASH_ANIMATIONS").is_ok_and(|v| v == "1");
 
         Ok(Self {
             running: true,

@@ -207,7 +207,7 @@ pub fn convert_command(
         let original_lines: Vec<serde_json::Value> = input_data
             .lines()
             .filter(|l| !l.trim().is_empty())
-            .map(|l| serde_json::from_str(l))
+            .map(serde_json::from_str)
             .collect::<Result<Vec<_>, _>>()?;
 
         let mut mismatches = 0;

@@ -624,7 +624,7 @@ fn update_opencode(tx: &mpsc::Sender<(usize, LineState)>, index: usize) -> io::R
         .args(["upgrade", &target])
         .output()
         .ok()
-        .map_or(false, |o| o.status.success());
+        .is_some_and(|o| o.status.success());
 
     if upgrade_ok {
         let version =

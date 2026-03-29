@@ -637,7 +637,7 @@ pub fn run() -> io::Result<()> {
             verify,
         }) => {
             interchange::convert_command(&from, &to, &input, output.as_deref(), verify)
-                .map_err(|e| io::Error::new(io::ErrorKind::Other, e.to_string()))?;
+                .map_err(|e| io::Error::other(e.to_string()))?;
             Ok(())
         }
         None => {

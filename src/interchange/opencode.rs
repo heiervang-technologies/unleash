@@ -186,7 +186,7 @@ fn iso_to_unix_ms(iso: &str) -> f64 {
     let yoe = (y - era * 400) as u64;
     let doy = (153 * m as u64 + 2) / 5 + day as u64 - 1;
     let doe = yoe * 365 + yoe / 4 - yoe / 100 + doy;
-    let days = era as i64 * 146097 + doe as i64 - 719468;
+    let days = era * 146097 + doe as i64 - 719468;
 
     (days * 86400 + hours * 3600 + minutes * 60 + seconds) as f64 * 1000.0 + millis as f64
 }

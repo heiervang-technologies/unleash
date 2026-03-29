@@ -527,16 +527,14 @@ fn hub_message_to_claude(
     }
 
     // Fill in session/version from session header if not in extensions
-    if line.get("sessionId").is_none() || line["sessionId"].is_null() {
-        if !session_id.is_empty() {
+    if (line.get("sessionId").is_none() || line["sessionId"].is_null())
+        && !session_id.is_empty() {
             line["sessionId"] = Value::String(session_id.to_string());
         }
-    }
-    if line.get("version").is_none() || line["version"].is_null() {
-        if !version.is_empty() {
+    if (line.get("version").is_none() || line["version"].is_null())
+        && !version.is_empty() {
             line["version"] = Value::String(version.to_string());
         }
-    }
 
     // Restore universal fields
     if let Some(ref cwd) = msg.metadata.cwd {
@@ -638,16 +636,14 @@ fn hub_event_to_claude(
     }
 
     // Fill session/version if not already present
-    if line.get("sessionId").is_none() || line["sessionId"].is_null() {
-        if !session_id.is_empty() {
+    if (line.get("sessionId").is_none() || line["sessionId"].is_null())
+        && !session_id.is_empty() {
             line["sessionId"] = Value::String(session_id.to_string());
         }
-    }
-    if line.get("version").is_none() || line["version"].is_null() {
-        if !version.is_empty() {
+    if (line.get("version").is_none() || line["version"].is_null())
+        && !version.is_empty() {
             line["version"] = Value::String(version.to_string());
         }
-    }
 
     Ok(line)
 }
