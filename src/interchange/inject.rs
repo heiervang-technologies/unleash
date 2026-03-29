@@ -248,18 +248,18 @@ fn inject_into_gemini(
 
     let session_id = extract_session_id(hub_records);
 
-    // Gemini uses SHA-256 of the cwd as the project directory
+    // Gemini uses project slugs from ~/.gemini/projects.json
     let cwd = std::env::current_dir()
         .map(|p| p.to_string_lossy().to_string())
         .unwrap_or_else(|_| source.directory.clone());
 
-    let project_hash = sha256_hex(&cwd);
+    let project_slug = gemini_project_slug(&cwd);
 
     let gemini_dir = dirs::home_dir()
         .ok_or_else(|| ConvertError::InvalidFormat("No home dir".into()))?
         .join(".gemini")
         .join("tmp")
-        .join(&project_hash)
+        .join(&project_slug)
         .join("chats");
 
     std::fs::create_dir_all(&gemini_dir)?;
@@ -286,6 +286,33 @@ fn inject_into_gemini(
             source.cli,
         ),
     })
+}
+
+fn gemini_project_slug(cwd: &str) -> String {
+    // Look up project slug from ~/.gemini/projects.json
+    let projects_path = dirs::home_dir()
+        .map(|h| h.join(".gemini").join("projects.json"));
+
+    if let Some(path) = projects_path {
+        if let Ok(content) = std::fs::read_to_string(&path) {
+            if let Ok(val) = serde_json::from_str::<serde_json::Value>(&content) {
+                if let Some(projects) = val.get("projects").and_then(|p| p.as_object()) {
+                    // Exact match first
+                    if let Some(slug) = projects.get(cwd).and_then(|v| v.as_str()) {
+                        return slug.to_string();
+                    }
+                    // Try without trailing slash
+                    let trimmed = cwd.trim_end_matches('/');
+                    if let Some(slug) = projects.get(trimmed).and_then(|v| v.as_str()) {
+                        return slug.to_string();
+                    }
+                }
+            }
+        }
+    }
+
+    // Fallback: use last path segment
+    cwd.rsplit('/').next().unwrap_or("imported").to_string()
 }
 
 fn sha256_hex(input: &str) -> String {
