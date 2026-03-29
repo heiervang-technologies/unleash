@@ -57,16 +57,31 @@ jobs:
           # Each CLI must report a version successfully
           FAILED=0
 
-          for cli in claude codex gemini opencode unleash; do
+          for cli in claude codex gemini opencode; do
             echo -n "  $cli: "
-            VERSION=$(docker run --rm unleash:ci-test $cli --version 2>&1 | head -1) || true
-            if [ -n "$VERSION" ] && ! echo "$VERSION" | grep -qi "error\|not found\|command not found"; then
+            # Filter out hook installation noise, grab the version line
+            VERSION=$(docker run --rm unleash:ci-test $cli --version 2>&1 | grep -iE '[0-9]+\.[0-9]+' | head -1) || true
+            if [ -n "$VERSION" ]; then
               echo "$VERSION"
             else
-              echo "FAILED ($VERSION)"
+              # Show full output for debugging
+              echo "FAILED"
+              docker run --rm unleash:ci-test $cli --version 2>&1 || true
               FAILED=1
             fi
           done
+
+          echo ""
+          echo -n "  unleash: "
+          # Entrypoint is already 'unleash', so just pass --version directly
+          VERSION=$(docker run --rm unleash:ci-test --version 2>&1 | grep -iE '[0-9]+\.[0-9]+' | head -1) || true
+          if [ -n "$VERSION" ]; then
+            echo "$VERSION"
+          else
+            echo "FAILED"
+            docker run --rm unleash:ci-test --version 2>&1 || true
+            FAILED=1
+          fi
 
           echo ""
           if [ "$FAILED" -eq 1 ]; then
@@ -74,10 +89,6 @@ jobs:
             exit 1
           fi
           echo "All CLIs installed and reporting versions correctly"
-
-      - name: Verify unleash wrapper functionality
-        run: |
-          docker run --rm unleash:ci-test unleash --version
 
       - name: Check image size
         run: |

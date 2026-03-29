@@ -9,85 +9,84 @@ Sandboxed container with all 4 supported coder CLIs pre-installed:
 
 One image, all agents ready to go.
 
-## Quick Start
+## Quick Start (Sandboxed)
+
+The recommended setup uses [gVisor](https://gvisor.dev/) for syscall-level isolation and a firewall that blocks LAN access while allowing internet.
 
 ```bash
-# Build the image
+# 1. Build the image
 docker build -f docker/Dockerfile -t unleash .
 
-# Run Claude Code interactively
+# 2. One-time: install gVisor and create sandbox network
+sudo runsc install && sudo systemctl restart docker
+sudo ./docker/sandbox-network.sh setup
+
+# 3. Run Claude Code (sandboxed, internet-only, no LAN access)
+docker compose -f docker/docker-compose.yml run --rm claude
+```
+
+That's it. The container has full internet access (API calls, npm, git) but cannot reach your local network.
+
+### Without Sandbox
+
+If gVisor is not available, use the unsandboxed override:
+
+```bash
+docker compose \
+  -f docker/docker-compose.yml \
+  -f docker/docker-compose.unsandboxed.yml \
+  run --rm claude
+```
+
+Or with plain docker run:
+
+```bash
 docker run -it --rm \
   -e CLAUDE_CODE_OAUTH_TOKEN \
   -v $(pwd):/workspace \
   unleash claude
-
-# Run the Unleash TUI
-docker run -it --rm \
-  -e CLAUDE_CODE_OAUTH_TOKEN \
-  -v $(pwd):/workspace \
-  unleash
 ```
 
-## Sandboxed Mode (Sysbox)
+**Warning:** Without gVisor, the container shares the host kernel. Agents run with `--dangerously-skip-permissions` and have full network access including your LAN.
 
-By default, containers run with standard `runc` which shares the host kernel. For proper sandboxing, use [sysbox](https://github.com/nestybox/sysbox) as the container runtime.
+## How Sandboxing Works
 
-### What Sysbox Provides
+### gVisor (runsc)
 
-- **User namespace isolation** — inner root is unprivileged on the host
-- **Process isolation** — container cannot see host processes
-- **Filesystem isolation** — proper `/proc` and `/sys` virtualization
-- **Full network access** — agents can call APIs, pull packages, and interact with services normally
+gVisor intercepts every syscall through its own application kernel, so even if an agent runs malicious code, it cannot directly interact with the host kernel. This is stronger than namespace isolation alone.
 
-### Setup
+### Network Isolation
+
+The `sandbox-network.sh` script creates a Docker network with iptables rules that:
+
+- **Allow** all internet traffic (APIs, package registries, git remotes)
+- **Block** RFC 1918 private ranges (10.x, 172.16-31.x, 192.168.x)
+- **Block** link-local (169.254.x)
 
 ```bash
-# Install sysbox (see https://github.com/nestybox/sysbox for your distro)
-# Then enable the service:
-sudo systemctl enable --now sysbox
+sudo ./docker/sandbox-network.sh setup     # Create network + firewall rules
+sudo ./docker/sandbox-network.sh teardown   # Remove everything
+sudo ./docker/sandbox-network.sh status    # Check current state
 ```
 
-### Running with Sysbox
+> **Important:** The iptables firewall rules do **not** persist across reboots. The Docker network survives restarts, but the LAN-blocking rules are lost — containers will silently regain full LAN access. Re-run `sudo ./docker/sandbox-network.sh setup` after each reboot, or add it to a startup script (e.g. a systemd unit or cron `@reboot`).
 
-```bash
-# Direct docker run
-docker run --runtime=sysbox-runc -it --rm \
-  -e CLAUDE_CODE_OAUTH_TOKEN \
-  -v $(pwd):/workspace \
-  unleash claude
+### Security Summary
 
-# Via docker compose
-CONTAINER_RUNTIME=sysbox-runc docker compose -f docker/docker-compose.yml run --rm claude
-
-# Codex with sysbox
-docker run --runtime=sysbox-runc -it --rm \
-  -e OPENAI_API_KEY \
-  -v $(pwd):/workspace \
-  unleash codex
-```
-
-### Security Note
-
-Even without sysbox, the container runs as a non-root user (`unleash`), which limits damage from accidental operations. However, without sysbox:
-
-- Agents run with `--dangerously-skip-permissions` and could modify anything in the mounted workspace
-- A container escape via kernel vulnerability is theoretically possible
-- Network access is unrestricted
-
-**For production or untrusted code review, always use sysbox.** The combination of sysbox isolation + full network access gives agents the API connectivity they need while preventing host compromise.
+| Setup | Kernel Isolation | LAN Blocked | Internet |
+|-------|-----------------|-------------|----------|
+| Default compose (gVisor + sandbox network) | gVisor syscall filter | Yes | Yes |
+| Unsandboxed override | None (shared kernel) | No | Yes |
+| `--network none` | N/A | Yes | No |
 
 ## Authentication
 
-You need a valid auth token. Generate one on your host machine:
+Generate a token on your host machine, then pass it to the container:
 
 ```bash
 claude setup-token
 export CLAUDE_CODE_OAUTH_TOKEN=<your-token>
 ```
-
-Then pass it to the container via `-e CLAUDE_CODE_OAUTH_TOKEN`.
-
-For other agents, pass their respective API keys:
 
 | Agent | Environment Variable |
 |-------|---------------------|
@@ -112,7 +111,7 @@ docker compose -f docker/docker-compose.yml run --rm gemini
 docker compose -f docker/docker-compose.yml run --rm opencode
 ```
 
-By default, mounts the current directory as `/workspace`. Override with:
+Mount a different project:
 
 ```bash
 WORKSPACE_DIR=/path/to/project docker compose -f docker/docker-compose.yml run --rm claude
@@ -120,12 +119,7 @@ WORKSPACE_DIR=/path/to/project docker compose -f docker/docker-compose.yml run -
 
 ## How Onboarding is Skipped
 
-Claude Code normally shows three interactive dialogs on first run:
-1. **Theme picker** — choose dark/light mode
-2. **Workspace trust** — confirm you trust the project directory
-3. **Bypass permissions warning** — accept the `--dangerously-skip-permissions` risk
-
-The Dockerfile pre-seeds `~/.claude.json` with flags to skip all three:
+Claude Code normally shows three interactive dialogs on first run. The Dockerfile pre-seeds `~/.claude.json` to skip all three:
 
 ```json
 {
@@ -141,22 +135,16 @@ The Dockerfile pre-seeds `~/.claude.json` with flags to skip all three:
 }
 ```
 
-This is a workaround for [anthropics/claude-code#8938](https://github.com/anthropics/claude-code/issues/8938). If Claude Code changes how onboarding state is stored, this may need updating.
+Workaround for [anthropics/claude-code#8938](https://github.com/anthropics/claude-code/issues/8938).
 
 ## Architecture
 
 Two-stage Docker build:
 
-1. **Rust builder** (`rust:1.88-bookworm`) — compiles Unleash from source with dependency caching
-2. **Runtime** (`ubuntu:24.04`) — Ubuntu 24.04 for GLIBC 2.39 (required by Codex prebuilt binaries), Node 22 via nodesource, GitHub CLI, all agent CLIs installed via `unleash update`
-
-### Why Ubuntu 24.04?
-
-Codex prebuilt binaries from GitHub releases require GLIBC 2.38+. Debian Bookworm only ships GLIBC 2.36. Ubuntu 24.04 ships GLIBC 2.39.
+1. **Rust builder** (`rust:1.88-bookworm`) — compiles Unleash with dependency caching
+2. **Runtime** (`ubuntu:24.04`) — GLIBC 2.39 (required by Codex prebuilt binaries), Node 22, GitHub CLI, all agent CLIs installed via `unleash update`
 
 ### CLI Install Paths
-
-The Dockerfile uses `unleash update` to install CLIs via the same paths as the host tool:
 
 | Agent | Install Method |
 |-------|---------------|
@@ -167,7 +155,4 @@ The Dockerfile uses `unleash update` to install CLIs via the same paths as the h
 
 ### Included Tools
 
-- `unleash` — Unleash wrapper with TUI, polyfill, plugins
-- `claude`, `codex`, `gemini`, `opencode` — Agent CLIs
-- `gh` — GitHub CLI
-- `git`, `tmux`, `jq`, `curl` — Standard dev tools
+`unleash`, `claude`, `codex`, `gemini`, `opencode`, `gh`, `git`, `tmux`, `jq`, `curl`
