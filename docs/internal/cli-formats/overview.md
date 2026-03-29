@@ -18,10 +18,10 @@ Cross-CLI comparison of conversation storage formats. See individual docs for fu
 | Feature | Claude Code | Codex | Gemini CLI | OpenCode |
 |---------|-------------|-------|------------|----------|
 | **Primary format** | JSONL | JSONL + SQLite | JSON | SQLite + JSON |
-| **Message ID format** | UUID | N/A (event stream) | UUID | `msg_` + base36 |
-| **Thinking/reasoning** | thinking blocks (signed) | reasoning_output_tokens | thoughts array | reasoning part type |
+| **Message ID format** | UUID | N/A (event stream) | Sequential (`msg-NNN`) | `msg_` + base36 |
+| **Thinking/reasoning** | thinking blocks (signed) | event_msg reasoning type | thoughts array | reasoning part type |
 | **Tool calls** | content block (tool_use) | response_item event | toolCalls array | tool part type |
-| **Tool results** | content block (tool_result) | event_msg | nested in toolCalls | tool part (state.output) |
+| **Tool results** | content block (tool_result) | response_item (role:tool) | nested in toolCalls | tool part (state.output) |
 | **Token tracking** | usage object per response | token_count events | tokens per message | tokens in message data |
 | **Cache tracking** | cache_creation + cache_read | cached_input_tokens | cached field | cache.read + cache.write |
 | **Git metadata** | gitBranch per message | git_sha, branch, origin_url | No | No |
@@ -76,7 +76,7 @@ How message roles map across CLIs:
 | Concept | Claude Code | Codex | Gemini CLI | OpenCode |
 |---------|-------------|-------|------------|----------|
 | User input | type:user, role:user | event_msg:user_message | type:user | role:user |
-| AI response | type:assistant, role:assistant | event_msg:agent_message | type:gemini | role:assistant |
+| AI response | type:assistant, role:assistant | event_msg:agent_message + response_item:assistant | type:gemini | role:assistant |
 | System info | type:system | session_meta, turn_context | type:info | N/A |
 | Tool call | assistant content: tool_use | response_item: tool_use | gemini: toolCalls[] | part type:tool |
 | Tool result | user content: tool_result | response_item: tool_result | toolCalls[].result | part type:tool (state) |

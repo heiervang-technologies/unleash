@@ -444,7 +444,7 @@ When building format adapters or migration tooling, note these key differences f
 | Aspect | Claude Code | Gemini CLI |
 |--------|-------------|------------|
 | File format | JSONL (one object per line) | JSON (single object per file) |
-| Storage path | `~/.claude/projects/<hash>/` | `~/.gemini/tmp/<hash>/chats/` |
+| Storage path | `~/.claude/projects/<path-encoded>/` | `~/.gemini/tmp/<sha256-hash>/chats/` |
 | Message types | `user`, `assistant`, `system`, `tool_result` | `user`, `gemini`, `info` |
 | Tool results | Separate `tool_result` messages | Nested inside `toolCalls[].result` on the model message |
 | Token tracking | Per-conversation summary | Per-message granular breakdown |

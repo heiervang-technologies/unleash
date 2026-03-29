@@ -406,7 +406,7 @@ Sessions are partitioned by date into `sessions/YYYY/MM/DD/` directories. This k
 
 A lightweight append-only index at `~/.codex/session_index.jsonl` for fast session listing without scanning the directory tree or opening SQLite:
 
-```jsonc
+```json
 {"id": "a3b1c9d0-...", "thread_name": "Fix auth tests", "updated_at": "2026-03-29T14:45:00Z"}
 {"id": "b7c2d1e3-...", "thread_name": "Refactor database layer", "updated_at": "2026-03-29T15:10:00Z"}
 ```
@@ -423,7 +423,7 @@ This file may contain duplicate IDs (later entries supersede earlier ones). Code
 
 Global search/recall index at `~/.codex/history.jsonl`:
 
-```jsonc
+```json
 {"session_id": "a3b1c9d0-...", "ts": "2026-03-29T14:22:31Z", "text": "Fix the failing test in auth.ts"}
 {"session_id": "a3b1c9d0-...", "ts": "2026-03-29T14:22:36Z", "text": "Reading auth.ts to understand the test failure..."}
 ```
