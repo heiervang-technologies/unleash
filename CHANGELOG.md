@@ -1,5 +1,12 @@
 # Changelog
 
+## [9.11.0](https://github.com/heiervang-technologies/unleash/compare/v9.10.3...v9.11.0) (2026-03-29)
+
+
+### Features
+
+* cross-CLI session resume with interactive picker ([#285](https://github.com/heiervang-technologies/unleash/issues/285)) ([1166b68](https://github.com/heiervang-technologies/unleash/commit/1166b68ee3292c5e52d07d52eb3e1da571291f94))
+
 ## [9.10.3](https://github.com/heiervang-technologies/unleash/compare/v9.10.2...v9.10.3) (2026-03-29)
 
 
