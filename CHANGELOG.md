@@ -1,5 +1,12 @@
 # Changelog
 
+## [9.11.8](https://github.com/heiervang-technologies/unleash/compare/v9.11.7...v9.11.8) (2026-03-29)
+
+
+### Bug Fixes
+
+* Gemini injection uses project slug from projects.json ([366a9fd](https://github.com/heiervang-technologies/unleash/commit/366a9fdc4a0abc6de21b96cd4640b3ce3cf532d3))
+
 ## [9.11.7](https://github.com/heiervang-technologies/unleash/compare/v9.11.6...v9.11.7) (2026-03-29)
 
 
