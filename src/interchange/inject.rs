@@ -117,22 +117,48 @@ fn inject_into_claude(
 ) -> Result<InjectionResult, ConvertError> {
     let claude_lines = claude::from_hub(hub_records)?;
 
-    // Determine session ID and output path
-    let session_id = extract_session_id(hub_records);
+    // Generate a fresh UUID for the Claude session
+    let session_id = uuid_v4();
+
+    // Use current working directory for the project path (where Claude will be launched)
+    let cwd = std::env::current_dir()
+        .map(|p| p.to_string_lossy().to_string())
+        .unwrap_or_else(|_| source.directory.clone());
+
+    let project_dir_name = if cwd.is_empty() {
+        "imported".to_string()
+    } else {
+        encode_claude_project_path(&cwd)
+    };
+
     let project_dir = dirs::home_dir()
         .ok_or_else(|| ConvertError::InvalidFormat("No home dir".into()))?
         .join(".claude")
         .join("projects")
-        .join(encode_claude_project_path(&source.directory));
+        .join(&project_dir_name);
 
     std::fs::create_dir_all(&project_dir)?;
 
     let output_path = project_dir.join(format!("{session_id}.jsonl"));
 
-    // Write JSONL
+    // Write JSONL, patching sessionId in every line to match our new session ID
     let mut output = String::new();
     for line in &claude_lines {
-        output.push_str(&serde_json::to_string(line)?);
+        let mut patched = line.clone();
+        if let serde_json::Value::Object(ref mut obj) = patched {
+            obj.insert(
+                "sessionId".to_string(),
+                serde_json::Value::String(session_id.clone()),
+            );
+            // Ensure cwd is set
+            if !obj.contains_key("cwd") || obj["cwd"].is_null() {
+                obj.insert(
+                    "cwd".to_string(),
+                    serde_json::Value::String(cwd.clone()),
+                );
+            }
+        }
+        output.push_str(&serde_json::to_string(&patched)?);
         output.push('\n');
     }
     std::fs::write(&output_path, &output)?;
