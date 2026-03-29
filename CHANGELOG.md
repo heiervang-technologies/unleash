@@ -1,5 +1,12 @@
 # Changelog
 
+## [9.11.4](https://github.com/heiervang-technologies/unleash/compare/v9.11.3...v9.11.4) (2026-03-29)
+
+
+### Bug Fixes
+
+* Claude injection now generates all required fields for resume ([406710b](https://github.com/heiervang-technologies/unleash/commit/406710b10c9847edc7158bb02d1c5510ad9e86a4))
+
 ## [9.11.3](https://github.com/heiervang-technologies/unleash/compare/v9.11.2...v9.11.3) (2026-03-29)
 
 
