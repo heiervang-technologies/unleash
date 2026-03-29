@@ -248,18 +248,29 @@ fn inject_into_gemini(
 
     let session_id = extract_session_id(hub_records);
 
-    // Write to Gemini tmp directory
+    // Gemini uses SHA-256 of the cwd as the project directory
+    let cwd = std::env::current_dir()
+        .map(|p| p.to_string_lossy().to_string())
+        .unwrap_or_else(|_| source.directory.clone());
+
+    let project_hash = sha256_hex(&cwd);
+
     let gemini_dir = dirs::home_dir()
         .ok_or_else(|| ConvertError::InvalidFormat("No home dir".into()))?
         .join(".gemini")
         .join("tmp")
-        .join("imported")
+        .join(&project_hash)
         .join("chats");
 
     std::fs::create_dir_all(&gemini_dir)?;
 
     let now = chrono_like_now();
-    let output_path = gemini_dir.join(format!("session-{}-{}.json", &now[..16].replace(':', "-"), &session_id[..6.min(session_id.len())]));
+    let uuid_short = &session_id[..session_id.len().min(6)];
+    let output_path = gemini_dir.join(format!(
+        "session-{}-{}.json",
+        &now[..now.len().min(16)].replace(':', "-"),
+        uuid_short
+    ));
 
     let json = serde_json::to_string_pretty(&gemini_val)?;
     std::fs::write(&output_path, &json)?;
@@ -275,6 +286,30 @@ fn inject_into_gemini(
             source.cli,
         ),
     })
+}
+
+fn sha256_hex(input: &str) -> String {
+    // Simple SHA-256 without external dependency — use the system's sha256sum
+    use std::process::Command;
+    Command::new("sha256sum")
+        .stdin(std::process::Stdio::piped())
+        .stdout(std::process::Stdio::piped())
+        .spawn()
+        .and_then(|mut child| {
+            use std::io::Write;
+            if let Some(ref mut stdin) = child.stdin {
+                let _ = stdin.write_all(input.as_bytes());
+            }
+            child.wait_with_output()
+        })
+        .ok()
+        .and_then(|out| {
+            String::from_utf8_lossy(&out.stdout)
+                .split_whitespace()
+                .next()
+                .map(String::from)
+        })
+        .unwrap_or_else(|| format!("{:x}", input.len()))
 }
 
 fn inject_into_opencode(
