@@ -373,6 +373,89 @@ pub fn run() -> io::Result<()> {
         && env::var(launcher::UNLEASHED_ENV_VAR).ok().as_deref() == Some("1");
     if is_wrapper_reentry && !has_meta_flag && !first_arg_is_subcommand {
         let args: Vec<String> = env::args().skip(1).collect();
+
+        // Check for --crossload/-x in wrapper mode — handle before launch
+        let has_crossload = args.iter().any(|a| a == "-x" || a == "--crossload" || a.starts_with("--crossload="));
+        if has_crossload {
+            // Extract crossload query and strip -x/--crossload from args
+            let mut crossload_query = String::new();
+            let mut filtered_args = Vec::new();
+            let mut skip_next = false;
+            for (i, arg) in args.iter().enumerate() {
+                if skip_next {
+                    skip_next = false;
+                    continue;
+                }
+                if arg == "-x" || arg == "--crossload" {
+                    if let Some(next) = args.get(i + 1) {
+                        if !next.starts_with('-') {
+                            crossload_query = next.clone();
+                            skip_next = true;
+                        }
+                    }
+                } else if let Some(val) = arg.strip_prefix("--crossload=") {
+                    crossload_query = val.to_string();
+                } else {
+                    filtered_args.push(arg.clone());
+                }
+            }
+
+            // Detect target CLI
+            let target_cli = env::var("AGENT_CMD")
+                .ok()
+                .and_then(|cmd| detect_agent_type_from_cmd_path(&cmd))
+                .map(|agent| match agent {
+                    AgentType::Claude => "claude",
+                    AgentType::Codex => "codex",
+                    AgentType::Gemini => "gemini",
+                    AgentType::OpenCode => "opencode",
+                })
+                .unwrap_or("claude");
+
+            let query = if crossload_query.is_empty() {
+                #[cfg(feature = "tui")]
+                {
+                    match tui::session_picker::pick_session() {
+                        Ok(Some(session)) => format!("{}:{}", session.cli, session.id),
+                        Ok(None) => {
+                            eprintln!("No session selected.");
+                            return Ok(());
+                        }
+                        Err(e) => {
+                            eprintln!("Picker error: {e}");
+                            return Ok(());
+                        }
+                    }
+                }
+                #[cfg(not(feature = "tui"))]
+                {
+                    eprintln!("Interactive picker requires TUI. Use: --crossload cli:name");
+                    return Ok(());
+                }
+            } else {
+                crossload_query
+            };
+
+            eprintln!("\x1b[34minfo:\x1b[0m Loading session: {query} into {target_cli}");
+            match interchange::inject::inject_session(&query, target_cli) {
+                Ok(result) => {
+                    eprintln!("\x1b[32m✓\x1b[0m {}", result.message);
+                    filtered_args.extend(result.resume_args);
+                }
+                Err(e) => {
+                    eprintln!("\x1b[31m✗\x1b[0m Crossload failed: {e}");
+                    return Err(io::Error::other(e.to_string()));
+                }
+            }
+
+            let parse_prompt_flags = detect_agent_type_from_cmd_path(
+                &env::var("AGENT_CMD").unwrap_or_default()
+            ).map(|a| a == AgentType::Claude).unwrap_or(true);
+
+            let (auto, prompt, pass_args) = parse_wrapper_launch_args(filtered_args, parse_prompt_flags);
+            return launcher::run(auto, prompt, pass_args);
+        }
+
         let parse_prompt_flags = env::var("AGENT_CMD")
             .ok()
             .and_then(|cmd| detect_agent_type_from_cmd_path(&cmd))
