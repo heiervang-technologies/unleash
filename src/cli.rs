@@ -83,6 +83,12 @@ pub struct PolyfillArgs {
     #[arg(short = 'e', long)]
     pub effort: Option<String>,
 
+    /// Load a conversation from another CLI (e.g., --crossload codex:hidden-wolf)
+    /// Converts the session history and resumes it in the target agent.
+    /// Without a value, opens an interactive session picker.
+    #[arg(short = 'x', long, num_args = 0..=1, default_missing_value = "")]
+    pub crossload: Option<String>,
+
     /// Show the resolved command without executing it
     #[arg(long)]
     pub dry_run: bool,
@@ -103,6 +109,7 @@ impl PolyfillArgs {
             fork: false,
             auto: false,
             effort: None,
+            crossload: None,
             dry_run: false,
         };
         let mut passthrough = Vec::new();
@@ -160,6 +167,18 @@ impl PolyfillArgs {
                         last_value_flag = Some(arg.clone());
                     }
                 }
+                "-x" | "--crossload" => {
+                    if let Some(val) = args.get(i + 1) {
+                        if !val.starts_with('-') {
+                            polyfill.crossload = Some(val.clone());
+                            i += 1;
+                        } else {
+                            polyfill.crossload = Some(String::new());
+                        }
+                    } else {
+                        polyfill.crossload = Some(String::new());
+                    }
+                }
                 "-r" | "--resume" => {
                     // Check if next arg is a value (not a flag)
                     if let Some(val) = args.get(i + 1) {
@@ -173,6 +192,19 @@ impl PolyfillArgs {
                         polyfill.resume = Some(String::new()); // picker mode
                     }
                 }
+                "--crossload" => {
+                    // Optional value: --crossload [session-query]
+                    if let Some(val) = args.get(i + 1) {
+                        if !val.starts_with('-') {
+                            polyfill.crossload = Some(val.clone());
+                            i += 1;
+                        } else {
+                            polyfill.crossload = Some(String::new()); // picker mode
+                        }
+                    } else {
+                        polyfill.crossload = Some(String::new()); // picker mode
+                    }
+                }
                 _ => {
                     // Check for --prompt=value, --model=value, --resume=value
                     if let Some(val) = arg.strip_prefix("--prompt=") {
@@ -183,6 +215,8 @@ impl PolyfillArgs {
                         polyfill.resume = Some(val.to_string());
                     } else if let Some(val) = arg.strip_prefix("--effort=") {
                         polyfill.effort = Some(val.to_string());
+                    } else if let Some(val) = arg.strip_prefix("--crossload=") {
+                        polyfill.crossload = Some(val.to_string());
                     } else {
                         // Unrecognized — pass through to agent
                         passthrough.push(arg.clone());
@@ -380,6 +414,17 @@ pub enum Commands {
         /// Only check for updates, don't install
         #[arg(long)]
         check: bool,
+    },
+
+    /// List conversation sessions across all agent CLIs
+    Sessions {
+        /// Filter by CLI (claude, codex, gemini, opencode)
+        #[arg(short, long)]
+        cli: Option<String>,
+
+        /// Find a specific session by name/ID (supports cli:name format)
+        #[arg(short, long)]
+        find: Option<String>,
     },
 
     /// Convert conversation history between CLI formats

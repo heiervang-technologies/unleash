@@ -3,6 +3,7 @@
 //! Provides profile management, version management, and launcher UI.
 
 mod app;
+pub mod session_picker;
 
 pub use app::{App, AppAction};
 

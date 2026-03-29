@@ -185,7 +185,7 @@ fn print_profile_help(profile_name: &str) {
 fn run_agent_with_polyfill(
     profile_name: &str,
     polyfill_args: cli::PolyfillArgs,
-    extra_args: Vec<String>,
+    mut extra_args: Vec<String>,
 ) -> io::Result<()> {
     let manager = ProfileManager::new()?;
     let profile = manager.load_profile(profile_name).map_err(|e| {
@@ -235,6 +235,50 @@ fn run_agent_with_polyfill(
             }
         }
         return Ok(());
+    }
+
+    // --crossload: inject a foreign session before launching
+    if let Some(ref crossload_query) = polyfill_args.crossload {
+        let target_cli = match agent_type {
+            AgentType::Claude => "claude",
+            AgentType::Codex => "codex",
+            AgentType::Gemini => "gemini",
+            AgentType::OpenCode => "opencode",
+        };
+
+        let query = if crossload_query.is_empty() {
+            // Interactive picker
+            #[cfg(feature = "tui")]
+            {
+                match tui::session_picker::pick_session()? {
+                    Some(session) => format!("{}:{}", session.cli, session.id),
+                    None => {
+                        eprintln!("No session selected.");
+                        return Ok(());
+                    }
+                }
+            }
+            #[cfg(not(feature = "tui"))]
+            {
+                eprintln!("Interactive session picker requires TUI feature. Specify a session: --crossload cli:name");
+                return Ok(());
+            }
+        } else {
+            crossload_query.clone()
+        };
+
+        eprintln!("\x1b[34minfo:\x1b[0m Loading session: {query} into {target_cli}");
+        match interchange::inject::inject_session(&query, target_cli) {
+            Ok(result) => {
+                eprintln!("\x1b[32m✓\x1b[0m {}", result.message);
+                // Add resume args to launch the session
+                extra_args.extend(result.resume_args);
+            }
+            Err(e) => {
+                eprintln!("\x1b[31m✗\x1b[0m Crossload failed: {e}");
+                return Err(io::Error::other(e.to_string()));
+            }
+        }
     }
 
     // Build the launch args: subcommand prefix + polyfill args + profile args + extra args
@@ -323,7 +367,7 @@ pub fn run() -> io::Result<()> {
     let has_meta_flag = args.iter().skip(1).any(|a| matches!(a.as_str(), "-h" | "--help" | "-V" | "--version"));
     let first_arg_is_subcommand = matches!(
         args.get(1).map(String::as_str),
-        Some("version" | "auth" | "auth-check" | "hooks" | "agents" | "update" | "help")
+        Some("version" | "auth" | "auth-check" | "hooks" | "agents" | "update" | "sessions" | "convert" | "help")
     );
     let is_wrapper_reentry = env::var("AGENT_CMD").is_ok()
         && env::var(launcher::UNLEASHED_ENV_VAR).ok().as_deref() == Some("1");
@@ -628,6 +672,51 @@ pub fn run() -> io::Result<()> {
                 include_self,
                 json: cli.json,
             })
+        }
+        Some(Commands::Sessions { cli, find }) => {
+            if let Some(query) = find {
+                match interchange::sessions::find_session(&query) {
+                    Some(session) => {
+                        println!(
+                            "{:<10} {:<40} {:<20} {}",
+                            session.cli, session.id, session.name.unwrap_or_default(), session.directory
+                        );
+                    }
+                    None => {
+                        eprintln!("No session found matching: {query}");
+                        std::process::exit(1);
+                    }
+                }
+            } else {
+                let sessions = if let Some(ref cli_name) = cli {
+                    let format: interchange::CliFormat = cli_name.parse()
+                        .map_err(|e: interchange::ConvertError| io::Error::other(e.to_string()))?;
+                    interchange::sessions::discover_for(format)
+                } else {
+                    interchange::sessions::discover_all()
+                };
+
+                if sessions.is_empty() {
+                    println!("No sessions found.");
+                } else {
+                    println!("{:<10} {:<20} {:<30} {:<20} {}", "CLI", "NAME", "TITLE", "UPDATED", "DIRECTORY");
+                    println!("{}", "-".repeat(100));
+                    for s in sessions.iter().take(50) {
+                        println!(
+                            "{:<10} {:<20} {:<30} {:<20} {}",
+                            s.cli,
+                            s.name.as_deref().unwrap_or(&s.id[..s.id.len().min(18)]),
+                            s.title.as_deref().unwrap_or("").chars().take(28).collect::<String>(),
+                            &s.updated_at[..s.updated_at.len().min(10)],
+                            s.directory,
+                        );
+                    }
+                    if sessions.len() > 50 {
+                        println!("... and {} more", sessions.len() - 50);
+                    }
+                }
+            }
+            Ok(())
         }
         Some(Commands::Convert {
             from,
