@@ -13,8 +13,9 @@ set -uo pipefail
 
 # Configuration
 CACHE_DIR="${HOME}/.cache/unleash/process-restart"
-TRIGGER_FILE="${CACHE_DIR}/restart-trigger"
-RESTART_MESSAGE_FILE="${CACHE_DIR}/restart-message"
+WRAPPER_PID="${AGENT_WRAPPER_PID:-}"
+TRIGGER_FILE="${CACHE_DIR}/restart-trigger${WRAPPER_PID:+-${WRAPPER_PID}}"
+RESTART_MESSAGE_FILE="${CACHE_DIR}/restart-message${WRAPPER_PID:+-${WRAPPER_PID}}"
 
 # Parse command line arguments
 _FORCE=false  # Reserved for future use

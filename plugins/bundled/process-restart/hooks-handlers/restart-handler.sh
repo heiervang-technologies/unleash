@@ -2,14 +2,15 @@
 # Stop hook: Handle Claude Code restart with session preservation
 #
 # This hook intercepts the exit process when /restart command has been used.
-# It saves session state and spawns a new Claude Code process before allowing exit.
+# It saves session state and lets the wrapper handle the actual restart.
 
 set -euo pipefail
 
 # Configuration
 CACHE_DIR="${HOME}/.cache/unleash/process-restart"
 STATE_FILE="${CACHE_DIR}/restart-state.json"
-TRIGGER_FILE="${CACHE_DIR}/restart-trigger"
+WRAPPER_PID="${AGENT_WRAPPER_PID:-}"
+TRIGGER_FILE="${CACHE_DIR}/restart-trigger${WRAPPER_PID:+-${WRAPPER_PID}}"
 PLUGIN_SETTING_STATE_EXPIRY="${PLUGIN_SETTING_STATE_EXPIRY:-300}"  # 5 minutes default
 
 # Read hook input from stdin
@@ -21,7 +22,7 @@ if [[ ! -f "${TRIGGER_FILE}" ]]; then
   exit 0
 fi
 
-# Restart was requested - save state and spawn new process
+# Restart was requested - save state for the wrapper
 
 # Create cache directory if it doesn't exist
 mkdir -p "${CACHE_DIR}"
@@ -89,61 +90,10 @@ chmod 600 "${STATE_FILE}"
 # Remove trigger file
 rm -f "${TRIGGER_FILE}"
 
-# Determine Claude Code executable path
-CLAUDE_CMD="claude"
-if command -v claude-code &> /dev/null; then
-  CLAUDE_CMD="claude-code"
-elif command -v claude &> /dev/null; then
-  CLAUDE_CMD="claude"
-else
-  # Fallback: Try common installation paths
-  if [[ -x "${HOME}/.local/bin/claude" ]]; then
-    CLAUDE_CMD="${HOME}/.local/bin/claude"
-  elif [[ -x "/usr/local/bin/claude" ]]; then
-    CLAUDE_CMD="/usr/local/bin/claude"
-  else
-    # Error: Can't find Claude Code executable
-    echo "{\"decision\": \"allow\", \"error\": \"Claude Code executable not found. Restart aborted.\"}" >&2
-    rm -f "${STATE_FILE}"
-    exit 0
-  fi
-fi
+# State saved. The wrapper (unleash) will detect the state file on next
+# startup and restore the session via --continue. The nohup spawn approach
+# was removed because Claude cannot spawn its own replacement process —
+# see HANDOFF.md for details.
 
-# Spawn new Claude Code process in background
-# The new process will:
-# 1. Start normally
-# 2. SessionStart hook will detect the state file
-# 3. Restore session state
-# 4. Resume the session
-
-# Build command args
-CMD_ARGS=()
-
-# Add working directory
-if [[ -n "${WORKING_DIR}" ]]; then
-  CMD_ARGS+=("--cwd" "${WORKING_DIR}")
-fi
-
-# Add model if specified
-if [[ -n "${MODEL}" ]] && [[ "${MODEL}" != "claude-sonnet-4-5" ]]; then
-  CMD_ARGS+=("--model" "${MODEL}")
-fi
-
-# Add session resume if we have a session ID
-if [[ -n "${SESSION_ID}" ]]; then
-  CMD_ARGS+=("--resume" "${SESSION_ID}")
-fi
-
-# Spawn new process in background using nohup
-# Redirect output to avoid hanging
-nohup "${CLAUDE_CMD}" "${CMD_ARGS[@]}" > /dev/null 2>&1 &
-
-# Give the new process a moment to start
-sleep 0.5
-
-# Notify about successful restart initiation
-echo "✅ Restart initiated. New Claude Code process started."
-echo "   Session will be restored automatically."
-
-# Allow current process to exit gracefully
+# Allow current process to exit gracefully. The wrapper loop will handle restart.
 exit 0
