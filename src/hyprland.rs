@@ -79,21 +79,18 @@ pub fn set_window_rule(rule: &str) -> io::Result<()> {
 
 /// Apply default window rules for unleash windows using batch mode.
 /// Matches windows with class `unleash` using 0.53+ regex syntax.
+/// Non-blocking — fires and forgets the hyprctl call.
 pub fn apply_agent_window_rules() -> io::Result<()> {
-    let output = Command::new("hyprctl")
+    let _ = Command::new("hyprctl")
         .args([
             "--batch",
             "keyword windowrule float on, match:class ^(unleash)$ ; \
              keyword windowrule opacity 0.95 0.9, match:class ^(unleash)$",
         ])
-        .output()?;
-
-    if !output.status.success() {
-        let stderr = String::from_utf8_lossy(&output.stderr);
-        return Err(io::Error::other(
-            format!("hyprctl --batch window rules failed: {}", stderr),
-        ));
-    }
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .spawn();
     Ok(())
 }
 
@@ -185,21 +182,18 @@ pub fn focus_set(wrapper_pid: u32) -> io::Result<()> {
             return Ok(());
         }
     };
-    eprintln!("[Unleash] focus: set transparent (pid={})", wrapper_pid);
-    let status = Command::new(&script)
+    // Fire-and-forget: don't block on the opacity script
+    let _ = Command::new(&script)
         .arg("set")
         .env("AGENT_WRAPPER_PID", wrapper_pid.to_string())
-        .status()?;
-    if !status.success() {
-        eprintln!(
-            "[Unleash] focus: set failed with exit code {:?}",
-            status.code()
-        );
-    }
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .spawn();
     Ok(())
 }
 
-/// Reset window to opaque (agent is idle/stopped).
+/// Reset window to opaque (agent is idle/stopped). Non-blocking.
 pub fn focus_reset(wrapper_pid: u32) -> io::Result<()> {
     if !is_hyprland() || env::var("AU_HYPRLAND_FOCUS").ok().as_deref() == Some("0") {
         return Ok(());
@@ -208,17 +202,14 @@ pub fn focus_reset(wrapper_pid: u32) -> io::Result<()> {
         Some(p) => p,
         None => return Ok(()),
     };
-    eprintln!("[Unleash] focus: reset opaque (pid={})", wrapper_pid);
-    let status = Command::new(&script)
+    // Fire-and-forget: don't block on the opacity script
+    let _ = Command::new(&script)
         .arg("reset")
         .env("AGENT_WRAPPER_PID", wrapper_pid.to_string())
-        .status()?;
-    if !status.success() {
-        eprintln!(
-            "[Unleash] focus: reset failed with exit code {:?}",
-            status.code()
-        );
-    }
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .spawn();
     Ok(())
 }
 
