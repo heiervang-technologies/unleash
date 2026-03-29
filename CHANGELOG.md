@@ -1,5 +1,12 @@
 # Changelog
 
+## [9.8.0](https://github.com/heiervang-technologies/unleash/compare/v9.7.1...v9.8.0) (2026-03-29)
+
+
+### Features
+
+* gVisor sandbox with LAN isolation ([#268](https://github.com/heiervang-technologies/unleash/issues/268)) ([0445542](https://github.com/heiervang-technologies/unleash/commit/0445542ec535f8ad25db431b99834f882c97ce2d))
+
 ## [9.7.1](https://github.com/heiervang-technologies/unleash/compare/v9.7.0...v9.7.1) (2026-03-28)
 
 
