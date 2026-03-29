@@ -20,6 +20,7 @@ setup() {
         docker network create \
             --driver bridge \
             --subnet "${SUBNET}" \
+            --opt com.docker.network.bridge.enable_icc=false \
             "${NETWORK_NAME}"
         echo "  Created network ${NETWORK_NAME} (${SUBNET})"
     else

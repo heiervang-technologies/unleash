@@ -10,6 +10,10 @@ docs/
 │
 ├── auth-check-command.md              # CLI: Authentication verification command
 │
+├── docker/                            # Docker Container Guides
+│   ├── README.md                      # Quick start, single agent, multi-agent (tiers 1-2)
+│   └── NETWORKING.md                  # Advanced networking, sidecars (tier 3)
+│
 ├── extensions/                        # Extension Development Guides
 │   ├── plugin-development.md          # PRIMARY: Creating plugins (1195 lines)
 │   ├── configuration.md               # Configuration options (CLI, TUI, settings)
@@ -35,6 +39,13 @@ docs/
 │      ├─ Check authentication? → auth-check-command.md
 │      ├─ JSON output? → JSON_OUTPUT.md
 │      └─ Run tests? → tests/README.md
+│
+┌─ I want to run agents in Docker
+│  └─> START: docker/README.md
+│      ├─ Single agent? → docker/README.md (Quick Start)
+│      ├─ Multi-agent team? → docker/README.md (Multi-Agent Teams)
+│      ├─ Sidecars/advanced? → docker/NETWORKING.md
+│      └─ Networking issues? → docker/NETWORKING.md (Troubleshooting)
 │
 ┌─ I want to configure settings
 │  └─> START: configuration.md
@@ -75,6 +86,8 @@ docs/
 | Configure CLI | configuration.md § CLI Configuration | - |
 | Configure TUI | configuration.md § TUI Settings | - |
 | Customize stop prompt | configuration.md § Stop Prompt Configuration | plugins/bundled/auto-mode/README.md |
+| Run agent in Docker | docker/README.md | docker/NETWORKING.md |
+| Multi-agent networking | docker/NETWORKING.md | docker/README.md |
 | Test locally | testing-guide.md § Local Plugin Testing | - |
 | Test workflows | testing-guide.md § GitHub Workflow Testing | snail-integration.md |
 | Debug issues | testing-guide.md § Debugging Tips | - |

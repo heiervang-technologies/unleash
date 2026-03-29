@@ -5,7 +5,7 @@
 #   docker compose -f docker/docker-compose.yml run --rm claude
 #
 # Without sandbox (standard runc, full network):
-#   docker compose -f docker/docker-compose.yml -f docker/docker-compose.unsandboxed.yml run --rm claude
+#   docker compose -f docker/docker-compose.yml -f docker/docker-compose.runc.yml run --rm claude
 #
 # Mount a different project:
 #   WORKSPACE_DIR=/path/to/project docker compose -f docker/docker-compose.yml run --rm claude

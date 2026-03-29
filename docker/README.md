@@ -27,14 +27,14 @@ docker compose -f docker/docker-compose.yml run --rm claude
 
 That's it. The container has full internet access (API calls, npm, git) but cannot reach your local network.
 
-### Without Sandbox
+### Without gVisor
 
-If gVisor is not available, use the unsandboxed override:
+If gVisor is not available, use the runc override:
 
 ```bash
 docker compose \
   -f docker/docker-compose.yml \
-  -f docker/docker-compose.unsandboxed.yml \
+  -f docker/docker-compose.runc.yml \
   run --rm claude
 ```
 
@@ -47,7 +47,24 @@ docker run -it --rm \
   unleash claude
 ```
 
-**Warning:** Without gVisor, the container shares the host kernel. Agents run with `--dangerously-skip-permissions` and have full network access including your LAN.
+**Warning:** Without gVisor, the container uses standard Docker isolation (runc). This still provides namespace and cgroup isolation, but agents run with `--dangerously-skip-permissions` and have full network access including your LAN.
+
+### Multi-Agent Teams
+
+Run multiple agents that can communicate with each other on an isolated mesh network:
+
+```bash
+# Start Claude + Codex agents (they discover each other via .mesh aliases)
+docker compose -f docker/docker-compose.yml \
+  -f docker/docker-compose.multi-agent.yml \
+  up claude codex
+```
+
+Agents find each other using `.mesh` aliases (`claude.mesh`, `codex.mesh`, etc.). These resolve exclusively to mesh network IPs, guaranteeing reliable connectivity. The mesh is internal — no internet access, no LAN access, agent-to-agent only. Internet traffic still routes through the sandbox network.
+
+> **Note:** Use `docker compose up`, not `run`. The `run` command creates one-off containers without DNS registration, so agents cannot discover each other. Use `.mesh` names for inter-agent communication.
+
+For advanced networking (sidecars, custom topologies), see [NETWORKING.md](NETWORKING.md).
 
 ## How Sandboxing Works
 
@@ -73,11 +90,12 @@ sudo ./docker/sandbox-network.sh status    # Check current state
 
 ### Security Summary
 
-| Setup | Kernel Isolation | LAN Blocked | Internet |
-|-------|-----------------|-------------|----------|
-| Default compose (gVisor + sandbox network) | gVisor syscall filter | Yes | Yes |
-| Unsandboxed override | None (shared kernel) | No | Yes |
-| `--network none` | N/A | Yes | No |
+| Setup | Kernel Isolation | LAN Blocked | Inter-Container | Internet |
+|-------|-----------------|-------------|-----------------|----------|
+| Default compose (gVisor + sandbox) | gVisor syscall filter | Yes | No | Yes |
+| Multi-agent (+ mesh) | gVisor syscall filter | Yes | Mesh only | Yes |
+| runc override | Standard Docker (namespaces) | No | Default Docker | Yes |
+| `--network none` | N/A | Yes | No | No |
 
 ## Authentication
 
@@ -109,6 +127,21 @@ docker compose -f docker/docker-compose.yml run --rm gemini
 
 # OpenCode
 docker compose -f docker/docker-compose.yml run --rm opencode
+```
+
+### Multi-Agent Team
+
+```bash
+# Claude + Codex team
+docker compose -f docker/docker-compose.yml \
+  -f docker/docker-compose.multi-agent.yml \
+  up claude codex
+
+# Without gVisor
+docker compose -f docker/docker-compose.yml \
+  -f docker/docker-compose.runc.yml \
+  -f docker/docker-compose.multi-agent.yml \
+  up claude codex
 ```
 
 Mount a different project:
