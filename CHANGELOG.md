@@ -1,5 +1,12 @@
 # Changelog
 
+## [9.11.2](https://github.com/heiervang-technologies/unleash/compare/v9.11.1...v9.11.2) (2026-03-29)
+
+
+### Bug Fixes
+
+* correct Codex session ID parsing and capture CWD/names ([9f0b0d3](https://github.com/heiervang-technologies/unleash/commit/9f0b0d3d5f8aeb3f535314d0b4cfdb3d738e1dcc))
+
 ## [9.11.1](https://github.com/heiervang-technologies/unleash/compare/v9.11.0...v9.11.1) (2026-03-29)
 
 
