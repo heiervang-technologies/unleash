@@ -1,5 +1,12 @@
 # Changelog
 
+## [9.11.9](https://github.com/heiervang-technologies/unleash/compare/v9.11.8...v9.11.9) (2026-03-29)
+
+
+### Bug Fixes
+
+* convert foreign thinking blocks to text for Claude injection ([af07d78](https://github.com/heiervang-technologies/unleash/commit/af07d78886b7b5fe6b098fb4876a003372ab1fd2))
+
 ## [9.11.8](https://github.com/heiervang-technologies/unleash/compare/v9.11.7...v9.11.8) (2026-03-29)
 
 
