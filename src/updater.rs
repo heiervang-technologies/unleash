@@ -619,17 +619,19 @@ fn update_opencode(tx: &mpsc::Sender<(usize, LineState)>, index: usize) -> io::R
         },
     ));
 
-    let output = Command::new("opencode")
+    // Try native opencode upgrade first, fall through to npm on any failure (including ENOENT)
+    let upgrade_ok = Command::new("opencode")
         .args(["upgrade", &target])
-        .output()?;
+        .output()
+        .ok()
+        .map_or(false, |o| o.status.success());
 
-    if output.status.success() {
+    if upgrade_ok {
         let version =
             get_installed_version(AgentType::OpenCode).unwrap_or_else(|| target.clone());
         Ok(version)
     } else {
-        // Fallback: try npm install if opencode upgrade fails
-        eprintln!("opencode upgrade failed, trying npm install...");
+        // Fallback: npm install (handles both upgrade failure and binary not found)
         let npm_output = crate::version::VersionManager::npm_global_command()
             .args(["install", "-g", &format!("opencode-ai@{}", target)])
             .output()?;
@@ -638,8 +640,8 @@ fn update_opencode(tx: &mpsc::Sender<(usize, LineState)>, index: usize) -> io::R
             Ok(target)
         } else {
             Err(io::Error::other(format!(
-                "opencode upgrade failed: {}",
-                String::from_utf8_lossy(&output.stderr)
+                "opencode install failed: {}",
+                String::from_utf8_lossy(&npm_output.stderr)
             )))
         }
     }
