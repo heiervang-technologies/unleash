@@ -152,26 +152,24 @@ fn inject_into_claude(
                 serde_json::Value::String(session_id.clone()),
             );
 
-            // Ensure uuid exists
-            let this_uuid = obj
+            // Ensure every line has a unique uuid
+            let existing_uuid = obj
                 .get("uuid")
                 .and_then(|v| v.as_str())
-                .map(String::from)
-                .unwrap_or_else(uuid_v4);
+                .filter(|s| !s.is_empty())
+                .map(String::from);
+            let this_uuid = existing_uuid.unwrap_or_else(uuid_v4);
             obj.insert("uuid".to_string(), serde_json::Value::String(this_uuid.clone()));
 
-            // Build parentUuid chain: each message points to the previous
-            match &prev_uuid {
-                Some(parent) => {
-                    obj.insert(
-                        "parentUuid".to_string(),
-                        serde_json::Value::String(parent.clone()),
-                    );
-                }
-                None => {
-                    obj.insert("parentUuid".to_string(), serde_json::Value::Null);
-                }
-            }
+            // Build parentUuid chain: ALWAYS set, each line points to the previous
+            // This overwrites any existing parentUuid to ensure a clean linear chain
+            obj.insert(
+                "parentUuid".to_string(),
+                match &prev_uuid {
+                    Some(parent) => serde_json::Value::String(parent.clone()),
+                    None => serde_json::Value::Null,
+                },
+            );
             prev_uuid = Some(this_uuid);
 
             // Ensure cwd is set
