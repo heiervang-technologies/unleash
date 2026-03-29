@@ -1,5 +1,12 @@
 # Changelog
 
+## [9.11.10](https://github.com/heiervang-technologies/unleash/compare/v9.11.9...v9.11.10) (2026-03-29)
+
+
+### Bug Fixes
+
+* only add cross-CLI defaults when source is not Claude ([4e4b7c4](https://github.com/heiervang-technologies/unleash/commit/4e4b7c49458d401e1d94ff0c43544cb3a11dfc31))
+
 ## [9.11.9](https://github.com/heiervang-technologies/unleash/compare/v9.11.8...v9.11.9) (2026-03-29)
 
 
