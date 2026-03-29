@@ -371,6 +371,28 @@ pub enum Commands {
         check: bool,
     },
 
+    /// Convert conversation history between CLI formats
+    Convert {
+        /// Source format (claude, codex, gemini, opencode, hub)
+        #[arg(long)]
+        from: String,
+
+        /// Target format (claude, codex, gemini, opencode, hub). Defaults to hub.
+        #[arg(long, default_value = "hub")]
+        to: String,
+
+        /// Input file path
+        input: String,
+
+        /// Output file path (defaults to stdout)
+        #[arg(short, long)]
+        output: Option<String>,
+
+        /// Verify lossless round-trip instead of converting
+        #[arg(long)]
+        verify: bool,
+    },
+
     /// Run a profile by name (catches any unknown subcommand as a profile name)
     #[command(external_subcommand)]
     Profile(Vec<String>),

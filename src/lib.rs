@@ -24,6 +24,7 @@ mod text_input;
 mod theme;
 #[cfg(feature = "tui")]
 mod tui;
+mod interchange;
 mod version;
 
 use clap::Parser;
@@ -627,6 +628,17 @@ pub fn run() -> io::Result<()> {
                 include_self,
                 json: cli.json,
             })
+        }
+        Some(Commands::Convert {
+            from,
+            to,
+            input,
+            output,
+            verify,
+        }) => {
+            interchange::convert_command(&from, &to, &input, output.as_deref(), verify)
+                .map_err(|e| io::Error::new(io::ErrorKind::Other, e.to_string()))?;
+            Ok(())
         }
         None => {
             #[cfg(feature = "tui")]
