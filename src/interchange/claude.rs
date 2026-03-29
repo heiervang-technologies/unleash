@@ -602,11 +602,14 @@ fn hub_content_to_claude(blocks: &[ContentBlock]) -> Vec<Value> {
             ContentBlock::Thinking {
                 text, signature, ..
             } => {
-                let mut obj = serde_json::json!({"type": "thinking", "thinking": text});
                 if let Some(sig) = signature {
-                    obj["signature"] = Value::String(sig.clone());
+                    // Claude thinking block with signature — preserve
+                    serde_json::json!({"type": "thinking", "thinking": text, "signature": sig})
+                } else {
+                    // Foreign thinking block (no signature) — convert to text
+                    // Claude API requires signature on thinking blocks
+                    serde_json::json!({"type": "text", "text": format!("[Reasoning]: {text}")})
                 }
-                obj
             }
             ContentBlock::Image {
                 media_type, data, ..
