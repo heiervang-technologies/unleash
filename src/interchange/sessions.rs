@@ -230,25 +230,23 @@ fn walk_codex_dir(dir: &std::path::Path, sessions: &mut Vec<SessionInfo>) {
             .and_then(|n| n.to_str())
             .map_or(false, |n| n.starts_with("rollout-") && n.ends_with(".jsonl"))
         {
-            // Extract session ID from filename: rollout-DATE-UUID.jsonl
+            // Extract session ID from filename: rollout-YYYY-MM-DDTHH-mm-ss-UUID.jsonl
+            // The timestamp is exactly 19 chars: YYYY-MM-DDTHH-mm-ss
+            // After "rollout-" (8 chars) + timestamp (19 chars) + "-" (1 char) = UUID starts at 28
             let filename = path
                 .file_stem()
                 .and_then(|s| s.to_str())
                 .unwrap_or("");
-            // UUID is the last segment after the date parts
-            let session_id = filename
-                .strip_prefix("rollout-")
-                .and_then(|s| {
-                    // Format: YYYY-MM-DDTHH-mm-ss-UUID
-                    // Find the UUID portion (after the 3rd hyphen group with T)
-                    let parts: Vec<&str> = s.splitn(4, '-').collect();
-                    if parts.len() >= 4 {
-                        Some(parts[3].to_string())
-                    } else {
-                        Some(s.to_string())
-                    }
-                })
-                .unwrap_or_else(|| filename.to_string());
+            let after_prefix = filename.strip_prefix("rollout-").unwrap_or(filename);
+            let session_id = if after_prefix.len() > 20 {
+                // Skip timestamp (19 chars) + separator (1 char)
+                after_prefix[20..].to_string()
+            } else {
+                after_prefix.to_string()
+            };
+
+            // Also try reading session_meta from first line for CWD
+            let cwd = read_codex_cwd(&path);
 
             let updated_at = entry
                 .metadata()
@@ -267,13 +265,32 @@ fn walk_codex_dir(dir: &std::path::Path, sessions: &mut Vec<SessionInfo>) {
                 id: session_id,
                 name: None,
                 title: None,
-                directory: String::new(),
+                directory: cwd.unwrap_or_default(),
                 path,
                 updated_at,
                 message_count: None,
             });
         }
     }
+}
+
+fn read_codex_cwd(path: &std::path::Path) -> Option<String> {
+    use std::io::BufRead;
+    let file = std::fs::File::open(path).ok()?;
+    let reader = std::io::BufReader::new(file);
+    for line in reader.lines().take(5) {
+        let line = line.ok()?;
+        if let Ok(val) = serde_json::from_str::<serde_json::Value>(&line) {
+            if val.get("type").and_then(|t| t.as_str()) == Some("session_meta") {
+                return val
+                    .get("payload")
+                    .and_then(|p| p.get("cwd"))
+                    .and_then(|c| c.as_str())
+                    .map(String::from);
+            }
+        }
+    }
+    None
 }
 
 // === Gemini discovery ===
