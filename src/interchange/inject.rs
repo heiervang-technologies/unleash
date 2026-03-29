@@ -308,7 +308,8 @@ fn extract_session_id(records: &[HubRecord]) -> String {
 }
 
 fn encode_claude_project_path(dir: &str) -> String {
-    dir.replace('/', "-").trim_start_matches('-').to_string()
+    // Claude encodes /home/me/project as -home-me-project (leading dash, slashes to dashes)
+    dir.replace('/', "-")
 }
 
 fn uuid_v4() -> String {

@@ -526,15 +526,28 @@ fn hub_message_to_claude(
         }
     }
 
-    // Fill in session/version from session header if not in extensions
-    if (line.get("sessionId").is_none() || line["sessionId"].is_null())
-        && !session_id.is_empty() {
-            line["sessionId"] = Value::String(session_id.to_string());
-        }
-    if (line.get("version").is_none() || line["version"].is_null())
-        && !version.is_empty() {
-            line["version"] = Value::String(version.to_string());
-        }
+    // Fill in required Claude fields — from extensions or defaults
+    if line.get("sessionId").map_or(true, |v| v.is_null()) {
+        line["sessionId"] = Value::String(session_id.to_string());
+    }
+    if line.get("version").map_or(true, |v| v.is_null()) {
+        line["version"] = Value::String(
+            if version.is_empty() { "2.1.87" } else { version }.to_string()
+        );
+    }
+    if line.get("isSidechain").map_or(true, |v| v.is_null()) {
+        line["isSidechain"] = Value::Bool(false);
+    }
+    if line.get("userType").map_or(true, |v| v.is_null()) {
+        line["userType"] = Value::String("external".into());
+    }
+    if line.get("permissionMode").is_none() {
+        line["permissionMode"] = Value::String("bypassPermissions".into());
+    }
+    if line.get("promptId").map_or(true, |v| v.is_null()) {
+        // Generate a consistent promptId per message pair
+        line["promptId"] = Value::String(msg.id.clone());
+    }
 
     // Restore universal fields
     if let Some(ref cwd) = msg.metadata.cwd {
