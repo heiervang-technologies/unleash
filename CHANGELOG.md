@@ -1,5 +1,12 @@
 # Changelog
 
+## [9.11.1](https://github.com/heiervang-technologies/unleash/compare/v9.11.0...v9.11.1) (2026-03-29)
+
+
+### Bug Fixes
+
+* Claude crossload uses cwd for project path and fresh session ID ([230b405](https://github.com/heiervang-technologies/unleash/commit/230b4056ee222d191437f36ce07e71a3ee9f346e))
+
 ## [9.11.0](https://github.com/heiervang-technologies/unleash/compare/v9.10.3...v9.11.0) (2026-03-29)
 
 
