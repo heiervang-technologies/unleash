@@ -1,6 +1,6 @@
 [package]
 name = "unleash"
-version = "9.11.5"
+version = "9.11.6"
 edition = "2021"
 description = "Unleash - Extended CLI for AI Code Agents"
 authors = ["Heiervang Technologies"]

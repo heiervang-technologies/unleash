@@ -1,5 +1,12 @@
 # Changelog
 
+## [9.11.6](https://github.com/heiervang-technologies/unleash/compare/v9.11.5...v9.11.6) (2026-03-29)
+
+
+### Bug Fixes
+
+* ensure every injected line has UUID and unbroken parent chain ([0698c0a](https://github.com/heiervang-technologies/unleash/commit/0698c0a108f9fee4aa7dac22778c0a35d4d8599b))
+
 ## [9.11.5](https://github.com/heiervang-technologies/unleash/compare/v9.11.4...v9.11.5) (2026-03-29)
 
 
