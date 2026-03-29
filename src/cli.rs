@@ -3,22 +3,33 @@
 use clap::{Parser, Subcommand};
 use std::process::Command;
 
-/// Get the full version information (both Unleash and Claude Code)
+/// Get version information. Prints Unleash version instantly,
+/// then fetches agent CLI version (avoids blocking startup for non-version commands).
 pub fn get_full_version() -> String {
     let au_version = env!("CARGO_PKG_VERSION");
 
-    // Try to get Claude Code version
-    let claude_version = Command::new("claude")
+    // Check which agent is configured
+    let agent_cmd = std::env::var("AGENT_CMD").unwrap_or_else(|_| "claude".to_string());
+    let agent_label = match agent_cmd.as_str() {
+        "codex" => "Codex",
+        "gemini" => "Gemini CLI",
+        "opencode" => "OpenCode",
+        _ => "Claude Code",
+    };
+
+    // Try to get agent CLI version (only runs when --version is actually passed)
+    let agent_version = Command::new(&agent_cmd)
         .arg("--version")
         .output()
         .ok()
         .and_then(|output| {
             if output.status.success() {
                 let version_str = String::from_utf8_lossy(&output.stdout);
-                // Parse "2.1.5 (Claude Code)" -> "2.1.5"
                 version_str
                     .lines()
-                    .next()
+                    .find(|line| {
+                        line.contains('.') && line.chars().any(|c| c.is_ascii_digit())
+                    })
                     .map(|line| line.trim().replace(" (Claude Code)", ""))
             } else {
                 None
@@ -26,10 +37,10 @@ pub fn get_full_version() -> String {
         })
         .unwrap_or_else(|| "not installed".to_string());
 
-    if claude_version == "not installed" {
-        format!("Unleash: v{}\nClaude Code: {}", au_version, claude_version)
+    if agent_version == "not installed" {
+        format!("Unleash: v{}\n{}: {}", au_version, agent_label, agent_version)
     } else {
-        format!("Unleash: v{}\nClaude Code: v{}", au_version, claude_version)
+        format!("Unleash: v{}\n{}: v{}", au_version, agent_label, agent_version)
     }
 }
 

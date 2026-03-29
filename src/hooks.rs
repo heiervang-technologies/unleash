@@ -27,7 +27,9 @@ pub struct ClaudeInstallation {
 }
 
 impl ClaudeInstallation {
-    /// Detect Claude Code installation
+    /// Detect Claude Code installation.
+    /// Skips the blocking `claude --version` subprocess call — version is
+    /// fetched lazily only when needed (see `get_version()`).
     pub fn detect() -> io::Result<Self> {
         // Find claude binary
         let binary_path = which("claude").map_err(|_| {
@@ -47,9 +49,6 @@ impl ClaudeInstallation {
                 )
             })?;
 
-        // Get version
-        let version = Self::get_version()?;
-
         // Settings path
         let settings_path = dirs::home_dir()
             .ok_or_else(|| {
@@ -60,13 +59,13 @@ impl ClaudeInstallation {
         Ok(Self {
             binary_path,
             package_dir,
-            version,
+            version: String::new(), // deferred — call get_version() when needed
             settings_path,
         })
     }
 
-    /// Get Claude Code version
-    fn get_version() -> io::Result<String> {
+    /// Get Claude Code version (spawns subprocess — call only when needed)
+    pub fn get_version() -> io::Result<String> {
         let output = Command::new("claude").arg("--version").output()?;
 
         if output.status.success() {
