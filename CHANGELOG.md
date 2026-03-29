@@ -1,5 +1,12 @@
 # Changelog
 
+## [9.10.0](https://github.com/heiervang-technologies/unleash/compare/v9.9.0...v9.10.0) (2026-03-29)
+
+
+### Features
+
+* conversation hub interchange format with lossless converters ([#275](https://github.com/heiervang-technologies/unleash/issues/275)) ([61806c6](https://github.com/heiervang-technologies/unleash/commit/61806c6236e5eb4ed01474cc5abf0973d4418b5c))
+
 ## [9.9.0](https://github.com/heiervang-technologies/unleash/compare/v9.8.0...v9.9.0) (2026-03-29)
 
 
