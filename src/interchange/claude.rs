@@ -527,26 +527,34 @@ fn hub_message_to_claude(
     }
 
     // Fill in required Claude fields — from extensions or defaults
+    // Only add fields that aren't already present (from extensions or original)
+    let is_from_claude = cc.is_object() && !cc.as_object().unwrap().is_empty();
+
     if line.get("sessionId").map_or(true, |v| v.is_null()) {
-        line["sessionId"] = Value::String(session_id.to_string());
+        if !session_id.is_empty() {
+            line["sessionId"] = Value::String(session_id.to_string());
+        }
     }
     if line.get("version").map_or(true, |v| v.is_null()) {
-        line["version"] = Value::String(
-            if version.is_empty() { "2.1.87" } else { version }.to_string()
-        );
+        if !version.is_empty() {
+            line["version"] = Value::String(version.to_string());
+        }
     }
-    if line.get("isSidechain").map_or(true, |v| v.is_null()) {
-        line["isSidechain"] = Value::Bool(false);
-    }
-    if line.get("userType").map_or(true, |v| v.is_null()) {
-        line["userType"] = Value::String("external".into());
-    }
-    if line.get("permissionMode").is_none() {
-        line["permissionMode"] = Value::String("bypassPermissions".into());
-    }
-    if line.get("promptId").map_or(true, |v| v.is_null()) {
-        // Generate a consistent promptId per message pair
-        line["promptId"] = Value::String(msg.id.clone());
+
+    // Only set cross-CLI defaults when source is NOT Claude
+    if !is_from_claude {
+        if line.get("isSidechain").map_or(true, |v| v.is_null()) {
+            line["isSidechain"] = Value::Bool(false);
+        }
+        if line.get("userType").map_or(true, |v| v.is_null()) {
+            line["userType"] = Value::String("external".into());
+        }
+        if line.get("permissionMode").is_none() {
+            line["permissionMode"] = Value::String("bypassPermissions".into());
+        }
+        if line.get("promptId").map_or(true, |v| v.is_null()) {
+            line["promptId"] = Value::String(msg.id.clone());
+        }
     }
 
     // Restore universal fields
