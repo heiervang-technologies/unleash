@@ -1,5 +1,12 @@
 # Changelog
 
+## [9.11.5](https://github.com/heiervang-technologies/unleash/compare/v9.11.4...v9.11.5) (2026-03-29)
+
+
+### Bug Fixes
+
+* build parentUuid chain for Claude session injection ([542d6a9](https://github.com/heiervang-technologies/unleash/commit/542d6a96f480484a3fdcd5b704e9d5c1ab5fcca9))
+
 ## [9.11.4](https://github.com/heiervang-technologies/unleash/compare/v9.11.3...v9.11.4) (2026-03-29)
 
 
