@@ -1,5 +1,12 @@
 # Changelog
 
+## [9.10.1](https://github.com/heiervang-technologies/unleash/compare/v9.10.0...v9.10.1) (2026-03-29)
+
+
+### Bug Fixes
+
+* opencode update handles fresh install (ENOENT before npm fallback) ([#277](https://github.com/heiervang-technologies/unleash/issues/277)) ([0710a8b](https://github.com/heiervang-technologies/unleash/commit/0710a8b903d47ada339b9b71a3afcfade26dfb83)), closes [#266](https://github.com/heiervang-technologies/unleash/issues/266)
+
 ## [9.10.0](https://github.com/heiervang-technologies/unleash/compare/v9.9.0...v9.10.0) (2026-03-29)
 
 
