@@ -1,5 +1,13 @@
 # Changelog
 
+## [9.10.2](https://github.com/heiervang-technologies/unleash/compare/v9.10.1...v9.10.2) (2026-03-29)
+
+
+### Bug Fixes
+
+* confirm-delete uses wrong index when search filter is active ([#279](https://github.com/heiervang-technologies/unleash/issues/279)) ([70c01e4](https://github.com/heiervang-technologies/unleash/commit/70c01e416bcda6a85b7001281c6e2e4f64c7c9e8)), closes [#233](https://github.com/heiervang-technologies/unleash/issues/233)
+* remove dead nohup spawn code, align trigger file paths ([#244](https://github.com/heiervang-technologies/unleash/issues/244)) ([#280](https://github.com/heiervang-technologies/unleash/issues/280)) ([970762b](https://github.com/heiervang-technologies/unleash/commit/970762bc6c56a1e1171bd94017022516ce9085b1))
+
 ## [9.10.1](https://github.com/heiervang-technologies/unleash/compare/v9.10.0...v9.10.1) (2026-03-29)
 
 
