@@ -1,5 +1,12 @@
 # Changelog
 
+## [9.11.7](https://github.com/heiervang-technologies/unleash/compare/v9.11.6...v9.11.7) (2026-03-29)
+
+
+### Bug Fixes
+
+* Gemini injection uses SHA-256 project hash for correct directory ([217af52](https://github.com/heiervang-technologies/unleash/commit/217af52bcbada0df743c8dd868496a4238c74d9e))
+
 ## [9.11.6](https://github.com/heiervang-technologies/unleash/compare/v9.11.5...v9.11.6) (2026-03-29)
 
 
