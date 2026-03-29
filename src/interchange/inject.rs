@@ -141,8 +141,9 @@ fn inject_into_claude(
 
     let output_path = project_dir.join(format!("{session_id}.jsonl"));
 
-    // Write JSONL, patching sessionId in every line to match our new session ID
+    // Write JSONL, patching sessionId and building parentUuid chain
     let mut output = String::new();
+    let mut prev_uuid: Option<String> = None;
     for line in &claude_lines {
         let mut patched = line.clone();
         if let serde_json::Value::Object(ref mut obj) = patched {
@@ -150,6 +151,29 @@ fn inject_into_claude(
                 "sessionId".to_string(),
                 serde_json::Value::String(session_id.clone()),
             );
+
+            // Ensure uuid exists
+            let this_uuid = obj
+                .get("uuid")
+                .and_then(|v| v.as_str())
+                .map(String::from)
+                .unwrap_or_else(uuid_v4);
+            obj.insert("uuid".to_string(), serde_json::Value::String(this_uuid.clone()));
+
+            // Build parentUuid chain: each message points to the previous
+            match &prev_uuid {
+                Some(parent) => {
+                    obj.insert(
+                        "parentUuid".to_string(),
+                        serde_json::Value::String(parent.clone()),
+                    );
+                }
+                None => {
+                    obj.insert("parentUuid".to_string(), serde_json::Value::Null);
+                }
+            }
+            prev_uuid = Some(this_uuid);
+
             // Ensure cwd is set
             if !obj.contains_key("cwd") || obj["cwd"].is_null() {
                 obj.insert(
@@ -314,11 +338,20 @@ fn encode_claude_project_path(dir: &str) -> String {
 
 fn uuid_v4() -> String {
     use std::time::{SystemTime, UNIX_EPOCH};
-    let t = SystemTime::now()
+    let nanos = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .unwrap_or_default()
         .as_nanos();
-    format!("{t:032x}")
+    // Generate a UUID-like string from timestamp + pseudo-random bits
+    let hi = (nanos >> 64) as u64;
+    let lo = nanos as u64;
+    let pid = std::process::id() as u64;
+    let a = (lo >> 32) as u32;
+    let b = (lo >> 16) as u16;
+    let c = (lo & 0xFFFF) as u16 | 0x4000; // version 4
+    let d = ((hi >> 48) as u16 & 0x3FFF) | 0x8000; // variant 1
+    let e = hi ^ pid;
+    format!("{a:08x}-{b:04x}-{c:04x}-{d:04x}-{e:012x}")
 }
 
 fn chrono_like_now() -> String {
