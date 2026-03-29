@@ -245,35 +245,52 @@ fn inject_into_gemini(
     hub_records: &[HubRecord],
 ) -> Result<InjectionResult, ConvertError> {
     let gemini_val = gemini::from_hub(hub_records)?;
-
     let session_id = extract_session_id(hub_records);
 
-    // Gemini uses project slugs from ~/.gemini/projects.json
+    // Gemini uses SHA-256 hash of the project directory as the folder name
     let cwd = std::env::current_dir()
         .map(|p| p.to_string_lossy().to_string())
         .unwrap_or_else(|_| source.directory.clone());
 
-    let project_slug = gemini_project_slug(&cwd);
+    let project_hash = sha256_hex(&cwd);
 
-    let gemini_dir = dirs::home_dir()
+    let gemini_base = dirs::home_dir()
         .ok_or_else(|| ConvertError::InvalidFormat("No home dir".into()))?
         .join(".gemini")
         .join("tmp")
-        .join(&project_slug)
-        .join("chats");
+        .join(&project_hash);
+    let chats_dir = gemini_base.join("chats");
+    std::fs::create_dir_all(&chats_dir)?;
 
-    std::fs::create_dir_all(&gemini_dir)?;
-
+    // Filename: session-YYYY-MM-DDTHH-MM-<uuid8>.json
     let now = chrono_like_now();
-    let uuid_short = &session_id[..session_id.len().min(6)];
-    let output_path = gemini_dir.join(format!(
-        "session-{}-{}.json",
-        &now[..now.len().min(16)].replace(':', "-"),
-        uuid_short
-    ));
+    let date_part = &now[..now.len().min(16)].replace(':', "-");
+    let uuid_short = &session_id[..session_id.len().min(8)];
+    let output_path = chats_dir.join(format!("session-{}-{}.json", date_part, uuid_short));
+
+    // Ensure projectHash is in the output
+    let mut gemini_val = gemini_val;
+    gemini_val["projectHash"] = serde_json::Value::String(project_hash);
 
     let json = serde_json::to_string_pretty(&gemini_val)?;
     std::fs::write(&output_path, &json)?;
+
+    // Write/append logs.json entries for session discovery
+    let logs_path = gemini_base.join("logs.json");
+    let log_entries = gemini::build_logs_entries(hub_records);
+    if !log_entries.is_empty() {
+        let mut existing_logs: Vec<serde_json::Value> = if logs_path.exists() {
+            std::fs::read_to_string(&logs_path)
+                .ok()
+                .and_then(|s| serde_json::from_str(&s).ok())
+                .unwrap_or_default()
+        } else {
+            Vec::new()
+        };
+        existing_logs.extend(log_entries);
+        let logs_json = serde_json::to_string_pretty(&existing_logs)?;
+        std::fs::write(&logs_path, &logs_json)?;
+    }
 
     eprintln!("Injected session to {}", output_path.display());
 
