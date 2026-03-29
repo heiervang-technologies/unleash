@@ -2127,12 +2127,14 @@ impl App {
     fn handle_confirm_delete_input(&mut self, action: NavAction) {
         match action {
             NavAction::Select => {
-                // Confirm delete
-                if let Some(profile) = self.profiles.get(self.profile_menu.selected) {
-                    let name = profile.name.clone();
-                    if self.profile_manager.delete_profile(&name).is_ok() {
-                        self.refresh_profiles();
-                        self.status_message = Some(format!("Deleted: {}", name));
+                // Confirm delete — use selected_profile_index() to account for search filter
+                if let Some(idx) = self.selected_profile_index() {
+                    if let Some(profile) = self.profiles.get(idx) {
+                        let name = profile.name.clone();
+                        if self.profile_manager.delete_profile(&name).is_ok() {
+                            self.refresh_profiles();
+                            self.status_message = Some(format!("Deleted: {}", name));
+                        }
                     }
                 }
                 self.screen = Screen::Profiles;
