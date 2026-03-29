@@ -1,5 +1,12 @@
 # Changelog
 
+## [9.9.0](https://github.com/heiervang-technologies/unleash/compare/v9.8.0...v9.9.0) (2026-03-29)
+
+
+### Features
+
+* multi-agent mesh networking with tiered isolation ([#271](https://github.com/heiervang-technologies/unleash/issues/271)) ([76c0bc8](https://github.com/heiervang-technologies/unleash/commit/76c0bc8d2025a2298bccb45ccc3308ef6cb81355))
+
 ## [9.8.0](https://github.com/heiervang-technologies/unleash/compare/v9.7.1...v9.8.0) (2026-03-29)
 
 
