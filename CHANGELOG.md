@@ -1,5 +1,12 @@
 # Changelog
 
+## [9.11.3](https://github.com/heiervang-technologies/unleash/compare/v9.11.2...v9.11.3) (2026-03-29)
+
+
+### Bug Fixes
+
+* handle --crossload/-x in wrapper reentry path ([7ac88a2](https://github.com/heiervang-technologies/unleash/commit/7ac88a27eff2f0f5384d523664c97b3c944aaa58))
+
 ## [9.11.2](https://github.com/heiervang-technologies/unleash/compare/v9.11.1...v9.11.2) (2026-03-29)
 
 
