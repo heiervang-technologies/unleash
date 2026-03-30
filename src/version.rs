@@ -422,6 +422,41 @@ impl VersionManager {
             .is_ok_and(|o| o.status.success())
     }
 
+    /// Query the npm registry HTTP API for available versions of a package.
+    /// Uses curl — no npm binary required.
+    fn query_npm_registry_versions(package: &str, limit: usize) -> io::Result<Vec<String>> {
+        // npm registry URL: https://registry.npmjs.org/<package>
+        // The response has a "versions" object with version strings as keys.
+        // We use the abbreviated metadata endpoint for speed.
+        let url = format!("https://registry.npmjs.org/{}", package);
+        let output = Command::new("curl")
+            .args(["-fsSL", "-H", "Accept: application/vnd.npm.install-v1+json", &url])
+            .output()
+            .map_err(|e| io::Error::other(format!("curl not found: {}", e)))?;
+
+        if !output.status.success() {
+            return Err(io::Error::other(format!(
+                "Failed to query npm registry for {}",
+                package
+            )));
+        }
+
+        let json_str = String::from_utf8_lossy(&output.stdout);
+        // Parse the "versions" object and extract keys
+        let parsed: serde_json::Value = serde_json::from_str(&json_str)
+            .map_err(|e| io::Error::other(format!("Failed to parse registry response: {}", e)))?;
+
+        let mut versions: Vec<String> = parsed
+            .get("versions")
+            .and_then(|v| v.as_object())
+            .map(|obj| obj.keys().cloned().collect())
+            .unwrap_or_default();
+
+        versions.sort_by(|a, b| version_compare(b, a));
+        versions.truncate(limit);
+        Ok(versions)
+    }
+
     /// Check whether `npm install -g` needs `sudo` on this system.
     ///
     /// Returns `true` when the npm global prefix directory (e.g. `/usr/lib`)
@@ -890,27 +925,7 @@ impl VersionManager {
 
     /// Get available Gemini CLI versions from npm registry
     pub fn get_gemini_available_versions(&self) -> io::Result<Vec<String>> {
-        if !Self::has_npm() {
-            return Err(io::Error::other("npm is not available"));
-        }
-
-        let output = Command::new("npm")
-            .args(["view", "@google/gemini-cli", "versions", "--json"])
-            .output()?;
-
-        if output.status.success() {
-            let json_str = String::from_utf8_lossy(&output.stdout);
-            let mut versions: Vec<String> =
-                serde_json::from_str(json_str.trim()).unwrap_or_default();
-
-            versions.sort_by(|a, b| version_compare(b, a));
-            versions.truncate(20);
-            Ok(versions)
-        } else {
-            Err(io::Error::other(
-                "Failed to query npm registry for Gemini CLI",
-            ))
-        }
+        Self::query_npm_registry_versions("@google/gemini-cli", 20)
     }
 
     /// Get combined Gemini CLI version list with status
@@ -975,25 +990,7 @@ impl VersionManager {
     /// for `opencode-ai/opencode` use a different versioning scheme (0.0.x) and
     /// should not be mixed with npm versions (1.x.x).
     pub fn get_opencode_available_versions(&self) -> io::Result<Vec<String>> {
-        if !Self::has_npm() {
-            return Err(io::Error::other(
-                "npm is required to query OpenCode versions",
-            ));
-        }
-
-        let output = Command::new("npm")
-            .args(["view", "opencode-ai", "versions", "--json"])
-            .output()?;
-
-        if !output.status.success() {
-            return Err(io::Error::other(
-                "Failed to query available versions for OpenCode",
-            ));
-        }
-
-        let json_str = String::from_utf8_lossy(&output.stdout);
-        let mut versions: Vec<String> = serde_json::from_str(json_str.trim())
-            .unwrap_or_default();
+        let mut versions = Self::query_npm_registry_versions("opencode-ai", 20)?;
         versions.retain(|s| s.starts_with(|c: char| c.is_ascii_digit()));
 
         if versions.is_empty() {
@@ -1001,9 +998,6 @@ impl VersionManager {
                 "Failed to query available versions for OpenCode",
             ));
         }
-
-        versions.sort_by(|a, b| version_compare(b, a));
-        versions.truncate(20);
         Ok(versions)
     }
 

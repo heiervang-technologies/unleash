@@ -457,25 +457,35 @@ fn get_latest_version(agent_type: AgentType) -> io::Result<Option<String>> {
 }
 
 fn get_latest_npm_version(package: &str) -> io::Result<Option<String>> {
-    let output = match Command::new("npm")
+    // Try npm first
+    if let Ok(output) = Command::new("npm")
         .args(["view", package, "version"])
         .output()
     {
-        Ok(o) => o,
-        Err(e) if e.kind() == io::ErrorKind::NotFound => return Ok(None), // npm not installed
-        Err(e) => return Err(e),
-    };
-
-    if !output.status.success() {
-        return Ok(None);
+        if output.status.success() {
+            let version = String::from_utf8_lossy(&output.stdout).trim().to_string();
+            if !version.is_empty() {
+                return Ok(Some(version));
+            }
+        }
     }
 
-    let version = String::from_utf8_lossy(&output.stdout).trim().to_string();
-    if version.is_empty() {
-        Ok(None)
-    } else {
-        Ok(Some(version))
+    // Fallback: curl the npm registry API (works without npm installed)
+    if let Ok(output) = Command::new("curl")
+        .args(["-fsSL", &format!("https://registry.npmjs.org/{}/latest", package)])
+        .output()
+    {
+        if output.status.success() {
+            let json_str = String::from_utf8_lossy(&output.stdout);
+            if let Ok(parsed) = serde_json::from_str::<serde_json::Value>(&json_str) {
+                if let Some(version) = parsed.get("version").and_then(|v| v.as_str()) {
+                    return Ok(Some(version.to_string()));
+                }
+            }
+        }
     }
+
+    Ok(None)
 }
 
 fn get_latest_github_version(repo: &str) -> io::Result<Option<String>> {
@@ -701,6 +711,65 @@ fn update_codex(tx: &mpsc::Sender<(usize, LineState)>, index: usize) -> io::Resu
     Ok(version)
 }
 
+/// Ensure npm is available, offering to install Node.js if missing.
+/// Returns Ok(true) if npm is available, Ok(false) if user declined.
+fn ensure_npm() -> io::Result<bool> {
+    if crate::version::VersionManager::has_npm() {
+        return Ok(true);
+    }
+
+    eprintln!("\n\x1b[33mnpm not found.\x1b[0m Node.js is required to install this agent.");
+    eprint!("Install Node.js via nvm? [Y/n] ");
+
+    let mut input = String::new();
+    std::io::stdin().read_line(&mut input)?;
+    let answer = input.trim().to_lowercase();
+    if !answer.is_empty() && answer != "y" && answer != "yes" {
+        return Ok(false);
+    }
+
+    eprintln!("Installing nvm and Node.js LTS...");
+
+    // Install nvm
+    let nvm_install = Command::new("bash")
+        .args(["-c", "curl -fsSL https://raw.githubusercontent.com/nvm-sh/nvm/v0.40.3/install.sh | bash"])
+        .status()?;
+    if !nvm_install.success() {
+        return Err(io::Error::other("Failed to install nvm"));
+    }
+
+    // Source nvm and install LTS Node
+    let node_install = Command::new("bash")
+        .args(["-c", "export NVM_DIR=\"$HOME/.nvm\" && . \"$NVM_DIR/nvm.sh\" && nvm install --lts && nvm use --lts"])
+        .status()?;
+    if !node_install.success() {
+        return Err(io::Error::other("Failed to install Node.js via nvm"));
+    }
+
+    // Verify npm is now available (nvm installs to ~/.nvm/versions/node/...)
+    // We need to find the npm binary since our process doesn't inherit the nvm shell setup
+    let find_npm = Command::new("bash")
+        .args(["-c", "export NVM_DIR=\"$HOME/.nvm\" && . \"$NVM_DIR/nvm.sh\" && which npm"])
+        .output()?;
+    if find_npm.status.success() {
+        let npm_path = String::from_utf8_lossy(&find_npm.stdout).trim().to_string();
+        if let Some(bin_dir) = std::path::Path::new(&npm_path).parent() {
+            // Add nvm's node bin to PATH for this process
+            let current_path = std::env::var("PATH").unwrap_or_default();
+            std::env::set_var("PATH", format!("{}:{}", bin_dir.display(), current_path));
+        }
+    }
+
+    if crate::version::VersionManager::has_npm() {
+        eprintln!("\x1b[32m✓\x1b[0m Node.js installed successfully\n");
+        Ok(true)
+    } else {
+        eprintln!("\x1b[33m!\x1b[0m nvm installed but npm not found in current session.");
+        eprintln!("  Restart your shell and try again.\n");
+        Ok(false)
+    }
+}
+
 /// Update Gemini CLI via npm.
 fn update_gemini(tx: &mpsc::Sender<(usize, LineState)>, index: usize) -> io::Result<String> {
     let _ = tx.send((
@@ -711,16 +780,13 @@ fn update_gemini(tx: &mpsc::Sender<(usize, LineState)>, index: usize) -> io::Res
         },
     ));
 
-    let output = match crate::version::VersionManager::npm_global_command()
+    if !ensure_npm()? {
+        return Err(io::Error::other("npm required to install Gemini CLI"));
+    }
+
+    let output = crate::version::VersionManager::npm_global_command()
         .args(["install", "-g", "@google/gemini-cli@latest"])
-        .output()
-    {
-        Ok(o) => o,
-        Err(e) if e.kind() == io::ErrorKind::NotFound => {
-            return Err(io::Error::other("npm not found — install Node.js (https://nodejs.org) to install Gemini CLI"));
-        }
-        Err(e) => return Err(e),
-    };
+        .output()?;
 
     if output.status.success() {
         let version = get_installed_version(AgentType::Gemini).unwrap_or_else(|| "latest".into());
@@ -761,16 +827,13 @@ fn update_opencode(tx: &mpsc::Sender<(usize, LineState)>, index: usize) -> io::R
         Ok(version)
     } else {
         // Fallback: npm install (handles both upgrade failure and binary not found)
-        let npm_output = match crate::version::VersionManager::npm_global_command()
+        if !ensure_npm()? {
+            return Err(io::Error::other("npm required to install OpenCode"));
+        }
+
+        let npm_output = crate::version::VersionManager::npm_global_command()
             .args(["install", "-g", &format!("opencode-ai@{}", target)])
-            .output()
-        {
-            Ok(o) => o,
-            Err(e) if e.kind() == io::ErrorKind::NotFound => {
-                return Err(io::Error::other("npm not found — install Node.js (https://nodejs.org) to install OpenCode"));
-            }
-            Err(e) => return Err(e),
-        };
+            .output()?;
 
         if npm_output.status.success() {
             Ok(target)
