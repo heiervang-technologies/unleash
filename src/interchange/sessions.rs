@@ -191,10 +191,10 @@ fn discover_codex() -> Vec<SessionInfo> {
     walk_codex_dir(&codex_dir, &mut sessions);
 
     // Also check session_index.jsonl for names
-    let index_path = dirs::home_dir()
-        .unwrap()
-        .join(".codex")
-        .join("session_index.jsonl");
+    let Some(home) = dirs::home_dir() else {
+        return sessions;
+    };
+    let index_path = home.join(".codex").join("session_index.jsonl");
     if index_path.exists() {
         if let Ok(content) = std::fs::read_to_string(&index_path) {
             for line in content.lines() {
@@ -420,7 +420,7 @@ fn format_epoch_ms(ms: u64) -> String {
     let years = days / 365;
     let year = 1970 + years;
     // Simple ISO approximation (good enough for sorting).
-    // Cap month at 12: remaining_days can be up to 364, and 364/30+1 = 13.
+    // Clamp month to 1-12: remaining_days can reach 364, giving month=13 without the clamp.
     let remaining_days = days - years * 365;
     let month = (remaining_days / 30 + 1).min(12);
     let day = remaining_days % 30 + 1;
@@ -444,8 +444,8 @@ mod tests {
     fn test_discover_all_doesnt_crash() {
         // Should not panic even if CLI dirs don't exist
         let sessions = discover_all();
-        // We can't assert count since it depends on the machine; just ensure no panic.
-        let _ = sessions;
+        // We can't assert count since it depends on the machine; just verify no panic.
+        let _ = sessions.len();
     }
 
     #[test]
@@ -455,14 +455,17 @@ mod tests {
     }
 
     #[test]
-    fn test_format_epoch_ms_no_month_overflow() {
-        // Days 360-364 of a year previously produced month=13.
-        // Use a timestamp near the end of a year (Dec 31 ~= day 364).
-        // 1970 + ~1 year = ~Jan 1971; test any date where remaining_days >= 360.
-        // epoch_ms for approx 1970-12-31: 364 * 86400 * 1000 = 31449600000
-        let ts = format_epoch_ms(31449600000);
-        let month_str = &ts[5..7];
-        let month: u64 = month_str.parse().expect("month should be numeric");
-        assert!(month >= 1 && month <= 12, "month out of range: {ts}");
+    fn test_format_epoch_ms_no_month_13() {
+        // Regression: remaining_days >= 360 used to produce month=13.
+        // Test timestamps near Dec 26-31 of several years.
+        // Exact day 360 of 1970 = 1970-12-27 ~ 31104000000 ms
+        let ts = format_epoch_ms(31_104_000_000);
+        let month: u32 = ts[5..7].parse().unwrap();
+        assert!(month >= 1 && month <= 12, "month={} out of range in '{}'", month, ts);
+
+        // Also verify a timestamp at end of a later year
+        let ts2 = format_epoch_ms(1_735_603_200_000); // ~2024-12-31
+        let month2: u32 = ts2[5..7].parse().unwrap();
+        assert!(month2 >= 1 && month2 <= 12, "month={} out of range in '{}'", month2, ts2);
     }
 }
