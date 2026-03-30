@@ -63,13 +63,16 @@ unleash codex -- --notify
 
 Launch the interactive TUI for profile and version management.
 
-### `unleash update [agent]`
+### `unleash update`
 
-Update installed agents. Updates all agents in parallel by default.
+Update unleash and/or agent CLIs.
 
 ```bash
-unleash update              # Update all agents
+unleash update              # Update unleash itself
+unleash update -c           # Update all installed agent CLIs
+unleash update -a           # Update unleash + all agent CLIs
 unleash update claude       # Update only Claude
+unleash update claude codex # Update Claude and Codex
 unleash update --check      # Dry run, show available updates
 ```
 
@@ -99,12 +102,16 @@ Show all agent versions and update status in a single table.
 
 List sessions across all installed CLIs.
 
-### `unleash convert <input> <output>`
+### `unleash convert --from <format> <input>`
 
-Convert between CLI session formats.
+Convert between CLI session formats. Use `--from` to specify the source format and
+`--to` for the target (defaults to `hub`). Output goes to stdout unless `-o` is given.
 
 ```bash
-unleash convert claude-session.json codex-session.json
+unleash convert --from claude session.jsonl                     # Convert to hub format (stdout)
+unleash convert --from claude --to codex session.jsonl          # Convert Claude → Codex
+unleash convert --from claude --to codex session.jsonl -o out.json  # Write to file
+unleash convert --from claude --to codex session.jsonl --verify # Verify round-trip fidelity
 ```
 
 ## Examples
