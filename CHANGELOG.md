@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.1.0 (2026-03-30)
+
+
+### Features
+
+* multi-platform release binaries + interactive installer ([6baf1d3](https://github.com/heiervang-technologies/unleash/commit/6baf1d3504209a82b915d187d69193edcc2663a8))
+* multi-platform splash binaries + installer downloads both ([58032b6](https://github.com/heiervang-technologies/unleash/commit/58032b6ae4ac5a5a8cb5b27236bb8575bb7f2244))
+
 ## 1.0.0
 
 Initial open-source release.
