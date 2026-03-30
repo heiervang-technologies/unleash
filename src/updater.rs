@@ -707,7 +707,7 @@ fn update_codex(tx: &mpsc::Sender<(usize, LineState)>, index: usize) -> io::Resu
     let result = manager.update_agent(AgentType::Codex)?;
 
     let version = get_installed_version(AgentType::Codex).unwrap_or_else(|| "latest".into());
-    eprintln!("{}", result);
+    let _ = result; // result is a status string; progress is reported via tx
     Ok(version)
 }
 
