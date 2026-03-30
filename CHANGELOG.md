@@ -1,5 +1,17 @@
 # Changelog
 
+## [9.14.0](https://github.com/heiervang-technologies/unleash/compare/v9.13.1...v9.14.0) (2026-03-30)
+
+
+### Features
+
+* filter non-message events from Claude crossload injection ([b8faac6](https://github.com/heiervang-technologies/unleash/commit/b8faac6abaf8b517a1a0305d9492c6d3ab90a353))
+
+
+### Bug Fixes
+
+* resolve all clippy warnings, fix installer alignment, lowercase branding ([#302](https://github.com/heiervang-technologies/unleash/issues/302)) ([e13068f](https://github.com/heiervang-technologies/unleash/commit/e13068f56813de2af5cde2d4a5fb2ec660c16275))
+
 ## [9.13.1](https://github.com/heiervang-technologies/unleash/compare/v9.13.0...v9.13.1) (2026-03-30)
 
 
