@@ -115,7 +115,37 @@ fn inject_into_claude(
     source: &SessionInfo,
     hub_records: &[HubRecord],
 ) -> Result<InjectionResult, ConvertError> {
-    let claude_lines = claude::from_hub(hub_records)?;
+    let all_claude_lines = claude::from_hub(hub_records)?;
+
+    // Filter: only keep user/assistant messages with non-empty, non-system content
+    // Claude renders ALL JSONL lines as conversation turns — events show as blanks
+    let claude_lines: Vec<_> = all_claude_lines
+        .into_iter()
+        .filter(|line| {
+            let msg_type = line.get("type").and_then(|t| t.as_str()).unwrap_or("");
+            if msg_type != "user" && msg_type != "assistant" {
+                return false;
+            }
+            // Check content is non-empty and not system preamble
+            let content = line.get("message").and_then(|m| m.get("content"));
+            match content {
+                Some(serde_json::Value::String(s)) => {
+                    !s.is_empty()
+                        && !s.starts_with("<environment_context")
+                        && !s.starts_with("<permissions")
+                        && !s.starts_with("<user_shell_command")
+                }
+                Some(serde_json::Value::Array(arr)) => {
+                    arr.iter().any(|block| {
+                        block.get("text").and_then(|t| t.as_str()).map_or(false, |t| {
+                            !t.is_empty() && !t.starts_with("[Reasoning]: \n")
+                        })
+                    })
+                }
+                _ => false,
+            }
+        })
+        .collect();
 
     // Generate a fresh UUID for the Claude session
     let session_id = uuid_v4();
