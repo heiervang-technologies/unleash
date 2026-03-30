@@ -231,7 +231,7 @@ mkdir -p plugins/my-plugin
 }
 ```
 
-See `docs/extensions/` for the full plugin development guide.
+See the [plugin development guide](docs/internal/claude-code/plugin-development.md) for details.
 
 ## Installation
 
@@ -332,53 +332,23 @@ unleash/
 └── docs/                   # Specs and guides
 ```
 
-## Running in Docker
-
-unleash provides a sandboxed Docker container with all 4 coder CLIs pre-installed to their latest versions:
-
-- **Claude Code** (Anthropic) — `claude`
-- **Codex** (OpenAI) — `codex`
-- **Gemini CLI** (Google) — `gemini`
-- **OpenCode** — `opencode`
-
-One image, all agents ready to go.
-
-```bash
-# Build the image
-docker build -f docker/Dockerfile -t unleash .
-
-# Run with TUI (interactive mode)
-docker run -it --rm \
-  -e CLAUDE_CODE_OAUTH_TOKEN \
-  -v $(pwd):/workspace \
-  unleash
-
-# Or launch Claude Code directly
-docker run -it --rm \
-  -e CLAUDE_CODE_OAUTH_TOKEN \
-  -v $(pwd):/workspace \
-  unleash claude
-```
-
-See [docker/](docker/) for Docker Compose usage and detailed configuration.
-
 ## Contributing
 
-```bash
-git checkout -b feature/my-enhancement
-cargo test                  # Run tests
-cargo clippy                # Lint
-git commit -m "feat: ..."   # Conventional commits
-```
+Contributions are very welcome! See [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines.
 
-- **New features**: Create or modify plugins in `plugins/bundled/`
-- **Core changes**: Modify Rust source in `src/`
-- **Upstream improvements**: Contribute to [anthropics/claude-code](https://github.com/anthropics/claude-code) directly
+## Documentation
+
+- [Getting Started](docs/getting-started.md)
+- [CLI Reference](docs/cli-reference.md)
+- [Profiles](docs/profiles.md)
+- [Crossload Matrix](docs/crossload-matrix.md)
+- [Docker + gVisor Sandbox](docs/docker.md)
+- [Plugins](docs/plugins.md)
+- [Configuration](docs/configuration.md)
 
 ## Links
 
 - [Issue Tracker](https://github.com/heiervang-technologies/unleash/issues)
-- [Plugin Development Guide](docs/extensions/plugin-development.md)
 - [Claude Code](https://github.com/anthropics/claude-code) | [Codex](https://github.com/openai/codex) | [Gemini CLI](https://github.com/google-gemini/gemini-cli) | [OpenCode](https://github.com/opencode-ai/opencode)
 
 ---
