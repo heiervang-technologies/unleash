@@ -133,13 +133,32 @@ Features that unleash adds on top of the base agent CLIs:
 - **Profile system**: Named configurations with per-agent settings, env vars, and themes
 - **Parallel updates**: Update all agents simultaneously with progress visualization
 
+### Cross-CLI Session Crossload
+
+Load conversation history from any agent into any other. Browse all sessions with `unleash sessions`, then crossload with `-x`:
+
+```bash
+unleash claude -x codex:rust-eng     # Load Codex session into Claude
+unleash gemini -x claude:rice-chief  # Load Claude session into Gemini
+unleash claude -x                    # Interactive session picker
+```
+
+| Source → Target | Status |
+|----------------|--------|
+| Codex → Claude | :green_circle: Lossless |
+| Claude → Gemini | :green_circle: Lossless |
+| Gemini → Claude | :green_circle: Lossless |
+| Claude → Codex | :yellow_circle: Partial |
+| OpenCode → Claude | :yellow_circle: Partial |
+| → OpenCode (all) | :white_circle: Pending |
+
+:green_circle: Lossless · :yellow_circle: Partial · :white_circle: Pending — [Full matrix](docs/crossload-matrix.md)
+
 ### On the Roadmap
 
 - Custom agent CLI support (bring your own agent binary with unified flag mapping)
-- Portable conversation histories across agents
 - Directory navigation and workspace management
 - PTY terminal middleware for session scripting
-- Cross-agent session migration
 
 ## Profiles
 
