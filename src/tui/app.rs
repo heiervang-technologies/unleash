@@ -265,6 +265,10 @@ pub struct App {
     pub conflict_warning_open: bool,
     /// Suppress conflict dialog after cleanup attempt (prevents infinite loop)
     pub conflict_dismissed: bool,
+    // npm install dialog
+    pub npm_dialog_open: bool,
+    /// Pending install to resume after npm is installed (agent, version)
+    pub npm_dialog_pending: Option<(AgentType, String)>,
     /// Animation frame counter (increments each tick)
     pub animation_frame: usize,
     /// Art layout preference for main view (non-main views use the opposite)
@@ -418,6 +422,8 @@ impl App {
             conflict_entries: Vec::new(),
             conflict_warning_open: false,
             conflict_dismissed: false,
+            npm_dialog_open: false,
+            npm_dialog_pending: None,
             animation_frame: 0,
             art_layout: ArtLayout::ArtRight,
             art_animation: None,
@@ -1490,6 +1496,121 @@ impl App {
         action: NavAction,
         key: KeyEvent,
     ) -> io::Result<Option<AppAction>> {
+        // Handle npm install dialog if open
+        if self.npm_dialog_open {
+            let mut accepted = false;
+            let mut rejected = false;
+            match action {
+                NavAction::Select => accepted = true,
+                NavAction::Back | NavAction::Quit => rejected = true,
+                _ => {}
+            }
+            match key.code {
+                KeyCode::Char('y') | KeyCode::Char('Y') => accepted = true,
+                KeyCode::Char('n') | KeyCode::Char('N') => rejected = true,
+                _ => {}
+            }
+            if accepted {
+                self.npm_dialog_open = false;
+                // Install nvm + node in background, then retry
+                self.status_message = Some("Installing Node.js via nvm...".into());
+                let pending = self.npm_dialog_pending.take();
+                let (log_tx, log_rx) = std::sync::mpsc::channel::<String>();
+                // Show install log
+                self.install_log_lines.clear();
+                self.show_install_log = true;
+                // Bridge log lines
+                let (step_tx, step_rx) = std::sync::mpsc::channel();
+                let step_tx2 = step_tx.clone();
+                std::thread::spawn(move || {
+                    for line in log_rx {
+                        let _ = step_tx2.send(InstallStepResult::LogLine(line));
+                    }
+                });
+                std::thread::spawn(move || {
+                    let _ = log_tx.send("Installing nvm...".into());
+                    let nvm_ok = std::process::Command::new("bash")
+                        .args(["-c", "curl -fsSL https://raw.githubusercontent.com/nvm-sh/nvm/v0.40.3/install.sh | bash"])
+                        .output()
+                        .is_ok_and(|o| o.status.success());
+                    if !nvm_ok {
+                        let _ = log_tx.send("Failed to install nvm".into());
+                        let _ = step_tx.send(InstallStepResult::InstallComplete(
+                            crate::version::InstallResult {
+                                success: false, stdout: String::new(), stderr: String::new(),
+                                error: Some("Failed to install nvm".into()),
+                            },
+                        ));
+                        return;
+                    }
+                    let _ = log_tx.send("Installing Node.js LTS...".into());
+                    let node_ok = std::process::Command::new("bash")
+                        .args(["-c", "export NVM_DIR=\"$HOME/.nvm\" && . \"$NVM_DIR/nvm.sh\" && nvm install --lts"])
+                        .output()
+                        .is_ok_and(|o| o.status.success());
+                    if !node_ok {
+                        let _ = log_tx.send("Failed to install Node.js".into());
+                        let _ = step_tx.send(InstallStepResult::InstallComplete(
+                            crate::version::InstallResult {
+                                success: false, stdout: String::new(), stderr: String::new(),
+                                error: Some("Failed to install Node.js via nvm".into()),
+                            },
+                        ));
+                        return;
+                    }
+                    // Find npm and add to PATH
+                    if let Ok(output) = std::process::Command::new("bash")
+                        .args(["-c", "export NVM_DIR=\"$HOME/.nvm\" && . \"$NVM_DIR/nvm.sh\" && which npm"])
+                        .output()
+                    {
+                        if output.status.success() {
+                            let npm_path = String::from_utf8_lossy(&output.stdout).trim().to_string();
+                            if let Some(bin_dir) = std::path::Path::new(&npm_path).parent() {
+                                let current = std::env::var("PATH").unwrap_or_default();
+                                std::env::set_var("PATH", format!("{}:{}", bin_dir.display(), current));
+                            }
+                        }
+                    }
+                    let _ = log_tx.send("Node.js installed successfully".into());
+
+                    // Now install the pending agent
+                    if let Some((agent, version)) = pending {
+                        let _ = log_tx.send(format!("Installing {} v{}...", agent.display_name(), version));
+                        let vm = VersionManager::new();
+                        let result = match agent {
+                            AgentType::Gemini => vm.install_gemini_version_streaming(&version, log_tx),
+                            AgentType::OpenCode => vm.install_opencode_version_streaming(&version, log_tx),
+                            _ => Ok(crate::version::InstallResult {
+                                success: false, stdout: String::new(), stderr: String::new(),
+                                error: Some("Unexpected agent".into()),
+                            }),
+                        };
+                        let install_result = result.unwrap_or_else(|e| crate::version::InstallResult {
+                            success: false, stdout: String::new(), stderr: e.to_string(),
+                            error: Some(e.to_string()),
+                        });
+                        let _ = step_tx.send(InstallStepResult::InstallComplete(install_result));
+                    }
+                });
+                if let Some((agent, version)) = &self.npm_dialog_pending {
+                    self.install_state = Some(InstallState {
+                        agent_type: *agent,
+                        version: version.clone(),
+                        receiver: step_rx,
+                        _handle: std::thread::spawn(|| {}),
+                        start_time: std::time::Instant::now(),
+                        current_step: InstallStep::Installing,
+                        install_result: None,
+                    });
+                }
+                self.npm_dialog_pending = None;
+            } else if rejected {
+                self.npm_dialog_open = false;
+                self.npm_dialog_pending = None;
+            }
+            return Ok(None);
+        }
+
         // Handle conflict dialog if open
         if self.conflict_warning_open {
             let mut accepted = false;
@@ -1681,6 +1802,29 @@ impl App {
             return;
         }
         if let Some(version_info) = self.versions.get(self.version_menu.selected) {
+            // Check if agent needs npm and it's missing
+            let needs_npm = matches!(self.version_agent, AgentType::Gemini | AgentType::OpenCode);
+            if needs_npm && !VersionManager::has_npm() {
+                // Try sourcing nvm first
+                if let Ok(output) = std::process::Command::new("bash")
+                    .args(["-c", "export NVM_DIR=\"$HOME/.nvm\" && . \"$NVM_DIR/nvm.sh\" 2>/dev/null && which npm"])
+                    .output()
+                {
+                    if output.status.success() {
+                        let npm_path = String::from_utf8_lossy(&output.stdout).trim().to_string();
+                        if let Some(bin_dir) = std::path::Path::new(&npm_path).parent() {
+                            let current_path = std::env::var("PATH").unwrap_or_default();
+                            std::env::set_var("PATH", format!("{}:{}", bin_dir.display(), current_path));
+                        }
+                    }
+                }
+                // Still no npm? Show dialog
+                if !VersionManager::has_npm() {
+                    self.npm_dialog_open = true;
+                    self.npm_dialog_pending = Some((self.version_agent, version_info.version.clone()));
+                    return;
+                }
+            }
             let version = version_info.version.clone();
             let agent = self.version_agent;
             let is_reinstall = version_info.is_installed;
@@ -2342,7 +2486,9 @@ impl App {
             }
             Screen::VersionManagement => {
                 self.render_version_management(frame, area);
-                if self.conflict_warning_open {
+                if self.npm_dialog_open {
+                    self.render_npm_dialog(frame, frame.area());
+                } else if self.conflict_warning_open {
                     self.render_conflict_dialog(frame, frame.area());
                 }
             }
@@ -3070,6 +3216,42 @@ impl App {
         let dialog = Paragraph::new(lines)
             .block(Block::default().style(Style::default().bg(Color::Black).fg(Color::Red)));
 
+        frame.render_widget(dialog, dialog_area);
+    }
+
+    fn render_npm_dialog(&self, frame: &mut Frame, area: Rect) {
+        let dialog_width = 50.min(area.width.saturating_sub(4));
+        let dialog_height = 8;
+        let dialog_x = (area.width.saturating_sub(dialog_width)) / 2;
+        let dialog_y = (area.height.saturating_sub(dialog_height)) / 2;
+        let dialog_area = Rect::new(dialog_x, dialog_y, dialog_width, dialog_height);
+
+        frame.render_widget(Clear, dialog_area);
+
+        let agent_name = self.npm_dialog_pending
+            .as_ref()
+            .map(|(a, _)| a.display_name())
+            .unwrap_or_else(|| "this agent".into());
+
+        let lines = vec![
+            Line::default(),
+            Line::from(Span::styled(
+                "  npm not found",
+                Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD),
+            )),
+            Line::default(),
+            Line::from(format!("  Node.js is required to install {}.", agent_name)),
+            Line::default(),
+            Line::from("  Install Node.js via nvm?"),
+            Line::default(),
+            Line::from(Span::styled(
+                "  [Y=install] [N/Esc=cancel]",
+                Style::default().fg(Color::DarkGray),
+            )),
+        ];
+
+        let dialog = Paragraph::new(lines)
+            .block(Block::default().borders(Borders::ALL).title(" Install Node.js "));
         frame.render_widget(dialog, dialog_area);
     }
 
@@ -3884,6 +4066,8 @@ mod tests {
             conflict_entries: Vec::new(),
             conflict_warning_open: false,
             conflict_dismissed: false,
+            npm_dialog_open: false,
+            npm_dialog_pending: None,
             animation_frame: 0,
             art_layout: ArtLayout::default(),
             art_animation: None,
