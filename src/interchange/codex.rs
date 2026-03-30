@@ -446,7 +446,7 @@ fn hub_session_to_codex(session: &SessionHeader) -> Result<Value, ConvertError> 
         .as_ref()
         .map(|p| p.directory.as_str())
         .filter(|d| !d.is_empty())
-        .unwrap_or_else(|| {
+        .unwrap_or({
             // Will be overridden by inject_into_codex with actual cwd
             ""
         });

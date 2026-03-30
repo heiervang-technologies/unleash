@@ -3755,6 +3755,9 @@ impl LaunchRequest {
             let mut c = Command::new(&exe);
             c.arg0("unleash");
             c.env("AGENT_CMD", &self.profile.agent_cli_path);
+            // Signal wrapper reentry so the new process enters launcher mode
+            // instead of showing the TUI again
+            c.env(crate::launcher::UNLEASHED_ENV_VAR, "1");
             c
         } else {
             Command::new(&self.profile.agent_cli_path)

@@ -138,7 +138,7 @@ fn inject_into_claude(
                 }
                 Some(serde_json::Value::Array(arr)) => {
                     arr.iter().any(|block| {
-                        block.get("text").and_then(|t| t.as_str()).map_or(false, |t| {
+                        block.get("text").and_then(|t| t.as_str()).is_some_and(|t| {
                             !t.is_empty() && !t.starts_with("[Reasoning]: \n")
                         })
                     })
@@ -283,7 +283,7 @@ fn inject_into_codex(
     let index_entry = serde_json::json!({
         "id": session_id,
         "thread_name": source.name.as_deref().unwrap_or(&source.id),
-        "updated_at": now.replace('T', "T").replace('-', "-"),
+        "updated_at": now,
     });
     let mut index_line = serde_json::to_string(&index_entry)?;
     index_line.push('\n');
@@ -381,7 +381,7 @@ fn find_codex_state_db(codex_home: &std::path::Path) -> Option<std::path::PathBu
         if let Some(rest) = name_str.strip_prefix("state_") {
             if let Some(ver_str) = rest.strip_suffix(".sqlite") {
                 if let Ok(ver) = ver_str.parse::<u32>() {
-                    if best.as_ref().map_or(true, |(best_ver, _)| ver > *best_ver) {
+                    if best.as_ref().is_none_or(|(best_ver, _)| ver > *best_ver) {
                         best = Some((ver, entry.path()));
                     }
                 }
