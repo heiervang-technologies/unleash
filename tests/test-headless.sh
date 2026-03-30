@@ -8,6 +8,10 @@
 
 set -euo pipefail
 
+# Isolate from the unleash wrapper environment so subcommand routing tests
+# behave the same whether run inside or outside an unleash session.
+unset AGENT_UNLEASH AGENT_CMD 2>/dev/null || true
+
 # Find binary - prefer fast profile, then release, then debug
 if [[ -n "${AU_BIN:-}" ]]; then
     BIN="$AU_BIN"
@@ -205,6 +209,25 @@ if run_headless "$BIN" invalid-subcommand; then
     fail "invalid subcommand" "should exit non-zero"
 else
     pass "invalid subcommand exits non-zero"
+fi
+
+# ─── 16. unleash sessions ───────────────────────────────────────
+echo "[16] unleash sessions"
+# May return no sessions in CI, but should always exit 0 and produce some output
+run_headless "$BIN" sessions || true
+if [[ -n "$OUT" || -n "$ERR" ]]; then
+    pass "sessions subcommand produces output"
+else
+    fail "sessions" "no output at all"
+fi
+
+# ─── 17. unleash sessions --json ────────────────────────────────
+echo "[17] unleash sessions --json"
+run_headless "$BIN" sessions --json || true
+if echo "$OUT" | python3 -c "import json,sys; json.load(sys.stdin)" 2>/dev/null; then
+    pass "sessions --json produces valid JSON"
+else
+    fail "sessions --json" "output is not valid JSON: $OUT"
 fi
 
 # ─── Cleanup ────────────────────────────────────────────────────
