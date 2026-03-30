@@ -94,9 +94,11 @@ pub fn resolve(
     }
 
     // --- Headless ---
-    // Only apply if neither resume nor continue already set the subcommand
+    // Only apply if neither resume nor continue is active; those modes already
+    // place the agent into a specific session and adding a headless subcommand
+    // (e.g. "exec" for Codex) would produce a garbled invocation.
     if let Some(ref prompt) = flags.headless {
-        if subcommand_prefix.is_empty() {
+        if flags.resume.is_none() && !flags.continue_session {
             let (h_args, h_sub) = config.get_headless_invocation(prompt);
             args.extend(h_args);
             subcommand_prefix.extend(h_sub);
@@ -454,6 +456,56 @@ mod tests {
         assert!(inv.args.contains(&"--resume".to_string()));
         assert!(inv.args.contains(&"sess-1".to_string()));
         assert!(inv.args.contains(&"--fork-session".to_string()));
+    }
+
+    // --- Headless suppressed by resume / continue ---
+
+    #[test]
+    fn test_codex_headless_suppressed_when_resume_set() {
+        // Codex headless uses a subcommand ("exec"). When --resume is also set
+        // the two subcommands would conflict. Headless must be suppressed.
+        let config = AgentDefinition::codex().polyfill;
+        let flags = PolyfillFlags {
+            resume: Some(Some("sess-1".to_string())),
+            headless: Some("do the thing".to_string()),
+            yolo: false,
+            ..default_flags()
+        };
+        let inv = resolve(&config, &flags, &[]);
+        assert!(inv.subcommand_prefix.is_empty(), "exec subcommand must not be added when resume is set");
+        assert!(!inv.args.contains(&"do the thing".to_string()), "headless prompt must not appear");
+        // resume args should still be present
+        assert!(inv.args.contains(&"resume".to_string()));
+        assert!(inv.args.contains(&"sess-1".to_string()));
+    }
+
+    #[test]
+    fn test_codex_headless_suppressed_when_continue_set() {
+        let config = AgentDefinition::codex().polyfill;
+        let flags = PolyfillFlags {
+            continue_session: true,
+            headless: Some("keep going".to_string()),
+            yolo: false,
+            ..default_flags()
+        };
+        let inv = resolve(&config, &flags, &[]);
+        assert!(inv.subcommand_prefix.is_empty(), "exec subcommand must not be added when continue is set");
+        assert!(!inv.args.contains(&"keep going".to_string()), "headless prompt must not appear");
+        assert!(inv.args.contains(&"resume".to_string()));
+    }
+
+    #[test]
+    fn test_claude_headless_still_applied_standalone() {
+        // Sanity: when no resume/continue, headless should still work for Claude
+        let config = AgentDefinition::claude().polyfill;
+        let flags = PolyfillFlags {
+            headless: Some("do the thing".to_string()),
+            yolo: false,
+            ..default_flags()
+        };
+        let inv = resolve(&config, &flags, &[]);
+        assert!(inv.args.contains(&"-p".to_string()));
+        assert!(inv.args.contains(&"do the thing".to_string()));
     }
 
     #[test]
