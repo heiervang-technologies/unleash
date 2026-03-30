@@ -1,5 +1,12 @@
 # Changelog
 
+## [9.12.1](https://github.com/heiervang-technologies/unleash/compare/v9.12.0...v9.12.1) (2026-03-30)
+
+
+### Bug Fixes
+
+* Gemini session gets valid startTime and message IDs ([9e5e888](https://github.com/heiervang-technologies/unleash/commit/9e5e888f1e7dfa9c7a7471ad37dc52308225bcaa))
+
 ## [9.12.0](https://github.com/heiervang-technologies/unleash/compare/v9.11.10...v9.12.0) (2026-03-30)
 
 
