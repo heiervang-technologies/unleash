@@ -400,17 +400,28 @@ pub fn run() -> io::Result<()> {
                 }
             }
 
-            // Detect target CLI
-            let target_cli = env::var("AGENT_CMD")
-                .ok()
-                .and_then(|cmd| detect_agent_type_from_cmd_path(&cmd))
-                .map(|agent| match agent {
-                    AgentType::Claude => "claude",
-                    AgentType::Codex => "codex",
-                    AgentType::Gemini => "gemini",
-                    AgentType::OpenCode => "opencode",
-                })
-                .unwrap_or("claude");
+            // Detect target CLI from the first arg (profile name), not AGENT_CMD
+            // When user runs `unleash gemini -x`, the first arg is "gemini"
+            let first_arg = args.first().map(String::as_str).unwrap_or("");
+            let target_cli = match first_arg {
+                "claude" | "claude-code" => "claude",
+                "codex" => "codex",
+                "gemini" | "gemini-cli" => "gemini",
+                "opencode" => "opencode",
+                _ => {
+                    // Fall back to AGENT_CMD
+                    env::var("AGENT_CMD")
+                        .ok()
+                        .and_then(|cmd| detect_agent_type_from_cmd_path(&cmd))
+                        .map(|agent| match agent {
+                            AgentType::Claude => "claude",
+                            AgentType::Codex => "codex",
+                            AgentType::Gemini => "gemini",
+                            AgentType::OpenCode => "opencode",
+                        })
+                        .unwrap_or("claude")
+                }
+            };
 
             let query = if crossload_query.is_empty() {
                 #[cfg(feature = "tui")]
