@@ -418,7 +418,10 @@ fn get_latest_version(agent_type: AgentType) -> io::Result<Option<String>> {
 
     // Prefer npm registry for agents that have an npm package.
     if let Some(ref package) = def.npm_package {
-        return get_latest_npm_version(package);
+        if let Some(version) = get_latest_npm_version(package)? {
+            return Ok(Some(version));
+        }
+        // npm not available or returned nothing — fall through to GitHub
     }
 
     // Fall back to GitHub releases.
