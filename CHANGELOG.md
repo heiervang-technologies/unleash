@@ -1,5 +1,12 @@
 # Changelog
 
+## [9.13.0](https://github.com/heiervang-technologies/unleash/compare/v9.12.2...v9.13.0) (2026-03-30)
+
+
+### Features
+
+* fix Codex converter deduplication and developer role filtering ([2782166](https://github.com/heiervang-technologies/unleash/commit/27821664ef20dcf542d3120dd7f27783e9b18f28))
+
 ## [9.12.2](https://github.com/heiervang-technologies/unleash/compare/v9.12.1...v9.12.2) (2026-03-30)
 
 
