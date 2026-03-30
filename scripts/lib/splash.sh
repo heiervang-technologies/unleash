@@ -1,17 +1,17 @@
 #!/usr/bin/env bash
 # splash.sh — Interactive agent picker splash screen for unleash installer
 #
-# Shows the ANSI mascot art with a cycleable input field.
+# Shows the ANSI mascot art recolored per agent with a cycleable input field.
 # Arrow keys cycle through: claude, codex, gemini, opencode.
 # Enter confirms, q/Esc quits.
 #
 # Usage: run_splash /path/to/mascot.claude.ans
 #
-# Colors match the TUI theme presets:
-#   claude   → orange (217, 119, 87)
-#   codex    → grey   (140, 140, 140)
-#   gemini   → purple (162, 87, 217)
-#   opencode → blue   (87, 142, 217)
+# Colors match the TUI theme presets (see src/theme.rs):
+#   claude   → orange  hue_shift=0     sat_scale=1   (identity)
+#   codex    → grey    hue_shift=345.2 sat_scale=0   (desaturate)
+#   gemini   → purple  hue_shift=260   sat_scale=1
+#   opencode → blue    hue_shift=200   sat_scale=1
 
 set -euo pipefail
 
@@ -24,19 +24,44 @@ ACCENT_R=(217 140 162 87)
 ACCENT_G=(119 140 87  142)
 ACCENT_B=(87  140 217 217)
 
+# Hue shift per agent (same as theme.rs hue_shift for Orange, Custom grey, Purple, Blue)
+HUE_SHIFTS=(0.0 345.23 260.0 200.0)
+SAT_SCALES=(1.0 0.0 1.0 1.0)
+
 RESET=$'\033[0m'
 
 current=0
 MASCOT_FILE=""
+RECOLOR_SCRIPT=""
+CACHE_DIR=""
 
 fg_rgb() { printf '\033[38;2;%d;%d;%dm' "$1" "$2" "$3"; }
 dim()    { printf '\033[2m'; }
 bold()   { printf '\033[1m'; }
 
-# Render the mascot from the ANSI art file
+# Pre-render all 4 mascot color variants to temp files
+prerender_mascots() {
+    if [[ -z "$MASCOT_FILE" || ! -f "$MASCOT_FILE" ]]; then
+        return
+    fi
+    CACHE_DIR=$(mktemp -d)
+    if [[ -n "$RECOLOR_SCRIPT" && -f "$RECOLOR_SCRIPT" ]]; then
+        for i in 0 1 2 3; do
+            python3 "$RECOLOR_SCRIPT" "$MASCOT_FILE" "${HUE_SHIFTS[$i]}" "${SAT_SCALES[$i]}" > "${CACHE_DIR}/${i}.ans"
+        done
+    else
+        for i in 0 1 2 3; do
+            cp "$MASCOT_FILE" "${CACHE_DIR}/${i}.ans"
+        done
+    fi
+}
+
+# Render the mascot from cached temp file
 render_mascot() {
-    if [[ -n "$MASCOT_FILE" && -f "$MASCOT_FILE" ]]; then
-        cat "$MASCOT_FILE"
+    local idx=$1
+    local cached="${CACHE_DIR}/${idx}.ans"
+    if [[ -n "$CACHE_DIR" && -f "$cached" ]]; then
+        cat "$cached"
     fi
 }
 
@@ -88,7 +113,7 @@ render() {
 
     echo ""
     render_title "$current"
-    render_mascot
+    render_mascot "$current"
     echo ""
     render_input "$current"
     render_hint
@@ -98,13 +123,20 @@ render() {
 # Usage: run_splash [/path/to/mascot.ans]
 run_splash() {
     MASCOT_FILE="${1:-}"
+    # Locate the recolor helper next to this script
+    local script_dir
+    script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+    RECOLOR_SCRIPT="${script_dir}/recolor.py"
+
+    # Pre-render all color variants (takes ~200ms total)
+    prerender_mascots
 
     # Hide cursor, save terminal state
     printf '\033[?25l'
     stty -echo -icanon min 1 time 0 2>/dev/null || true
 
-    # Restore on exit
-    trap 'printf "\033[?25h"; stty echo icanon 2>/dev/null || true' EXIT
+    # Restore on exit and clean up temp files
+    trap 'printf "\033[?25h"; stty echo icanon 2>/dev/null || true; [[ -n "${CACHE_DIR:-}" ]] && rm -rf "$CACHE_DIR"' EXIT
 
     render
 
