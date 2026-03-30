@@ -633,7 +633,6 @@ impl AgentManager {
         fs::create_dir_all(&tmp_dir)?;
         let tmp_archive = tmp_dir.join(&asset_name);
 
-        eprintln!("Downloading Codex {} ({})...", version, asset_name);
         let dl_output = Command::new("curl")
             .args(["-fsSL", "-o", &tmp_archive.to_string_lossy(), &download_url])
             .output()?;
@@ -646,7 +645,6 @@ impl AgentManager {
         }
 
         // Extract — codex binary is at the root of the tar.gz
-        eprintln!("Extracting...");
         let extract_output = Command::new("tar")
             .args(["xzf", &tmp_archive.to_string_lossy(), "-C", &tmp_dir.to_string_lossy()])
             .output()?;
