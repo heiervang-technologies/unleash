@@ -176,10 +176,18 @@ fn read_claude_title(path: &PathBuf) -> Option<String> {
 
 // === Codex discovery ===
 
+/// Return the Codex home directory, respecting the `CODEX_HOME` env var.
+fn codex_home_dir() -> Option<std::path::PathBuf> {
+    if let Some(home) = std::env::var_os("CODEX_HOME") {
+        return Some(std::path::PathBuf::from(home));
+    }
+    dirs::home_dir().map(|h| h.join(".codex"))
+}
+
 fn discover_codex() -> Vec<SessionInfo> {
     let mut sessions = Vec::new();
-    let codex_dir = match dirs::home_dir() {
-        Some(h) => h.join(".codex").join("sessions"),
+    let codex_dir = match codex_home_dir() {
+        Some(h) => h.join("sessions"),
         None => return sessions,
     };
 
@@ -191,10 +199,10 @@ fn discover_codex() -> Vec<SessionInfo> {
     walk_codex_dir(&codex_dir, &mut sessions);
 
     // Also check session_index.jsonl for names
-    let Some(home) = dirs::home_dir() else {
-        return sessions;
+    let index_path = match codex_home_dir() {
+        Some(h) => h.join("session_index.jsonl"),
+        None => return sessions,
     };
-    let index_path = home.join(".codex").join("session_index.jsonl");
     if index_path.exists() {
         if let Ok(content) = std::fs::read_to_string(&index_path) {
             for line in content.lines() {
