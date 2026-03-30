@@ -247,18 +247,20 @@ fn inject_into_gemini(
     let gemini_val = gemini::from_hub(hub_records)?;
     let session_id = extract_session_id(hub_records);
 
-    // Gemini uses SHA-256 hash of the project directory as the folder name
+    // Gemini uses project slugs from ~/.gemini/projects.json for session dirs
+    // Falls back to SHA-256 hash if not in projects.json
     let cwd = std::env::current_dir()
         .map(|p| p.to_string_lossy().to_string())
         .unwrap_or_else(|_| source.directory.clone());
 
+    let project_dir_name = gemini_project_slug(&cwd);
     let project_hash = sha256_hex(&cwd);
 
     let gemini_base = dirs::home_dir()
         .ok_or_else(|| ConvertError::InvalidFormat("No home dir".into()))?
         .join(".gemini")
         .join("tmp")
-        .join(&project_hash);
+        .join(&project_dir_name);
     let chats_dir = gemini_base.join("chats");
     std::fs::create_dir_all(&chats_dir)?;
 
