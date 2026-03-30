@@ -34,8 +34,9 @@ unleash claude -x
 unleash claude -x codex:rust-eng
 unleash gemini -x claude:rice-chief
 
-# Offline format conversion
-unleash convert input.jsonl output.ucf.jsonl
+# Offline format conversion (--from is required)
+unleash convert --from claude session.jsonl                           # hub format → stdout
+unleash convert --from claude --to codex session.jsonl -o out.jsonl  # Claude → Codex
 ```
 
 ## Compatibility Matrix
