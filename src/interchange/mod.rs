@@ -110,8 +110,7 @@ pub fn convert_command(
             codex::to_hub(reader)?
         }
         "gemini" | "gemini-cli" => {
-            let data = std::fs::read(input)?;
-            gemini::to_hub(&data)?
+            gemini::to_hub(input_data.as_bytes())?
         }
         "opencode" => {
             let messages: Vec<serde_json::Value> = serde_json::from_str(&input_data)?;
