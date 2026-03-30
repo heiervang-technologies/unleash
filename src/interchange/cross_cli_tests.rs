@@ -361,4 +361,286 @@ mod tests {
         let converted = extract_portable(&via_gemini);
         assert_portable_preserved("opencode", "gemini", &original, &converted);
     }
+
+    // ======================================================================
+    // Cross-CLI round-trip via Claude with real fixtures
+    // ======================================================================
+
+    /// Codex fixture -> Hub -> Claude JSONL -> Hub. Verify all Claude lines
+    /// are valid JSON with required fields.
+    #[test]
+    fn test_codex_to_claude_round_trip_valid_jsonl() {
+        let hub = codex_to_hub();
+        let claude_lines = claude::from_hub(&hub).expect("codex->hub->claude failed");
+
+        assert!(!claude_lines.is_empty(), "no Claude lines produced from Codex fixture");
+
+        for (i, line) in claude_lines.iter().enumerate() {
+            // Must be a JSON object
+            assert!(
+                line.is_object(),
+                "codex->claude line {i} is not a JSON object"
+            );
+            let obj = line.as_object().unwrap();
+
+            // Must have a type field
+            assert!(
+                obj.contains_key("type"),
+                "codex->claude line {i} missing 'type' field"
+            );
+
+            // Must have a timestamp
+            assert!(
+                obj.contains_key("timestamp"),
+                "codex->claude line {i} missing 'timestamp' field"
+            );
+        }
+
+        // Re-parse as Claude JSONL to verify it's valid for Claude's parser
+        let jsonl: String = claude_lines
+            .iter()
+            .map(|v| serde_json::to_string(v).unwrap())
+            .collect::<Vec<_>>()
+            .join("\n");
+        let reader = std::io::BufReader::new(jsonl.as_bytes());
+        let back_to_hub = claude::to_hub(reader).expect("round-trip claude->hub failed");
+        assert!(
+            back_to_hub.len() > 1,
+            "codex->claude->hub produced too few records"
+        );
+    }
+
+    /// OpenCode fixture -> Hub -> Claude JSONL -> Hub. Verify structure.
+    #[test]
+    fn test_opencode_to_claude_round_trip_valid_jsonl() {
+        let hub = opencode_to_hub();
+        let claude_lines = claude::from_hub(&hub).expect("opencode->hub->claude failed");
+
+        assert!(!claude_lines.is_empty(), "no Claude lines produced from OpenCode fixture");
+
+        for (i, line) in claude_lines.iter().enumerate() {
+            assert!(
+                line.is_object(),
+                "opencode->claude line {i} is not a JSON object"
+            );
+            let obj = line.as_object().unwrap();
+            assert!(
+                obj.contains_key("type"),
+                "opencode->claude line {i} missing 'type' field"
+            );
+        }
+
+        // Verify round-trip back to Hub
+        let jsonl: String = claude_lines
+            .iter()
+            .map(|v| serde_json::to_string(v).unwrap())
+            .collect::<Vec<_>>()
+            .join("\n");
+        let reader = std::io::BufReader::new(jsonl.as_bytes());
+        let back_to_hub = claude::to_hub(reader).expect("round-trip opencode->claude->hub failed");
+        assert!(
+            back_to_hub.len() > 1,
+            "opencode->claude->hub produced too few records"
+        );
+    }
+
+    /// Gemini fixture -> Hub -> Claude JSONL -> Hub. Verify structure.
+    #[test]
+    fn test_gemini_to_claude_round_trip_valid_jsonl() {
+        let hub = gemini_to_hub();
+        let claude_lines = claude::from_hub(&hub).expect("gemini->hub->claude failed");
+
+        assert!(!claude_lines.is_empty(), "no Claude lines produced from Gemini fixture");
+
+        for (i, line) in claude_lines.iter().enumerate() {
+            assert!(
+                line.is_object(),
+                "gemini->claude line {i} is not a JSON object"
+            );
+            let obj = line.as_object().unwrap();
+            assert!(
+                obj.contains_key("type"),
+                "gemini->claude line {i} missing 'type' field"
+            );
+        }
+
+        // Verify round-trip
+        let jsonl: String = claude_lines
+            .iter()
+            .map(|v| serde_json::to_string(v).unwrap())
+            .collect::<Vec<_>>()
+            .join("\n");
+        let reader = std::io::BufReader::new(jsonl.as_bytes());
+        let back_to_hub = claude::to_hub(reader).expect("round-trip gemini->claude->hub failed");
+        assert!(
+            back_to_hub.len() > 1,
+            "gemini->claude->hub produced too few records"
+        );
+    }
+
+    // ======================================================================
+    // inject_into_claude validation tests
+    // ======================================================================
+
+    /// Simulate inject_into_claude's parentUuid chain building logic.
+    /// Verify every line has a parentUuid pointing to the previous line's uuid.
+    #[test]
+    fn test_inject_claude_parent_uuid_chain() {
+        // Use Codex fixture as source, convert to Claude JSONL
+        let hub = codex_to_hub();
+        let claude_lines = claude::from_hub(&hub).expect("from_hub failed");
+
+        // Simulate inject_into_claude's patching logic
+        let mut patched_lines = Vec::new();
+        let mut prev_uuid: Option<String> = None;
+        let session_id = "test-inject-session";
+
+        for line in &claude_lines {
+            let mut patched = line.clone();
+            if let serde_json::Value::Object(ref mut obj) = patched {
+                obj.insert(
+                    "sessionId".to_string(),
+                    serde_json::Value::String(session_id.to_string()),
+                );
+
+                // Ensure uuid exists
+                let existing_uuid = obj
+                    .get("uuid")
+                    .and_then(|v| v.as_str())
+                    .filter(|s| !s.is_empty())
+                    .map(String::from);
+                let this_uuid = existing_uuid.unwrap_or_else(|| format!("gen-uuid-{}", patched_lines.len()));
+                obj.insert("uuid".to_string(), serde_json::Value::String(this_uuid.clone()));
+
+                obj.insert(
+                    "parentUuid".to_string(),
+                    match &prev_uuid {
+                        Some(parent) => serde_json::Value::String(parent.clone()),
+                        None => serde_json::Value::Null,
+                    },
+                );
+                prev_uuid = Some(this_uuid);
+            }
+            patched_lines.push(patched);
+        }
+
+        // Verify chain
+        assert!(!patched_lines.is_empty(), "no lines to verify");
+
+        // First line must have parentUuid: null
+        let first = patched_lines[0].as_object().unwrap();
+        assert!(
+            first["parentUuid"].is_null(),
+            "first line parentUuid should be null, got {:?}",
+            first["parentUuid"]
+        );
+
+        // Every subsequent line's parentUuid must equal the previous line's uuid
+        for i in 1..patched_lines.len() {
+            let prev = patched_lines[i - 1].as_object().unwrap();
+            let curr = patched_lines[i].as_object().unwrap();
+
+            let prev_uuid = prev["uuid"].as_str().unwrap();
+            let curr_parent = curr["parentUuid"].as_str().unwrap_or("");
+
+            assert_eq!(
+                curr_parent, prev_uuid,
+                "line {i}: parentUuid '{}' != previous uuid '{}'",
+                curr_parent, prev_uuid
+            );
+        }
+
+        // All sessionIds should be the injected one
+        for (i, line) in patched_lines.iter().enumerate() {
+            let obj = line.as_object().unwrap();
+            assert_eq!(
+                obj["sessionId"].as_str().unwrap(),
+                session_id,
+                "line {i}: sessionId not patched"
+            );
+        }
+    }
+
+    /// Verify Claude->Claude round-trip messages have non-empty uuid.
+    /// Claude's own messages preserve uuid via Hub id field.
+    #[test]
+    fn test_claude_messages_have_nonempty_uuid() {
+        let hub = claude_to_hub();
+        let claude_lines = claude::from_hub(&hub).expect("claude round-trip failed");
+
+        for (i, line) in claude_lines.iter().enumerate() {
+            let obj = line.as_object().unwrap();
+            let line_type = obj
+                .get("type")
+                .and_then(|v| v.as_str())
+                .unwrap_or("");
+
+            if line_type == "user" || line_type == "assistant" {
+                let uuid = obj
+                    .get("uuid")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("");
+
+                assert!(
+                    !uuid.is_empty(),
+                    "claude->claude line {i} (type={line_type}): uuid is empty"
+                );
+            }
+        }
+    }
+
+    /// Cross-CLI -> Claude: messages should have uuid from the Hub id field.
+    /// Known gap: Codex/Gemini/OpenCode messages may have synthetic or empty
+    /// uuids since their source formats don't use UUID message IDs.
+    /// The inject_into_claude function compensates by generating fresh uuids.
+    /// This test documents the current state.
+    #[test]
+    fn test_cross_cli_claude_messages_have_type_field() {
+        let sources: Vec<(&str, Vec<HubRecord>)> = vec![
+            ("codex", codex_to_hub()),
+            ("gemini", gemini_to_hub()),
+            ("opencode", opencode_to_hub()),
+        ];
+
+        for (source_name, hub) in &sources {
+            let claude_lines = claude::from_hub(hub)
+                .unwrap_or_else(|_| panic!("{source_name}->claude failed"));
+
+            assert!(
+                !claude_lines.is_empty(),
+                "{source_name}->claude produced no lines"
+            );
+
+            // Every line must have a type and timestamp at minimum
+            for (i, line) in claude_lines.iter().enumerate() {
+                let obj = line.as_object().unwrap();
+                assert!(
+                    obj.contains_key("type"),
+                    "{source_name}->claude line {i} missing type"
+                );
+                assert!(
+                    obj.contains_key("timestamp"),
+                    "{source_name}->claude line {i} missing timestamp"
+                );
+            }
+
+            // Count messages with uuid to document current coverage.
+            // Known gap: Codex and some other CLIs produce Hub records with
+            // synthetic/empty IDs, so the Claude output may lack uuids.
+            // The inject_into_claude function compensates by generating uuids.
+            let total = claude_lines.len();
+            let with_uuid = claude_lines
+                .iter()
+                .filter(|l| {
+                    l.get("uuid")
+                        .and_then(|v| v.as_str())
+                        .map(|s| !s.is_empty())
+                        .unwrap_or(false)
+                })
+                .count();
+            eprintln!(
+                "  {source_name}->claude: {with_uuid}/{total} lines have uuid"
+            );
+        }
+    }
 }

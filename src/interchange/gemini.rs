@@ -54,21 +54,28 @@ pub fn to_hub(data: &[u8]) -> Result<Vec<HubRecord>, ConvertError> {
 
 /// Convert Hub records back to Gemini CLI session JSON.
 /// Returns a single JSON Value representing the entire session file.
+///
+/// The output matches real Gemini CLI format:
+/// - Uses "type" field for message roles (not "role")
+/// - Includes startTime, lastUpdated, kind at top level
+/// - User content is [{text: "..."}] array format
+/// - Gemini messages always have a "content" field (empty string when toolCalls present)
 pub fn from_hub(records: &[HubRecord]) -> Result<Value, ConvertError> {
     let mut session_id = String::new();
     let mut project_hash: Option<String> = None;
-    let mut installation_id: Option<String> = None;
+    let mut start_time = String::new();
+    let mut last_updated = String::new();
     let mut messages = Vec::new();
 
     for record in records {
         match record {
             HubRecord::Session(s) => {
                 session_id = s.session_id.clone();
+                start_time = s.created_at.clone();
+                last_updated = s.updated_at.clone();
                 let gc = s.extensions.get("gemini-cli");
                 project_hash =
                     gc.and_then(|g| g.get("projectHash")).and_then(|v| v.as_str()).map(String::from);
-                installation_id =
-                    gc.and_then(|g| g.get("installationId")).and_then(|v| v.as_str()).map(String::from);
             }
             HubRecord::Message(msg) => {
                 messages.push(hub_message_to_gemini(msg)?);
@@ -79,19 +86,69 @@ pub fn from_hub(records: &[HubRecord]) -> Result<Value, ConvertError> {
         }
     }
 
+    // Use first/last message timestamps if session header didn't have them
+    if start_time.is_empty() {
+        if let Some(first) = messages.first() {
+            start_time = first.get("timestamp").and_then(|t| t.as_str()).unwrap_or("").to_string();
+        }
+    }
+    if last_updated.is_empty() {
+        if let Some(last) = messages.last() {
+            last_updated = last.get("timestamp").and_then(|t| t.as_str()).unwrap_or("").to_string();
+        }
+    }
+
     let mut root = serde_json::json!({
         "sessionId": session_id,
+        "startTime": start_time,
+        "lastUpdated": last_updated,
         "messages": messages,
+        "kind": "main",
     });
 
-    if let Some(hash) = project_hash {
-        root["projectHash"] = Value::String(hash);
-    }
-    if let Some(iid) = installation_id {
-        root["installationId"] = Value::String(iid);
+    if let Some(ref hash) = project_hash {
+        root["projectHash"] = Value::String(hash.clone());
     }
 
     Ok(root)
+}
+
+/// Build a logs.json entry array for the Gemini session.
+/// Each user message gets an entry with sessionId, messageId (index), type, message, timestamp.
+pub fn build_logs_entries(records: &[HubRecord]) -> Vec<Value> {
+    let mut entries = Vec::new();
+    let mut session_id = String::new();
+    let mut user_msg_idx = 0u64;
+
+    for record in records {
+        match record {
+            HubRecord::Session(s) => {
+                session_id = s.session_id.clone();
+            }
+            HubRecord::Message(msg) if msg.role == "user" => {
+                // Extract first text content for the message field
+                let text = msg.content.iter().find_map(|b| {
+                    if let ContentBlock::Text { text } = b {
+                        Some(text.clone())
+                    } else {
+                        None
+                    }
+                }).unwrap_or_default();
+
+                entries.push(serde_json::json!({
+                    "sessionId": session_id,
+                    "messageId": user_msg_idx,
+                    "type": "user",
+                    "message": text,
+                    "timestamp": msg.timestamp,
+                }));
+                user_msg_idx += 1;
+            }
+            _ => {}
+        }
+    }
+
+    entries
 }
 
 // === Helpers ===
@@ -181,21 +238,32 @@ fn message_to_hub(msg: &Value) -> Result<HubMessage, ConvertError> {
         }
     }
 
-    // Extract text content — Gemini uses either "text" (string) or "content" (array of {text})
+    // Extract text content — Gemini uses:
+    // - "content": [{text: "..."}] for user messages (array of objects)
+    // - "content": "..." for gemini messages (string, often empty)
+    // - "text": "..." legacy format (string)
     if let Some(text) = msg.get("text").and_then(|t| t.as_str()) {
         if !text.is_empty() {
             content.push(ContentBlock::Text {
                 text: text.to_string(),
             });
         }
-    } else if let Some(content_arr) = msg.get("content").and_then(|c| c.as_array()) {
-        for item in content_arr {
-            if let Some(text) = item.get("text").and_then(|t| t.as_str()) {
-                if !text.is_empty() {
-                    content.push(ContentBlock::Text {
-                        text: text.to_string(),
-                    });
+    } else if let Some(content_val) = msg.get("content") {
+        if let Some(content_arr) = content_val.as_array() {
+            for item in content_arr {
+                if let Some(text) = item.get("text").and_then(|t| t.as_str()) {
+                    if !text.is_empty() {
+                        content.push(ContentBlock::Text {
+                            text: text.to_string(),
+                        });
+                    }
                 }
+            }
+        } else if let Some(text) = content_val.as_str() {
+            if !text.is_empty() {
+                content.push(ContentBlock::Text {
+                    text: text.to_string(),
+                });
             }
         }
     }
@@ -287,11 +355,6 @@ fn build_gemini_extensions(msg: &Value) -> Value {
     if let Some(v) = msg.get("projectHash") {
         ext.insert("projectHash".into(), v.clone());
     }
-    // Track whether original used "type" or "role" for the role field
-    if msg.get("type").is_some() && msg.get("role").is_none() {
-        ext.insert("_role_field".into(), Value::String("type".into()));
-    }
-
     if ext.is_empty() {
         Value::Null
     } else {
@@ -327,11 +390,6 @@ fn info_to_hub_event(msg: &Value) -> Result<HubEvent, ConvertError> {
             }
         }
     }
-    // Track whether original used "type" or "role"
-    if msg.get("type").is_some() && msg.get("role").is_none() {
-        ext.insert("_role_field".into(), Value::String("type".into()));
-    }
-
     Ok(HubEvent {
         event_type: "info".to_string(),
         timestamp: str_field(msg, "timestamp"),
@@ -358,14 +416,10 @@ fn hub_message_to_gemini(msg: &HubMessage) -> Result<Value, ConvertError> {
         other => other,
     };
 
-    // Gemini uses "type" in some versions, "role" in others. Restore original field name.
-    let role_key = gc
-        .get("_role_field")
-        .and_then(|v| v.as_str())
-        .unwrap_or("role");
+    // Always use "type" field — this is what real Gemini CLI expects
     let mut gemini_msg = serde_json::json!({
         "id": msg.id,
-        role_key: role,
+        "type": role,
         "timestamp": msg.timestamp,
     });
 
@@ -381,8 +435,18 @@ fn hub_message_to_gemini(msg: &HubMessage) -> Result<Value, ConvertError> {
             }
         })
         .collect();
-    if !text_parts.is_empty() {
-        gemini_msg["text"] = Value::String(text_parts.join("\n"));
+
+    if role == "user" {
+        // User messages use content: [{text: "..."}] array format
+        let content_arr: Vec<Value> = text_parts
+            .iter()
+            .map(|t| serde_json::json!({"text": t}))
+            .collect();
+        gemini_msg["content"] = Value::Array(content_arr);
+    } else {
+        // Gemini messages: "content" is a string (often empty when toolCalls present)
+        let text_str = text_parts.join("\n");
+        gemini_msg["content"] = Value::String(text_str);
     }
 
     // Reconstruct thoughts[] from Thinking blocks
@@ -466,10 +530,12 @@ fn hub_message_to_gemini(msg: &HubMessage) -> Result<Value, ConvertError> {
         gemini_msg["model"] = Value::String(model.clone());
     }
 
-    // Restore Gemini-specific extensions
+    // Restore Gemini-specific extensions (skip internal tracking fields)
     if let Some(obj) = gc.as_object() {
         for (k, v) in obj {
-            gemini_msg[k] = v.clone();
+            if !k.starts_with('_') {
+                gemini_msg[k] = v.clone();
+            }
         }
     }
 
@@ -557,12 +623,9 @@ fn hub_event_to_gemini(evt: &HubEvent) -> Result<Value, ConvertError> {
         .cloned()
         .unwrap_or(Value::Null);
 
-    let role_key = gc
-        .get("_role_field")
-        .and_then(|v| v.as_str())
-        .unwrap_or("role");
+    // Always use "type" field
     let mut gemini_msg = serde_json::json!({
-        role_key: "info",
+        "type": "info",
         "timestamp": evt.timestamp,
     });
 
@@ -571,10 +634,12 @@ fn hub_event_to_gemini(evt: &HubEvent) -> Result<Value, ConvertError> {
         gemini_msg["text"] = Value::String(text.to_string());
     }
 
-    // Restore Gemini-specific fields
+    // Restore Gemini-specific fields (skip internal tracking fields)
     if let Some(obj) = gc.as_object() {
         for (k, v) in obj {
-            gemini_msg[k] = v.clone();
+            if !k.starts_with('_') {
+                gemini_msg[k] = v.clone();
+            }
         }
     }
 
@@ -598,10 +663,11 @@ mod tests {
 
     #[test]
     fn test_user_message_round_trip() {
+        // Real Gemini uses "type" for role and "content" array for user messages
         let msg = serde_json::json!({
             "id": "msg-1",
-            "role": "user",
-            "text": "What files are in this directory?",
+            "type": "user",
+            "content": [{"text": "What files are in this directory?"}],
             "timestamp": "2026-03-29T12:00:00.000Z"
         });
 
@@ -618,8 +684,8 @@ mod tests {
     fn test_gemini_message_with_thoughts_round_trip() {
         let msg = serde_json::json!({
             "id": "msg-2",
-            "role": "gemini",
-            "text": "Here are the files in this directory.",
+            "type": "gemini",
+            "content": "Here are the files in this directory.",
             "thoughts": [
                 {
                     "thought": "Let me check the directory listing.",
@@ -664,8 +730,8 @@ mod tests {
     fn test_tool_call_with_result_round_trip() {
         let msg = serde_json::json!({
             "id": "msg-3",
-            "role": "gemini",
-            "text": "I'll list the files.",
+            "type": "gemini",
+            "content": "I'll list the files.",
             "toolCalls": [
                 {
                     "id": "tc-1",
@@ -716,14 +782,14 @@ mod tests {
         let messages = vec![
             serde_json::json!({
                 "id": "msg-0",
-                "role": "info",
+                "type": "info",
                 "text": "Session started",
                 "timestamp": "2026-03-29T12:00:00.000Z"
             }),
             serde_json::json!({
                 "id": "msg-1",
-                "role": "user",
-                "text": "hello",
+                "type": "user",
+                "content": [{"text": "hello"}],
                 "timestamp": "2026-03-29T12:00:01.000Z"
             }),
         ];
@@ -742,8 +808,8 @@ mod tests {
     fn test_session_header_round_trip() {
         let data = gemini_session_json(&[serde_json::json!({
             "id": "msg-1",
-            "role": "user",
-            "text": "hi",
+            "type": "user",
+            "content": [{"text": "hi"}],
             "timestamp": "2026-03-29T12:00:00.000Z"
         })]);
 
@@ -752,7 +818,10 @@ mod tests {
 
         assert_eq!(back.get("sessionId").unwrap().as_str().unwrap(), "gem-session-1");
         assert_eq!(back.get("projectHash").unwrap().as_str().unwrap(), "abc123hash");
-        assert_eq!(back.get("installationId").unwrap().as_str().unwrap(), "inst-uuid-1");
+        // Verify new required fields
+        assert!(back.get("startTime").is_some());
+        assert!(back.get("lastUpdated").is_some());
+        assert_eq!(back.get("kind").unwrap().as_str().unwrap(), "main");
     }
 
     #[test]
@@ -769,8 +838,8 @@ mod tests {
     fn test_multiple_tool_calls_round_trip() {
         let msg = serde_json::json!({
             "id": "msg-4",
-            "role": "gemini",
-            "text": "Running commands.",
+            "type": "gemini",
+            "content": "Running commands.",
             "toolCalls": [
                 {
                     "id": "tc-1",
@@ -803,8 +872,8 @@ mod tests {
     fn test_gemini_extensions_are_minimal() {
         let msg = serde_json::json!({
             "id": "msg-5",
-            "role": "gemini",
-            "text": "hello",
+            "type": "gemini",
+            "content": "hello",
             "renderOutputAsMarkdown": true,
             "tokens": {"input": 10, "output": 5, "total": 15},
             "model": "gemini-2.5-pro",
