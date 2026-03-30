@@ -32,9 +32,10 @@ jobs:
           - os: macos-latest
             artifact: unleash-macos-aarch64
             splash: splash-macos-aarch64
-          - os: macos-13
-            artifact: unleash-macos-x86_64
-            splash: splash-macos-x86_64
+          # macos x86_64 requires paid runners (-large/-intel), skip for now
+          # - os: macos-15-large
+          #   artifact: unleash-macos-x86_64
+          #   splash: splash-macos-x86_64
     runs-on: ${{ matrix.os }}
     name: ${{ matrix.artifact }}
 
