@@ -1,5 +1,12 @@
 # Changelog
 
+## [9.14.2](https://github.com/heiervang-technologies/unleash/compare/v9.14.1...v9.14.2) (2026-03-30)
+
+
+### Bug Fixes
+
+* TUI launch sets AGENT_UNLEASH so child enters wrapper mode ([#309](https://github.com/heiervang-technologies/unleash/issues/309)) ([768eae1](https://github.com/heiervang-technologies/unleash/commit/768eae17c48f4b1dd9e09fc5fcd475f1d8b77b2e))
+
 ## [9.14.1](https://github.com/heiervang-technologies/unleash/compare/v9.14.0...v9.14.1) (2026-03-30)
 
 
