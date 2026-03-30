@@ -29,7 +29,7 @@ unleash convert --from codex session.jsonl --to claude -o output.jsonl
 | Codex → Claude (real) | :yellow_circle: Partial | Events filtered, tool calls as text |
 | Claude → Gemini | :green_circle: Lossless | Full history, survives --list-sessions |
 | Gemini → Claude | :green_circle: Lossless | 82 messages, chain intact |
-| Claude → Codex | :yellow_circle: Partial | File written, Codex resume untested |
+| Claude → Codex | :green_circle: Lossless | Verified end-to-end with `codex resume`, state DB registered |
 | OpenCode → Claude | :yellow_circle: Partial | Thinking blocks converted to text |
 | Codex → Gemini | :white_circle: Untested | |
 | Gemini → Codex | :white_circle: Untested | |

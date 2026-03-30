@@ -32,3 +32,4 @@ build/
 target/
 scripts/cu
 .worktrees
+docs/superpowers/
