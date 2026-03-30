@@ -1,5 +1,12 @@
 # Changelog
 
+## [9.15.0](https://github.com/heiervang-technologies/unleash/compare/v9.14.2...v9.15.0) (2026-03-30)
+
+
+### Features
+
+* multi-platform release binaries + interactive installer ([6baf1d3](https://github.com/heiervang-technologies/unleash/commit/6baf1d3504209a82b915d187d69193edcc2663a8))
+
 ## 1.0.0
 
 Initial open-source release.
