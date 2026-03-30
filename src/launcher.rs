@@ -193,7 +193,31 @@ pub fn run(auto_mode: bool, prompt: Option<String>, extra_args: Vec<String>) -> 
 fn find_agent_command() -> io::Result<PathBuf> {
     // Check AGENT_CMD environment variable
     if let Ok(cmd) = env::var("AGENT_CMD") {
-        return Ok(PathBuf::from(cmd));
+        let cmd_path = PathBuf::from(&cmd);
+
+        // Guard against recursive invocation: if AGENT_CMD resolves to the current
+        // executable, a profile has agent_cli_path = "unleash" (the default for
+        // Profile::new). Running unleash-as-agent would loop forever. Detect this
+        // by comparing canonicalized paths and fail with a helpful error.
+        if let Ok(current_exe) = std::env::current_exe() {
+            let resolved_cmd = which::which(&cmd).unwrap_or_else(|_| cmd_path.clone());
+            let canon_cmd = resolved_cmd.canonicalize().unwrap_or(resolved_cmd);
+            let canon_exe = current_exe.canonicalize().unwrap_or(current_exe);
+            if canon_cmd == canon_exe {
+                return Err(io::Error::new(
+                    io::ErrorKind::InvalidInput,
+                    format!(
+                        "AGENT_CMD is set to '{}' which resolves to the unleash binary itself.\n\
+                         This would cause infinite recursion.\n\
+                         Set agent_cli_path in your profile to the actual agent binary \
+                         (e.g. 'claude', 'codex', 'gemini', 'opencode').",
+                        cmd
+                    ),
+                ));
+            }
+        }
+
+        return Ok(cmd_path);
     }
 
     // Default to 'claude' in PATH
