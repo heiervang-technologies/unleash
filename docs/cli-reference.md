@@ -105,17 +105,26 @@ Show all agent versions and update status in a single table.
 
 List sessions across all installed CLIs.
 
-### `unleash convert --from <format> <input>`
+### `unleash convert`
 
 Convert between CLI session formats. Use `--from` to specify the source format and
 `--to` for the target (defaults to `hub`). Output goes to stdout unless `-o` is given.
 
 ```bash
-unleash convert --from claude session.jsonl                     # Convert to hub format (stdout)
-unleash convert --from claude --to codex session.jsonl          # Convert Claude → Codex
+unleash convert --from claude session.jsonl                         # Convert to hub format (stdout)
+unleash convert --from claude --to codex session.jsonl              # Convert Claude → Codex
 unleash convert --from claude --to codex session.jsonl -o out.json  # Write to file
-unleash convert --from claude --to codex session.jsonl --verify # Verify round-trip fidelity
+unleash convert --from codex session.jsonl --verify                 # round-trip lossless check
 ```
+
+Required:
+- `--from <format>`: source format (`claude`, `codex`, `gemini`, `opencode`, `hub`)
+- `<input>`: path to the input file (positional)
+
+Optional:
+- `--to <format>`: target format (default: `hub`)
+- `--output <path>` / `-o <path>`: output file (default: stdout)
+- `--verify`: verify lossless round-trip instead of converting
 
 ## Examples
 
