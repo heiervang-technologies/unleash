@@ -66,9 +66,10 @@ fn parse_wrapper_launch_args(
         if parse_prompt_flags {
             if arg == "-p" || arg == "--prompt" {
                 if prompt.is_none() {
-                    prompt = args.get(i + 1).cloned();
+                    prompt = args.get(i + 1).filter(|v| !v.starts_with('-')).cloned();
                 }
-                i += if i + 1 < args.len() { 2 } else { 1 };
+                let has_value = args.get(i + 1).filter(|v| !v.starts_with('-')).is_some();
+                i += if has_value { 2 } else { 1 };
                 continue;
             }
             if let Some(value) = arg.strip_prefix("--prompt=") {
@@ -951,6 +952,25 @@ mod tests {
         assert!(!is_wrapper_command("unleashed"));
         assert!(!is_wrapper_command("u"));
         assert!(!is_wrapper_command("claude"));
+    }
+
+    #[test]
+    fn test_parse_wrapper_prompt_does_not_consume_flag_as_value() {
+        // Regression: `-p --continue` must not treat `--continue` as the prompt value.
+        // `-p` is consumed (it's a value-flag pair with no valid value), `--continue` passes through.
+        let args = vec!["-p".to_string(), "--continue".to_string()];
+        let (_, prompt, pass_args) = parse_wrapper_launch_args(args, true);
+        assert_eq!(prompt, None);
+        assert_eq!(pass_args, vec!["--continue".to_string()]);
+    }
+
+    #[test]
+    fn test_parse_wrapper_prompt_equals_with_flag_value() {
+        // `--prompt=fix it --continue` must preserve --continue as a pass arg
+        let args = vec!["--prompt=fix it".to_string(), "--continue".to_string()];
+        let (_, prompt, pass_args) = parse_wrapper_launch_args(args, true);
+        assert_eq!(prompt.as_deref(), Some("fix it"));
+        assert_eq!(pass_args, vec!["--continue".to_string()]);
     }
 
     #[test]
