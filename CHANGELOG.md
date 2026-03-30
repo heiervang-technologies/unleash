@@ -1,5 +1,12 @@
 # Changelog
 
+## [9.12.2](https://github.com/heiervang-technologies/unleash/compare/v9.12.1...v9.12.2) (2026-03-30)
+
+
+### Bug Fixes
+
+* crossload target detection uses profile name not AGENT_CMD ([deb5aab](https://github.com/heiervang-technologies/unleash/commit/deb5aaba849c3dcf712b70d63c38a69680a456db))
+
 ## [9.12.1](https://github.com/heiervang-technologies/unleash/compare/v9.12.0...v9.12.1) (2026-03-30)
 
 
