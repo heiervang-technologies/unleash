@@ -1,0 +1,11 @@
+{"timestamp": "2026-03-30T07:19:37.515506Z", "type": "session_meta", "payload": {"id": "12a9d56c-5021-4bb9-9905-6072e5e775fa", "timestamp": "2026-03-30T07:19:37.515506Z", "cwd": "/home/me/ht/unleash", "originator": "codex_cli_rs", "cli_version": "0.117.0", "source": "cli", "model_provider": "openai"}}
+{"timestamp": "2026-03-30T07:19:42.515506Z", "type": "response_item", "payload": {"type": "message", "role": "user", "content": [{"type": "input_text", "text": "foo"}]}}
+{"timestamp": "2026-03-30T07:19:45.515506Z", "type": "response_item", "payload": {"type": "message", "role": "assistant", "content": [{"type": "output_text", "text": "bar"}]}}
+{"timestamp": "2026-03-30T07:19:50.515506Z", "type": "response_item", "payload": {"type": "message", "role": "user", "content": [{"type": "input_text", "text": "baz"}]}}
+{"timestamp": "2026-03-30T07:19:53.515506Z", "type": "response_item", "payload": {"type": "message", "role": "assistant", "content": [{"type": "output_text", "text": "marco"}]}}
+{"timestamp": "2026-03-30T07:19:58.515506Z", "type": "response_item", "payload": {"type": "message", "role": "user", "content": [{"type": "input_text", "text": "polo"}]}}
+{"timestamp": "2026-03-30T07:20:01.515506Z", "type": "response_item", "payload": {"type": "message", "role": "assistant", "content": [{"type": "output_text", "text": "ping"}]}}
+{"timestamp": "2026-03-30T07:20:06.515506Z", "type": "response_item", "payload": {"type": "message", "role": "user", "content": [{"type": "input_text", "text": "pong"}]}}
+{"timestamp": "2026-03-30T07:20:09.515506Z", "type": "response_item", "payload": {"type": "message", "role": "assistant", "content": [{"type": "output_text", "text": "hello"}]}}
+{"timestamp": "2026-03-30T07:20:14.515506Z", "type": "response_item", "payload": {"type": "message", "role": "user", "content": [{"type": "input_text", "text": "world"}]}}
+{"timestamp": "2026-03-30T07:20:17.515506Z", "type": "response_item", "payload": {"type": "message", "role": "assistant", "content": [{"type": "output_text", "text": "done"}]}}
