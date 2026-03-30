@@ -86,16 +86,37 @@ pub fn from_hub(records: &[HubRecord]) -> Result<Value, ConvertError> {
         }
     }
 
-    // Use first/last message timestamps if session header didn't have them
-    if start_time.is_empty() {
-        if let Some(first) = messages.first() {
-            start_time = first.get("timestamp").and_then(|t| t.as_str()).unwrap_or("").to_string();
+    // Ensure every message has id and timestamp; collect first valid timestamp
+    let mut first_valid_ts = String::new();
+    let mut last_valid_ts = String::new();
+    let msg_count = messages.len();
+    for i in 0..msg_count {
+        if let Some(obj) = messages[i].as_object_mut() {
+            // Ensure id exists
+            if obj.get("id").and_then(|v| v.as_str()).map_or(true, |s| s.is_empty()) {
+                obj.insert("id".to_string(), Value::String(format!("msg-{i:04}")));
+            }
+            // Track timestamps
+            if let Some(ts) = obj.get("timestamp").and_then(|v| v.as_str()) {
+                if !ts.is_empty() {
+                    if first_valid_ts.is_empty() {
+                        first_valid_ts = ts.to_string();
+                    }
+                    last_valid_ts = ts.to_string();
+                }
+            }
         }
     }
+
+    // Use first/last valid timestamps if session header didn't have them
+    if start_time.is_empty() {
+        start_time = first_valid_ts;
+    }
+    if start_time.is_empty() {
+        start_time = "1970-01-01T00:00:00.000Z".to_string(); // Fallback
+    }
     if last_updated.is_empty() {
-        if let Some(last) = messages.last() {
-            last_updated = last.get("timestamp").and_then(|t| t.as_str()).unwrap_or("").to_string();
-        }
+        last_updated = if last_valid_ts.is_empty() { start_time.clone() } else { last_valid_ts };
     }
 
     let mut root = serde_json::json!({
