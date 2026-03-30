@@ -1,4 +1,4 @@
-# Unleash Conversation Hub Format Design
+# unleash Conversation Hub Format Design
 
 **Date:** 2026-03-29
 **Status:** Draft (rev 2 — QA review incorporated)
@@ -6,7 +6,7 @@
 
 ## Problem
 
-There is no standard format for portable AI conversation logs. Each of the 4 CLIs Unleash supports uses a different format (JSONL, JSON, SQLite+JSON). Users cannot move conversation history between CLIs. The industry lacks an interchange standard (confirmed by research — no RFC, no de facto disk format exists).
+There is no standard format for portable AI conversation logs. Each of the 4 CLIs unleash supports uses a different format (JSONL, JSON, SQLite+JSON). Users cannot move conversation history between CLIs. The industry lacks an interchange standard (confirmed by research — no RFC, no de facto disk format exists).
 
 ## Goal
 
@@ -46,7 +46,7 @@ Byte-level equality is NOT required. Tests use structured JSON comparison (parse
 
 JSONL (JSON Lines). One JSON object per line. First line is always a session header.
 
-File extension: `.ucf.jsonl` (Unleash Conversation Format)
+File extension: `.ucf.jsonl` (unleash Conversation Format)
 
 ### Session Header (first line)
 
@@ -458,10 +458,10 @@ When converting between different CLIs (e.g., Claude -> Codex):
 
 ### Language: Rust
 
-The converters are implemented in Rust as part of the Unleash binary. This gives us:
+The converters are implemented in Rust as part of the unleash binary. This gives us:
 - Type safety for the Hub schema (serde)
 - Fast conversion (streaming JSONL processing)
-- Integration with existing Unleash infrastructure
+- Integration with existing unleash infrastructure
 - Single binary distribution
 
 ### Module Structure

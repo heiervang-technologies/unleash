@@ -1,4 +1,4 @@
-//! Multi-agent management for Unleash
+//! Multi-agent management for unleash
 //!
 //! Manages different code agents (Claude Code, Codex, etc.) including:
 //! - Agent definitions and configuration

@@ -1,4 +1,4 @@
-# Unleash Docker Image
+# unleash Docker Image
 #
 # Sandboxed container with all 4 supported coder CLIs:
 #   - Claude Code (Anthropic)
@@ -16,14 +16,14 @@
 #     unleash
 #
 # Two-stage build:
-#   1. rust-builder  - Compiles Unleash from source
+#   1. rust-builder  - Compiles unleash from source
 #   2. runtime       - Ubuntu 24.04 with Node 22, all CLIs installed
 #
 # Ubuntu 24.04 is used as runtime base because it ships GLIBC 2.39,
 # required by Codex prebuilt binaries (Debian Bookworm only has 2.36).
 
 # ============================================================
-# Stage 1: Build Unleash from Rust source
+# Stage 1: Build unleash from Rust source
 # ============================================================
 FROM rust:1.88-bookworm AS rust-builder
 
@@ -36,7 +36,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     git \
     && rm -rf /var/lib/apt/lists/*
 
-# -- Build Unleash (with TUI support) --
+# -- Build unleash (with TUI support) --
 # Dependency caching: copy manifests first, build deps, then copy source
 COPY Cargo.toml Cargo.lock build.rs ./
 COPY data/ data/
@@ -56,7 +56,7 @@ FROM ubuntu:24.04 AS runtime
 
 # Metadata
 LABEL maintainer="Heiervang Technologies"
-LABEL description="Unleash - Sandboxed container with Claude, Codex, Gemini, and OpenCode CLIs"
+LABEL description="unleash - Sandboxed container with Claude, Codex, Gemini, and OpenCode CLIs"
 
 # Install Node 22 via nodesource + GitHub CLI + runtime dependencies
 RUN apt-get update \
@@ -81,7 +81,7 @@ RUN apt-get update \
 RUN useradd -m -s /bin/bash unleash \
     && mkdir -p /home/unleash/.local/bin /home/unleash/.npm-global
 
-# -- Install Unleash binary from builder stage --
+# -- Install unleash binary from builder stage --
 COPY --from=rust-builder /build/target/release/unleash /usr/local/bin/unleash
 
 # -- Install plugins --
@@ -120,7 +120,7 @@ ENV NPM_CONFIG_PREFIX=/home/unleash/.npm-global
 USER unleash
 WORKDIR /workspace
 
-# -- Install all 4 agent CLIs using Unleash's own install paths --
+# -- Install all 4 agent CLIs using unleash's own install paths --
 # Claude Code: native GCS binary (not npm)
 # Codex: prebuilt binary from GitHub releases
 # Gemini CLI: npm
@@ -133,7 +133,7 @@ RUN claude --version && echo "✓ Claude Code" \
     && codex --version && echo "✓ Codex" \
     && gemini --version && echo "✓ Gemini CLI" \
     && opencode --version && echo "✓ OpenCode" \
-    && unleash --version && echo "✓ Unleash"
+    && unleash --version && echo "✓ unleash"
 
 # Default entrypoint: run unleash TUI (interactive) or unleashed (headless)
 ENTRYPOINT ["unleash"]

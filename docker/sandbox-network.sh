@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Create a sandboxed Docker network for Unleash containers.
+# Create a sandboxed Docker network for unleash containers.
 # Allows internet access but blocks all LAN/private network ranges.
 #
 # Usage:

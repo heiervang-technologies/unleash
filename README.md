@@ -1,20 +1,20 @@
-# Unleash
+# unleash
 
 <img width="720" height="480" alt="unleash" src="https://github.com/user-attachments/assets/0b8ff3af-90e8-4d7d-8204-33a159ae0835" />
 
 <p align="center">
-  <img src="demo-animation.gif" alt="Unleash - Smooth menu animations" width="900">
+  <img src="demo-animation.gif" alt="unleash - Smooth menu animations" width="900">
 </p>
 
 A unified CLI manager for AI code agents. Version management, unified interface, and extended capabilities for Claude Code, Codex, Gemini CLI, and OpenCode.
 
-## What Unleash Does
+## What unleash Does
 
-Unleash is three things:
+unleash is three things:
 
 **1. Multi-Agent Version Manager** — Install, update, and switch between versions of Claude Code, Codex, Gemini CLI, and OpenCode. Parallel updates with progress bars. Whitelist/blacklist filtering for known-bad versions.
 
-**2. Unified CLI Interface** — One set of flags that works across all agents. `-p` for headless mode, `-m` for model selection, `-c` to continue a session — regardless of whether you're running Claude, Codex, Gemini, or OpenCode. Unleash translates these into each agent's native syntax.
+**2. Unified CLI Interface** — One set of flags that works across all agents. `-p` for headless mode, `-m` for model selection, `-c` to continue a session — regardless of whether you're running Claude, Codex, Gemini, or OpenCode. unleash translates these into each agent's native syntax.
 
 **3. Capability Extension Layer** — Features that the agent CLIs don't have natively: self-restart with session preservation, auto-mode for autonomous operation, plugin system for custom integrations, and more on the roadmap (portable conversation histories, directory navigation, PTY middleware).
 
@@ -38,7 +38,7 @@ unleash opencode # Start OpenCode with unleash features
 
 ---
 <p align="center">
-  <img src="demo-tui.gif" alt="Unleash TUI Demo" width="800">
+  <img src="demo-tui.gif" alt="unleash TUI Demo" width="800">
 </p>
 
 ---
@@ -62,7 +62,7 @@ unleash work                           # Run a custom "work" profile
 
 ### Unified Flags
 
-These flags work identically across all agents. Unleash translates them into the correct native syntax.
+These flags work identically across all agents. unleash translates them into the correct native syntax.
 
 | Flag | Short | Description | Default |
 |------|-------|-------------|---------|
@@ -84,7 +84,7 @@ unleash claude -m opus -- --effort max --verbose
 
 ### How Translation Works
 
-| Unleash | Claude | Codex | Gemini | OpenCode |
+| unleash | Claude | Codex | Gemini | OpenCode |
 |---------|--------|-------|--------|----------|
 | `-p <prompt>` | `-p <prompt>` | `exec <prompt>` | `-p <prompt>` | `run <prompt>` |
 | `-c` | `--continue` | `resume --last` | `--resume latest` | `--continue` |
@@ -107,7 +107,7 @@ unleash agents status      # Show all agent versions and update status
 
 ## Version Management
 
-Unleash manages versions for all four agent CLIs:
+unleash manages versions for all four agent CLIs:
 
 - **Claude Code**: Native binary (GCS) or npm install
 - **Codex**: Prebuilt binary from GitHub releases, cargo build fallback
@@ -297,7 +297,7 @@ unleash/
 
 ## Running in Docker
 
-Unleash provides a sandboxed Docker container with all 4 coder CLIs pre-installed to their latest versions:
+unleash provides a sandboxed Docker container with all 4 coder CLIs pre-installed to their latest versions:
 
 - **Claude Code** (Anthropic) — `claude`
 - **Codex** (OpenAI) — `codex`

@@ -127,7 +127,7 @@ fi
 
 echo ""
 echo "╭─────────────────────────────────────╮"
-echo "│     Unleash Installer       │"
+echo "│          unleash Installer          │"
 echo "╰─────────────────────────────────────╯"
 echo ""
 

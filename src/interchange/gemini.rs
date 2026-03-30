@@ -90,10 +90,10 @@ pub fn from_hub(records: &[HubRecord]) -> Result<Value, ConvertError> {
     let mut first_valid_ts = String::new();
     let mut last_valid_ts = String::new();
     let msg_count = messages.len();
-    for i in 0..msg_count {
-        if let Some(obj) = messages[i].as_object_mut() {
+    for (i, msg) in messages.iter_mut().enumerate().take(msg_count) {
+        if let Some(obj) = msg.as_object_mut() {
             // Ensure id exists
-            if obj.get("id").and_then(|v| v.as_str()).map_or(true, |s| s.is_empty()) {
+            if obj.get("id").and_then(|v| v.as_str()).is_none_or(|s| s.is_empty()) {
                 obj.insert("id".to_string(), Value::String(format!("msg-{i:04}")));
             }
             // Track timestamps

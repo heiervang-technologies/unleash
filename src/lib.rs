@@ -1,4 +1,4 @@
-//! Unleash - Unified CLI for AI Code Agents
+//! unleash - Unified CLI for AI Code Agents
 //!
 //! Single binary that handles:
 //! - `unleash` - Entrypoint (TUI by default, or runs agent subcommands / wrapper mode)
@@ -797,7 +797,7 @@ pub fn run() -> io::Result<()> {
                 if sessions.is_empty() {
                     println!("No sessions found.");
                 } else {
-                    println!("{:<10} {:<20} {:<30} {:<20} {}", "CLI", "NAME", "TITLE", "UPDATED", "DIRECTORY");
+                    println!("{:<10} {:<20} {:<30} {:<20} DIRECTORY", "CLI", "NAME", "TITLE", "UPDATED");
                     println!("{}", "-".repeat(100));
                     for s in sessions.iter().take(50) {
                         println!(

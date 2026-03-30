@@ -1,6 +1,6 @@
 # Claude Code Conversation Storage Format
 
-> **Internal developer reference for Unleash contributors.**
+> **Internal developer reference for unleash contributors.**
 > Last verified: 2026-03-29, Claude Code v2.1.87
 
 ---
@@ -452,7 +452,7 @@ The `CLAUDE.md` file in the project root (and any parent directories) is automat
 
 ### Retention policy
 
-**There is no automatic cleanup.** Transcript files accumulate indefinitely. Unleash or external tooling must handle pruning if disk usage becomes a concern.
+**There is no automatic cleanup.** Transcript files accumulate indefinitely. unleash or external tooling must handle pruning if disk usage becomes a concern.
 
 Typical transcript sizes:
 - Short conversation: 50-200 KB
@@ -574,7 +574,7 @@ The `stop_reason` field on assistant messages indicates why generation stopped:
 
 ---
 
-## Appendix: Parsing Tips for Unleash Developers
+## Appendix: Parsing Tips for unleash Developers
 
 1. **Line-by-line processing**: Each JSONL line is independent. Use streaming parsers for large files.
 2. **Type dispatch**: Switch on the `type` field first, then handle type-specific fields.

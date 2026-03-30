@@ -16,4 +16,4 @@ hyprctl --batch \
     2>/dev/null || true
 
 # Startup notification
-hyprctl notify 1 5000 0 "Unleash started" 2>/dev/null || true
+hyprctl notify 1 5000 0 "unleash started" 2>/dev/null || true

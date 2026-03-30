@@ -39,17 +39,17 @@ run_headless() {
     return $rc
 }
 
-echo "=== Unleash Headless Tests ==="
+echo "=== unleash Headless Tests ==="
 echo "Binary: $BIN"
 echo
 
 # ─── 1. --version ───────────────────────────────────────────────
 echo "[1] unleash --version"
 if run_headless "$BIN" --version; then
-    if echo "$OUT" | grep -q "Unleash: v"; then
+    if echo "$OUT" | grep -q "unleash: v"; then
         pass "--version prints version string"
     else
-        fail "--version output" "missing 'Unleash: v' prefix"
+        fail "--version output" "missing 'unleash: v' prefix"
     fi
 else
     fail "--version" "non-zero exit code: $?"
@@ -58,7 +58,7 @@ fi
 # ─── 2. --help ──────────────────────────────────────────────────
 echo "[2] unleash --help"
 if run_headless "$BIN" --help; then
-    if echo "$OUT" | grep -q "Unleash"; then
+    if echo "$OUT" | grep -q "unleash"; then
         pass "--help prints usage"
     else
         fail "--help output" "missing expected text"

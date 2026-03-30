@@ -108,7 +108,7 @@ assert_output_contains() {
 
 # Setup
 echo "================================"
-echo "Unleash auth Comprehensive Tests"
+echo "unleash auth Comprehensive Tests"
 echo "================================"
 echo
 echo "Setting up test environment..."

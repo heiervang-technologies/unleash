@@ -147,7 +147,7 @@ When `unleash <profile>` launches an agent:
    a. Check version cache age (skip if checked within last 24h)
    b. If stale, spawn background version check (non-blocking)
    c. If update available, print one-line notice to stderr:
-      `[Unleash] Update available: Claude Code 2.1.77 → 2.1.81 (run 'unleash update' to install)`
+      `[unleash] Update available: Claude Code 2.1.77 → 2.1.81 (run 'unleash update' to install)`
 3. Never block agent launch for updates
 
 ### Config Format (already exists)

@@ -1,6 +1,6 @@
 # Internal Developer Documentation
 
-Reference documentation for Unleash developers. Not user-facing.
+Reference documentation for unleash developers. Not user-facing.
 
 ## Contents
 
@@ -19,7 +19,7 @@ Used as the foundation for the chat log interchange format.
 
 These docs should be updated when:
 - A CLI updates its storage format (check after major version bumps)
-- A new CLI is added to Unleash
+- A new CLI is added to unleash
 - Research reveals new details about a CLI's internals
 
 Each document includes a "Last verified" date and CLI version.

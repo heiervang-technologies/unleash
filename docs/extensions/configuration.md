@@ -1,6 +1,6 @@
 # Configuration Guide
 
-This guide covers configuration options for Unleash and its extensions.
+This guide covers configuration options for unleash and its extensions.
 
 ## Table of Contents
 
@@ -12,7 +12,7 @@ This guide covers configuration options for Unleash and its extensions.
 
 ## Overview
 
-Unleash uses multiple configuration files to manage settings:
+unleash uses multiple configuration files to manage settings:
 
 | File | Purpose | Format |
 |------|---------|--------|

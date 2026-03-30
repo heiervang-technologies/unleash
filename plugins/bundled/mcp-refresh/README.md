@@ -58,7 +58,7 @@ Display current MCP server status and configuration.
 
 ## Installation
 
-1. The plugin is already included in Unleash
+1. The plugin is already included in unleash
 2. Enable it in `.claude/settings.json`:
 
 ```json
@@ -257,7 +257,7 @@ If Claude Code's source becomes available or if core APIs are exposed:
 
 ## License
 
-Same as Unleash parent repository.
+Same as unleash parent repository.
 
 ## Author
 

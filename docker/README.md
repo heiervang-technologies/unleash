@@ -1,4 +1,4 @@
-# Unleash Docker Container
+# unleash Docker Container
 
 Sandboxed container with all 4 supported coder CLIs pre-installed:
 
@@ -174,7 +174,7 @@ Workaround for [anthropics/claude-code#8938](https://github.com/anthropics/claud
 
 Two-stage Docker build:
 
-1. **Rust builder** (`rust:1.88-bookworm`) — compiles Unleash with dependency caching
+1. **Rust builder** (`rust:1.88-bookworm`) — compiles unleash with dependency caching
 2. **Runtime** (`ubuntu:24.04`) — GLIBC 2.39 (required by Codex prebuilt binaries), Node 22, GitHub CLI, all agent CLIs installed via `unleash update`
 
 ### CLI Install Paths

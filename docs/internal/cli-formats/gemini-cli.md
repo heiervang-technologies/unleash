@@ -2,7 +2,7 @@
 
 > Last verified: 2026-03-29, Gemini CLI v0.35.3
 
-Internal developer reference for Unleash. Documents the on-disk storage format used by Google's Gemini CLI for conversation history, session management, and related metadata.
+Internal developer reference for unleash. Documents the on-disk storage format used by Google's Gemini CLI for conversation history, session management, and related metadata.
 
 ---
 
@@ -437,7 +437,7 @@ Sessions where the user exits before sending any messages may still produce a se
 
 ---
 
-## Appendix: Comparison Notes for Unleash Developers
+## Appendix: Comparison Notes for unleash Developers
 
 When building format adapters or migration tooling, note these key differences from Claude Code's format:
 
@@ -454,4 +454,4 @@ When building format adapters or migration tooling, note these key differences f
 
 ---
 
-*This document is for internal Unleash development use. Not intended for end-user distribution.*
+*This document is for internal unleash development use. Not intended for end-user distribution.*

@@ -36,8 +36,8 @@ rm -f "/tmp/unleash-hyprfocus/${WRAPPER_PID}" 2>/dev/null || true
 # Exit notification
 if [[ -n "${HYPRLAND_INSTANCE_SIGNATURE:-}" ]]; then
     if [[ "$EXIT_CODE" == "0" || "$EXIT_CODE" == "143" ]]; then
-        hyprctl notify 1 5000 0 "Unleash stopped" 2>/dev/null || true
+        hyprctl notify 1 5000 0 "unleash stopped" 2>/dev/null || true
     else
-        hyprctl notify 0 8000 0 "Unleash exited with code ${EXIT_CODE}" 2>/dev/null || true
+        hyprctl notify 0 8000 0 "unleash exited with code ${EXIT_CODE}" 2>/dev/null || true
     fi
 fi

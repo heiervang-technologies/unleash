@@ -359,7 +359,7 @@ Expected: no errors
 git add src/interchange/mod.rs src/interchange/hub.rs src/lib.rs Cargo.toml Cargo.lock
 git commit -m "feat: add hub interchange format schema structs
 
-Defines the Unleash Conversation Format (.ucf.jsonl) types:
+Defines the unleash Conversation Format (.ucf.jsonl) types:
 Session, Message, Event, ContentBlock (text, tool_use, tool_result,
 thinking, image, step_boundary, patch), TokenUsage, and metadata."
 ```

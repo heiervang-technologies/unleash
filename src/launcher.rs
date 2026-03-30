@@ -82,7 +82,7 @@ pub fn run(auto_mode: bool, prompt: Option<String>, extra_args: Vec<String>) -> 
         if let Err(e) = hyprland::apply_agent_window_rules() {
             eprintln!("Warning: Failed to apply Hyprland window rules: {}", e);
         }
-        let _ = hyprland::notify_info("Unleash started");
+        let _ = hyprland::notify_info("unleash started");
     }
 
     let mut restart_count = 0;
@@ -165,7 +165,7 @@ pub fn run(auto_mode: bool, prompt: Option<String>, extra_args: Vec<String>) -> 
             let _ = hyprland::focus_reset(wrapper_pid);
             hyprland::focus_cleanup(wrapper_pid);
             if hyprland::is_hyprland() {
-                let _ = hyprland::notify_info("Unleash stopped");
+                let _ = hyprland::notify_info("unleash stopped");
             }
             return Ok(());
         }
@@ -177,10 +177,10 @@ pub fn run(auto_mode: bool, prompt: Option<String>, extra_args: Vec<String>) -> 
         // Notify on exit if running under Hyprland
         if hyprland::is_hyprland() {
             if exit_code == 0 {
-                let _ = hyprland::notify_info("Unleash stopped");
+                let _ = hyprland::notify_info("unleash stopped");
             } else {
                 let _ =
-                    hyprland::notify_warning(&format!("Unleash exited with code {}", exit_code));
+                    hyprland::notify_warning(&format!("unleash exited with code {}", exit_code));
             }
         }
 
@@ -338,7 +338,7 @@ fn run_agent(
         if !polyfill_handled {
             // Legacy path (run_profile without polyfill) — always add yolo
             if !args.iter().any(|a| a == "--dangerously-skip-permissions") {
-                eprintln!("\x1b[33m[Unleash] WARNING: Running with --dangerously-skip-permissions automatically enabled.\x1b[0m");
+                eprintln!("\x1b[33m[unleash] WARNING: Running with --dangerously-skip-permissions automatically enabled.\x1b[0m");
             }
             cmd.arg("--dangerously-skip-permissions");
         }

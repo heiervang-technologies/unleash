@@ -3,7 +3,7 @@
 use clap::{Parser, Subcommand};
 use std::process::Command;
 
-/// Get version information. Prints Unleash version instantly,
+/// Get version information. Prints unleash version instantly,
 /// then fetches agent CLI version (avoids blocking startup for non-version commands).
 pub fn get_full_version() -> String {
     let au_version = env!("CARGO_PKG_VERSION");
@@ -38,9 +38,9 @@ pub fn get_full_version() -> String {
         .unwrap_or_else(|| "not installed".to_string());
 
     if agent_version == "not installed" {
-        format!("Unleash: v{}\n{}: {}", au_version, agent_label, agent_version)
+        format!("unleash: v{}\n{}: {}", au_version, agent_label, agent_version)
     } else {
-        format!("Unleash: v{}\n{}: v{}", au_version, agent_label, agent_version)
+        format!("unleash: v{}\n{}: v{}", au_version, agent_label, agent_version)
     }
 }
 
@@ -192,19 +192,6 @@ impl PolyfillArgs {
                         polyfill.resume = Some(String::new()); // picker mode
                     }
                 }
-                "--crossload" => {
-                    // Optional value: --crossload [session-query]
-                    if let Some(val) = args.get(i + 1) {
-                        if !val.starts_with('-') {
-                            polyfill.crossload = Some(val.clone());
-                            i += 1;
-                        } else {
-                            polyfill.crossload = Some(String::new()); // picker mode
-                        }
-                    } else {
-                        polyfill.crossload = Some(String::new()); // picker mode
-                    }
-                }
                 _ => {
                     // Check for --prompt=value, --model=value, --resume=value
                     if let Some(val) = arg.strip_prefix("--prompt=") {
@@ -310,13 +297,13 @@ impl PolyfillArgs {
     }
 }
 
-/// Unleash - Extended CLI for AI Code Agents
+/// unleash - Extended CLI for AI Code Agents
 #[derive(Parser, Debug)]
 #[command(name = "unleash")]
 #[command(author = "Heiervang Technologies")]
 #[command(version)]
-#[command(about = "Unleash - Extended CLI for AI Code Agents\n\nRun a profile:  unleash <profile> [flags] [-- passthrough]\nDefault profiles: claude, codex, gemini, opencode\n\nRun 'unleash <profile> --help' for unified flag details.")]
-#[command(long_about = r#"Unleash - Extended CLI for AI Code Agents
+#[command(about = "unleash - Extended CLI for AI Code Agents\n\nRun a profile:  unleash <profile> [flags] [-- passthrough]\nDefault profiles: claude, codex, gemini, opencode\n\nRun 'unleash <profile> --help' for unified flag details.")]
+#[command(long_about = r#"unleash - Extended CLI for AI Code Agents
 
 A wrapper for AI code agents (Claude, Codex, Gemini, OpenCode) with extended features:
   - Unified flags that work across all agents (polyfill layer)

@@ -2,7 +2,7 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Add multi-agent mesh networking and comprehensive networking documentation to Unleash Docker containers.
+**Goal:** Add multi-agent mesh networking and comprehensive networking documentation to unleash Docker containers.
 
 **Architecture:** Layered Docker Compose overrides — base (sandbox only), multi-agent (adds mesh), runc (swaps runtime). Mesh uses `internal: true` with pinned subnet 10.100.0.0/16. Documentation split: tiers 1-2 in README, tier 3 in NETWORKING.md.
 
@@ -287,7 +287,7 @@ git commit -m "docs: add multi-agent networking and update security table in REA
 Write `docker/NETWORKING.md` with these sections:
 
 ```markdown
-# Unleash Docker Networking Guide
+# unleash Docker Networking Guide
 
 Deep dive into container networking for multi-agent teams and advanced setups.
 
@@ -295,7 +295,7 @@ For quick start, see [README.md](README.md).
 
 ## Network Architecture
 
-Unleash uses up to two Docker networks for container isolation:
+unleash uses up to two Docker networks for container isolation:
 
 ### unleash-sandbox (external, managed by sandbox-network.sh)
 

@@ -2,7 +2,7 @@
 
 > **Last verified: 2026-03-29, Codex CLI v0.117.0**
 >
-> Internal developer reference for Unleash. Not for end-user distribution.
+> Internal developer reference for unleash. Not for end-user distribution.
 
 ---
 
@@ -563,7 +563,7 @@ If a session is killed (SIGINT, SIGTERM, terminal close):
 
 ---
 
-## Appendix: Parsing Notes for Unleash Developers
+## Appendix: Parsing Notes for unleash Developers
 
 1. **Always stream-parse JSONL** — files can grow large (especially with base64 images). Do not load entire files into memory.
 2. **Handle missing trailing newlines** — interrupted sessions may have a partial last line. Discard incomplete JSON objects.

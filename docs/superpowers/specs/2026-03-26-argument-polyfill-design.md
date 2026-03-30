@@ -10,14 +10,14 @@ Normalize common flags and session management across all four supported code age
 To ensure consistency, **all command launches** (including built-in agent names and custom profiles) go through the same polyfill logic.
 
 ### Invocation Flow
-1.  **Profile Lookup:** Unleash resolves the profile name (e.g., `unleash claude` or `unleash work`).
+1.  **Profile Lookup:** unleash resolves the profile name (e.g., `unleash claude` or `unleash work`).
 2.  **Agent Detection:** The profile's `agent_cli_path` determines the `AgentType`.
 3.  **Polyfill Execution:** Unified flags are parsed and resolved into agent-specific flags based on the `AgentDefinition`.
 4.  **Deduplication:** The polyfill ensures flags present in both the profile's `agent_args` and the CLI are not duplicated.
 5.  **Execution:** The final `ResolvedInvocation` is passed to the launcher.
 
 ### Argument Layers
-Arguments BEFORE `--` are unified flags handled by Unleash.  
+Arguments BEFORE `--` are unified flags handled by unleash.  
 Arguments AFTER `--` are passed directly to the agent CLI (escape hatch).
 
 ## 2. Unified Session Semantics
@@ -64,7 +64,7 @@ Mappings are stored in `AgentPolyfillConfig` in `src/agents.rs`.
 | **Gemini** | *Not Supported* (Warning only) |
 
 ## 5. Safety Mode & YOLO
-Unleash defaults to "YOLO mode" (e.g., injecting permission bypasses).
+unleash defaults to "YOLO mode" (e.g., injecting permission bypasses).
 
 | Unified Flag | Meaning |
 |---|---|
@@ -86,7 +86,7 @@ Profiles support `[agent.TYPE]` blocks for per-agent overrides in TOML.
 1. **CLI Explicit Flags** (Highest)
 2. **Profile Agent Overrides** (`[agent.codex]` in TOML)
 3. **Profile General Args** (`agent_args` in TOML)
-4. **Unleash Defaults** (YOLO on) - Lowest
+4. **unleash Defaults** (YOLO on) - Lowest
 
 ## 7. Architecture: `polyfill.rs`
 Provides a data-driven engine that consumes `AgentPolyfillConfig`.

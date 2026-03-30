@@ -2,7 +2,7 @@
 name = "unleash"
 version = "9.13.1"
 edition = "2021"
-description = "Unleash - Extended CLI for AI Code Agents"
+description = "unleash - Extended CLI for AI Code Agents"
 authors = ["Heiervang Technologies"]
 license = "MIT"
 

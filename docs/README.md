@@ -1,14 +1,14 @@
-# Unleash Documentation
+# unleash Documentation
 
 Welcome to the comprehensive documentation for the unleash repository.
 
 ## Overview
 
-Unleash is a wrapper around [Claude Code](https://github.com/anthropic/claude-code) enhanced with GitHub Actions automation via [snail-core](https://github.com/heiervang-technologies/core) integration. This repository enables AI agents to work autonomously on GitHub issues and pull requests through workflow triggers.
+unleash is a wrapper around [Claude Code](https://github.com/anthropic/claude-code) enhanced with GitHub Actions automation via [snail-core](https://github.com/heiervang-technologies/core) integration. This repository enables AI agents to work autonomously on GitHub issues and pull requests through workflow triggers.
 
-## What is Unleash?
+## What is unleash?
 
-**Unleash = Claude Code + GitHub Actions + Snail Integration**
+**unleash = Claude Code + GitHub Actions + Snail Integration**
 
 - **Claude Code**: Anthropic's official CLI for Claude AI
 - **GitHub Actions**: Automated workflows triggered by GitHub events

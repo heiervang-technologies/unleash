@@ -392,24 +392,17 @@ fn extract_codex_content(payload: &Value) -> Result<Vec<ContentBlock>, ConvertEr
     match content_arr {
         Some(arr) => arr
             .iter()
-            .filter_map(|block| {
+            .map(|block| {
                 let block_type = block.get("type").and_then(|t| t.as_str()).unwrap_or("");
                 match block_type {
-                    "input_text" => Some(Ok(ContentBlock::Text {
+                    "input_text" | "output_text" => Ok(ContentBlock::Text {
                         text: block
                             .get("text")
                             .and_then(|t| t.as_str())
                             .unwrap_or("")
                             .to_string(),
-                    })),
-                    "output_text" => Some(Ok(ContentBlock::Text {
-                        text: block
-                            .get("text")
-                            .and_then(|t| t.as_str())
-                            .unwrap_or("")
-                            .to_string(),
-                    })),
-                    "input_image" => Some(Ok(ContentBlock::Image {
+                    }),
+                    "input_image" => Ok(ContentBlock::Image {
                         media_type: block
                             .get("media_type")
                             .and_then(|v| v.as_str())
@@ -425,14 +418,14 @@ fn extract_codex_content(payload: &Value) -> Result<Vec<ContentBlock>, ConvertEr
                             .get("url")
                             .and_then(|v| v.as_str())
                             .map(String::from),
-                    })),
-                    _ => Some(Ok(ContentBlock::Text {
+                    }),
+                    _ => Ok(ContentBlock::Text {
                         text: block
                             .get("text")
                             .and_then(|t| t.as_str())
                             .unwrap_or("")
                             .to_string(),
-                    })),
+                    }),
                 }
             })
             .collect(),

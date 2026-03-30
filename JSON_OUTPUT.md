@@ -1,6 +1,6 @@
 # JSON Output Feature
 
-This document describes the `--json` flag feature for Unleash CLI.
+This document describes the `--json` flag feature for unleash CLI.
 
 ## Overview
 
@@ -26,7 +26,7 @@ unleash auth --json --verbose
 
 ### 1. Version Information (`unleash version --json`)
 
-Shows version information for both Unleash and Claude Code.
+Shows version information for both unleash and Claude Code.
 
 **Output:**
 ```json
@@ -38,7 +38,7 @@ Shows version information for both Unleash and Claude Code.
 ```
 
 **Fields:**
-- `unleash_version` - Version of the Unleash CLI
+- `unleash_version` - Version of the unleash CLI
 - `claude_code_version` - Version of installed Claude Code (or "not installed")
 - `claude_code_installed` - Boolean indicating if Claude Code is installed
 

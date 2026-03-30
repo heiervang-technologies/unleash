@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# onboarding.sh - Shared onboarding bypass functions for Unleash
+# onboarding.sh - Shared onboarding bypass functions for unleash
 #
 # This library ensures Claude Code's .claude.json is configured to skip
 # interactive onboarding prompts and acknowledge bypass permissions mode.

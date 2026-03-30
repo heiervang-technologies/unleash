@@ -2,7 +2,7 @@
 
 > Last verified: 2026-03-29, OpenCode v1.3.5
 
-Internal developer reference for Unleash. Describes how OpenCode persists conversations, sessions, and tool interactions on disk.
+Internal developer reference for unleash. Describes how OpenCode persists conversations, sessions, and tool interactions on disk.
 
 ---
 

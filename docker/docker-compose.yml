@@ -1,4 +1,4 @@
-# Unleash Docker Compose — Sandboxed AI Agent Runner
+# unleash Docker Compose — Sandboxed AI Agent Runner
 #
 # Quick start (sandboxed with gVisor + LAN isolation):
 #   sudo ./docker/sandbox-network.sh setup   # one-time: create network + firewall

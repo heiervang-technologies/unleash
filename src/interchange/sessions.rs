@@ -65,10 +65,10 @@ pub fn find_session(query: &str) -> Option<SessionInfo> {
             || s.id.to_lowercase().starts_with(&name_lower)
             || s.name
                 .as_ref()
-                .map_or(false, |n| n.to_lowercase() == name_lower)
+                .is_some_and(|n| n.to_lowercase() == name_lower)
             || s.title
                 .as_ref()
-                .map_or(false, |t| t.to_lowercase().contains(&name_lower))
+                .is_some_and(|t| t.to_lowercase().contains(&name_lower))
     })
 }
 
@@ -90,7 +90,7 @@ fn discover_claude() -> Vec<SessionInfo> {
     };
 
     for project in projects.flatten() {
-        if !project.file_type().map_or(false, |ft| ft.is_dir()) {
+        if !project.file_type().is_ok_and(|ft| ft.is_dir()) {
             continue;
         }
         let project_path = project.path();
@@ -228,7 +228,7 @@ fn walk_codex_dir(dir: &std::path::Path, sessions: &mut Vec<SessionInfo>) {
         } else if path
             .file_name()
             .and_then(|n| n.to_str())
-            .map_or(false, |n| n.starts_with("rollout-") && n.ends_with(".jsonl"))
+            .is_some_and(|n| n.starts_with("rollout-") && n.ends_with(".jsonl"))
         {
             // Extract session ID from filename: rollout-YYYY-MM-DDTHH-mm-ss-UUID.jsonl
             // The timestamp is exactly 19 chars: YYYY-MM-DDTHH-mm-ss

@@ -178,7 +178,7 @@ pub fn focus_set(wrapper_pid: u32) -> io::Result<()> {
     let script = match focus_script_path() {
         Some(p) => p,
         None => {
-            eprintln!("[Unleash] focus: hypr-window-opacity.sh not found, skipping");
+            eprintln!("[unleash] focus: hypr-window-opacity.sh not found, skipping");
             return Ok(());
         }
     };

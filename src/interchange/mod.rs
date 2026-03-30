@@ -50,6 +50,7 @@ pub enum ConvertError {
     Json(serde_json::Error),
     Sqlite(rusqlite::Error),
     InvalidFormat(String),
+    #[allow(dead_code)]
     UnsupportedVersion(String),
 }
 

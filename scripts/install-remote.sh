@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# install-remote.sh - Remote installer for Unleash
+# install-remote.sh - Remote installer for unleash
 #
 # Usage (public repo):
 #   curl -fsSL https://raw.githubusercontent.com/heiervang-technologies/unleash/main/scripts/install-remote.sh | bash
@@ -761,7 +761,7 @@ EOF
 main() {
     echo ""
     echo "╭──────────────────────────────────────────╮"
-    echo "│     Unleash Remote Installer     │"
+    echo "│         unleash Remote Installer         │"
     echo "╰──────────────────────────────────────────╯"
     echo ""
 
@@ -782,7 +782,7 @@ main() {
             UNLEASH_VERSION="main"
         fi
     fi
-    info "Installing Unleash ${UNLEASH_VERSION}"
+    info "Installing unleash ${UNLEASH_VERSION}"
 
     # Install binary (try download first, fall back to source)
     if [[ "$BUILD_FROM_SOURCE" == "1" ]]; then
@@ -823,7 +823,7 @@ main() {
 
     show_path_instructions
 
-    success "Done! Run 'unleash' to start Unleash."
+    success "Done! Run 'unleash' to start unleash."
 }
 
 main "$@"

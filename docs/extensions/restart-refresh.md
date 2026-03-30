@@ -1,6 +1,6 @@
 # MCP Refresh & Process Restart Guide
 
-Comprehensive guide to the MCP hot-reload and process restart functionality in Unleash.
+Comprehensive guide to the MCP hot-reload and process restart functionality in unleash.
 
 ## Table of Contents
 
@@ -250,7 +250,7 @@ Time ─────────────────────────
 ### Prerequisites
 
 - Claude Code CLI installed and working
-- Unleash repository cloned
+- unleash repository cloned
 - Bash shell (for hook scripts)
 - Basic tools: `sha256sum`, `jq`, `nohup`
 
@@ -2705,7 +2705,7 @@ Contributions to improve these plugins are welcome! Please:
 
 ## License
 
-Same as Unleash parent repository.
+Same as unleash parent repository.
 
 ## Authors
 

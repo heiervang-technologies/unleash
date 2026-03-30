@@ -75,10 +75,10 @@ impl PickerState {
                         || s.id.to_lowercase().contains(&q)
                         || s.name
                             .as_ref()
-                            .map_or(false, |n| n.to_lowercase().contains(&q))
+                            .is_some_and(|n| n.to_lowercase().contains(&q))
                         || s.title
                             .as_ref()
-                            .map_or(false, |t| t.to_lowercase().contains(&q))
+                            .is_some_and(|t| t.to_lowercase().contains(&q))
                         || s.directory.to_lowercase().contains(&q)
                 })
                 .collect()

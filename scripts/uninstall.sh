@@ -65,7 +65,7 @@ done
 
 echo ""
 echo "╭─────────────────────────────────────╮"
-echo "│    Unleash Uninstaller     │"
+echo "│         unleash Uninstaller         │"
 echo "╰─────────────────────────────────────╯"
 echo ""
 
@@ -203,7 +203,7 @@ echo "╭───────────────────────�
 echo "│       Uninstall Complete            │"
 echo "╰─────────────────────────────────────╯"
 echo ""
-info "Unleash has been uninstalled"
+info "unleash has been uninstalled"
 echo ""
 echo "Note: Claude Code (npm package) was not removed."
 echo "To remove it: npm uninstall -g @anthropic-ai/claude-code"

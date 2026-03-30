@@ -1187,7 +1187,7 @@ python -c "from providers.vibevoice import VibeVoiceProvider; print('Import OK')
 
 ## License
 
-Same as Unleash parent repository.
+Same as unleash parent repository.
 
 ## Author
 

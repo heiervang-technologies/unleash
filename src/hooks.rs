@@ -1,6 +1,6 @@
 //! Hook management for Claude Code
 //!
-//! Unleash acts as the central hook manager for Claude Code.
+//! unleash acts as the central hook manager for Claude Code.
 //! It tracks the Claude installation, manages hooks in ~/.claude/settings.json,
 //! and syncs hooks from bundled plugins.
 
@@ -65,6 +65,7 @@ impl ClaudeInstallation {
     }
 
     /// Get Claude Code version (spawns subprocess — call only when needed)
+    #[allow(dead_code)]
     pub fn get_version() -> io::Result<String> {
         let output = Command::new("claude").arg("--version").output()?;
 

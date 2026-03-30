@@ -1,4 +1,4 @@
-# Unleash Docker Networking Guide
+# unleash Docker Networking Guide
 
 Deep dive into container networking for multi-agent teams and advanced setups.
 
@@ -6,7 +6,7 @@ For quick start, see [README.md](README.md).
 
 ## Network Architecture
 
-Unleash uses up to two Docker networks for container isolation:
+unleash uses up to two Docker networks for container isolation:
 
 ### unleash-sandbox (external, managed by sandbox-network.sh)
 

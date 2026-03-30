@@ -1,6 +1,6 @@
-# Unleash Test Suite
+# unleash Test Suite
 
-This directory contains test scripts for validating Unleash functionality.
+This directory contains test scripts for validating unleash functionality.
 
 ## Test Scripts
 

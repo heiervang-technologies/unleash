@@ -131,7 +131,7 @@ pub enum Screen {
 /// Focus zone within the unified version management screen
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum VersionFocus {
-    /// Focus on the Unleash (parent) section
+    /// Focus on the unleash (parent) section
     Unleash,
     /// Focus on the agent picker
     AgentPicker,
@@ -287,7 +287,7 @@ pub struct App {
     // Unified version management
     /// Which section has focus in the unified version view
     pub version_focus: VersionFocus,
-    /// Current Unleash version (from CARGO_PKG_VERSION)
+    /// Current unleash version (from CARGO_PKG_VERSION)
     pub unleash_version: String,
     /// Menu state for agent picker
     pub agent_picker_menu: MenuState,
@@ -1571,7 +1571,7 @@ impl App {
             VersionFocus::Unleash => {
                 match action {
                     NavAction::Select => {
-                        // Trigger Unleash self-update
+                        // Trigger unleash self-update
                         let exe_path = std::env::current_exe().ok();
                         let repo_dir = exe_path
                             .as_ref()
@@ -1604,7 +1604,7 @@ impl App {
                             NavAction::Down => (current_idx + 1).min(agents.len() - 1),
                             NavAction::Up => {
                                 if current_idx == 0 {
-                                    // At top of agent list, move focus to Unleash
+                                    // At top of agent list, move focus to unleash
                                     self.version_focus = VersionFocus::Unleash;
                                     return Ok(None);
                                 }
@@ -2164,7 +2164,7 @@ impl App {
                     ("Profiles", "Manage profiles and their settings".to_string()),
                     (
                         "Versions & Updates",
-                        "Manage Unleash and agent CLI versions".to_string(),
+                        "Manage unleash and agent CLI versions".to_string(),
                     ),
                     ("Help", "Keyboard shortcuts and tips".to_string()),
                     ("Quit", "Exit the launcher".to_string()),
@@ -2388,7 +2388,7 @@ impl App {
         // Render title
         let title_text = vec![
             Line::from(Span::styled(
-                "Unleash",
+                "unleash",
                 Style::default()
                     .fg(self.accent_color())
                     .add_modifier(Modifier::BOLD),
@@ -2416,7 +2416,7 @@ impl App {
             ("Profiles", "Manage profiles and their settings".to_string()),
             (
                 "Versions & Updates",
-                "Manage Unleash and agent CLI versions".to_string(),
+                "Manage unleash and agent CLI versions".to_string(),
             ),
             ("Help", "Keyboard shortcuts and tips".to_string()),
             ("Quit", "Exit the launcher".to_string()),
@@ -3372,7 +3372,7 @@ impl App {
         }
     }
 
-    /// Render the Unleash (parent) section showing version and auto-update toggle
+    /// Render the unleash (parent) section showing version and auto-update toggle
     fn render_unleash_section(&mut self, frame: &mut Frame, area: Rect) {
         let is_focused = self.version_focus == VersionFocus::Unleash;
         let border_color = if is_focused {
@@ -3385,7 +3385,7 @@ impl App {
             .borders(Borders::ALL)
             .border_style(Style::default().fg(border_color))
             .title(Span::styled(
-                " Unleash ",
+                " unleash ",
                 Style::default()
                     .fg(self.accent_color())
                     .add_modifier(Modifier::BOLD),
@@ -3776,7 +3776,7 @@ impl UpdateRequest {
 
         let tui_dir = self.repo_dir.clone();
 
-        println!("\n=== Updating Unleash TUI ===\n");
+        println!("\n=== Updating unleash TUI ===\n");
 
         // Step 1: Git pull
         println!("Pulling latest changes...");

@@ -1,4 +1,4 @@
-//! TUI module for Unleash
+//! TUI module for unleash
 //!
 //! Provides profile management, version management, and launcher UI.
 

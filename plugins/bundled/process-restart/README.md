@@ -170,7 +170,7 @@ claude
 
 ## License
 
-Same as Unleash parent repository.
+Same as unleash parent repository.
 
 ## Author
 

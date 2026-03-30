@@ -160,7 +160,7 @@ test_plugin_structure() {
 # Run all tests
 main() {
     echo "========================================"
-    echo "Unleash Plugin Integration Tests"
+    echo "unleash Plugin Integration Tests"
     echo "========================================"
 
     test_plugin_json_valid

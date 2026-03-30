@@ -6,7 +6,7 @@
 
 ## Problem
 
-Unleash Docker containers currently support a single networking tier: gVisor + sandbox network with LAN blocking. This prevents agents from reaching private networks but also blocks inter-container communication. Multi-agent teams need a secure channel to coordinate, and advanced setups need agent-to-sidecar connectivity (MCP servers, databases).
+unleash Docker containers currently support a single networking tier: gVisor + sandbox network with LAN blocking. This prevents agents from reaching private networks but also blocks inter-container communication. Multi-agent teams need a secure channel to coordinate, and advanced setups need agent-to-sidecar connectivity (MCP servers, databases).
 
 ## Design: Three Networking Tiers
 

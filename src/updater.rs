@@ -343,25 +343,25 @@ fn check_or_update_self(check_only: bool) -> io::Result<()> {
     match latest {
         Some(ref ver) if version_less_than(current, ver) => {
             if check_only {
-                println!("  Unleash          {} -> {} (update available)", current, ver);
+                println!("  unleash          {} -> {} (update available)", current, ver);
             } else {
-                println!("  Unleash          updating {} -> {}...", current, ver);
+                println!("  unleash          updating {} -> {}...", current, ver);
                 // Self-update: re-run install script
                 let output = Command::new("bash")
                     .args(["-c", "gh repo clone heiervang-technologies/unleash /tmp/unleash-update 2>/dev/null && bash /tmp/unleash-update/scripts/install.sh && rm -rf /tmp/unleash-update"])
                     .output()?;
                 if output.status.success() {
-                    println!("  Unleash          {} -> {} (updated)", current, ver);
+                    println!("  unleash          {} -> {} (updated)", current, ver);
                 } else {
-                    eprintln!("  Unleash          update failed: {}", String::from_utf8_lossy(&output.stderr));
+                    eprintln!("  unleash          update failed: {}", String::from_utf8_lossy(&output.stderr));
                 }
             }
         }
         Some(_) => {
-            println!("  Unleash          {} (up to date)", current);
+            println!("  unleash          {} (up to date)", current);
         }
         None => {
-            println!("  Unleash          {} (could not check latest)", current);
+            println!("  unleash          {} (could not check latest)", current);
         }
     }
 

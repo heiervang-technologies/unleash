@@ -5,6 +5,7 @@ use crate::interchange::sessions::{SessionInfo, find_session};
 
 /// Result of injecting a session: the session ID to resume with and any extra args.
 pub struct InjectionResult {
+    #[allow(dead_code)]
     pub session_id: String,
     pub resume_args: Vec<String>,
     pub message: String,
@@ -437,7 +438,7 @@ fn extract_session_id(records: &[HubRecord]) -> String {
         } else {
             None
         }
-    }).unwrap_or_else(|| uuid_v4())
+    }).unwrap_or_else(uuid_v4)
 }
 
 fn encode_claude_project_path(dir: &str) -> String {
