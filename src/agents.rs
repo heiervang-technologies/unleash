@@ -288,7 +288,7 @@ impl AgentDefinition {
                 model_flag: "-m".to_string(),
                 effort_flag: None,
             },
-            github_repo: Some("anomalyco/opencode".to_string()),
+            github_repo: Some("sst/opencode".to_string()),
             npm_package: Some("opencode-ai".to_string()),
             enabled: true,
         }
