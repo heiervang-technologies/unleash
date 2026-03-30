@@ -688,7 +688,7 @@ pub fn run() -> io::Result<()> {
                             )
                         })?]
                     } else {
-                        vec![AgentType::Claude, AgentType::Codex]
+                        AgentType::all().to_vec()
                     };
 
                     for agent_type in agents_to_check {
