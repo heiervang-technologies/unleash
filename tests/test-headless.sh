@@ -8,6 +8,10 @@
 
 set -euo pipefail
 
+# Isolate from the unleash wrapper environment so subcommand routing tests
+# behave the same whether run inside or outside an unleash session.
+unset AGENT_UNLEASH AGENT_CMD 2>/dev/null || true
+
 # Find binary - prefer fast profile, then release, then debug
 if [[ -n "${AU_BIN:-}" ]]; then
     BIN="$AU_BIN"
@@ -205,6 +209,30 @@ if run_headless "$BIN" invalid-subcommand; then
     fail "invalid subcommand" "should exit non-zero"
 else
     pass "invalid subcommand exits non-zero"
+fi
+
+# ─── 16. unleash agents info --json ─────────────────────────────
+echo "[16] unleash agents info claude --json"
+if run_headless "$BIN" agents info claude --json; then
+    if echo "$OUT" | python3 -c "import json,sys; d=json.load(sys.stdin); exit(0 if 'agent_type' in d else 1)" 2>/dev/null; then
+        pass "agents info claude --json produces valid JSON with agent_type"
+    else
+        fail "agents info claude --json" "missing agent_type field: $OUT"
+    fi
+else
+    fail "agents info claude --json" "non-zero exit code"
+fi
+
+# ─── 17. unleash agents list --json ─────────────────────────────
+echo "[17] unleash agents list --json"
+if run_headless "$BIN" agents list --json; then
+    if echo "$OUT" | python3 -c "import json,sys; items=json.load(sys.stdin); exit(0 if isinstance(items, list) and len(items) > 0 else 1)" 2>/dev/null; then
+        pass "agents list --json produces valid JSON array"
+    else
+        fail "agents list --json" "not a non-empty JSON array: $OUT"
+    fi
+else
+    fail "agents list --json" "non-zero exit code"
 fi
 
 # ─── Cleanup ────────────────────────────────────────────────────

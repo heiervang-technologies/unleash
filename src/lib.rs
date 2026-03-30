@@ -617,6 +617,7 @@ pub fn run() -> io::Result<()> {
         Some(Commands::Agents { action }) => {
             use agents::{AgentManager, AgentType};
             use cli::AgentsAction;
+            let json = cli.json;
 
             let mut manager = match AgentManager::new() {
                 Ok(m) => m,
@@ -644,13 +645,39 @@ pub fn run() -> io::Result<()> {
                     Ok(())
                 }
                 Some(AgentsAction::List) => {
-                    println!("Available Agents:\n");
-                    for agent in manager.list_agents() {
-                        let status = if agent.enabled { "enabled" } else { "disabled" };
-                        println!(
-                            "  {} ({}) - {} [{}]",
-                            agent.name, agent.binary, agent.description, status
-                        );
+                    // Clone agent definitions first to avoid borrow conflicts when
+                    // calling get_installed_version (which takes &mut self).
+                    let defs: Vec<_> = manager.list_agents().into_iter().cloned().collect();
+                    if json {
+                        let items: Vec<json_output::AgentInfoOutput> = defs
+                            .iter()
+                            .map(|def| {
+                                let installed = manager
+                                    .get_installed_version(def.agent_type)
+                                    .ok()
+                                    .flatten();
+                                json_output::AgentInfoOutput {
+                                    agent_type: format!("{:?}", def.agent_type).to_lowercase(),
+                                    name: def.name.clone(),
+                                    binary: def.binary.clone(),
+                                    description: def.description.clone(),
+                                    github_repo: def.github_repo.clone(),
+                                    npm_package: def.npm_package.clone(),
+                                    enabled: def.enabled,
+                                    installed_version: installed,
+                                }
+                            })
+                            .collect();
+                        json_output::print_json(&items);
+                    } else {
+                        println!("Available Agents:\n");
+                        for agent in &defs {
+                            let status = if agent.enabled { "enabled" } else { "disabled" };
+                            println!(
+                                "  {} ({}) - {} [{}]",
+                                agent.name, agent.binary, agent.description, status
+                            );
+                        }
                     }
                     Ok(())
                 }
@@ -711,23 +738,38 @@ pub fn run() -> io::Result<()> {
                         )
                     })?;
 
-                    if let Some(def) = manager.get_agent(agent_type) {
-                        println!("Agent: {}", def.name);
-                        println!("Binary: {}", def.binary);
-                        println!("Description: {}", def.description);
-                        if let Some(repo) = &def.github_repo {
-                            println!("GitHub: https://github.com/{}", repo);
-                        }
-                        if let Some(npm) = &def.npm_package {
-                            println!("NPM: {}", npm);
-                        }
-                        println!("Enabled: {}", def.enabled);
-
-                        // Get installed version
-                        if let Ok(Some(v)) = manager.get_installed_version(agent_type) {
-                            println!("Installed: v{}", v);
+                    // Clone to release the immutable borrow before calling
+                    // get_installed_version which takes &mut self.
+                    if let Some(def) = manager.get_agent(agent_type).cloned() {
+                        let installed = manager.get_installed_version(agent_type).ok().flatten();
+                        if json {
+                            let info = json_output::AgentInfoOutput {
+                                agent_type: format!("{:?}", def.agent_type).to_lowercase(),
+                                name: def.name.clone(),
+                                binary: def.binary.clone(),
+                                description: def.description.clone(),
+                                github_repo: def.github_repo.clone(),
+                                npm_package: def.npm_package.clone(),
+                                enabled: def.enabled,
+                                installed_version: installed,
+                            };
+                            json_output::print_json(&info);
                         } else {
-                            println!("Installed: not found");
+                            println!("Agent: {}", def.name);
+                            println!("Binary: {}", def.binary);
+                            println!("Description: {}", def.description);
+                            if let Some(repo) = &def.github_repo {
+                                println!("GitHub: https://github.com/{}", repo);
+                            }
+                            if let Some(npm) = &def.npm_package {
+                                println!("NPM: {}", npm);
+                            }
+                            println!("Enabled: {}", def.enabled);
+                            if let Some(v) = installed {
+                                println!("Installed: v{}", v);
+                            } else {
+                                println!("Installed: not found");
+                            }
                         }
                     }
                     Ok(())

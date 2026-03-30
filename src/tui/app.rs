@@ -3235,7 +3235,7 @@ impl App {
         let agent_name = self.npm_dialog_pending
             .as_ref()
             .map(|(a, _)| a.display_name())
-            .unwrap_or_else(|| "this agent".into());
+            .unwrap_or("this agent");
 
         let lines = vec![
             Line::default(),
