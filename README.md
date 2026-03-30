@@ -1,32 +1,39 @@
 # unleash
-
 **unleash** your agent.
 
-One CLI to rule them all. Install and version-manage Claude Code, Codex, Gemini CLI, and OpenCode from a single CLI. Unified flags, portable conversation histories, self-restart, and hardened sandboxes — so you can rotate between frontier models without fighting four different CLIs.
-
-> **unleash is best run in a sandbox.** Bring your own or use ours — see the [Docker + gVisor sandbox guide](docs/docker.md) for hardened containers with LAN isolation.
-
 <p align="center">
-  <img src="assets/demo-recording.gif" alt="unleash" width="900">
+  <img src="assets/demo-recording.gif" alt="unleash" width="700">
 </p>
 
-<div align="center">
+**unleash** is...
+  
+* an **agent CLI verison manager**. `nvm` for AI agents such as claude code, codex, gemini and opencode with a ritch TUI 
+  
+* a compatibility layer that lets you start in claude code, then continue where you left off in codex.  
 
-**Version Manager** — Install, update, and switch between agent CLI versions from one place.
+* a **unified cli** that brings all your code agents under the same signature. No more confusion about `claude -p` vs `codex run`
 
-**Unified Flags** — One set of flags across all agents. `-p`, `-m`, `-c` just work.
+* an enabler for more **advanced features** such as self-restart, auto-mode and more.
 
-**Crossload** — Carry conversation histories between agents. Start in Claude, resume in Gemini.
+* Made for the sandbox — Use ours, Bring your own, or **take the risk**
 
-**Extended Capabilities** — Self-restart, auto-mode, plugins, and hardened sandboxes.
+### Install  
 
-</div>
-
-## Quick Install
-
-```bash
+```sh
 curl -fsSL unleash.software/install | bash
 ```
+or with docker:
+```sh
+docker run --rm -it marksverdhei/unleash
+```
+(with auth tokens)
+```sh
+docker run -it --rm -e ANTHROPIC_API_KEY -e CLAUDE_CODE_OAUTH_TOKEN -e OPENAI_API_KEY -e GEMINI_API_KEY -e OPENROUTER_API_KEY marksverdhei/unleash
+```
+
+> **unleash is best run in a sandbox.** Bring your own or use ours — see the [Docker + gVisor sandbox guide](docs/docker.md) for for more  hardened containers with LAN isolation.
+
+
 
 **After install:**
 ```bash
