@@ -99,13 +99,24 @@ Show all agent versions and update status in a single table.
 
 List sessions across all installed CLIs.
 
-### `unleash convert <input> <output>`
+### `unleash convert`
 
 Convert between CLI session formats.
 
 ```bash
-unleash convert claude-session.json codex-session.json
+unleash convert --from claude --to codex session.jsonl --output session-codex.jsonl
+unleash convert --from gemini session.json              # converts to hub (stdout)
+unleash convert --from codex session.jsonl --verify    # round-trip lossless check
 ```
+
+Required:
+- `--from <format>`: source format (`claude`, `codex`, `gemini`, `opencode`, `hub`)
+- `<input>`: path to the input file (positional)
+
+Optional:
+- `--to <format>`: target format (default: `hub`)
+- `--output <path>` / `-o <path>`: output file (default: stdout)
+- `--verify`: verify lossless round-trip instead of converting
 
 ## Examples
 
