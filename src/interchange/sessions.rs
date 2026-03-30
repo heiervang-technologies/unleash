@@ -419,9 +419,10 @@ fn format_epoch_ms(ms: u64) -> String {
     let days = hours / 24;
     let years = days / 365;
     let year = 1970 + years;
-    // Simple ISO approximation (good enough for sorting)
+    // Simple ISO approximation (good enough for sorting).
+    // Cap month at 12: remaining_days can be up to 364, and 364/30+1 = 13.
     let remaining_days = days - years * 365;
-    let month = remaining_days / 30 + 1;
+    let month = (remaining_days / 30 + 1).min(12);
     let day = remaining_days % 30 + 1;
     format!("{year:04}-{month:02}-{day:02}T00:00:00Z")
 }
@@ -443,13 +444,25 @@ mod tests {
     fn test_discover_all_doesnt_crash() {
         // Should not panic even if CLI dirs don't exist
         let sessions = discover_all();
-        // We can't assert count since it depends on the machine
-        assert!(sessions.len() >= 0);
+        // We can't assert count since it depends on the machine; just ensure no panic.
+        let _ = sessions;
     }
 
     #[test]
     fn test_format_epoch_ms() {
         let ts = format_epoch_ms(1774800000000);
         assert!(ts.starts_with("2026-"));
+    }
+
+    #[test]
+    fn test_format_epoch_ms_no_month_overflow() {
+        // Days 360-364 of a year previously produced month=13.
+        // Use a timestamp near the end of a year (Dec 31 ~= day 364).
+        // 1970 + ~1 year = ~Jan 1971; test any date where remaining_days >= 360.
+        // epoch_ms for approx 1970-12-31: 364 * 86400 * 1000 = 31449600000
+        let ts = format_epoch_ms(31449600000);
+        let month_str = &ts[5..7];
+        let month: u64 = month_str.parse().expect("month should be numeric");
+        assert!(month >= 1 && month <= 12, "month out of range: {ts}");
     }
 }
