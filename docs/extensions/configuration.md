@@ -1,374 +1,271 @@
 # Configuration Guide
 
-This guide covers configuration options for unleash and its extensions.
+This guide covers configuration options for unleash and its plugins.
 
 ## Table of Contents
 
 - [Overview](#overview)
 - [Configuration Files](#configuration-files)
-- [Stop Prompt Configuration](#stop-prompt-configuration)
+- [Profiles](#profiles)
+- [Auto-Mode Stop Prompt](#auto-mode-stop-prompt)
 - [TUI Settings](#tui-settings)
-- [CLI Configuration](#cli-configuration)
+- [CLI Flags](#cli-flags)
+- [Environment Variables](#environment-variables)
 
 ## Overview
 
-unleash uses multiple configuration files to manage settings:
+unleash uses a small set of configuration files:
 
-| File | Purpose | Format |
-|------|---------|--------|
-| `~/.config/unleash/config.toml` | TUI and global settings | TOML |
-| `~/.claude/settings.json` | Claude Code settings and hooks | JSON |
-| `~/.cache/unleash/` | Runtime state and temporary files | Various |
+| File/Path | Purpose | Format |
+|-----------|---------|--------|
+| `~/.config/unleash/config.toml` | Global app state (current profile, animations) | TOML |
+| `~/.config/unleash/profiles/*.toml` | Per-profile settings (agent, model, theme, env, …) | TOML |
+| `~/.claude/settings.json` | Claude Code settings and hooks (managed by Claude Code) | JSON |
+| `~/.cache/unleash/` | Runtime state (auto-mode flags, restart triggers) | Various |
 
 ## Configuration Files
 
-### TUI Configuration (`config.toml`)
+### Global Config (`config.toml`)
 
-Located at `~/.config/unleash/config.toml`, this file stores:
+Located at `~/.config/unleash/config.toml`. Stores only minimal global state:
 
-- Current profile selection
-- Claude executable path
-- Default command-line arguments
-- **Stop prompt message** (auto-mode)
-
-Example:
 ```toml
-current_profile = "default"
-claude_path = "claude"
-agent_args = []
-stop_prompt = "Keep working on the task!"
+current_profile = "claude"
+animations = true
 ```
 
-### Claude Code Settings (`settings.json`)
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `current_profile` | string | `"claude"` | Name of the active profile |
+| `animations` | bool | `true` | Enable/disable TUI animations |
 
-Located at `~/.claude/settings.json`, this file configures:
+> **Note:** Executable path, arguments, model, stop prompt, and theme are all configured per-profile — not here.
 
-- Enabled plugins
-- Hook configurations
-- MCP server settings
-- Organization settings
+### Profiles (`~/.config/unleash/profiles/`)
 
-Example:
-```json
-{
-  "plugins": {
-    "enabled": [
-      "auto-mode",
-      "mcp-refresh",
-      "process-restart"
-    ]
-  },
-  "hooks": {
-    "Stop": [
-      {
-        "hooks": [
-          {
-            "type": "command",
-            "command": "$HOME/unleash/plugins/bundled/auto-mode/hooks/auto-mode-stop.sh"
-          }
-        ]
-      }
-    ]
-  }
-}
+Each profile is a `.toml` file in `~/.config/unleash/profiles/`. Default profiles (`claude.toml`, `codex.toml`, `gemini.toml`, `opencode.toml`) are created automatically on first run.
+
+**Example profile (`claude.toml`):**
+```toml
+name = "claude"
+description = "Default profile"
+agent_cli_path = "claude"
+agent_cli_args = ["--dangerously-skip-permissions"]
+theme = "orange"
+stop_prompt = "Keep working until the task is done."  # optional
+
+[defaults]
+# model = "claude-opus-4-5"   # uncomment to pin a model
+# auto = true                  # start in auto-mode by default
+# safe = false                 # bypass permission prompts (default)
+
+[env]
+# Extra environment variables passed to the agent process
+MY_CUSTOM_VAR = "value"
 ```
 
-## Stop Prompt Configuration
+| Field | Type | Description |
+|-------|------|-------------|
+| `name` | string | Profile name (must match filename without `.toml`) |
+| `description` | string | Human-readable description shown in TUI |
+| `agent_cli_path` | string | Binary name or absolute path (`claude`, `/usr/local/bin/claude`) |
+| `agent_cli_args` | string[] | Extra args always passed to the agent |
+| `theme` | string | TUI color theme (`orange`, `blue`, `green`, …) |
+| `stop_prompt` | string? | Optional message shown to the agent when auto-mode blocks an exit |
+| `[defaults]` | section | Default values for polyfill flags (model, auto, safe, effort) |
+| `[env]` | section | Environment variables set for the agent process |
 
-The stop prompt is the message Claude receives when the auto-mode stop hook blocks it from ending its turn.
-
-### Default Message
-
-```
-To exit: run 'exit-claude' via Bash tool. Do not end your turn without taking action.
-```
-
-### Customizing via CLI
-
-The `unleash` command provides flags to manage the stop prompt:
-
-#### Set Inline
-
+Switch profiles from the command line:
 ```bash
-unleash --stop-prompt="Your custom message here"
+unleash codex       # launch the "codex" profile
+unleash my-profile  # launch a custom profile
 ```
 
-Example:
+Or select a profile from the TUI:
 ```bash
-unleash --stop-prompt="Stay focused! Use exit-claude when done."
+unleash   # opens TUI
 ```
 
-#### Edit with $EDITOR
+### Claude Code Settings (`~/.claude/settings.json`)
 
-Opens your default editor ($EDITOR, $VISUAL, or vi) to edit the prompt:
+Managed by Claude Code. Hooks registered by unleash plugins appear here automatically. You generally don't need to edit this file manually.
 
+## Profiles
+
+### Creating a Custom Profile
+
+The easiest way is through the TUI (`unleash`). To create one manually:
+
+1. Copy an existing profile:
+   ```bash
+   cp ~/.config/unleash/profiles/claude.toml ~/.config/unleash/profiles/my-profile.toml
+   ```
+
+2. Edit it:
+   ```toml
+   name = "my-profile"
+   description = "Custom setup with Qwen"
+   agent_cli_path = "claude"
+   agent_cli_args = ["--dangerously-skip-permissions"]
+   theme = "blue"
+
+   [defaults]
+   model = "qwen3.5-72b"
+   auto = true
+   ```
+
+3. Launch it:
+   ```bash
+   unleash my-profile
+   ```
+
+### Profile Defaults
+
+The `[defaults]` section sets default values for polyfill flags, equivalent to always passing those flags on the command line:
+
+```toml
+[defaults]
+model = "claude-opus-4-5"   # same as: unleash my-profile -m claude-opus-4-5
+auto = true                  # same as: unleash my-profile --auto
+safe = false                 # bypass permission prompts (default behavior)
+effort = "high"              # same as: unleash my-profile -e high
+```
+
+Command-line flags always override profile defaults.
+
+## Auto-Mode Stop Prompt
+
+When auto-mode is active, the stop hook delivers a message to the agent each time it tries to end its turn. You can customize this per-profile.
+
+### Configure via Profile
+
+Set `stop_prompt` in the profile TOML:
+
+```toml
+stop_prompt = "Complete all tests before stopping. Use exit-claude when truly done."
+```
+
+### Priority Order
+
+The stop hook selects the message in this priority order:
+
+1. **Session-specific override** — `~/.cache/unleash/auto-mode/reminder-${WRAPPER_PID}` (set programmatically)
+2. **Profile stop_prompt** — from `~/.config/unleash/profiles/<name>.toml`
+3. **Default** — hardcoded in `plugins/bundled/auto-mode/hooks/auto-mode-stop.sh`
+
+### Troubleshooting
+
+Check auto-mode is active:
 ```bash
-unleash --stop-prompt-edit
+ls ~/.cache/unleash/auto-mode/active-*
 ```
 
-This creates a temporary file with the current prompt, opens it in your editor, and saves the result when you exit.
-
-#### Clear (Reset to Default)
-
+Check `CLAUDE_WRAPPER_PID` is set (only valid inside an unleash session):
 ```bash
-unleash --stop-prompt-clear
+echo $CLAUDE_WRAPPER_PID
 ```
 
-Removes the custom prompt from config.toml, causing the hook to use its default hardcoded message.
+## TUI Settings
 
-### Customizing via TUI
-
-Launch the TUI and navigate to the Settings screen:
+Launch the TUI for a visual interface:
 
 ```bash
 unleash
 ```
 
-Steps:
-1. Press `j` or `↓` to navigate to "Settings"
-2. Press `Enter` to open Settings
-3. Press `j` or `↓` to navigate to "Stop Prompt"
-4. Press `Enter` to edit
-5. Type your custom message
-6. Press `Enter` to save
-7. Press `Esc` to return to main menu
-
-The setting is saved immediately to `~/.config/unleash/config.toml`.
-
-### Priority Order
-
-When determining which stop prompt message to show, the hook checks in this order:
-
-1. **Session-specific** (highest priority)
-   - File: `~/.cache/unleash/auto-mode/reminder-${WRAPPER_PID}`
-   - Set programmatically for specific sessions
-   - Allows per-session overrides
-
-2. **Global configuration**
-   - File: `~/.config/unleash/config.toml`
-   - Field: `stop_prompt`
-   - Set via CLI flags or TUI
-   - Applies to all sessions
-
-3. **Default** (lowest priority)
-   - Hardcoded in: `plugins/bundled/auto-mode/hooks/auto-mode-stop.sh`
-   - Used when no custom configuration exists
-
-### Use Cases
-
-#### Different Messages for Different Tasks
-
-Set task-specific prompts:
-
-```bash
-# For debugging sessions
-unleash --stop-prompt="Debug the issue completely before stopping."
-
-# For feature development
-unleash --stop-prompt="Complete the feature and all tests before exiting."
-
-# For refactoring
-unleash --stop-prompt="Finish the refactoring and verify all tests pass."
-```
-
-#### Team Standards
-
-Organizations can standardize stop prompts:
-
-```bash
-# Company-wide prompt
-unleash --stop-prompt="Follow team exit checklist: tests pass, docs updated, PR ready."
-```
-
-#### Motivational Messages
-
-Use prompts to encourage autonomous behavior:
-
-```bash
-unleash --stop-prompt="You're doing great! Keep going until the task is complete. Use exit-claude when truly done."
-```
-
-### Verification
-
-Check the current stop prompt configuration:
-
-```bash
-# View config file
-cat ~/.config/unleash/config.toml | grep stop_prompt
-
-# Test the hook directly (requires auto mode active)
-export CLAUDE_WRAPPER_PID=$$
-mkdir -p ~/.cache/unleash/auto-mode
-touch ~/.cache/unleash/auto-mode/active-$$
-~/unleash/plugins/bundled/auto-mode/hooks/auto-mode-stop.sh
-```
-
-### Troubleshooting
-
-#### Prompt Not Appearing
-
-1. Verify auto mode is active:
-   ```bash
-   ls ~/.cache/unleash/auto-mode/active-*
-   ```
-
-2. Check config file exists and is valid:
-   ```bash
-   cat ~/.config/unleash/config.toml
-   ```
-
-3. Ensure CLAUDE_WRAPPER_PID is set:
-   ```bash
-   echo $CLAUDE_WRAPPER_PID
-   ```
-
-#### Prompt Not Persisting
-
-The prompt is only shown when:
-- Auto mode is active (flag file exists)
-- Running under the `unleash` wrapper (CLAUDE_WRAPPER_PID set)
-- The stop hook is triggered (Claude tries to end turn)
-
-If you're not seeing the prompt:
-- Verify you started Claude with `unleash claude` (not `claude` directly)
-- Check that auto mode is active (`/auto` was run)
-- Ensure Claude is actually trying to exit
-
-## TUI Settings
-
-The TUI (`unleash`) provides a visual interface for managing configuration.
-
-### Available Settings
-
-| Setting | Description | Access |
-|---------|-------------|--------|
-| Entry Point | Command to launch Claude (e.g., `claude`) | Settings > Entry Point |
-| Arguments | Default CLI arguments to pass to Claude | Settings > Arguments |
-| Stop Prompt | Auto-mode stop hook message | Settings > Stop Prompt |
-| Reset Settings | Restore all settings to defaults | Settings > Reset Settings |
-
 ### Navigation
 
-- `j` / `↓` - Move down
-- `k` / `↑` - Move up
-- `Enter` - Select/Edit
-- `Esc` / `q` - Go back
-- `?` - Show help
+| Key | Action |
+|-----|--------|
+| `j` / `↓` | Move down |
+| `k` / `↑` | Move up |
+| `Enter` | Select / edit |
+| `Esc` / `q` | Go back |
+| `?` | Show help |
+| `s` | Rescan installed versions |
 
-### Editing Values
+The TUI lets you:
+- Switch the active profile
+- Install / switch agent CLI versions
+- View agent status
 
-1. Navigate to the setting
-2. Press `Enter`
-3. Type the new value (cursor indicator: █)
-4. Press `Enter` to save
-5. Press `Esc` to cancel
+## CLI Flags
 
-Settings are saved immediately to `~/.config/unleash/config.toml`.
+### Profile Launch Flags (unified polyfill)
 
-## CLI Configuration
-
-### Command-Line Flags
-
-The `unleash claude` command accepts several configuration flags:
-
-#### Auto Mode
+These flags work with any profile and are translated to agent-specific syntax:
 
 ```bash
-unleash claude --auto          # Enable auto mode on startup
-unleash claude -a              # Short form
+unleash <profile> [FLAGS] [-- PASSTHROUGH]
 ```
 
-#### Stop Prompt
+| Flag | Short | Description |
+|------|-------|-------------|
+| `--auto` | `-a` | Enable auto-mode for this session |
+| `--prompt TEXT` | `-p` | Run non-interactively with the given prompt |
+| `--model MODEL` | `-m` | Override the model for this session |
+| `--continue` | `-c` | Continue the most recent session |
+| `--resume [ID]` | `-r` | Resume a session by ID (or open picker) |
+| `--fork` | | Fork the resumed session |
+| `--effort LEVEL` | `-e` | Reasoning effort level (`high`, `low`) |
+| `--safe` | | Restore permission prompts (bypass is the default) |
+| `--dry-run` | | Print the resolved command without executing |
+
+Arguments after `--` are passed directly to the agent CLI unchanged.
+
+### Global Flags
+
+| Flag | Description |
+|------|-------------|
+| `--json` | Output as JSON (supported by: `auth`, `version`, `sessions`, `agents info`, `agents list`) |
+| `--version` / `-V` | Show unleash and agent CLI versions |
+| `--help` / `-h` | Show help |
+
+### Examples
 
 ```bash
-unleash claude --stop-prompt="message"    # Set prompt inline
-unleash claude --stop-prompt "message"    # Alternative syntax
-unleash claude --stop-prompt-edit         # Edit with $EDITOR
-unleash claude --stop-prompt-clear        # Reset to default
+# Start claude in auto-mode with a specific model
+unleash claude --auto -m claude-opus-4-5
+
+# Run a headless task on codex
+unleash codex -p "Fix the failing tests" --safe
+
+# Resume the most recent gemini session
+unleash gemini --continue
+
+# Pass agent-specific flag through
+unleash claude -- --verbose
+
+# Check what command would be run (without executing)
+unleash codex --dry-run -m gpt-4o --continue
 ```
 
-#### Examples
+## Environment Variables
 
+The unleash wrapper exports these variables into the agent process environment:
+
+| Variable | Value | Description |
+|----------|-------|-------------|
+| `AGENT_UNLEASH` | `1` | Set when running under the wrapper |
+| `AGENT_CMD` | binary path | The agent CLI binary being used |
+| `AGENT_WRAPPER_PID` | PID | Process ID of the unleash wrapper |
+| `AGENT_AUTO_MODE` | `1` | Set when auto-mode is active |
+| `AGENT_UNLEASH_ROOT` | path | Path to the unleash installation |
+
+Check if running under the wrapper (useful in scripts and hooks):
 ```bash
-# Start with auto mode and custom prompt
-unleash claude --auto --stop-prompt="Complete all tests before stopping."
-
-# Edit prompt, then start normally
-unleash claude --stop-prompt-edit
-unleash claude
-
-# Clear prompt and start
-unleash claude --stop-prompt-clear && unleash claude
-```
-
-### Environment Variables
-
-The `unleash` wrapper exports these variables:
-
-| Variable | Purpose |
-|----------|---------|
-| `AGENT_UNLEASH` | Set to `1` when running under wrapper |
-| `AGENT_WRAPPER_PID` | Process ID of the wrapper |
-| `AGENT_AUTO_MODE` | Set to `1` when auto mode is active |
-| `AGENT_UNLEASH_ROOT` | Path to unleash repository |
-
-Check if running under wrapper:
-
-```bash
-if [[ "$AGENT_UNLEASH" == "1" ]]; then
+if [[ "${AGENT_UNLEASH:-}" == "1" ]]; then
     echo "Running under unleash wrapper"
 fi
 ```
 
-## Best Practices
-
-### Configuration Management
-
-1. **Use version control** for team settings
-   - Share `config.toml` templates for consistent setups
-
-2. **Document custom prompts**
-   - Keep a record of prompt variations for different task types
-   - Share effective prompts with your team
-
-3. **Test configuration changes**
-   - Verify stop prompts in a test session before committing
-   - Check that hooks are triggered correctly
-
-### Security Considerations
-
-1. **Don't commit secrets** in configuration files
-   - Use environment variables for API keys
-   - Keep credentials in profiles, not global config
-
-2. **Review stop prompts**
-   - Avoid prompts that might leak sensitive information
-   - Keep messages professional and task-focused
-
-### Performance
-
-1. **Minimize hook complexity**
-   - Stop hooks are called frequently
-   - Keep custom logic fast and simple
-
-2. **Clean up cache files**
-   - Remove old session-specific reminder files
-   - Clear `~/.cache/unleash/` periodically
+Restart the current session (from inside an unleash session):
+```bash
+unleash-refresh "Continue where you left off"
+```
 
 ## Related Documentation
 
 - [Auto Mode Plugin README](../../plugins/bundled/auto-mode/README.md)
 - [Plugin Development Guide](plugin-development.md)
 - [Restart & Refresh Guide](restart-refresh.md)
-
-## Version History
-
-- **1.1.0** (2026-01-12) - Added configurable stop prompts
-  - CLI flags: `--stop-prompt`, `--stop-prompt-edit`, `--stop-prompt-clear`
-  - TUI settings screen integration
-  - Global configuration in config.toml
-  - Priority-based prompt selection
-
-- **1.0.0** (2026-01-07) - Initial configuration system
-  - TUI configuration file
-  - Basic settings management
