@@ -615,7 +615,7 @@ pub fn run() -> io::Result<()> {
                     let hook_event = HookEvent::from_str(&event).ok_or_else(|| {
                         io::Error::new(
                             io::ErrorKind::InvalidInput,
-                            format!("Unknown hook event: {}. Valid events: Stop, PreToolUse, PostToolUse, PreCompact, Notification, SessionStart, SubagentStart, SubagentStop, Setup", event),
+                            format!("Unknown hook event: {}. Valid events: Stop, PreToolUse, PostToolUse, PreCompact, Notification, SessionStart, SubagentStart, SubagentStop, Setup, UserPromptSubmit, SessionEnd", event),
                         )
                     })?;
                     manager.register_hook(hook_event, &command, matcher.as_deref())?;
