@@ -1522,6 +1522,9 @@ impl App {
                 // Bridge log lines
                 let (step_tx, step_rx) = std::sync::mpsc::channel();
                 let step_tx2 = step_tx.clone();
+                // Capture agent/version BEFORE moving `pending` into the thread below.
+                // `.take()` already cleared `npm_dialog_pending`, so we must snapshot here.
+                let install_agent_version = pending.as_ref().map(|(a, v)| (*a, v.clone()));
                 std::thread::spawn(move || {
                     for line in log_rx {
                         let _ = step_tx2.send(InstallStepResult::LogLine(line));
@@ -1592,10 +1595,12 @@ impl App {
                         let _ = step_tx.send(InstallStepResult::InstallComplete(install_result));
                     }
                 });
-                if let Some((agent, version)) = &self.npm_dialog_pending {
+                // `npm_dialog_pending` is already None (consumed by `.take()` above).
+                // Use the pre-captured agent/version snapshot instead.
+                if let Some((agent, version)) = install_agent_version {
                     self.install_state = Some(InstallState {
-                        agent_type: *agent,
-                        version: version.clone(),
+                        agent_type: agent,
+                        version,
                         receiver: step_rx,
                         _handle: std::thread::spawn(|| {}),
                         start_time: std::time::Instant::now(),
@@ -1603,7 +1608,6 @@ impl App {
                         install_result: None,
                     });
                 }
-                self.npm_dialog_pending = None;
             } else if rejected {
                 self.npm_dialog_open = false;
                 self.npm_dialog_pending = None;
