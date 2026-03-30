@@ -569,7 +569,7 @@ fn uninstall_agent(agent_type: AgentType) -> io::Result<()> {
 
     // Try npm uninstall first for agents with npm packages
     if let Some(ref package) = def.npm_package {
-        if let Ok(output) = Command::new("npm")
+        if let Ok(output) = crate::version::VersionManager::npm_global_command()
             .args(["uninstall", "-g", package])
             .output()
         {
@@ -704,10 +704,9 @@ fn update_codex(tx: &mpsc::Sender<(usize, LineState)>, index: usize) -> io::Resu
     ));
 
     let mut manager = crate::agents::AgentManager::new()?;
-    let result = manager.update_agent(AgentType::Codex)?;
+    manager.update_agent(AgentType::Codex)?;
 
     let version = get_installed_version(AgentType::Codex).unwrap_or_else(|| "latest".into());
-    eprintln!("{}", result);
     Ok(version)
 }
 
