@@ -1,0 +1,37 @@
+name: Deploy Pages
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'scripts/install-remote.sh'
+      - '.github/workflows/pages.yml'
+  workflow_dispatch:
+
+permissions:
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build site
+        run: |
+          mkdir -p _site
+          cp scripts/install-remote.sh _site/install
+          echo "unleash.software" > _site/CNAME
+
+      - uses: actions/upload-pages-artifact@v3
+
+      - id: deployment
+        uses: actions/deploy-pages@v4
