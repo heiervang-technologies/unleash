@@ -7,7 +7,7 @@ Set Height 800
 Set Padding 20
 Set Theme "Catppuccin Mocha"
 
-Type "bash scripts/lib/splash.sh src/assets/mascot.claude.ans"
+Type "target/release/splash"
 Enter
 Sleep 2s
 
