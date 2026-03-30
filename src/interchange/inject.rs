@@ -243,11 +243,10 @@ fn inject_into_codex(
         .map(|p| p.to_string_lossy().to_string())
         .unwrap_or_else(|_| source.directory.clone());
 
-    // Write to Codex sessions directory
+    // Write to Codex sessions directory, respecting CODEX_HOME if set.
     let now = chrono_like_now();
-    let codex_home = dirs::home_dir()
-        .ok_or_else(|| ConvertError::InvalidFormat("No home dir".into()))?
-        .join(".codex");
+    let codex_home = codex_home_dir()
+        .ok_or_else(|| ConvertError::InvalidFormat("No home dir".into()))?;
     let codex_dir = codex_home
         .join("sessions")
         .join(&now[..4])  // year
@@ -550,6 +549,14 @@ fn inject_into_opencode(
 }
 
 // === Helpers ===
+
+/// Return the Codex home directory, respecting the `CODEX_HOME` env var.
+fn codex_home_dir() -> Option<std::path::PathBuf> {
+    if let Some(home) = std::env::var_os("CODEX_HOME") {
+        return Some(std::path::PathBuf::from(home));
+    }
+    dirs::home_dir().map(|h| h.join(".codex"))
+}
 
 fn extract_session_id(records: &[HubRecord]) -> String {
     records.iter().find_map(|r| {
