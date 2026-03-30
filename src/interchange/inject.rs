@@ -598,12 +598,13 @@ fn chrono_like_now() -> String {
         .duration_since(UNIX_EPOCH)
         .unwrap_or_default()
         .as_secs();
-    // Rough conversion (good enough for filenames)
+    // Rough conversion (good enough for filenames).
+    // Cap month at 12: remaining_days can be up to 364, and 364/30+1 = 13.
     let days = secs / 86400;
     let years = days / 365;
     let year = 1970 + years;
     let remaining = days - years * 365;
-    let month = remaining / 30 + 1;
+    let month = (remaining / 30 + 1).min(12);
     let day = remaining % 30 + 1;
     let hour = (secs % 86400) / 3600;
     let min = (secs % 3600) / 60;
@@ -723,7 +724,7 @@ mod tests {
         let hour: u32 = ts[11..13].parse().unwrap();
         let min: u32 = ts[14..16].parse().unwrap();
         let sec: u32 = ts[17..19].parse().unwrap();
-        assert!((1..=13).contains(&month), "month out of range: {month}");
+        assert!((1..=12).contains(&month), "month out of range: {month}");
         assert!((1..=31).contains(&day), "day out of range: {day}");
         assert!(hour < 24, "hour out of range: {hour}");
         assert!(min < 60, "min out of range: {min}");
