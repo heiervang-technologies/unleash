@@ -415,7 +415,7 @@ impl VersionManager {
     }
 
     /// Check if npm is available
-    fn has_npm() -> bool {
+    pub fn has_npm() -> bool {
         Command::new("npm")
             .arg("--version")
             .output()

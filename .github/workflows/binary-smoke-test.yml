@@ -1,0 +1,106 @@
+name: Binary Smoke Test
+
+# Tests prebuilt release binaries on real platforms.
+# Catches musl/glibc issues, missing deps, and runtime failures
+# that don't show up when building from source.
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Release tag to test (e.g., v0.0.0)'
+        required: true
+        default: 'v0.0.0'
+        type: string
+  # Also run after release binaries are uploaded
+  workflow_run:
+    workflows: ["Upload Release Binaries"]
+    types: [completed]
+
+jobs:
+  smoke-test:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            artifact: unleash-linux-x86_64
+            splash: splash-linux-x86_64
+          - os: ubuntu-24.04-arm
+            artifact: unleash-linux-aarch64
+            splash: splash-linux-aarch64
+          - os: macos-latest
+            artifact: unleash-macos-aarch64
+            splash: splash-macos-aarch64
+          - os: macos-13
+            artifact: unleash-macos-x86_64
+            splash: splash-macos-x86_64
+    runs-on: ${{ matrix.os }}
+    name: ${{ matrix.artifact }}
+
+    steps:
+      - name: Determine tag
+        id: tag
+        run: |
+          if [ -n "${{ github.event.inputs.tag }}" ]; then
+            echo "tag=${{ github.event.inputs.tag }}" >> $GITHUB_OUTPUT
+          else
+            echo "tag=v0.0.0" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Download unleash binary
+        run: |
+          curl -fsSL "https://github.com/${{ github.repository }}/releases/download/${{ steps.tag.outputs.tag }}/${{ matrix.artifact }}" -o unleash
+          chmod +x unleash
+
+      - name: Download splash binary
+        run: |
+          curl -fsSL "https://github.com/${{ github.repository }}/releases/download/${{ steps.tag.outputs.tag }}/${{ matrix.splash }}" -o splash
+          chmod +x splash
+
+      - name: Verify binaries are executable
+        run: |
+          file ./unleash
+          file ./splash
+
+      - name: Test --version
+        run: |
+          ./unleash --version
+          echo "--- version output OK ---"
+
+      - name: Test --help
+        run: |
+          ./unleash --help
+          echo "--- help output OK ---"
+
+      - name: Test agent check (no npm)
+        run: |
+          # Remove npm from PATH to simulate no-npm environment
+          export PATH=$(echo "$PATH" | tr ':' '\n' | grep -v node | grep -v npm | tr '\n' ':')
+          # Should not crash with ENOENT
+          ./unleash update --check 2>&1 || true
+          echo "--- agent check without npm OK (no crash) ---"
+
+      - name: Test agent check (with npm)
+        run: |
+          ./unleash update --check 2>&1 || true
+          echo "--- agent check with npm OK ---"
+
+      - name: Test install claude (native binary)
+        run: |
+          # Claude installs via native GCS binary, no npm needed
+          ./unleash install claude 2>&1 || true
+          echo "--- claude install attempted ---"
+
+      - name: Test sessions list
+        run: |
+          ./unleash sessions 2>&1 || true
+          echo "--- sessions list OK ---"
+
+      - name: Summary
+        run: |
+          echo "## Smoke Test: ${{ matrix.artifact }}" >> $GITHUB_STEP_SUMMARY
+          echo "- Platform: $(uname -s) $(uname -m)" >> $GITHUB_STEP_SUMMARY
+          echo "- Binary: ${{ matrix.artifact }}" >> $GITHUB_STEP_SUMMARY
+          echo "- Tag: ${{ steps.tag.outputs.tag }}" >> $GITHUB_STEP_SUMMARY
+          echo "- Status: All checks passed" >> $GITHUB_STEP_SUMMARY

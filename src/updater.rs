@@ -105,6 +105,30 @@ pub fn run(config: UpdateConfig) -> io::Result<()> {
         return Ok(());
     }
 
+    // Warn if npm is missing and agents that need it are queued
+    if !crate::version::VersionManager::has_npm() {
+        let npm_agents: Vec<String> = to_update
+            .iter()
+            .filter_map(|r| {
+                let def = AgentDefinition::from_type(r.agent_type);
+                if def.npm_package.is_some() && r.agent_type != AgentType::Claude {
+                    Some(def.name)
+                } else {
+                    None
+                }
+            })
+            .collect();
+        if !npm_agents.is_empty() {
+            eprintln!(
+                "\n\x1b[33mwarning:\x1b[0m npm not found. Required for: {}",
+                npm_agents.join(", ")
+            );
+            eprintln!(
+                "  Install Node.js: https://nodejs.org  (or: curl -fsSL https://fnm.vercel.app/install | bash)\n"
+            );
+        }
+    }
+
     // ------------------------------------------------------------------
     // Phase 2 – parallel updates
     // ------------------------------------------------------------------
