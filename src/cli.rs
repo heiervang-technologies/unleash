@@ -334,7 +334,7 @@ UNIFIED FLAGS (before --):
   -a, --auto           Enable auto-mode
   -e, --effort <LEVEL> Reasoning effort level (e.g., high, low)"#)]
 pub struct Cli {
-    /// Output results as JSON (supported by: auth, version, sessions)
+    /// Output results as JSON (supported by: auth, version, sessions, agents info, agents list)
     #[arg(long, global = true)]
     pub json: bool,
 
