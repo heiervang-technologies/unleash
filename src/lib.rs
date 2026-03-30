@@ -819,14 +819,19 @@ pub fn run() -> io::Result<()> {
                 update_only: true, // update mode: skip agents not already installed
             })
         }
-        Some(Commands::Sessions { cli, find }) => {
+        Some(Commands::Sessions { cli: cli_filter, find }) => {
+            let json = cli.json;
             if let Some(query) = find {
                 match interchange::sessions::find_session(&query) {
                     Some(session) => {
-                        println!(
-                            "{:<10} {:<40} {:<20} {}",
-                            session.cli, session.id, session.name.unwrap_or_default(), session.directory
-                        );
+                        if json {
+                            json_output::print_json(&session);
+                        } else {
+                            println!(
+                                "{:<10} {:<40} {:<20} {}",
+                                session.cli, session.id, session.name.unwrap_or_default(), session.directory
+                            );
+                        }
                     }
                     None => {
                         eprintln!("No session found matching: {query}");
@@ -834,7 +839,7 @@ pub fn run() -> io::Result<()> {
                     }
                 }
             } else {
-                let sessions = if let Some(ref cli_name) = cli {
+                let sessions = if let Some(ref cli_name) = cli_filter {
                     let format: interchange::CliFormat = cli_name.parse()
                         .map_err(|e: interchange::ConvertError| io::Error::other(e.to_string()))?;
                     interchange::sessions::discover_for(format)
@@ -842,7 +847,9 @@ pub fn run() -> io::Result<()> {
                     interchange::sessions::discover_all()
                 };
 
-                if sessions.is_empty() {
+                if json {
+                    json_output::print_json(&sessions);
+                } else if sessions.is_empty() {
                     println!("No sessions found.");
                 } else {
                     println!("{:<10} {:<20} {:<30} {:<20} DIRECTORY", "CLI", "NAME", "TITLE", "UPDATED");
