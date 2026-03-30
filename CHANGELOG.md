@@ -1,5 +1,12 @@
 # Changelog
 
+## [9.13.1](https://github.com/heiervang-technologies/unleash/compare/v9.13.0...v9.13.1) (2026-03-30)
+
+
+### Bug Fixes
+
+* strip profile name from wrapper crossload args ([c29c1aa](https://github.com/heiervang-technologies/unleash/commit/c29c1aa9b60f184887ab3313a8d98b00f378b987))
+
 ## [9.13.0](https://github.com/heiervang-technologies/unleash/compare/v9.12.2...v9.13.0) (2026-03-30)
 
 
