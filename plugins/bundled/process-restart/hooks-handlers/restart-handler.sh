@@ -49,7 +49,7 @@ if [[ -z "${SESSION_ID}" ]]; then
 fi
 
 # Get current model from environment or use default
-MODEL="${CLAUDE_MODEL:-claude-sonnet-4-5}"
+MODEL="${CLAUDE_MODEL:-claude-sonnet-4-6}"
 
 # Get git branch if in a git repository
 GIT_BRANCH=""
