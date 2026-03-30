@@ -15,7 +15,7 @@ Unleash creates four default profiles on first run:
 
 Select a profile from the TUI, or edit the TOML files directly.
 
-**Reserved names:** `version`, `auth`, `auth-check`, `hooks`, `agents`, `update`, `help`, `config`, `plugins`.
+**Reserved names:** `version`, `auth`, `auth-check`, `hooks`, `agents`, `install`, `uninstall`, `update`, `sessions`, `convert`, `help`, `config`, `plugins`.
 
 ## Full Example
 
