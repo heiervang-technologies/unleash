@@ -121,16 +121,14 @@ pub fn from_hub(records: &[HubRecord]) -> Result<Vec<Value>, ConvertError> {
     let mut lines = Vec::new();
 
     for record in records {
-        match record {
-            HubRecord::Session(s) => {
-                lines.push(hub_session_to_codex(s)?);
-            }
-            HubRecord::Message(msg) => {
-                lines.push(hub_message_to_codex(msg)?);
-            }
-            HubRecord::Event(evt) => {
-                lines.push(hub_event_to_codex(evt)?);
-            }
+        let line = match record {
+            HubRecord::Session(s) => hub_session_to_codex(s)?,
+            HubRecord::Message(msg) => hub_message_to_codex(msg)?,
+            HubRecord::Event(evt) => hub_event_to_codex(evt)?,
+        };
+        // Skip null entries (events/messages that couldn't be converted)
+        if !line.is_null() {
+            lines.push(line);
         }
     }
 
@@ -442,14 +440,36 @@ fn hub_session_to_codex(session: &SessionHeader) -> Result<Value, ConvertError> 
         .cloned()
         .unwrap_or(Value::Null);
 
+    // Use current working directory if session has no project directory
+    let cwd = session
+        .project
+        .as_ref()
+        .map(|p| p.directory.as_str())
+        .filter(|d| !d.is_empty())
+        .unwrap_or_else(|| {
+            // Will be overridden by inject_into_codex with actual cwd
+            ""
+        });
+
     let mut payload = serde_json::json!({
         "id": session.session_id,
-        "timestamp": session.created_at,
-        "cwd": session.project.as_ref().map(|p| p.directory.as_str()).unwrap_or(""),
-        "cli_version": session.source_version,
+        "timestamp": if session.created_at.is_empty() {
+            &session.updated_at
+        } else {
+            &session.created_at
+        },
+        "cwd": cwd,
+        "cli_version": if session.source_version.is_empty() {
+            "0.0.0"
+        } else {
+            &session.source_version
+        },
+        // Required fields: originator and source must always be present
+        "originator": "codex_cli_rs",
+        "source": "cli",
     });
 
-    // Restore Codex-specific fields
+    // Restore Codex-specific fields (override defaults if present)
     for key in &["originator", "source", "model_provider", "base_instructions"] {
         if let Some(v) = cc.get(*key) {
             payload[*key] = v.clone();
@@ -504,7 +524,69 @@ fn hub_message_to_codex(msg: &HubMessage) -> Result<Value, ConvertError> {
             "payload": payload,
         }))
     } else {
-        // response_item
+        // Check if this message has Codex-specific payload_type for structured items
+        let payload_type = cc
+            .get("payload_type")
+            .and_then(|v| v.as_str())
+            .unwrap_or("message");
+
+        // Handle structured types (function_call, function_call_output, reasoning)
+        // that were round-tripped through hub format
+        match payload_type {
+            "function_call" => {
+                // Reconstruct function_call from ToolUse content block
+                if let Some(ContentBlock::ToolUse { id, name, input, .. }) = msg.content.first() {
+                    let arguments = serde_json::to_string(input).unwrap_or_else(|_| "{}".to_string());
+                    let payload = serde_json::json!({
+                        "type": "function_call",
+                        "name": name,
+                        "call_id": id,
+                        "arguments": arguments,
+                    });
+                    return Ok(serde_json::json!({
+                        "timestamp": msg.timestamp,
+                        "type": "response_item",
+                        "payload": payload,
+                    }));
+                }
+            }
+            "function_call_output" => {
+                // Reconstruct function_call_output from ToolResult content block
+                if let Some(ContentBlock::ToolResult { tool_use_id, content, .. }) = msg.content.first() {
+                    let output = content.first().and_then(|b| match b {
+                        ContentBlock::Text { text } => Some(text.as_str()),
+                        _ => None,
+                    }).unwrap_or("");
+                    let payload = serde_json::json!({
+                        "type": "function_call_output",
+                        "call_id": tool_use_id,
+                        "output": output,
+                    });
+                    return Ok(serde_json::json!({
+                        "timestamp": msg.timestamp,
+                        "type": "response_item",
+                        "payload": payload,
+                    }));
+                }
+            }
+            "reasoning" => {
+                // Reconstruct reasoning from Thinking content block
+                if let Some(ContentBlock::Thinking { text, .. }) = msg.content.first() {
+                    let payload = serde_json::json!({
+                        "type": "reasoning",
+                        "content": [{"type": "text", "text": text}],
+                    });
+                    return Ok(serde_json::json!({
+                        "timestamp": msg.timestamp,
+                        "type": "response_item",
+                        "payload": payload,
+                    }));
+                }
+            }
+            _ => {}
+        }
+
+        // Default: response_item with message content
         let role = cc
             .get("original_role")
             .and_then(|v| v.as_str())
@@ -513,30 +595,56 @@ fn hub_message_to_codex(msg: &HubMessage) -> Result<Value, ConvertError> {
         let content: Vec<Value> = msg
             .content
             .iter()
-            .map(|block| match block {
+            .filter_map(|block| match block {
                 ContentBlock::Text { text } => {
-                    serde_json::json!({"type": "input_text", "text": text})
+                    if msg.role == "assistant" {
+                        Some(serde_json::json!({"type": "output_text", "text": text}))
+                    } else {
+                        Some(serde_json::json!({"type": "input_text", "text": text}))
+                    }
                 }
                 ContentBlock::Image {
                     media_type, data, ..
                 } => {
-                    serde_json::json!({"type": "input_image", "media_type": media_type, "data": data})
+                    Some(serde_json::json!({"type": "input_image", "media_type": media_type, "data": data}))
                 }
-                _ => serde_json::json!({"type": "input_text", "text": ""}),
+                ContentBlock::Thinking { text, .. } => {
+                    // Convert thinking blocks to output_text for non-reasoning payload types
+                    if !text.is_empty() {
+                        Some(serde_json::json!({"type": "output_text", "text": text}))
+                    } else {
+                        None
+                    }
+                }
+                ContentBlock::ToolUse { name, input, id, .. } => {
+                    // Emit as a separate function_call — but since we're in content array,
+                    // convert to descriptive text
+                    let args = serde_json::to_string(input).unwrap_or_else(|_| "{}".to_string());
+                    Some(serde_json::json!({"type": "output_text", "text": format!("[Tool call: {name}({args}) id={id}]")}))
+                }
+                ContentBlock::ToolResult { tool_use_id, content, .. } => {
+                    let output = content.iter().filter_map(|b| match b {
+                        ContentBlock::Text { text } => Some(text.as_str()),
+                        _ => None,
+                    }).collect::<Vec<_>>().join("\n");
+                    Some(serde_json::json!({"type": "input_text", "text": format!("[Tool result for {tool_use_id}]: {output}")}))
+                }
+                _ => None,
             })
             .collect();
+
+        // Skip messages with empty content
+        if content.is_empty() {
+            return Ok(Value::Null);
+        }
 
         let mut payload = serde_json::json!({
             "role": role,
             "content": content,
+            "type": "message",
         });
         if let Some(v) = cc.get("item_id") {
             payload["id"] = v.clone();
-        }
-        if let Some(v) = cc.get("payload_type") {
-            payload["type"] = v.clone();
-        } else {
-            payload["type"] = Value::String("message".into());
         }
 
         Ok(serde_json::json!({
@@ -548,6 +656,11 @@ fn hub_message_to_codex(msg: &HubMessage) -> Result<Value, ConvertError> {
 }
 
 fn hub_event_to_codex(evt: &HubEvent) -> Result<Value, ConvertError> {
+    // Skip events with null/empty data — these produce unparseable Codex JSONL lines
+    if evt.data.is_null() {
+        return Ok(Value::Null);
+    }
+
     let codex_type = if evt.event_type.starts_with("codex_") {
         evt.event_type.strip_prefix("codex_").unwrap_or(&evt.event_type)
     } else {

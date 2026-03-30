@@ -235,13 +235,20 @@ fn inject_into_codex(
 ) -> Result<InjectionResult, ConvertError> {
     let codex_lines = codex::from_hub(hub_records)?;
 
-    let session_id = extract_session_id(hub_records);
+    // Generate a fresh UUID for the Codex session (Codex uses UUIDv7)
+    let session_id = uuid_v4(); // Our pseudo-UUID is fine; Codex accepts any valid UUID
+
+    // Use current working directory (where Codex will be launched)
+    let cwd = std::env::current_dir()
+        .map(|p| p.to_string_lossy().to_string())
+        .unwrap_or_else(|_| source.directory.clone());
 
     // Write to Codex sessions directory
     let now = chrono_like_now();
-    let codex_dir = dirs::home_dir()
+    let codex_home = dirs::home_dir()
         .ok_or_else(|| ConvertError::InvalidFormat("No home dir".into()))?
-        .join(".codex")
+        .join(".codex");
+    let codex_dir = codex_home
         .join("sessions")
         .join(&now[..4])  // year
         .join(&now[5..7]) // month
@@ -251,14 +258,46 @@ fn inject_into_codex(
 
     let output_path = codex_dir.join(format!("rollout-{now}-{session_id}.jsonl"));
 
+    // Write JSONL, patching session_meta with correct cwd and session_id
     let mut output = String::new();
     for line in &codex_lines {
-        output.push_str(&serde_json::to_string(line)?);
+        let mut patched = line.clone();
+        // Patch session_meta payload with correct cwd and fresh session_id
+        if patched.get("type").and_then(|t| t.as_str()) == Some("session_meta") {
+            if let Some(payload) = patched.get_mut("payload") {
+                payload["id"] = serde_json::Value::String(session_id.clone());
+                if payload.get("cwd").and_then(|c| c.as_str()).unwrap_or("").is_empty() {
+                    payload["cwd"] = serde_json::Value::String(cwd.clone());
+                }
+            }
+        }
+        output.push_str(&serde_json::to_string(&patched)?);
         output.push('\n');
     }
     std::fs::write(&output_path, &output)?;
 
     eprintln!("Injected {} lines to {}", codex_lines.len(), output_path.display());
+
+    // Register the session in Codex's session_index.jsonl so `codex resume` can find it
+    let index_path = codex_home.join("session_index.jsonl");
+    let index_entry = serde_json::json!({
+        "id": session_id,
+        "thread_name": source.name.as_deref().unwrap_or(&source.id),
+        "updated_at": now.replace('T', "T").replace('-', "-"),
+    });
+    let mut index_line = serde_json::to_string(&index_entry)?;
+    index_line.push('\n');
+    // Append to the index file
+    use std::io::Write;
+    let mut index_file = std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(&index_path)?;
+    index_file.write_all(index_line.as_bytes())?;
+    eprintln!("Registered session in {}", index_path.display());
+
+    // Register in state_5.sqlite threads table for app-server resume
+    register_codex_thread(&codex_home, &session_id, &output_path, &cwd, source);
 
     Ok(InjectionResult {
         session_id: session_id.clone(),
@@ -269,6 +308,87 @@ fn inject_into_codex(
             source.cli,
         ),
     })
+}
+
+/// Register an injected session in the Codex state database so `codex resume <id>` works.
+fn register_codex_thread(
+    codex_home: &std::path::Path,
+    session_id: &str,
+    rollout_path: &std::path::Path,
+    cwd: &str,
+    source: &SessionInfo,
+) {
+    // Find the state DB (state_N.sqlite where N is the latest migration version)
+    let state_db_path = find_codex_state_db(codex_home);
+    let Some(db_path) = state_db_path else {
+        eprintln!("Warning: Could not find Codex state database; session may not appear in `codex resume` picker");
+        return;
+    };
+
+    let conn = match rusqlite::Connection::open(&db_path) {
+        Ok(c) => c,
+        Err(e) => {
+            eprintln!("Warning: Could not open Codex state DB: {e}");
+            return;
+        }
+    };
+
+    let now_secs = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs() as i64;
+
+    let title = source.title.as_deref().unwrap_or(
+        source.name.as_deref().unwrap_or("Imported session")
+    );
+    let first_user_message = title;
+
+    let result = conn.execute(
+        "INSERT OR REPLACE INTO threads (id, rollout_path, created_at, updated_at, source, model_provider, cwd, title, cli_version, first_user_message, has_user_event, archived, sandbox_policy, approval_mode)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14)",
+        rusqlite::params![
+            session_id,
+            rollout_path.to_string_lossy().to_string(),
+            now_secs,
+            now_secs,
+            "cli",
+            "",
+            cwd,
+            title,
+            "0.0.0",
+            first_user_message,
+            1i32,  // has_user_event
+            0i32,  // not archived
+            r#"{"type":"danger-full-access"}"#,  // sandbox_policy (Codex requires NOT NULL)
+            "never",  // approval_mode
+        ],
+    );
+
+    match result {
+        Ok(_) => eprintln!("Registered session in Codex state DB"),
+        Err(e) => eprintln!("Warning: Failed to register in state DB: {e}"),
+    }
+}
+
+/// Find the Codex state database file (state_N.sqlite)
+fn find_codex_state_db(codex_home: &std::path::Path) -> Option<std::path::PathBuf> {
+    // Look for state_*.sqlite files, pick the highest version number
+    let entries = std::fs::read_dir(codex_home).ok()?;
+    let mut best: Option<(u32, std::path::PathBuf)> = None;
+    for entry in entries.flatten() {
+        let name = entry.file_name();
+        let name_str = name.to_string_lossy();
+        if let Some(rest) = name_str.strip_prefix("state_") {
+            if let Some(ver_str) = rest.strip_suffix(".sqlite") {
+                if let Ok(ver) = ver_str.parse::<u32>() {
+                    if best.as_ref().map_or(true, |(best_ver, _)| ver > *best_ver) {
+                        best = Some((ver, entry.path()));
+                    }
+                }
+            }
+        }
+    }
+    best.map(|(_, path)| path)
 }
 
 fn inject_into_gemini(
