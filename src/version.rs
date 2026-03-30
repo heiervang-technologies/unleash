@@ -1708,10 +1708,9 @@ pub fn show_current() -> io::Result<()> {
 pub fn show_current_json() {
     let cu_version = env!("CARGO_PKG_VERSION");
     let vm = VersionManager::new();
-    let claude_code_version = vm
-        .get_installed_version()
-        .unwrap_or_else(|| "not installed".to_string());
-    let is_installed = vm.get_installed_version().is_some();
+    let installed = vm.get_installed_version();
+    let is_installed = installed.is_some();
+    let claude_code_version = installed.unwrap_or_else(|| "not installed".to_string());
 
     let output = VersionOutput {
         unleash_version: cu_version.to_string(),
