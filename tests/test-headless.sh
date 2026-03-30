@@ -8,6 +8,10 @@
 
 set -euo pipefail
 
+# Isolate from the unleash wrapper environment so subcommand routing tests
+# behave the same whether run inside or outside an unleash session.
+unset AGENT_UNLEASH AGENT_CMD 2>/dev/null || true
+
 # Find binary - prefer fast profile, then release, then debug
 if [[ -n "${AU_BIN:-}" ]]; then
     BIN="$AU_BIN"

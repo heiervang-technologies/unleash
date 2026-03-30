@@ -318,6 +318,29 @@ fn run_agent_with_polyfill(
 }
 
 
+/// Returns true if `first_arg` is a known unleash subcommand that must be
+/// routed through clap even when running inside the wrapper (AGENT_UNLEASH=1).
+///
+/// This list must stay in sync with the `Commands` enum in `cli.rs`.
+/// Any subcommand missing here will be silently swallowed by the wrapper's
+/// reentry path and forwarded to the underlying agent CLI instead.
+pub(crate) fn is_known_subcommand(first_arg: &str) -> bool {
+    matches!(
+        first_arg,
+        "version"
+            | "auth"
+            | "auth-check"
+            | "hooks"
+            | "agents"
+            | "update"
+            | "install"
+            | "uninstall"
+            | "sessions"
+            | "convert"
+            | "help"
+    )
+}
+
 pub fn run() -> io::Result<()> {
     // Check for --version or -V flag before clap processing
     // This allows us to show both Claude Unleashed and Claude Code versions
@@ -365,10 +388,10 @@ pub fn run() -> io::Result<()> {
     // session from hijacking a fresh `unleash codex` invocation.
     // Skip wrapper mode for help/version flags — let clap handle those
     let has_meta_flag = args.iter().skip(1).any(|a| matches!(a.as_str(), "-h" | "--help" | "-V" | "--version"));
-    let first_arg_is_subcommand = matches!(
-        args.get(1).map(String::as_str),
-        Some("version" | "auth" | "auth-check" | "hooks" | "agents" | "update" | "sessions" | "convert" | "help")
-    );
+    let first_arg_is_subcommand = args
+        .get(1)
+        .map(|a| is_known_subcommand(a.as_str()))
+        .unwrap_or(false);
     let is_wrapper_reentry = env::var("AGENT_CMD").is_ok()
         && env::var(launcher::UNLEASHED_ENV_VAR).ok().as_deref() == Some("1");
     if is_wrapper_reentry && !has_meta_flag && !first_arg_is_subcommand {
@@ -974,5 +997,48 @@ mod tests {
         .unwrap_err();
         assert_eq!(err.kind(), io::ErrorKind::NotFound);
         assert!(err.to_string().contains("test-profile"));
+    }
+
+    #[test]
+    fn test_is_known_subcommand_all_present() {
+        // Every entry in the Commands enum must appear here so the wrapper
+        // reentry path does not swallow them.
+        for cmd in &[
+            "version",
+            "auth",
+            "auth-check",
+            "hooks",
+            "agents",
+            "update",
+            "install",
+            "uninstall",
+            "sessions",
+            "convert",
+            "help",
+        ] {
+            assert!(
+                is_known_subcommand(cmd),
+                "'{cmd}' should be recognised as a known subcommand"
+            );
+        }
+    }
+
+    #[test]
+    fn test_is_known_subcommand_rejects_profile_names() {
+        // Profile names must NOT be recognised as subcommands so they fall
+        // through to `run_agent_with_polyfill`.
+        for name in &["claude", "codex", "gemini", "opencode", "my-profile"] {
+            assert!(
+                !is_known_subcommand(name),
+                "'{name}' should NOT be recognised as a known subcommand"
+            );
+        }
+    }
+
+    #[test]
+    fn test_is_known_subcommand_rejects_arbitrary_strings() {
+        assert!(!is_known_subcommand("invalid-subcommand"));
+        assert!(!is_known_subcommand(""));
+        assert!(!is_known_subcommand("VERSION")); // case sensitive
     }
 }
