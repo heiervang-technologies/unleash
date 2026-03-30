@@ -75,12 +75,15 @@ unleash update --check      # Dry run, show available updates
 
 ### `unleash version`
 
-Show installed agent versions.
+Manage Claude Code versions (install, list, switch).
 
 ```bash
-unleash version             # Current installed versions
-unleash version --list      # All available versions
+unleash version                   # Show installed Claude Code version
+unleash version --list            # List all available Claude Code versions
+unleash version --install 2.1.87  # Install a specific Claude Code version
 ```
+
+> For all agents' versions at a glance, use `unleash agents status`.
 
 ### `unleash auth`
 
