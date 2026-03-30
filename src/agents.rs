@@ -542,18 +542,7 @@ impl AgentManager {
 
     /// Update Claude Code via npm
     fn update_claude(&self) -> io::Result<String> {
-        let output = Command::new("npm")
-            .args(["install", "-g", "@anthropic-ai/claude-code@latest"])
-            .output()?;
-
-        if output.status.success() {
-            Ok("Claude Code updated successfully".to_string())
-        } else {
-            Err(io::Error::other(format!(
-                "Failed to update Claude Code: {}",
-                String::from_utf8_lossy(&output.stderr)
-            )))
-        }
+        self.update_npm_agent("@anthropic-ai/claude-code", "Claude Code")
     }
 
     /// Update Codex — prefer prebuilt binary, fall back to source build
