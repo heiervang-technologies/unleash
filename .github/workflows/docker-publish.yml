@@ -58,15 +58,30 @@ jobs:
       - name: Verify all CLIs
         run: |
           FAILED=0
-          for cli in claude codex gemini opencode unleash gh; do
-            VERSION=$(docker run --rm unleash:local $cli --version 2>&1 | head -1) || true
-            if [ -n "$VERSION" ] && ! echo "$VERSION" | grep -qi "error\|not found"; then
-              echo "  ✓ $cli: $VERSION"
+
+          for cli in claude codex gemini opencode; do
+            echo -n "  $cli: "
+            VERSION=$(docker run --rm unleash:local $cli --version 2>&1 | grep -iE '[0-9]+\.[0-9]+' | head -1) || true
+            if [ -n "$VERSION" ]; then
+              echo "$VERSION"
             else
-              echo "  ✗ $cli: FAILED"
+              echo "FAILED"
+              docker run --rm unleash:local $cli --version 2>&1 || true
               FAILED=1
             fi
           done
+
+          # Entrypoint is already 'unleash', so just pass --version directly
+          echo -n "  unleash: "
+          VERSION=$(docker run --rm unleash:local --version 2>&1 | grep -iE '[0-9]+\.[0-9]+' | head -1) || true
+          if [ -n "$VERSION" ]; then
+            echo "$VERSION"
+          else
+            echo "FAILED"
+            docker run --rm unleash:local --version 2>&1 || true
+            FAILED=1
+          fi
+
           if [ "$FAILED" -eq 1 ]; then
             echo "CLI verification failed — not pushing"
             exit 1
