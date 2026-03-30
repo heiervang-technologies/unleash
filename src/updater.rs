@@ -430,9 +430,14 @@ fn get_latest_version(agent_type: AgentType) -> io::Result<Option<String>> {
 }
 
 fn get_latest_npm_version(package: &str) -> io::Result<Option<String>> {
-    let output = Command::new("npm")
+    let output = match Command::new("npm")
         .args(["view", package, "version"])
-        .output()?;
+        .output()
+    {
+        Ok(o) => o,
+        Err(e) if e.kind() == io::ErrorKind::NotFound => return Ok(None), // npm not installed
+        Err(e) => return Err(e),
+    };
 
     if !output.status.success() {
         return Ok(None);
@@ -527,11 +532,13 @@ fn uninstall_agent(agent_type: AgentType) -> io::Result<()> {
 
     // Try npm uninstall first for agents with npm packages
     if let Some(ref package) = def.npm_package {
-        let output = Command::new("npm")
+        if let Ok(output) = Command::new("npm")
             .args(["uninstall", "-g", package])
-            .output()?;
-        if output.status.success() {
-            return Ok(());
+            .output()
+        {
+            if output.status.success() {
+                return Ok(());
+            }
         }
     }
 
@@ -677,9 +684,16 @@ fn update_gemini(tx: &mpsc::Sender<(usize, LineState)>, index: usize) -> io::Res
         },
     ));
 
-    let output = crate::version::VersionManager::npm_global_command()
+    let output = match crate::version::VersionManager::npm_global_command()
         .args(["install", "-g", "@google/gemini-cli@latest"])
-        .output()?;
+        .output()
+    {
+        Ok(o) => o,
+        Err(e) if e.kind() == io::ErrorKind::NotFound => {
+            return Err(io::Error::other("npm not found — install Node.js (https://nodejs.org) to install Gemini CLI"));
+        }
+        Err(e) => return Err(e),
+    };
 
     if output.status.success() {
         let version = get_installed_version(AgentType::Gemini).unwrap_or_else(|| "latest".into());
@@ -720,9 +734,16 @@ fn update_opencode(tx: &mpsc::Sender<(usize, LineState)>, index: usize) -> io::R
         Ok(version)
     } else {
         // Fallback: npm install (handles both upgrade failure and binary not found)
-        let npm_output = crate::version::VersionManager::npm_global_command()
+        let npm_output = match crate::version::VersionManager::npm_global_command()
             .args(["install", "-g", &format!("opencode-ai@{}", target)])
-            .output()?;
+            .output()
+        {
+            Ok(o) => o,
+            Err(e) if e.kind() == io::ErrorKind::NotFound => {
+                return Err(io::Error::other("npm not found — install Node.js (https://nodejs.org) to install OpenCode"));
+            }
+            Err(e) => return Err(e),
+        };
 
         if npm_output.status.success() {
             Ok(target)
