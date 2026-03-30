@@ -46,13 +46,6 @@ unleash opencode # Start OpenCode with unleash features
 
 > Run the same install command again to update to the latest version.
 
----
-<p align="center">
-  <img src="demo-tui.gif" alt="unleash TUI Demo" width="800">
-</p>
-
----
-
 ## CLI Usage
 
 ### Running Agents
