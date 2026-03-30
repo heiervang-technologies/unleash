@@ -456,7 +456,7 @@ See: [Snail Integration - Troubleshooting](./extensions/snail-integration.md#tro
 
 **CLI Reference:**
 - [Authentication Check Command](./auth-check-command.md) - Verify Claude Code authentication
-- [JSON Output Specification](../JSON_OUTPUT.md) - JSON output format for scripting
+- [JSON Output Specification](JSON_OUTPUT.md) - JSON output format for scripting
 
 **Extension Development:**
 - [Plugin Development Guide](./extensions/plugin-development.md) - Comprehensive plugin creation

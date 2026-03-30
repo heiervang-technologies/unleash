@@ -9,6 +9,7 @@ docs/
 ├── README.md                          # START HERE - Overview and navigation
 │
 ├── auth-check-command.md              # CLI: Authentication verification command
+├── JSON_OUTPUT.md                     # CLI: JSON output specification
 │
 ├── docker/                            # Docker Container Guides
 │   ├── README.md                      # Quick start, single agent, multi-agent (tiers 1-2)
@@ -21,8 +22,19 @@ docs/
 │   ├── snail-integration.md           # GitHub Actions workflows (1332 lines)
 │   └── testing-guide.md               # Testing strategies (1372 lines)
 │
+├── internal/                          # Internal Developer Documentation
+│   ├── README.md                      # Index + CLI format comparison matrix
+│   ├── claude-code/
+│   │   ├── CLI_FORMAT.md              # Claude Code JSONL transcript format
+│   │   └── XML_MESSAGE_SIGNATURES.md  # Native XML tags for rendering & agent messages
+│   ├── codex/
+│   │   └── CLI_FORMAT.md              # Codex JSONL + SQLite format
+│   ├── gemini/
+│   │   └── CLI_FORMAT.md              # Gemini CLI JSON session format
+│   └── opencode/
+│       └── CLI_FORMAT.md              # OpenCode SQLite + Drizzle format
+│
 └── (root)
-    ├── JSON_OUTPUT.md                 # CLI: JSON output specification
     └── tests/README.md                # Test suite documentation
 ```
 
