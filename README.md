@@ -17,7 +17,7 @@
 
 * Made for the sandbox — Use ours, Bring your own, or **take the risk**
 
-### Install  
+### Install
 
 ```sh
 curl -fsSL unleash.software/install | bash
@@ -30,6 +30,8 @@ docker run --rm -it marksverdhei/unleash
 ```sh
 docker run -it --rm -e ANTHROPIC_API_KEY -e CLAUDE_CODE_OAUTH_TOKEN -e OPENAI_API_KEY -e GEMINI_API_KEY -e OPENROUTER_API_KEY marksverdhei/unleash
 ```
+
+> See [Installation](#installation) for build-from-source, platform details, and non-interactive mode.
 
 > **unleash is best run in a sandbox.** Bring your own or use ours — see the [Docker + gVisor sandbox guide](docs/docker.md) for for more  hardened containers with LAN isolation.
 
@@ -233,50 +235,84 @@ See `docs/extensions/` for the full plugin development guide.
 
 ## Installation
 
-### Prerequisites
-
-- curl or wget
-- Git
-- Node.js/npm (for Claude and Gemini)
-- Rust/Cargo (optional, for building from source)
-
-### Options
+### One-liner (recommended)
 
 ```bash
-# Option 1: gh CLI (recommended)
-gh repo clone heiervang-technologies/unleash /tmp/unleash && \
-  bash /tmp/unleash/scripts/install.sh && rm -rf /tmp/unleash
-
-# Option 2: curl with token
-export GH_TOKEN=ghp_xxx
-curl -fsSL -H "Authorization: token $GH_TOKEN" \
-  https://raw.githubusercontent.com/heiervang-technologies/unleash/main/scripts/install-remote.sh | bash
-
-# Option 3: Build from source
-git clone git@github.com:heiervang-technologies/unleash.git
-cd unleash && cargo build --release && ./scripts/install.sh
+curl -fsSL unleash.software/install | bash
 ```
 
-### Headless Environments
+Downloads a prebuilt binary for your platform (Linux x86_64/aarch64, macOS x86_64/aarch64), installs to `~/.local/bin`, and launches the interactive setup to pick your default agent.
 
-Build without TUI for Docker/CI:
+For non-interactive installs (CI, scripts):
 
 ```bash
-cargo build --release --no-default-features
+curl -fsSL unleash.software/install | bash -s -- --boring
 ```
+
+### Docker
+
+```bash
+docker run -it --rm -e ANTHROPIC_API_KEY marksverdhei/unleash
+```
+
+All 4 agent CLIs are pre-installed. Pass API keys as environment variables. See the [Docker + gVisor sandbox guide](docs/docker.md) for hardened setups with LAN isolation.
+
+### Build from source
+
+Requires [Rust](https://rustup.rs/):
+
+```bash
+git clone https://github.com/heiervang-technologies/unleash.git
+cd unleash
+cargo build --release
+./scripts/install.sh
+```
+
+Or force the installer to build from source instead of downloading:
+
+```bash
+BUILD_FROM_SOURCE=1 bash <(curl -fsSL unleash.software/install)
+```
+
+### Platform support
+
+| Platform | Binary | Method |
+|----------|--------|--------|
+| Linux x86_64 | `unleash-linux-x86_64` | Static musl binary |
+| Linux aarch64 | `unleash-linux-aarch64` | Static musl binary |
+| macOS x86_64 | `unleash-macos-x86_64` | Native binary |
+| macOS aarch64 | `unleash-macos-aarch64` | Native binary |
+
+Linux binaries are statically linked (musl) — no glibc dependency. Works on any Linux including WSL, Alpine, and containers.
+
+### Agent CLI dependencies
+
+unleash itself has no dependencies beyond curl. Agent CLIs have their own:
+
+| Agent | Install method | Requires |
+|-------|---------------|----------|
+| Claude Code | Native binary (GCS) | curl |
+| Codex | Prebuilt binary (GitHub) | curl |
+| Gemini CLI | npm | Node.js |
+| OpenCode | Built-in upgrade / npm fallback | curl (or Node.js) |
+
+If npm is missing when installing Gemini or OpenCode, unleash will offer to install Node.js via [nvm](https://github.com/nvm-sh/nvm).
 
 ### Authentication
 
-```bash
-# OAuth token (recommended for automation)
-claude setup-token
-export CLAUDE_CODE_OAUTH_TOKEN=<token>
+Each agent CLI uses its own API key:
 
-# Or interactive browser auth
-claude
+```bash
+# Set keys as environment variables
+export ANTHROPIC_API_KEY=sk-ant-...
+export OPENAI_API_KEY=sk-...
+export GEMINI_API_KEY=...
+
+# Or use OAuth (Claude Code)
+claude login
 ```
 
-Verify: `unleash auth` or `unleash auth --verbose`
+Verify with `unleash auth` or `unleash auth --verbose`.
 
 ## Architecture
 
