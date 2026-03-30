@@ -1,5 +1,17 @@
 # Changelog
 
+## [9.12.0](https://github.com/heiervang-technologies/unleash/compare/v9.11.10...v9.12.0) (2026-03-30)
+
+
+### Features
+
+* Gemini session format fix + cross-CLI test coverage ([#297](https://github.com/heiervang-technologies/unleash/issues/297)) ([ca97f49](https://github.com/heiervang-technologies/unleash/commit/ca97f497ca08944c248da094ec94556adbddefe6))
+
+
+### Bug Fixes
+
+* Gemini injection uses project slug not SHA-256 hash for directory ([42f1492](https://github.com/heiervang-technologies/unleash/commit/42f1492af3a746c608211ebf3d77b7acf98369d4))
+
 ## [9.11.10](https://github.com/heiervang-technologies/unleash/compare/v9.11.9...v9.11.10) (2026-03-29)
 
 
