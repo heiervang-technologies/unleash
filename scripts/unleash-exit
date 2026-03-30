@@ -1,0 +1,38 @@
+#!/usr/bin/env bash
+# unleash-exit - Exit agent without triggering restart
+#
+# Usage: unleash-exit
+#
+# Kills the current agent process without creating a restart trigger,
+# so the wrapper will exit cleanly instead of restarting.
+# Note: Also available as 'exit-claude' (backward compat)
+
+set -uo pipefail
+
+# Get Claude's PID - grandparent of this script
+BASH_SHELL_PID=$PPID
+CLAUDE_PID=$(ps -o ppid= -p "${BASH_SHELL_PID}" 2>/dev/null | tr -d ' ')
+
+if [[ -z "${CLAUDE_PID}" ]]; then
+    echo "Error: Could not determine Claude PID"
+    exit 1
+fi
+
+# Verify process exists
+if ! kill -0 "${CLAUDE_PID}" 2>/dev/null; then
+    echo "Error: Claude process ${CLAUDE_PID} not running"
+    exit 1
+fi
+
+# Deactivate auto mode if active
+WRAPPER_PID="${AGENT_WRAPPER_PID:-}"
+if [[ -n "${WRAPPER_PID}" ]]; then
+    AUTO_MODE_FILE="${HOME}/.cache/unleash/auto-mode/active-${WRAPPER_PID}"
+    if [[ -f "${AUTO_MODE_FILE}" ]]; then
+        rm -f "${AUTO_MODE_FILE}"
+        echo "Auto mode deactivated."
+    fi
+fi
+
+# Kill Claude - no trigger file means wrapper will exit
+kill -INT "${CLAUDE_PID}"

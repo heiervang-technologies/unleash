@@ -1,0 +1,54 @@
+# Override: adds mesh network for inter-agent communication
+#
+# Usage:
+#   docker compose -f docker/docker-compose.yml \
+#     -f docker/docker-compose.multi-agent.yml up claude codex
+#
+# IMPORTANT: Use 'up', not 'run'. The 'run' command creates one-off
+# containers that don't register DNS names for service discovery.
+#
+# Agents discover each other via .mesh aliases (e.g., claude.mesh, codex.mesh).
+# These resolve exclusively to mesh IPs, avoiding DNS ambiguity.
+# Internet access remains via the sandbox network.
+#
+# For advanced networking (sidecars, custom topologies), see NETWORKING.md.
+
+services:
+  unleash:
+    networks:
+      sandbox:
+      mesh:
+
+  # .mesh aliases guarantee resolution to mesh IPs only (10.100.x.x)
+  claude:
+    networks:
+      mesh:
+        aliases:
+          - claude.mesh
+  codex:
+    networks:
+      mesh:
+        aliases:
+          - codex.mesh
+  gemini:
+    networks:
+      mesh:
+        aliases:
+          - gemini.mesh
+  opencode:
+    networks:
+      mesh:
+        aliases:
+          - opencode.mesh
+
+networks:
+  sandbox:
+    external: true
+    name: unleash-sandbox
+  mesh:
+    driver: bridge
+    name: unleash-mesh
+    internal: true
+    ipam:
+      config:
+        - subnet: 10.100.0.0/16

@@ -1,0 +1,16 @@
+# Override: run with standard Docker runtime (runc) instead of gVisor (runsc)
+#
+# Usage:
+#   docker compose -f docker/docker-compose.yml -f docker/docker-compose.runc.yml run --rm claude
+
+services:
+  unleash:
+    runtime: runc
+    networks:
+      - default
+
+networks:
+  sandbox:
+    external: false
+    name: unleash-runc-default
+    driver: bridge

@@ -1,0 +1,15 @@
+{
+  "description": "Auto mode stop hook that blocks stopping when auto mode is active",
+  "hooks": {
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "${CLAUDE_PLUGIN_ROOT}/hooks/auto-mode-stop.sh"
+          }
+        ]
+      }
+    ]
+  }
+}

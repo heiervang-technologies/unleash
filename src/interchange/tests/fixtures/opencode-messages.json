@@ -1,0 +1,272 @@
+[
+  {
+    "role": "user",
+    "time": {
+      "created": 1769002722116
+    },
+    "summary": {
+      "title": "TUI apps freezing on alacritty",
+      "diffs": []
+    },
+    "agent": "build",
+    "model": {
+      "providerID": "openrouter",
+      "modelID": "google/gemini-3-flash-preview"
+    }
+  },
+  {
+    "role": "assistant",
+    "time": {
+      "created": 1769002722121,
+      "completed": 1769002727109
+    },
+    "parentID": "msg_0001_fake_opencode",
+    "modelID": "google/gemini-3-flash-preview",
+    "providerID": "openrouter",
+    "mode": "build",
+    "agent": "build",
+    "path": {
+      "cwd": "/home/user/project",
+      "root": "/"
+    },
+    "cost": 0.008043,
+    "tokens": {
+      "input": 12228,
+      "output": 368,
+      "reasoning": 275,
+      "cache": {
+        "read": 0,
+        "write": 0
+      }
+    },
+    "finish": "tool-calls"
+  },
+  {
+    "role": "assistant",
+    "time": {
+      "created": 1769002727111,
+      "completed": 1769002731115
+    },
+    "parentID": "msg_0001_fake_opencode",
+    "modelID": "google/gemini-3-flash-preview",
+    "providerID": "openrouter",
+    "mode": "build",
+    "agent": "build",
+    "path": {
+      "cwd": "/home/user/project",
+      "root": "/"
+    },
+    "cost": 0.0071535,
+    "tokens": {
+      "input": 13197,
+      "output": 128,
+      "reasoning": 57,
+      "cache": {
+        "read": 0,
+        "write": 0
+      }
+    },
+    "finish": "tool-calls"
+  },
+  {
+    "role": "assistant",
+    "time": {
+      "created": 1769002731116,
+      "completed": 1769002735204
+    },
+    "parentID": "msg_0001_fake_opencode",
+    "modelID": "google/gemini-3-flash-preview",
+    "providerID": "openrouter",
+    "mode": "build",
+    "agent": "build",
+    "path": {
+      "cwd": "/home/user/project",
+      "root": "/"
+    },
+    "cost": 0.0076875,
+    "tokens": {
+      "input": 13413,
+      "output": 178,
+      "reasoning": 149,
+      "cache": {
+        "read": 0,
+        "write": 0
+      }
+    },
+    "finish": "tool-calls"
+  },
+  {
+    "role": "assistant",
+    "time": {
+      "created": 1769002735206,
+      "completed": 1769002738199
+    },
+    "parentID": "msg_0001_fake_opencode",
+    "modelID": "google/gemini-3-flash-preview",
+    "providerID": "openrouter",
+    "mode": "build",
+    "agent": "build",
+    "path": {
+      "cwd": "/home/user/project",
+      "root": "/"
+    },
+    "cost": 0.00782,
+    "tokens": {
+      "input": 13816,
+      "output": 175,
+      "reasoning": 129,
+      "cache": {
+        "read": 0,
+        "write": 0
+      }
+    },
+    "finish": "tool-calls"
+  },
+  {
+    "role": "assistant",
+    "time": {
+      "created": 1769002738201,
+      "completed": 1769002742020
+    },
+    "parentID": "msg_0001_fake_opencode",
+    "modelID": "google/gemini-3-flash-preview",
+    "providerID": "openrouter",
+    "mode": "build",
+    "agent": "build",
+    "path": {
+      "cwd": "/home/user/project",
+      "root": "/"
+    },
+    "cost": 0.008138,
+    "tokens": {
+      "input": 14182,
+      "output": 195,
+      "reasoning": 154,
+      "cache": {
+        "read": 0,
+        "write": 0
+      }
+    },
+    "finish": "tool-calls"
+  },
+  {
+    "role": "assistant",
+    "time": {
+      "created": 1769002742022,
+      "completed": 1769002744650
+    },
+    "parentID": "msg_0001_fake_opencode",
+    "modelID": "google/gemini-3-flash-preview",
+    "providerID": "openrouter",
+    "mode": "build",
+    "agent": "build",
+    "path": {
+      "cwd": "/home/user/project",
+      "root": "/"
+    },
+    "cost": 0.0076755,
+    "tokens": {
+      "input": 14409,
+      "output": 109,
+      "reasoning": 48,
+      "cache": {
+        "read": 0,
+        "write": 0
+      }
+    },
+    "finish": "tool-calls"
+  },
+  {
+    "role": "assistant",
+    "time": {
+      "created": 1769002744652,
+      "completed": 1769002745236
+    },
+    "error": {
+      "name": "APIError",
+      "data": {
+        "message": "Provider returned error",
+        "statusCode": 400,
+        "isRetryable": false,
+        "responseHeaders": {
+          "access-control-allow-origin": "*",
+          "cf-ray": "9c1737321fa432fa-OSL",
+          "connection": "keep-alive",
+          "content-type": "application/json",
+          "date": "Wed, 21 Jan 2026 13:39:05 GMT",
+          "permissions-policy": "payment=(self \"https://checkout.stripe.com\" \"https://connect-js.stripe.com\" \"https://js.stripe.com\" \"https://*.js.stripe.com\" \"https://hooks.stripe.com\")",
+          "referrer-policy": "no-referrer, strict-origin-when-cross-origin",
+          "server": "cloudflare",
+          "transfer-encoding": "chunked",
+          "vary": "Accept-Encoding",
+          "x-content-type-options": "nosniff"
+        },
+        "responseBody": "{\"error\":{\"message\":\"Provider returned error\",\"code\":400,\"metadata\":{\"raw\":\"{\\n  \\\"error\\\": {\\n    \\\"code\\\": 400,\\n    \\\"message\\\": \\\"Unable to submit request because Thought signature is not valid.. Learn more: https://cloud.google.com/vertex-ai/generative-ai/docs/model-reference/gemini\\\",\\n    \\\"status\\\": \\\"INVALID_ARGUMENT\\\"\\n  }\\n}\\n\",\"provider_name\":\"Google\",\"is_byok\":false}},\"user_id\":\"user_REDACTED\"}",
+        "metadata": {
+          "url": "https://openrouter.ai/api/v1/chat/completions"
+        }
+      }
+    },
+    "parentID": "msg_0001_fake_opencode",
+    "modelID": "google/gemini-3-flash-preview",
+    "providerID": "openrouter",
+    "mode": "build",
+    "agent": "build",
+    "path": {
+      "cwd": "/home/user/project",
+      "root": "/"
+    },
+    "cost": 0,
+    "tokens": {
+      "input": 0,
+      "output": 0,
+      "reasoning": 0,
+      "cache": {
+        "read": 0,
+        "write": 0
+      }
+    }
+  },
+  {
+    "role": "user",
+    "time": {
+      "created": 1769003864347
+    },
+    "summary": {
+      "title": "What happened",
+      "diffs": []
+    },
+    "agent": "build",
+    "model": {
+      "providerID": "openrouter",
+      "modelID": "google/gemini-3-flash-preview"
+    }
+  },
+  {
+    "role": "assistant",
+    "time": {
+      "created": 1769003864351,
+      "completed": 1769004059289
+    },
+    "parentID": "msg_0009_fake_opencode",
+    "modelID": "google/gemini-3-flash-preview",
+    "providerID": "openrouter",
+    "mode": "build",
+    "agent": "build",
+    "path": {
+      "cwd": "/home/user/project",
+      "root": "/"
+    },
+    "cost": 0.1032735,
+    "tokens": {
+      "input": 14547,
+      "output": 32000,
+      "reasoning": 0,
+      "cache": {
+        "read": 0,
+        "write": 0
+      }
+    },
+    "finish": "length"
+  }
+]

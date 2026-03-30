@@ -1,0 +1,56 @@
+#!/usr/bin/env bash
+# unleash-refresh - Trigger agent self-restart (preserves session)
+#
+# Usage: unleash-refresh [message]
+#
+# Requires: Running under unleash wrapper
+# Note: Also available as 'restart-claude' (backward compat)
+
+set -uo pipefail
+
+CACHE_DIR="${HOME}/.cache/unleash/process-restart"
+
+# Check if running under wrapper
+if [[ -z "${AGENT_UNLEASH:-}" ]]; then
+    echo "Error: Not running under unleash wrapper"
+    echo "Start Claude with: unleash claude"
+    exit 1
+fi
+
+# Get wrapper PID from environment (set by unleash wrapper)
+WRAPPER_PID="${AGENT_WRAPPER_PID:-}"
+if [[ -z "${WRAPPER_PID}" ]]; then
+    echo "Error: AGENT_WRAPPER_PID not set"
+    exit 1
+fi
+
+# Use wrapper-specific trigger files to avoid race conditions with concurrent instances
+TRIGGER_FILE="${CACHE_DIR}/restart-trigger-${WRAPPER_PID}"
+RESTART_MESSAGE_FILE="${CACHE_DIR}/restart-message-${WRAPPER_PID}"
+
+# Get Claude's PID - it's the grandparent of this script
+# Process tree: wrapper -> claude -> bash -c -> this script
+BASH_SHELL_PID=$PPID
+CLAUDE_PID=$(ps -o ppid= -p "${BASH_SHELL_PID}" 2>/dev/null | tr -d ' ')
+
+if [[ -z "${CLAUDE_PID}" ]]; then
+    echo "Error: Could not determine Claude PID"
+    exit 1
+fi
+
+# Verify process exists
+if ! kill -0 "${CLAUDE_PID}" 2>/dev/null; then
+    echo "Error: Claude process ${CLAUDE_PID} not running"
+    exit 1
+fi
+
+# Save custom message if provided
+if [[ $# -gt 0 ]]; then
+    echo "$*" > "${RESTART_MESSAGE_FILE}"
+fi
+
+# Create trigger file
+touch "${TRIGGER_FILE}"
+
+# Kill Claude - wrapper will handle restart
+kill -INT "${CLAUDE_PID}"

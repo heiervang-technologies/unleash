@@ -1,0 +1,124 @@
+{
+  "sessionId": "f0d6cc5a-2f11-47f8-8300-029b89af4888",
+  "projectHash": "test123",
+  "startTime": "2026-03-30T07:20:22.515506Z",
+  "lastUpdated": "2026-03-30T07:20:57.515506Z",
+  "kind": "main",
+  "messages": [
+    {
+      "id": "79222626-6777-4b5e-a142-e0476eb05498",
+      "type": "user",
+      "timestamp": "2026-03-30T07:20:22.515506Z",
+      "content": [
+        {
+          "text": "foo"
+        }
+      ]
+    },
+    {
+      "id": "a0bf38e0-b5e0-4db6-99b1-77e9b98b3b94",
+      "type": "gemini",
+      "timestamp": "2026-03-30T07:20:25.515506Z",
+      "content": "bar",
+      "model": "gemini-2.5-pro",
+      "tokens": {
+        "input": 100,
+        "output": 10,
+        "cached": 0,
+        "total": 110
+      }
+    },
+    {
+      "id": "077b4bd5-bbc9-44dd-8437-6331265a35ce",
+      "type": "user",
+      "timestamp": "2026-03-30T07:20:30.515506Z",
+      "content": [
+        {
+          "text": "baz"
+        }
+      ]
+    },
+    {
+      "id": "c1ac4970-0e2b-4f5c-8711-4ef5ecc4352f",
+      "type": "gemini",
+      "timestamp": "2026-03-30T07:20:33.515506Z",
+      "content": "marco",
+      "model": "gemini-2.5-pro",
+      "tokens": {
+        "input": 100,
+        "output": 10,
+        "cached": 0,
+        "total": 110
+      }
+    },
+    {
+      "id": "13c351e6-a20f-4293-bcc7-068b99460efe",
+      "type": "user",
+      "timestamp": "2026-03-30T07:20:38.515506Z",
+      "content": [
+        {
+          "text": "polo"
+        }
+      ]
+    },
+    {
+      "id": "a7e53c6b-9275-4ce8-9ed7-e4aeea2eb343",
+      "type": "gemini",
+      "timestamp": "2026-03-30T07:20:41.515506Z",
+      "content": "ping",
+      "model": "gemini-2.5-pro",
+      "tokens": {
+        "input": 100,
+        "output": 10,
+        "cached": 0,
+        "total": 110
+      }
+    },
+    {
+      "id": "3b4e5d65-7e9b-483a-9269-b9d1e4423089",
+      "type": "user",
+      "timestamp": "2026-03-30T07:20:46.515506Z",
+      "content": [
+        {
+          "text": "pong"
+        }
+      ]
+    },
+    {
+      "id": "c1797300-41b4-4dfb-91c8-5c3d59262934",
+      "type": "gemini",
+      "timestamp": "2026-03-30T07:20:49.515506Z",
+      "content": "hello",
+      "model": "gemini-2.5-pro",
+      "tokens": {
+        "input": 100,
+        "output": 10,
+        "cached": 0,
+        "total": 110
+      }
+    },
+    {
+      "id": "e525fd14-6718-4a3c-a4df-28e586075ce8",
+      "type": "user",
+      "timestamp": "2026-03-30T07:20:54.515506Z",
+      "content": [
+        {
+          "text": "world"
+        }
+      ]
+    },
+    {
+      "id": "2214bef9-8a1a-47a8-b6c7-6cdf66dd2be3",
+      "type": "gemini",
+      "timestamp": "2026-03-30T07:20:57.515506Z",
+      "content": "done",
+      "model": "gemini-2.5-pro",
+      "tokens": {
+        "input": 100,
+        "output": 10,
+        "cached": 0,
+        "total": 110
+      }
+    }
+  ]
+}

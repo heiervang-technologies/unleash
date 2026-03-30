@@ -1,0 +1,126 @@
+name: Release Please
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  release-please:
+    runs-on: self-hosted
+    outputs:
+      release_created: ${{ steps.release.outputs.release_created }}
+      tag_name: ${{ steps.release.outputs.tag_name }}
+      version: ${{ steps.release.outputs.version }}
+      pr: ${{ steps.release.outputs.pr }}
+    steps:
+      - name: Release Please
+        id: release
+        uses: googleapis/release-please-action@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          config-file: release-please-config.json
+          manifest-file: .release-please-manifest.json
+
+  # Auto-merge minor/patch releases, require manual merge for major releases
+  auto-merge-release:
+    needs: release-please
+    if: ${{ needs.release-please.outputs.pr }}
+    runs-on: self-hosted
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Check if major release
+        id: check-major
+        run: |
+          # Get current version from manifest
+          CURRENT_VERSION=$(jq -r '.[]' .release-please-manifest.json | head -1)
+          CURRENT_MAJOR=$(echo $CURRENT_VERSION | cut -d. -f1)
+
+          # Get the PR number
+          PR_NUMBER=$(echo '${{ needs.release-please.outputs.pr }}' | jq -r '.number')
+
+          # Get the proposed version from the PR title (format: "chore(main): release X.Y.Z")
+          PR_TITLE=$(gh pr view $PR_NUMBER --json title -q '.title')
+          PROPOSED_VERSION=$(echo "$PR_TITLE" | grep -oP '\d+\.\d+\.\d+' || echo "")
+
+          if [ -z "$PROPOSED_VERSION" ]; then
+            echo "Could not determine proposed version from PR title: $PR_TITLE"
+            echo "is_major=true" >> $GITHUB_OUTPUT
+            exit 0
+          fi
+
+          PROPOSED_MAJOR=$(echo $PROPOSED_VERSION | cut -d. -f1)
+
+          echo "Current version: $CURRENT_VERSION (major: $CURRENT_MAJOR)"
+          echo "Proposed version: $PROPOSED_VERSION (major: $PROPOSED_MAJOR)"
+
+          if [ "$PROPOSED_MAJOR" -gt "$CURRENT_MAJOR" ]; then
+            echo "This is a MAJOR release - requires manual merge"
+            echo "is_major=true" >> $GITHUB_OUTPUT
+          else
+            echo "This is a minor/patch release - will auto-merge"
+            echo "is_major=false" >> $GITHUB_OUTPUT
+          fi
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Auto-merge release PR
+        if: steps.check-major.outputs.is_major == 'false'
+        run: |
+          PR_NUMBER=$(echo '${{ needs.release-please.outputs.pr }}' | jq -r '.number')
+          echo "Auto-merging PR #$PR_NUMBER (minor/patch release)"
+          gh pr merge $PR_NUMBER --squash || echo "Auto-merge failed, PR may need manual merge"
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  # Build and upload binaries when a release is created
+  build-release:
+    needs: release-please
+    if: ${{ needs.release-please.outputs.release_created }}
+    runs-on: self-hosted
+    permissions:
+      contents: write
+    env:
+      CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_LINKER: clang
+      CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_RUSTFLAGS: "-C link-arg=-fuse-ld=mold"
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install build tools
+        run: |
+          sudo apt-get update && sudo apt-get install -y clang
+          MOLD_VERSION=2.40.1
+          curl -fsSL "https://github.com/rui314/mold/releases/download/v${MOLD_VERSION}/mold-${MOLD_VERSION}-x86_64-linux.tar.gz" \
+            | sudo tar xz -C /usr/local --strip-components=1
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-unknown-linux-gnu
+
+      - name: Build release
+        run: cargo build --release --target x86_64-unknown-linux-gnu
+
+      - name: Rename binary and generate checksum
+        run: |
+          cp target/x86_64-unknown-linux-gnu/release/unleash unleash-linux-x86_64
+          sha256sum unleash-linux-x86_64 > checksums.txt
+
+      - name: Upload to release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ needs.release-please.outputs.tag_name }}
+          files: |
+            unleash-linux-x86_64
+            checksums.txt

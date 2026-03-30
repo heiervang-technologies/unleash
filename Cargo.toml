@@ -1,0 +1,52 @@
+[package]
+name = "unleash"
+version = "1.0.0"
+edition = "2021"
+description = "unleash - Extended CLI for AI Code Agents"
+authors = ["Heiervang Technologies"]
+license = "MIT"
+
+# Binaries auto-discovered from src/bin/*.rs
+# Each is a thin wrapper calling unleash::run()
+# Single binary: unleash
+
+[features]
+default = ["tui"]
+tui = ["ratatui", "crossterm"]
+
+[dependencies]
+# CLI
+clap = { version = "4.5", features = ["derive", "env"] }
+
+# TUI (optional - disable for headless environments)
+ratatui = { version = "0.29", optional = true }
+crossterm = { version = "0.28", optional = true }
+
+# Config
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+toml = "0.8"
+dirs = "6.0"
+
+# Process management
+nix = { version = "0.29", features = ["process", "signal", "user"] }
+which = "7.0"
+libc = "0.2"
+
+# Interchange format
+rusqlite = { version = "0.32", features = ["bundled"] }
+
+[dev-dependencies]
+tempfile = "3.15"
+proptest = "1.5"
+
+[profile.release]
+lto = true
+codegen-units = 1
+strip = true
+
+# Fast release builds for development (use: cargo build --profile fast)
+[profile.fast]
+inherits = "release"
+lto = false
+codegen-units = 16

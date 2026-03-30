@@ -1,0 +1,105 @@
+name: Docker Build & CLI Install Test
+
+# Builds the Docker image and verifies all 4 agent CLIs install correctly.
+# This catches broken install paths, missing dependencies, and version mismatches.
+#
+# NOTE: Requires a self-hosted runner with Docker installed.
+# Forks without self-hosted runners should use workflow_dispatch manually.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'docker/**'
+      - 'src/**'
+      - 'Cargo.toml'
+      - 'Cargo.lock'
+      - 'build.rs'
+      - 'plugins/**'
+      - 'scripts/**'
+      - '.github/workflows/docker-build.yml'
+  pull_request:
+    branches: [main]
+    paths:
+      - 'docker/**'
+      - 'src/**'
+      - 'Cargo.toml'
+      - 'Cargo.lock'
+      - 'build.rs'
+      - 'plugins/**'
+      - 'scripts/**'
+      - '.github/workflows/docker-build.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  docker-build:
+    name: Build Docker Image
+    runs-on: self-hosted
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Build Docker image
+        run: |
+          set -o pipefail
+          docker build -f docker/Dockerfile -t unleash:ci-test . 2>&1 | tail -50
+          echo "Docker image built successfully"
+
+      - name: Verify all CLI versions
+        run: |
+          echo "=== CLI Version Checks ==="
+          echo ""
+
+          # Each CLI must report a version successfully
+          FAILED=0
+
+          for cli in claude codex gemini opencode; do
+            echo -n "  $cli: "
+            # Filter out hook installation noise, grab the version line
+            VERSION=$(docker run --rm unleash:ci-test $cli --version 2>&1 | grep -iE '[0-9]+\.[0-9]+' | head -1) || true
+            if [ -n "$VERSION" ]; then
+              echo "$VERSION"
+            else
+              # Show full output for debugging
+              echo "FAILED"
+              docker run --rm unleash:ci-test $cli --version 2>&1 || true
+              FAILED=1
+            fi
+          done
+
+          echo ""
+          echo -n "  unleash: "
+          # Entrypoint is already 'unleash', so just pass --version directly
+          VERSION=$(docker run --rm unleash:ci-test --version 2>&1 | grep -iE '[0-9]+\.[0-9]+' | head -1) || true
+          if [ -n "$VERSION" ]; then
+            echo "$VERSION"
+          else
+            echo "FAILED"
+            docker run --rm unleash:ci-test --version 2>&1 || true
+            FAILED=1
+          fi
+
+          echo ""
+          if [ "$FAILED" -eq 1 ]; then
+            echo "Some CLIs failed version check"
+            exit 1
+          fi
+          echo "All CLIs installed and reporting versions correctly"
+
+      - name: Check image size
+        run: |
+          SIZE=$(docker image inspect unleash:ci-test --format='{{.Size}}' | awk '{printf "%.0f", $1/1024/1024}')
+          echo "Image size: ${SIZE}MB"
+          echo "## Docker Image" >> $GITHUB_STEP_SUMMARY
+          echo "- Size: ${SIZE}MB" >> $GITHUB_STEP_SUMMARY
+
+      - name: Cleanup
+        if: always()
+        run: |
+          docker rmi unleash:ci-test 2>/dev/null || true
+          docker builder prune -f --filter "until=1h" 2>/dev/null || true

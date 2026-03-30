@@ -1,0 +1,245 @@
+#!/usr/bin/env bash
+# unleash-queue - Add messages to the omnihook queue
+#
+# This tool allows external programs (like voice transcription)
+# to queue messages that will be injected into Claude sessions.
+#
+# Usage:
+#   unleash-queue "Your message here"
+#   unleash-queue --pid 12345 "Message for specific session"
+#   echo "Message" | unleash-queue --stdin
+#   unleash-queue --list                    # List all active queues
+#   unleash-queue --clear                   # Clear queue for current session
+#   unleash-queue --notify                  # Also wake Claude via FIFO
+#
+# The message will be picked up by the next hook event in Claude Code.
+
+set -euo pipefail
+
+# Configuration
+QUEUE_DIR="${HOME}/.cache/unleash/omnihook"
+
+# Defaults
+TARGET_PID="${AGENT_WRAPPER_PID:-}"
+USE_STDIN=false
+LIST_MODE=false
+CLEAR_MODE=false
+NOTIFY_MODE=false
+MESSAGE=""
+
+# Parse arguments
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    -h|--help)
+      cat <<'EOF'
+unleash-queue - Add messages to the omnihook queue
+
+USAGE:
+  unleash-queue [OPTIONS] "MESSAGE"
+  echo "MESSAGE" | unleash-queue --stdin
+
+OPTIONS:
+  -p, --pid PID      Target a specific Claude wrapper PID
+  -s, --stdin        Read message from stdin
+  -l, --list         List all active queues and their contents
+  -c, --clear        Clear the queue for the target session
+  -n, --notify       Also send notification via FIFO (wake sleeping Claude)
+  -a, --all          Target all active sessions
+  -h, --help         Show this help message
+
+EXAMPLES:
+  # Queue a voice transcription
+  unleash-queue "Please search for files containing auth"
+
+  # From voice transcription pipeline
+  echo "$TRANSCRIPTION" | unleash-queue --stdin --notify
+
+  # Target specific session
+  unleash-queue --pid 12345 "Message for that session"
+
+  # Send to all sessions
+  unleash-queue --all "Attention all Claude sessions"
+
+  # Check what's queued
+  unleash-queue --list
+
+ENVIRONMENT:
+  AGENT_WRAPPER_PID  - Default target PID if --pid not specified
+
+NOTES:
+  Messages are JSON-encoded and newline-separated in the queue file.
+  The omnihook will pick up messages on the next hook event.
+  Use --notify with unleash-wait for immediate wakeup.
+EOF
+      exit 0
+      ;;
+    -p|--pid)
+      shift
+      TARGET_PID="$1"
+      shift
+      ;;
+    -s|--stdin)
+      USE_STDIN=true
+      shift
+      ;;
+    -l|--list)
+      LIST_MODE=true
+      shift
+      ;;
+    -c|--clear)
+      CLEAR_MODE=true
+      shift
+      ;;
+    -n|--notify)
+      NOTIFY_MODE=true
+      shift
+      ;;
+    -a|--all)
+      TARGET_PID="ALL"
+      shift
+      ;;
+    -*)
+      echo "Unknown option: $1" >&2
+      echo "Use --help for usage information" >&2
+      exit 1
+      ;;
+    *)
+      MESSAGE="$1"
+      shift
+      ;;
+  esac
+done
+
+# Ensure queue directory exists
+mkdir -p "${QUEUE_DIR}"
+
+# List mode
+if [[ "${LIST_MODE}" == "true" ]]; then
+  echo "Active omnihook queues in ${QUEUE_DIR}:"
+  echo ""
+
+  found=false
+  for queue_file in "${QUEUE_DIR}"/queue-*; do
+    if [[ -f "${queue_file}" ]]; then
+      found=true
+      pid=$(basename "${queue_file}" | sed 's/queue-//')
+      count=$(wc -l < "${queue_file}" 2>/dev/null || echo "0")
+      echo "  PID ${pid}: ${count} message(s)"
+
+      if [[ -s "${queue_file}" ]]; then
+        echo "    Preview: $(head -1 "${queue_file}" | jq -r '.text // .message // .' 2>/dev/null | cut -c1-60)..."
+      fi
+    fi
+  done
+
+  if [[ "${found}" == "false" ]]; then
+    echo "  (no active queues)"
+  fi
+
+  echo ""
+  echo "Active FIFOs:"
+  for fifo_file in "${QUEUE_DIR}"/fifo-*; do
+    if [[ -p "${fifo_file}" ]]; then
+      pid=$(basename "${fifo_file}" | sed 's/fifo-//')
+      echo "  PID ${pid}: FIFO ready"
+    fi
+  done
+
+  exit 0
+fi
+
+# Clear mode
+if [[ "${CLEAR_MODE}" == "true" ]]; then
+  if [[ -z "${TARGET_PID}" ]]; then
+    echo "Error: No target PID specified" >&2
+    echo "Use --pid PID or set AGENT_WRAPPER_PID environment variable" >&2
+    exit 1
+  fi
+
+  if [[ "${TARGET_PID}" == "ALL" ]]; then
+    rm -f "${QUEUE_DIR}"/queue-*
+    echo "Cleared all queues"
+  else
+    rm -f "${QUEUE_DIR}/queue-${TARGET_PID}"
+    echo "Cleared queue for PID ${TARGET_PID}"
+  fi
+  exit 0
+fi
+
+# Read message from stdin if requested
+if [[ "${USE_STDIN}" == "true" ]]; then
+  MESSAGE=$(cat)
+fi
+
+# Validate we have a message
+if [[ -z "${MESSAGE}" ]]; then
+  echo "Error: No message provided" >&2
+  echo "Usage: unleash-queue \"Your message here\"" >&2
+  echo "   or: echo \"message\" | unleash-queue --stdin" >&2
+  exit 1
+fi
+
+# Function to queue message for a specific PID
+queue_for_pid() {
+  local pid="$1"
+  local queue_file="${QUEUE_DIR}/queue-${pid}"
+  local lock_file="${QUEUE_DIR}/lock-${pid}"
+  local fifo_file="${QUEUE_DIR}/fifo-${pid}"
+
+  # Create JSON message with metadata
+  local timestamp
+  timestamp=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+
+  local json_message
+  json_message=$(jq -c -n \
+    --arg text "${MESSAGE}" \
+    --arg ts "${timestamp}" \
+    --arg src "unleash-queue" \
+    '{
+      text: $text,
+      timestamp: $ts,
+      source: $src
+    }')
+
+  # Append to queue file with locking
+  (
+    flock -x 200 2>/dev/null || true
+    echo "${json_message}" >> "${queue_file}"
+  ) 200>"${lock_file}"
+
+  echo "Queued message for PID ${pid}"
+
+  # Notify via FIFO if requested and FIFO exists
+  if [[ "${NOTIFY_MODE}" == "true" ]] && [[ -p "${fifo_file}" ]]; then
+    # Non-blocking write to FIFO
+    echo "wake" > "${fifo_file}" 2>/dev/null &
+    disown 2>/dev/null || true
+    echo "  (notification sent via FIFO)"
+  fi
+}
+
+# Queue the message
+if [[ "${TARGET_PID}" == "ALL" ]]; then
+  # Find all active queues or create for known PIDs
+  found=false
+  for queue_file in "${QUEUE_DIR}"/queue-* "${QUEUE_DIR}"/fifo-*; do
+    if [[ -e "${queue_file}" ]]; then
+      pid=$(basename "${queue_file}" | sed -E 's/(queue|fifo)-//')
+      queue_for_pid "${pid}"
+      found=true
+    fi
+  done
+
+  if [[ "${found}" == "false" ]]; then
+    echo "Warning: No active sessions found" >&2
+    echo "Start Claude with unleash first" >&2
+    exit 1
+  fi
+elif [[ -n "${TARGET_PID}" ]]; then
+  queue_for_pid "${TARGET_PID}"
+else
+  echo "Error: No target PID specified" >&2
+  echo "Use --pid PID or set AGENT_WRAPPER_PID environment variable" >&2
+  echo "Use --all to send to all active sessions" >&2
+  exit 1
+fi

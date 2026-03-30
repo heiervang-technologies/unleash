@@ -1,0 +1,7 @@
+{
+  "PreToolUse": {
+    "script": "./hooks-handlers/check-mcp-changes.sh",
+    "description": "Automatically detect MCP configuration changes before tool execution",
+    "outputFormat": "prompt"
+  }
+}

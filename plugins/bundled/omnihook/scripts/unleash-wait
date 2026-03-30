@@ -1,0 +1,224 @@
+#!/usr/bin/env bash
+# unleash-wait - Block until a message arrives in the omnihook queue
+#
+# This tool provides blocking wait functionality for voice integration.
+# Instead of polling with fixed sleep intervals, Claude can call unleash-wait
+# which will return immediately when a message arrives via the FIFO.
+#
+# Usage:
+#   unleash-wait                    # Wait indefinitely
+#   unleash-wait --timeout 30       # Wait up to 30 seconds
+#   unleash-wait --check            # Just check if messages exist (no wait)
+#   unleash-wait --setup            # Create FIFO for this session
+#   unleash-wait --cleanup          # Remove FIFO for this session
+#
+# Returns:
+#   0 - Message available (check queue)
+#   1 - Timeout or error
+#   2 - Interrupted
+
+set -euo pipefail
+
+# Configuration
+QUEUE_DIR="${HOME}/.cache/unleash/omnihook"
+WRAPPER_PID="${AGENT_WRAPPER_PID:-$$}"
+QUEUE_FILE="${QUEUE_DIR}/queue-${WRAPPER_PID}"
+FIFO_FILE="${QUEUE_DIR}/fifo-${WRAPPER_PID}"
+
+# Defaults
+TIMEOUT=0  # 0 = infinite
+CHECK_ONLY=false
+SETUP_MODE=false
+CLEANUP_MODE=false
+
+# Parse arguments
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    -h|--help)
+      cat <<'EOF'
+unleash-wait - Block until a message arrives in the omnihook queue
+
+USAGE:
+  unleash-wait [OPTIONS]
+
+OPTIONS:
+  -t, --timeout SEC   Maximum seconds to wait (0 = infinite, default)
+  -c, --check         Just check if messages exist, don't wait
+  -s, --setup         Create the FIFO for this session
+  -x, --cleanup       Remove the FIFO for this session
+  -h, --help          Show this help message
+
+EXIT CODES:
+  0 - Message available in queue
+  1 - Timeout reached or error
+  2 - Interrupted (Ctrl+C)
+
+EXAMPLES:
+  # Wait for voice input (use in auto-mode loop)
+  unleash-wait --timeout 60 && echo "Message received!"
+
+  # Setup FIFO at session start
+  unleash-wait --setup
+
+  # Quick check without waiting
+  unleash-wait --check && echo "Messages waiting"
+
+  # Cleanup at session end
+  unleash-wait --cleanup
+
+HOW IT WORKS:
+  1. Creates a named pipe (FIFO) for this session
+  2. Blocks on read from FIFO
+  3. When unleash-queue --notify is called, it writes to FIFO
+  4. unleash-wait unblocks immediately and returns
+
+  This provides instant wakeup instead of polling with sleep.
+
+INTEGRATION WITH AUTO-MODE:
+  Instead of:
+    sleep 30  # Fixed delay, slow response
+
+  Use:
+    unleash-wait --timeout 60  # Instant wakeup when message arrives
+
+ENVIRONMENT:
+  AGENT_WRAPPER_PID  - Session identifier for queue/FIFO files
+EOF
+      exit 0
+      ;;
+    -t|--timeout)
+      shift
+      TIMEOUT="$1"
+      shift
+      ;;
+    -c|--check)
+      CHECK_ONLY=true
+      shift
+      ;;
+    -s|--setup)
+      SETUP_MODE=true
+      shift
+      ;;
+    -x|--cleanup)
+      CLEANUP_MODE=true
+      shift
+      ;;
+    *)
+      echo "Unknown option: $1" >&2
+      echo "Use --help for usage information" >&2
+      exit 1
+      ;;
+  esac
+done
+
+# Ensure queue directory exists
+mkdir -p "${QUEUE_DIR}"
+
+# Setup mode - create FIFO
+if [[ "${SETUP_MODE}" == "true" ]]; then
+  if [[ -p "${FIFO_FILE}" ]]; then
+    echo "FIFO already exists: ${FIFO_FILE}"
+  else
+    rm -f "${FIFO_FILE}" 2>/dev/null || true
+    mkfifo "${FIFO_FILE}"
+    echo "Created FIFO: ${FIFO_FILE}"
+  fi
+  exit 0
+fi
+
+# Cleanup mode - remove FIFO
+if [[ "${CLEANUP_MODE}" == "true" ]]; then
+  rm -f "${FIFO_FILE}" 2>/dev/null || true
+  rm -f "${QUEUE_FILE}" 2>/dev/null || true
+  rm -f "${QUEUE_DIR}/lock-${WRAPPER_PID}" 2>/dev/null || true
+  echo "Cleaned up omnihook files for PID ${WRAPPER_PID}"
+  exit 0
+fi
+
+# Check if queue has messages
+queue_has_messages() {
+  [[ -f "${QUEUE_FILE}" ]] && [[ -s "${QUEUE_FILE}" ]]
+}
+
+# Check-only mode
+if [[ "${CHECK_ONLY}" == "true" ]]; then
+  if queue_has_messages; then
+    count=$(wc -l < "${QUEUE_FILE}" 2>/dev/null || echo "0")
+    echo "Queue has ${count} message(s)"
+    exit 0
+  else
+    echo "Queue is empty"
+    exit 1
+  fi
+fi
+
+# First check if messages already waiting
+if queue_has_messages; then
+  count=$(wc -l < "${QUEUE_FILE}" 2>/dev/null || echo "0")
+  echo "Message available (${count} in queue)"
+  exit 0
+fi
+
+# Ensure FIFO exists for blocking wait
+if [[ ! -p "${FIFO_FILE}" ]]; then
+  rm -f "${FIFO_FILE}" 2>/dev/null || true
+  mkfifo "${FIFO_FILE}"
+fi
+
+# Handle interrupt gracefully
+cleanup_and_exit() {
+  echo ""
+  echo "Interrupted"
+  exit 2
+}
+trap cleanup_and_exit INT TERM
+
+# Wait on FIFO with optional timeout
+echo "Waiting for message... (PID ${WRAPPER_PID})"
+
+if [[ "${TIMEOUT}" -gt 0 ]]; then
+  # Timeout version using read with timeout
+  # We use a subshell to open the FIFO for reading
+  if timeout "${TIMEOUT}" bash -c "read < '${FIFO_FILE}'" 2>/dev/null; then
+    # FIFO was written to
+    if queue_has_messages; then
+      count=$(wc -l < "${QUEUE_FILE}" 2>/dev/null || echo "0")
+      echo "Message received! (${count} in queue)"
+      exit 0
+    else
+      echo "Wake signal received (queue empty - check for direct message)"
+      exit 0
+    fi
+  else
+    # Timeout or error
+    # Check queue one more time in case message arrived via file
+    if queue_has_messages; then
+      count=$(wc -l < "${QUEUE_FILE}" 2>/dev/null || echo "0")
+      echo "Message available (${count} in queue)"
+      exit 0
+    fi
+    echo "Timeout after ${TIMEOUT} seconds"
+    exit 1
+  fi
+else
+  # Infinite wait
+  while true; do
+    # Check queue first
+    if queue_has_messages; then
+      count=$(wc -l < "${QUEUE_FILE}" 2>/dev/null || echo "0")
+      echo "Message available (${count} in queue)"
+      exit 0
+    fi
+
+    # Block on FIFO read (will unblock when written to)
+    if read -t 5 < "${FIFO_FILE}" 2>/dev/null; then
+      # Something was written to FIFO
+      if queue_has_messages; then
+        count=$(wc -l < "${QUEUE_FILE}" 2>/dev/null || echo "0")
+        echo "Message received! (${count} in queue)"
+        exit 0
+      fi
+    fi
+    # Loop continues - check queue again
+  done
+fi

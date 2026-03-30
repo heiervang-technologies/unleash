@@ -1,0 +1,191 @@
+name: Integration Tests
+
+# Tests plugins and workflow functionality
+# Runs on push to main and PRs
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'src/**'
+      - 'Cargo.toml'
+      - 'plugins/**'
+      - 'scripts/**'
+      - 'tests/**'
+      - '.github/workflows/integration-tests.yml'
+  pull_request:
+    branches: [main]
+    paths:
+      - 'src/**'
+      - 'Cargo.toml'
+      - 'plugins/**'
+      - 'scripts/**'
+      - 'tests/**'
+      - '.github/workflows/integration-tests.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  shellcheck:
+    name: ShellCheck Linting
+    runs-on: self-hosted
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Run ShellCheck
+        uses: ludeeus/action-shellcheck@master
+        with:
+          scandir: './scripts'
+          severity: warning
+          ignore_paths: ''
+
+      - name: ShellCheck tests
+        uses: ludeeus/action-shellcheck@master
+        with:
+          scandir: './tests'
+          severity: warning
+
+  test-headless:
+    name: Test Headless Commands
+    runs-on: self-hosted
+    env:
+      CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_LINKER: clang
+      CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_RUSTFLAGS: "-C link-arg=-fuse-ld=mold"
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install build tools
+        run: |
+          sudo apt-get update && sudo apt-get install -y clang
+          MOLD_VERSION=2.40.1
+          curl -fsSL "https://github.com/rui314/mold/releases/download/v${MOLD_VERSION}/mold-${MOLD_VERSION}-x86_64-linux.tar.gz" \
+            | sudo tar xz -C /usr/local --strip-components=1
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Build binaries
+        run: cargo build --profile fast
+
+      - name: Make test scripts executable
+        run: chmod +x tests/*.sh
+
+      - name: Run headless tests
+        run: |
+          ./tests/test-headless.sh
+          ./tests/test_docs_drift.sh
+
+  test-plugins:
+    name: Test Plugins
+    runs-on: self-hosted
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Make test scripts executable
+        run: chmod +x tests/*.sh
+
+      - name: Run plugin tests
+        run: ./tests/test-plugins.sh
+
+  test-auto-mode:
+    name: Test Auto Mode Hook
+    runs-on: self-hosted
+    needs: [test-plugins]
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Make scripts executable
+        run: |
+          chmod +x tests/*.sh
+          chmod +x scripts/*.sh
+          chmod +x plugins/bundled/*/hooks/*.sh 2>/dev/null || true
+
+      - name: Test auto-mode stop hook
+        run: |
+          # Test the stop hook + flag file system
+
+          # 1. Create auto-mode flag (simulating auto mode activation)
+          FLAG_DIR="$HOME/.cache/unleash/auto-mode"
+          mkdir -p "$FLAG_DIR"
+          TEST_PID="$$"
+          touch "$FLAG_DIR/active-$TEST_PID"
+
+          # 2. Test that stop hook blocks when flag exists
+          export CLAUDE_WRAPPER_PID="$TEST_PID"
+          output=$(./plugins/bundled/auto-mode/hooks/auto-mode-stop.sh)
+
+          if echo "$output" | python3 -c "import json,sys; d=json.load(sys.stdin); exit(0 if d.get('decision')=='block' else 1)"; then
+            echo "PASS: Stop hook correctly blocks in auto mode"
+          else
+            echo "FAIL: Stop hook should block with decision:block"
+            exit 1
+          fi
+
+          # 3. Clean up flag (simulating leaving auto mode)
+          rm -f "$FLAG_DIR/active-$TEST_PID"
+
+          # 4. Verify stop hook allows after flag removed
+          output=$(./plugins/bundled/auto-mode/hooks/auto-mode-stop.sh)
+          if [[ -z "$output" ]]; then
+            echo "PASS: Stop hook allows stop after leaving auto mode"
+          else
+            echo "FAIL: Stop hook should allow stop when no flag"
+            exit 1
+          fi
+
+          echo "Auto-mode hook test passed!"
+
+  summary:
+    name: Test Summary
+    runs-on: self-hosted
+    needs: [shellcheck, test-headless, test-plugins, test-auto-mode]
+    if: always()
+
+    steps:
+      - name: Generate test report
+        run: |
+          echo "# Test Results Summary" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "| Job | Status |" >> $GITHUB_STEP_SUMMARY
+          echo "|-----|--------|" >> $GITHUB_STEP_SUMMARY
+          echo "| ShellCheck Linting | ${{ needs.shellcheck.result == 'success' && '✅ Passed' || '❌ Failed' }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Headless Commands | ${{ needs.test-headless.result == 'success' && '✅ Passed' || '❌ Failed' }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Plugin Tests | ${{ needs.test-plugins.result == 'success' && '✅ Passed' || '❌ Failed' }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Auto Mode Hook | ${{ needs.test-auto-mode.result == 'success' && '✅ Passed' || '❌ Failed' }} |" >> $GITHUB_STEP_SUMMARY
+
+      - name: Check test results
+        run: |
+          if [[ "${{ needs.shellcheck.result }}" == "success" ]] && \
+             [[ "${{ needs.test-headless.result }}" == "success" ]] && \
+             [[ "${{ needs.test-plugins.result }}" == "success" ]] && \
+             [[ "${{ needs.test-auto-mode.result }}" == "success" ]]; then
+            echo "✅ All integration tests passed!"
+            exit 0
+          else
+            echo "❌ Some tests failed:"
+            echo "  - shellcheck: ${{ needs.shellcheck.result }}"
+            echo "  - test-headless: ${{ needs.test-headless.result }}"
+            echo "  - test-plugins: ${{ needs.test-plugins.result }}"
+            echo "  - test-auto-mode: ${{ needs.test-auto-mode.result }}"
+            exit 1
+          fi

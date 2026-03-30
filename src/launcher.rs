@@ -1,0 +1,434 @@
+//! Claude launcher with wrapper features
+//!
+//! Implements the wrapper loop that enables:
+//! - Self-restart capability (restart-claude command)
+//! - Plugin system integration
+//! - Auto-mode via Stop hook + flag file system
+//! - Process management
+
+use crate::agents::AgentType;
+use crate::config::ProfileManager;
+use crate::hooks::HookManager;
+use crate::hyprland;
+use std::collections::HashMap;
+use std::env;
+use std::fs;
+use std::io;
+use std::path::{Path, PathBuf};
+use std::process::{Command, ExitStatus};
+use which::which;
+
+/// Environment variable set when running under the wrapper
+pub const UNLEASHED_ENV_VAR: &str = "AGENT_UNLEASH";
+
+/// Cache directory for restart triggers
+fn cache_dir() -> PathBuf {
+    dirs::cache_dir()
+        .unwrap_or_else(|| PathBuf::from("/tmp"))
+        .join("unleash/process-restart")
+}
+
+/// Detect agent type from the command path
+fn detect_agent_type(cmd: &Path) -> Option<AgentType> {
+    let name = cmd.file_name()?.to_str()?;
+    AgentType::from_str(name)
+}
+
+/// Run an agent with wrapper features
+pub fn run(auto_mode: bool, prompt: Option<String>, extra_args: Vec<String>) -> io::Result<()> {
+    // Install default hooks (NOT plugin hooks - those are loaded by Claude Code via --plugin-dir)
+    match HookManager::new() {
+        Ok(manager) => {
+            // Install default hooks if not already installed
+            if let Ok(hooks) = manager.list_hooks() {
+                if !hooks.contains_key("PreCompact") {
+                    if let Err(e) = manager.install_default_hooks() {
+                        eprintln!("Warning: Failed to install default hooks: {}", e);
+                    }
+                }
+            }
+            // Note: Plugin hooks are loaded by Claude Code from --plugin-dir, not from settings.json
+        }
+        Err(e) => {
+            eprintln!("Warning: Failed to initialize hook manager: {}", e);
+        }
+    }
+
+    // Find agent command
+    let agent_cmd = find_agent_command()?;
+    let agent_type = detect_agent_type(&agent_cmd);
+    let is_claude = agent_type == Some(AgentType::Claude);
+
+    // Setup wrapper environment
+    let wrapper_pid = std::process::id();
+    let trigger_file = cache_dir().join(format!("restart-trigger-{}", wrapper_pid));
+    let message_file = cache_dir().join(format!("restart-message-{}", wrapper_pid));
+
+    // Ensure cache directory exists
+    fs::create_dir_all(cache_dir())?;
+
+    // Clean up stale trigger files
+    let _ = fs::remove_file(&trigger_file);
+    let _ = fs::remove_file(&message_file);
+
+    // Load profile environment variables
+    let profile_env = load_profile_env()?;
+
+    // Check authentication on first run
+    check_authentication();
+
+    // Hyprland integration: set window rules and notify on start
+    if hyprland::is_hyprland() {
+        if let Err(e) = hyprland::apply_agent_window_rules() {
+            eprintln!("Warning: Failed to apply Hyprland window rules: {}", e);
+        }
+        let _ = hyprland::notify_info("unleash started");
+    }
+
+    let mut restart_count = 0;
+
+    loop {
+        // Clear trigger file before starting
+        let _ = fs::remove_file(&trigger_file);
+
+        // Build command arguments
+        let mut args = extra_args.clone();
+
+        // If this is a restart, add --continue and message
+        if restart_count > 0 {
+            if !args.iter().any(|a| a == "--continue" || a == "--resume") {
+                args.insert(0, "--continue".to_string());
+                // Only Claude Code supports --dangerously-skip-permissions
+                if is_claude {
+                    args.insert(1, "--dangerously-skip-permissions".to_string());
+                }
+            }
+
+            // Check for custom restart message
+            let restart_msg = if message_file.exists() {
+                let msg = fs::read_to_string(&message_file)
+                    .unwrap_or_else(|_| "RESURRECTED.".to_string());
+                let _ = fs::remove_file(&message_file);
+                msg
+            } else {
+                "RESURRECTED.".to_string()
+            };
+
+            if !restart_msg.is_empty() {
+                args.push(restart_msg);
+            }
+        }
+
+        // Add prompt if provided
+        if let Some(ref p) = prompt {
+            args.push("-p".to_string());
+            args.push(p.clone());
+        }
+
+        // Find plugin directories (only used for Claude Code)
+        let plugin_args = if is_claude { find_plugins() } else { vec![] };
+
+        // For non-Claude agents, set window transparent before launch
+        // (Claude handles this via its own UserPromptSubmit hook)
+        if !is_claude {
+            let _ = hyprland::focus_set(wrapper_pid);
+        }
+
+        // Build and run command
+        let status = run_agent(
+            &agent_cmd,
+            &args,
+            &plugin_args,
+            &profile_env,
+            wrapper_pid,
+            auto_mode,
+            agent_type,
+        )?;
+
+        // Reset to opaque + play sound after agent exit
+        let _ = hyprland::focus_reset(wrapper_pid);
+        hyprland::play_idle_sound();
+
+        // Check if restart was requested
+        if trigger_file.exists() {
+            let _ = fs::remove_file(&trigger_file);
+            restart_count += 1;
+            std::thread::sleep(std::time::Duration::from_millis(300));
+            continue;
+        }
+
+        // Check exit status
+        let exit_code = status.code().unwrap_or(1);
+
+        // Treat SIGTERM (143 = 128 + 15) as clean exit
+        if exit_code == 143 {
+            let _ = hyprland::focus_reset(wrapper_pid);
+            hyprland::focus_cleanup(wrapper_pid);
+            if hyprland::is_hyprland() {
+                let _ = hyprland::notify_info("unleash stopped");
+            }
+            return Ok(());
+        }
+
+        // Reset focus and clean up on exit (safety net for all agents)
+        let _ = hyprland::focus_reset(wrapper_pid);
+        hyprland::focus_cleanup(wrapper_pid);
+
+        // Notify on exit if running under Hyprland
+        if hyprland::is_hyprland() {
+            if exit_code == 0 {
+                let _ = hyprland::notify_info("unleash stopped");
+            } else {
+                let _ =
+                    hyprland::notify_warning(&format!("unleash exited with code {}", exit_code));
+            }
+        }
+
+        // Normal exit
+        std::process::exit(exit_code);
+    }
+}
+
+/// Find the agent command (set via AGENT_CMD env var, or defaults to 'claude')
+fn find_agent_command() -> io::Result<PathBuf> {
+    // Check AGENT_CMD environment variable
+    if let Ok(cmd) = env::var("AGENT_CMD") {
+        return Ok(PathBuf::from(cmd));
+    }
+
+    // Default to 'claude' in PATH
+    which("claude").map_err(|_| {
+        io::Error::new(
+            io::ErrorKind::NotFound,
+            "Could not find agent command. Set AGENT_CMD or install an agent CLI.",
+        )
+    })
+}
+
+/// Load environment variables from current profile
+fn load_profile_env() -> io::Result<HashMap<String, String>> {
+    let profile_manager = ProfileManager::new()?;
+    let config = profile_manager.load_app_config().unwrap_or_default();
+    let profiles = profile_manager.load_all_profiles().unwrap_or_default();
+
+    let profile = profiles
+        .iter()
+        .find(|p| p.name == config.current_profile)
+        .or_else(|| profiles.first());
+
+    Ok(profile.map(|p| p.env.clone()).unwrap_or_default())
+}
+
+/// Find plugin directories (returns paths)
+/// Only returns from ONE source to avoid duplicate hooks:
+/// - Prefer repo dev path (plugins/bundled/) when running from repo
+/// - Fall back to installed path (~/.local/share/unleash/plugins/)
+pub fn find_plugin_dirs() -> Vec<PathBuf> {
+    let mut dirs = Vec::new();
+    let mut seen_names = std::collections::HashSet::new();
+
+    // Check repo location (for development) - PREFERRED when available
+    // Canonicalize to absolute path so hook commands in settings.json work from any CWD
+    let repo_plugins = PathBuf::from("plugins/bundled");
+    if repo_plugins.exists() {
+        let repo_plugins = fs::canonicalize(&repo_plugins).unwrap_or(repo_plugins);
+        if let Ok(entries) = fs::read_dir(&repo_plugins) {
+            for entry in entries.flatten() {
+                let path = entry.path();
+                if path.is_dir() {
+                    if let Some(name) = path.file_name() {
+                        seen_names.insert(name.to_string_lossy().to_string());
+                    }
+                    dirs.push(path);
+                }
+            }
+        }
+    }
+
+    // Check ~/.local/share/unleash/plugins - only add if not already seen
+    if let Some(data_dir) = dirs::data_local_dir() {
+        let plugins_dir = data_dir.join("unleash/plugins");
+        if plugins_dir.exists() {
+            if let Ok(entries) = fs::read_dir(&plugins_dir) {
+                for entry in entries.flatten() {
+                    if entry.path().is_dir() {
+                        // Skip if we already have this plugin from repo path
+                        if let Some(name) = entry.path().file_name() {
+                            if seen_names.contains(&name.to_string_lossy().to_string()) {
+                                continue;
+                            }
+                        }
+                        dirs.push(entry.path());
+                    }
+                }
+            }
+        }
+    }
+
+    dirs
+}
+
+/// Convert plugin directories to CLI args
+fn find_plugins() -> Vec<String> {
+    let mut args = Vec::new();
+    for dir in find_plugin_dirs() {
+        args.push("--plugin-dir".to_string());
+        args.push(dir.to_string_lossy().to_string());
+    }
+    args
+}
+
+/// Run agent command with full configuration
+fn run_agent(
+    agent_cmd: &PathBuf,
+    args: &[String],
+    plugin_args: &[String],
+    profile_env: &HashMap<String, String>,
+    wrapper_pid: u32,
+    auto_mode: bool,
+    agent_type: Option<AgentType>,
+) -> io::Result<ExitStatus> {
+    let mut cmd = Command::new(agent_cmd);
+    let is_claude = agent_type == Some(AgentType::Claude);
+
+    // Set environment variables from profile
+    for (key, value) in profile_env {
+        cmd.env(key, value);
+    }
+
+    // Set wrapper environment variables
+    cmd.env(UNLEASHED_ENV_VAR, "1");
+    cmd.env("AGENT_WRAPPER_PID", wrapper_pid.to_string());
+
+    // Set auto mode if requested
+    if auto_mode {
+        cmd.env("AGENT_AUTO_MODE", "1");
+
+        // Create auto-mode marker file (activates Stop hook enforcement)
+        let auto_dir = dirs::cache_dir()
+            .unwrap_or_else(|| PathBuf::from("/tmp"))
+            .join("unleash/auto-mode");
+        let _ = fs::create_dir_all(&auto_dir);
+        let _ = fs::write(
+            auto_dir.join(format!("active-{}", wrapper_pid)),
+            "auto-start",
+        );
+
+        println!("Auto mode activated on startup");
+    }
+
+    // Set timeout environment variables (extended timeouts)
+    if env::var("BASH_DEFAULT_TIMEOUT_MS").is_err() {
+        cmd.env("BASH_DEFAULT_TIMEOUT_MS", "999999999");
+    }
+    if env::var("BASH_MAX_TIMEOUT_MS").is_err() {
+        cmd.env("BASH_MAX_TIMEOUT_MS", "999999999");
+    }
+    if env::var("MCP_TOOL_TIMEOUT").is_err() {
+        cmd.env("MCP_TOOL_TIMEOUT", "999999999");
+    }
+
+    // Claude Code-specific flags (other agents don't support these)
+    if is_claude {
+        // Add plugin arguments
+        cmd.args(plugin_args);
+
+        // Bypass permissions — skip if polyfill already handled yolo/safe
+        let polyfill_handled = env::var("UNLEASH_POLYFILL_ACTIVE").ok().as_deref() == Some("1");
+        if !polyfill_handled {
+            // Legacy path (run_profile without polyfill) — always add yolo
+            if !args.iter().any(|a| a == "--dangerously-skip-permissions") {
+                eprintln!("\x1b[33m[unleash] WARNING: Running with --dangerously-skip-permissions automatically enabled.\x1b[0m");
+            }
+            cmd.arg("--dangerously-skip-permissions");
+        }
+    }
+
+    // Codex native notify hook: end-of-turn => reset opaque + idle sound.
+    if agent_type == Some(AgentType::Codex)
+        && hyprland::is_hyprland()
+        && env::var("AU_HYPRLAND_FOCUS").ok().as_deref() != Some("0")
+    {
+        if let Ok(exe) = env::current_exe() {
+            let exe = exe.to_string_lossy().replace('\\', "\\\\").replace('\"', "\\\"");
+            let notify_override = format!(
+                "notify=[\"{}\",\"__unleash-focus-turn-complete\",\"{}\"]",
+                exe, wrapper_pid
+            );
+            cmd.arg("-c").arg(notify_override);
+        }
+    }
+
+    // Add user arguments
+    cmd.args(args);
+
+    cmd.status()
+}
+
+/// Check if authentication is configured
+fn check_authentication() {
+    // Check OAuth token
+    if env::var("CLAUDE_CODE_OAUTH_TOKEN").is_ok() {
+        eprintln!(
+            "\x1b[32m✓\x1b[0m Using OAuth token from CLAUDE_CODE_OAUTH_TOKEN environment variable"
+        );
+        return;
+    }
+
+    // Check credentials file
+    if let Some(home) = dirs::home_dir() {
+        let creds_file = home.join(".claude/.credentials.json");
+        if creds_file.exists() {
+            eprintln!("\x1b[32m✓\x1b[0m Using credentials from ~/.claude/.credentials.json");
+            return;
+        }
+    }
+
+    // macOS Keychain check would go here (not easily done in pure Rust)
+
+    // No authentication found
+    eprintln!();
+    eprintln!("\x1b[33m⚠ WARNING: Claude Code authentication not configured\x1b[0m");
+    eprintln!();
+    eprintln!("To authenticate, you have two options:");
+    eprintln!();
+    eprintln!("1. Generate a long-lived OAuth token (recommended for automation):");
+    eprintln!("   Run: claude setup-token");
+    eprintln!("   Then export: export CLAUDE_CODE_OAUTH_TOKEN=<your-token>");
+    eprintln!();
+    eprintln!("2. Authenticate interactively:");
+    eprintln!("   Run: claude");
+    eprintln!("   Follow the browser authentication flow");
+    eprintln!();
+    eprintln!("For more info, see: https://code.claude.com/docs/en/iam");
+    eprintln!();
+}
+
+/// Create restart trigger file (called by restart-claude command)
+#[allow(dead_code)]
+pub fn trigger_restart(wrapper_pid: u32, message: Option<&str>) -> io::Result<()> {
+    let trigger_file = cache_dir().join(format!("restart-trigger-{}", wrapper_pid));
+    let message_file = cache_dir().join(format!("restart-message-{}", wrapper_pid));
+
+    fs::create_dir_all(cache_dir())?;
+    fs::write(&trigger_file, "")?;
+
+    if let Some(msg) = message {
+        fs::write(&message_file, msg)?;
+    }
+
+    Ok(())
+}
+
+/// Exit without restart (called by exit-claude command)
+#[allow(dead_code)]
+pub fn trigger_exit(wrapper_pid: u32) -> io::Result<()> {
+    // Just send SIGTERM to the wrapper process
+    use nix::sys::signal::{kill, Signal};
+    use nix::unistd::Pid;
+
+    kill(Pid::from_raw(wrapper_pid as i32), Signal::SIGTERM).map_err(io::Error::other)?;
+
+    Ok(())
+}
+

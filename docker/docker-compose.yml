@@ -1,0 +1,65 @@
+# unleash Docker Compose — Sandboxed AI Agent Runner
+#
+# Quick start (sandboxed with gVisor + LAN isolation):
+#   sudo ./docker/sandbox-network.sh setup   # one-time: create network + firewall
+#   docker compose -f docker/docker-compose.yml run --rm claude
+#
+# Without sandbox (standard runc, full network):
+#   docker compose -f docker/docker-compose.yml -f docker/docker-compose.runc.yml run --rm claude
+#
+# Mount a different project:
+#   WORKSPACE_DIR=/path/to/project docker compose -f docker/docker-compose.yml run --rm claude
+
+services:
+  # Base service — gVisor runtime + sandbox network by default
+  unleash:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+    image: unleash:latest
+    runtime: runsc
+    stdin_open: true
+    tty: true
+    working_dir: /workspace
+    volumes:
+      - ${WORKSPACE_DIR:-.}:/workspace
+    environment:
+      - ANTHROPIC_API_KEY
+      - OPENAI_API_KEY
+      - GEMINI_API_KEY
+      - CLAUDE_CODE_OAUTH_TOKEN
+    networks:
+      - sandbox
+
+  # Claude Code agent
+  claude:
+    extends: unleash
+    environment:
+      - AGENT_CMD=claude
+      - ANTHROPIC_API_KEY
+      - CLAUDE_CODE_OAUTH_TOKEN
+
+  # OpenAI Codex agent
+  codex:
+    extends: unleash
+    environment:
+      - AGENT_CMD=codex
+      - OPENAI_API_KEY
+
+  # Google Gemini CLI agent
+  gemini:
+    extends: unleash
+    environment:
+      - AGENT_CMD=gemini
+      - GEMINI_API_KEY
+
+  # OpenCode agent
+  opencode:
+    extends: unleash
+    environment:
+      - AGENT_CMD=opencode
+
+networks:
+  sandbox:
+    external: true
+    name: unleash-sandbox
