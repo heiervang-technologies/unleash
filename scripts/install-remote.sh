@@ -3,6 +3,7 @@
 #
 # Usage:
 #   curl -fsSL unleash.software/install | bash
+#   # curl -fsSL unleash.software/install | bash -s -- --boring   # non-interactive
 #
 # Options (via environment variables):
 #   GH_TOKEN / GH_PAT / GITHUB_TOKEN - GitHub token for private repo access (any of these work)
@@ -11,13 +12,24 @@
 #   INSTALL_DIR              - Installation directory (default: ~/.local/bin)
 #   BUILD_FROM_SOURCE        - Set to "1" to build from source instead of downloading binary
 #
+# Flags:
+#   --boring                 - Non-interactive install (skip splash/agent picker)
+#
 # This script:
 # 1. Checks prerequisites (curl/wget, optionally cargo)
-# 2. Installs Claude Code (native binary preferred, npm fallback)
-# 3. Downloads pre-built binary or builds from source
+# 2. Downloads pre-built binary or builds from source
+# 3. Runs interactive splash to pick default agent (unless --boring)
 # 4. Sets up unleash command
 
 set -euo pipefail
+
+# Parse flags
+BORING=0
+for arg in "$@"; do
+    case "$arg" in
+        --boring) BORING=1 ;;
+    esac
+done
 
 # Support common GitHub token variable names
 GITHUB_TOKEN="${GH_TOKEN:-${GH_PAT:-${GITHUB_TOKEN:-}}}"
@@ -79,14 +91,8 @@ detect_platform() {
             ;;
     esac
 
-    # Construct artifact name to match release workflow (only linux-x86_64 is built in CI)
-    if [[ "$PLATFORM" == "linux" && "$ARCH" == "x86_64" ]]; then
-        ARTIFACT_NAME="unleash-linux-x86_64"
-    else
-        warn "No pre-built binary available for $PLATFORM-$ARCH. Forcing build from source."
-        BUILD_FROM_SOURCE="1"
-        ARTIFACT_NAME=""
-    fi
+    # Construct artifact name to match release workflow
+    ARTIFACT_NAME="unleash-${PLATFORM}-${ARCH}"
 
     info "Detected platform: $PLATFORM ($ARCH)"
 }
@@ -801,25 +807,27 @@ main() {
     # Configure onboarding bypass
     ensure_onboarding_complete
 
-    # Show completion message
+    show_path_instructions
+
+    # Interactive mode: run the splash to pick default agent
+    if [[ "$BORING" == "0" ]] && [[ -x "${INSTALL_DIR}/unleash" ]]; then
+        info "Launching interactive setup..."
+        exec "${INSTALL_DIR}/unleash"
+    fi
+
+    # Non-interactive (--boring) completion message
     echo ""
     echo "╭──────────────────────────────────────────╮"
     echo "│         Installation Complete!           │"
     echo "╰──────────────────────────────────────────╯"
     echo ""
-    echo "Installed commands:"
-    echo "  unleash              - TUI interface (profiles & version management)"
-    echo "  unleash claude       - Start Claude with wrapper features"
-    echo ""
     echo "Quick start:"
     echo "  unleash                 - Launch TUI"
-    echo "  unleash claude          - Launch Claude"
-    echo "  unleash claude --auto   - Launch with auto mode"
+    echo "  unleash claude          - Start Claude"
+    echo "  unleash claude --auto   - Start with auto mode"
     echo ""
 
-    show_path_instructions
-
-    success "Done! Run 'unleash' to start unleash."
+    success "Done! Run 'unleash' to start."
 }
 
 main "$@"

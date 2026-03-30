@@ -1,7 +1,6 @@
 name: Upload Release Binaries
 
 # Manual workflow to build and upload binaries to an existing release
-# Use this when a release was created without binaries
 
 on:
   workflow_dispatch:
@@ -12,13 +11,25 @@ on:
         type: string
 
 jobs:
-  build-and-upload:
-    runs-on: ubuntu-latest
+  build:
+    strategy:
+      matrix:
+        include:
+          - target: x86_64-unknown-linux-gnu
+            os: ubuntu-latest
+            artifact: unleash-linux-x86_64
+          - target: aarch64-unknown-linux-gnu
+            os: ubuntu-latest
+            artifact: unleash-linux-aarch64
+          - target: x86_64-apple-darwin
+            os: macos-latest
+            artifact: unleash-macos-x86_64
+          - target: aarch64-apple-darwin
+            os: macos-latest
+            artifact: unleash-macos-aarch64
+    runs-on: ${{ matrix.os }}
     permissions:
       contents: write
-    env:
-      CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_LINKER: clang
-      CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_RUSTFLAGS: "-C link-arg=-fuse-ld=mold"
 
     steps:
       - name: Checkout
@@ -26,30 +37,54 @@ jobs:
         with:
           ref: ${{ github.event.inputs.tag_name }}
 
-      - name: Install build tools
-        run: |
-          sudo apt-get update && sudo apt-get install -y clang
-          MOLD_VERSION=2.40.1
-          curl -fsSL "https://github.com/rui314/mold/releases/download/v${MOLD_VERSION}/mold-${MOLD_VERSION}-x86_64-linux.tar.gz" \
-            | sudo tar xz -C /usr/local --strip-components=1
-
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
         with:
-          targets: x86_64-unknown-linux-gnu
+          targets: ${{ matrix.target }}
+
+      - name: Install cross-compilation tools (Linux aarch64)
+        if: matrix.target == 'aarch64-unknown-linux-gnu'
+        run: |
+          sudo apt-get update && sudo apt-get install -y gcc-aarch64-linux-gnu
+          echo "CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER=aarch64-linux-gnu-gcc" >> $GITHUB_ENV
 
       - name: Build release
-        run: cargo build --release --target x86_64-unknown-linux-gnu
+        run: cargo build --release --target ${{ matrix.target }}
 
-      - name: Rename binary and generate checksum
+      - name: Rename binary
+        run: cp target/${{ matrix.target }}/release/unleash ${{ matrix.artifact }}
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact }}
+          path: ${{ matrix.artifact }}
+
+  upload:
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: binaries
+          merge-multiple: true
+
+      - name: Generate checksums
         run: |
-          cp target/x86_64-unknown-linux-gnu/release/unleash unleash-linux-x86_64
-          sha256sum unleash-linux-x86_64 > checksums.txt
+          cd binaries
+          sha256sum unleash-* > checksums.txt
+          cat checksums.txt
 
       - name: Upload to release
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ github.event.inputs.tag_name }}
           files: |
-            unleash-linux-x86_64
-            checksums.txt
+            binaries/unleash-linux-x86_64
+            binaries/unleash-linux-aarch64
+            binaries/unleash-macos-x86_64
+            binaries/unleash-macos-aarch64
+            binaries/checksums.txt
