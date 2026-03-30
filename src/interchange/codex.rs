@@ -36,9 +36,23 @@ pub fn to_hub<R: BufRead>(reader: R) -> Result<Vec<HubRecord>, ConvertError> {
                     records.push(HubRecord::Session(default_session(&timestamp)));
                     session_emitted = true;
                 }
-                records.push(HubRecord::Message(response_item_to_hub(
-                    &payload, &timestamp,
-                )?));
+                // Skip developer role (system preambles) — not useful for crossload
+                let role = payload
+                    .get("role")
+                    .and_then(|r| r.as_str())
+                    .unwrap_or("user");
+                if role == "developer" {
+                    continue;
+                }
+                let msg = response_item_to_hub(&payload, &timestamp)?;
+                // Skip messages with no content or only empty text
+                let has_content = msg.content.iter().any(|b| match b {
+                    ContentBlock::Text { text } => !text.trim().is_empty(),
+                    _ => true,
+                });
+                if has_content {
+                    records.push(HubRecord::Message(msg));
+                }
             }
             "event_msg" => {
                 if !session_emitted {
@@ -50,11 +64,10 @@ pub fn to_hub<R: BufRead>(reader: R) -> Result<Vec<HubRecord>, ConvertError> {
                     .and_then(|t| t.as_str())
                     .unwrap_or("");
                 match sub_type {
-                    "user_message" | "agent_message" => {
-                        records.push(HubRecord::Message(event_msg_to_hub(
-                            &payload, &timestamp, sub_type,
-                        )?));
-                    }
+                    // Skip user_message/agent_message — these duplicate response_item
+                    // entries with the same content and timestamp. response_item has
+                    // richer structured data (content blocks, item IDs, roles).
+                    "user_message" | "agent_message" => {}
                     "token_count" => {
                         records.push(HubRecord::Event(HubEvent {
                             event_type: "token_count".to_string(),
@@ -207,16 +220,95 @@ fn response_item_to_hub(payload: &Value, timestamp: &str) -> Result<HubMessage, 
     let role = payload
         .get("role")
         .and_then(|r| r.as_str())
-        .unwrap_or("user");
+        .unwrap_or("");
+    let payload_type = payload
+        .get("type")
+        .and_then(|t| t.as_str())
+        .unwrap_or("message");
 
-    // Normalize "developer" role to "system"
-    let hub_role = match role {
-        "developer" => "system",
-        "assistant" => "assistant",
-        _ => "user",
+    // Determine hub role and content based on payload type
+    let (hub_role, content) = match payload_type {
+        "reasoning" => {
+            // Reasoning items → assistant thinking blocks
+            let text = payload
+                .get("content")
+                .and_then(|c| c.as_array())
+                .and_then(|arr| arr.first())
+                .and_then(|b| b.get("text"))
+                .and_then(|t| t.as_str())
+                .unwrap_or("")
+                .to_string();
+            ("assistant", vec![ContentBlock::Thinking {
+                text,
+                subject: None,
+                description: None,
+                signature: None,
+                encrypted: false,
+                encryption_format: None,
+                encrypted_data: None,
+                timestamp: None,
+            }])
+        }
+        "function_call" => {
+            // Function calls → assistant tool_use
+            let name = payload
+                .get("name")
+                .and_then(|n| n.as_str())
+                .unwrap_or("unknown")
+                .to_string();
+            let call_id = payload
+                .get("call_id")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_string();
+            let arguments = payload
+                .get("arguments")
+                .and_then(|a| a.as_str())
+                .unwrap_or("{}")
+                .to_string();
+            let input: Value = serde_json::from_str(&arguments).unwrap_or(Value::Object(Default::default()));
+            ("assistant", vec![ContentBlock::ToolUse {
+                id: call_id,
+                name,
+                display_name: None,
+                description: None,
+                input,
+            }])
+        }
+        "function_call_output" => {
+            // Function call output → user tool_result
+            let call_id = payload
+                .get("call_id")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_string();
+            let output = payload
+                .get("output")
+                .and_then(|o| o.as_str())
+                .unwrap_or("")
+                .to_string();
+            ("user", vec![ContentBlock::ToolResult {
+                tool_use_id: call_id,
+                content: vec![ContentBlock::Text { text: output }],
+                is_error: false,
+                exit_code: None,
+                interrupted: false,
+                status: None,
+                duration_ms: None,
+                title: None,
+                truncated: false,
+            }])
+        }
+        _ => {
+            // Regular message — use role from payload
+            let hub_role = match role {
+                "developer" => "system",
+                "assistant" => "assistant",
+                _ => "user",
+            };
+            (hub_role, extract_codex_content(payload)?)
+        }
     };
-
-    let content = extract_codex_content(payload)?;
 
     // Codex-specific extensions
     let mut ext = serde_json::Map::new();
@@ -224,9 +316,7 @@ fn response_item_to_hub(payload: &Value, timestamp: &str) -> Result<HubMessage, 
     if let Some(v) = payload.get("id") {
         ext.insert("item_id".into(), v.clone());
     }
-    if let Some(v) = payload.get("type") {
-        ext.insert("payload_type".into(), v.clone());
-    }
+    ext.insert("payload_type".into(), Value::String(payload_type.to_string()));
 
     Ok(HubMessage {
         id: payload
@@ -248,6 +338,7 @@ fn response_item_to_hub(payload: &Value, timestamp: &str) -> Result<HubMessage, 
     })
 }
 
+#[allow(dead_code)] // Used by from_hub round-trip path
 fn event_msg_to_hub(
     payload: &Value,
     timestamp: &str,
@@ -523,19 +614,36 @@ mod tests {
     }
 
     #[test]
-    fn test_event_msg_round_trip() {
-        let original = r#"{"timestamp":"2026-03-29T16:21:00Z","type":"event_msg","payload":{"type":"agent_message","message":"I can help with that.","phase":null,"memory_citation":null}}"#;
+    fn test_event_msg_user_agent_skipped() {
+        // event_msg user_message/agent_message should be skipped (duplicates response_item)
+        let input = r#"{"timestamp":"2026-03-29T16:21:00Z","type":"event_msg","payload":{"type":"agent_message","message":"I can help.","phase":null}}
+{"timestamp":"2026-03-29T16:21:01Z","type":"event_msg","payload":{"type":"user_message","message":"thanks"}}
+{"timestamp":"2026-03-29T16:21:02Z","type":"event_msg","payload":{"type":"token_count","input_tokens":100,"output_tokens":50}}"#;
 
-        let reader = std::io::BufReader::new(original.as_bytes());
+        let reader = std::io::BufReader::new(input.as_bytes());
         let hub = to_hub(reader).unwrap();
-        let back = from_hub(&hub).unwrap();
+        // Should have session + token_count event only (no messages from event_msg)
+        let messages: Vec<_> = hub.iter().filter(|r| matches!(r, HubRecord::Message(_))).collect();
+        assert_eq!(messages.len(), 0, "event_msg user/agent should be skipped");
+        let events: Vec<_> = hub.iter().filter(|r| matches!(r, HubRecord::Event(_))).collect();
+        assert_eq!(events.len(), 1, "token_count event should be kept");
+    }
 
-        let orig_val: Value = serde_json::from_str(original).unwrap();
-        // Skip the auto-generated session header
-        let msg_line = back.iter().find(|l| {
-            l.get("type").and_then(|t| t.as_str()) == Some("event_msg")
-        }).unwrap();
-        semantic_eq(&orig_val, msg_line).unwrap();
+    #[test]
+    fn test_developer_role_filtered() {
+        let input = r#"{"timestamp":"2026-03-29T16:20:00Z","type":"response_item","payload":{"type":"message","role":"developer","content":[{"type":"input_text","text":"system preamble stuff"}]}}
+{"timestamp":"2026-03-29T16:20:01Z","type":"response_item","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"hello"}]}}
+{"timestamp":"2026-03-29T16:20:02Z","type":"response_item","payload":{"type":"message","role":"assistant","content":[{"type":"output_text","text":"hi there"}]}}"#;
+
+        let reader = std::io::BufReader::new(input.as_bytes());
+        let hub = to_hub(reader).unwrap();
+        let messages: Vec<_> = hub.iter().filter_map(|r| {
+            if let HubRecord::Message(m) = r { Some(m) } else { None }
+        }).collect();
+        // developer message should be filtered out, only user + assistant remain
+        assert_eq!(messages.len(), 2);
+        assert_eq!(messages[0].role, "user");
+        assert_eq!(messages[1].role, "assistant");
     }
 
     #[test]
