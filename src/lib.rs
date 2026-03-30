@@ -735,6 +735,54 @@ pub fn run() -> io::Result<()> {
                 }
             }
         }
+        Some(Commands::Install { agents, all }) => {
+            let agent_types = if all {
+                AgentType::all().to_vec()
+            } else if !agents.is_empty() {
+                agents.iter().map(|name| {
+                    AgentType::from_str(name).ok_or_else(|| {
+                        io::Error::new(
+                            io::ErrorKind::InvalidInput,
+                            format!("Unknown agent: {}. Valid: claude, codex, gemini, opencode", name),
+                        )
+                    })
+                }).collect::<io::Result<Vec<_>>>()?
+            } else {
+                return Err(io::Error::new(
+                    io::ErrorKind::InvalidInput,
+                    "Specify agents to install (e.g. 'unleash install gemini') or use --all",
+                ));
+            };
+
+            updater::run(updater::UpdateConfig {
+                agents: agent_types,
+                check_only: false,
+                include_self: false,
+                json: cli.json,
+                update_only: false, // install mode: install even if not present
+            })
+        }
+        Some(Commands::Uninstall { agents, all }) => {
+            let agent_types = if all {
+                AgentType::all().to_vec()
+            } else if !agents.is_empty() {
+                agents.iter().map(|name| {
+                    AgentType::from_str(name).ok_or_else(|| {
+                        io::Error::new(
+                            io::ErrorKind::InvalidInput,
+                            format!("Unknown agent: {}. Valid: claude, codex, gemini, opencode", name),
+                        )
+                    })
+                }).collect::<io::Result<Vec<_>>>()?
+            } else {
+                return Err(io::Error::new(
+                    io::ErrorKind::InvalidInput,
+                    "Specify agents to uninstall (e.g. 'unleash uninstall gemini') or use --all",
+                ));
+            };
+
+            updater::uninstall(agent_types)
+        }
         Some(Commands::Update {
             agents,
             clis,
@@ -743,8 +791,8 @@ pub fn run() -> io::Result<()> {
         }) => {
             // Determine what to update:
             // - no args, no flags: update unleash itself
-            // - -c/--clis: update all agent CLIs
-            // - -a/--all: update unleash + all agent CLIs
+            // - -c/--clis: update all installed agent CLIs
+            // - -a/--all: update unleash + all installed agent CLIs
             // - positional args: update specific agents
             let agent_types = if all || clis {
                 AgentType::all().to_vec()
@@ -769,6 +817,7 @@ pub fn run() -> io::Result<()> {
                 check_only: check,
                 include_self,
                 json: cli.json,
+                update_only: true, // update mode: skip agents not already installed
             })
         }
         Some(Commands::Sessions { cli, find }) => {

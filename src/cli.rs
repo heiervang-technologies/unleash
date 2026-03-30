@@ -379,11 +379,42 @@ pub enum Commands {
         action: Option<AgentsAction>,
     },
 
-    /// Update unleash and/or agent CLIs
+    /// Install an agent CLI for the first time
+    ///
+    /// Examples:
+    ///   unleash install gemini       # Install Gemini CLI
+    ///   unleash install codex claude # Install Codex and Claude
+    ///   unleash install --all        # Install all agent CLIs
+    Install {
+        /// Agents to install (e.g. claude, codex, gemini, opencode)
+        #[arg(conflicts_with = "all")]
+        agents: Vec<String>,
+
+        /// Install all agent CLIs
+        #[arg(short, long)]
+        all: bool,
+    },
+
+    /// Uninstall an agent CLI
+    ///
+    /// Examples:
+    ///   unleash uninstall gemini       # Uninstall Gemini CLI
+    ///   unleash uninstall --all        # Uninstall all agent CLIs
+    Uninstall {
+        /// Agents to uninstall (e.g. claude, codex, gemini, opencode)
+        #[arg(conflicts_with = "all")]
+        agents: Vec<String>,
+
+        /// Uninstall all agent CLIs
+        #[arg(short, long)]
+        all: bool,
+    },
+
+    /// Update unleash and/or agent CLIs (only updates already-installed agents)
     ///
     /// No args: update unleash itself
-    /// -c/--clis: update all agent CLIs
-    /// -a/--all: update unleash + all agent CLIs
+    /// -c/--clis: update all installed agent CLIs
+    /// -a/--all: update unleash + all installed agent CLIs
     /// Positional args: update specific agents (e.g. 'unleash update claude codex')
     Update {
         /// Specific agents to update (e.g. claude, codex, gemini, opencode)

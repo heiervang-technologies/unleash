@@ -27,6 +27,9 @@ pub struct UpdateConfig {
     pub include_self: bool,
     /// Produce JSON output instead of progress bars.
     pub json: bool,
+    /// Only update agents that are already installed (skip uninstalled).
+    /// When false (install mode), all listed agents are installed.
+    pub update_only: bool,
 }
 
 /// Result of a version check for a single agent.
@@ -83,7 +86,19 @@ pub fn run(config: UpdateConfig) -> io::Result<()> {
     }
 
     // Collect agents that need updating.
-    let to_update: Vec<&CheckResult> = check_results.iter().filter(|r| r.update_available).collect();
+    // In update_only mode, skip agents that aren't installed.
+    let to_update: Vec<&CheckResult> = check_results
+        .iter()
+        .filter(|r| {
+            if !r.update_available {
+                return false;
+            }
+            if config.update_only && r.installed.is_none() {
+                return false;
+            }
+            true
+        })
+        .collect();
 
     if to_update.is_empty() {
         println!("\nAll agents are up to date.");
@@ -473,6 +488,79 @@ fn github_token() -> Option<String> {
         .filter(|o| o.status.success())
         .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string())
         .filter(|s| !s.is_empty())
+}
+
+/// Uninstall one or more agent CLIs.
+pub fn uninstall(agents: Vec<AgentType>) -> io::Result<()> {
+    for agent_type in &agents {
+        let installed = get_installed_version(*agent_type);
+        if installed.is_none() {
+            println!("  . {}    not installed, skipping", agent_type.display_name());
+            continue;
+        }
+
+        print!("  - {}    uninstalling...", agent_type.display_name());
+
+        let result = uninstall_agent(*agent_type);
+        match result {
+            Ok(()) => {
+                println!(
+                    "\r  - {}    {} (removed)",
+                    agent_type.display_name(),
+                    installed.unwrap_or_default(),
+                );
+            }
+            Err(e) => {
+                println!(
+                    "\r  x {}    FAILED: {}",
+                    agent_type.display_name(),
+                    e,
+                );
+            }
+        }
+    }
+    Ok(())
+}
+
+fn uninstall_agent(agent_type: AgentType) -> io::Result<()> {
+    let def = AgentDefinition::from_type(agent_type);
+
+    // Try npm uninstall first for agents with npm packages
+    if let Some(ref package) = def.npm_package {
+        let output = Command::new("npm")
+            .args(["uninstall", "-g", package])
+            .output()?;
+        if output.status.success() {
+            return Ok(());
+        }
+    }
+
+    // For binary-installed agents, remove the binary directly
+    let binary_path = which_binary(&def.binary);
+    if let Some(path) = binary_path {
+        std::fs::remove_file(&path).map_err(|e| {
+            io::Error::other(format!("Failed to remove {}: {}", path.display(), e))
+        })?;
+        return Ok(());
+    }
+
+    Err(io::Error::other(format!(
+        "Could not find {} to uninstall",
+        def.binary,
+    )))
+}
+
+fn which_binary(name: &str) -> Option<std::path::PathBuf> {
+    Command::new("which")
+        .arg(name)
+        .output()
+        .ok()
+        .filter(|o| o.status.success())
+        .map(|o| {
+            std::path::PathBuf::from(
+                String::from_utf8_lossy(&o.stdout).trim().to_string(),
+            )
+        })
 }
 
 /// Strip version prefixes like "v", "rust-v" to get a clean semver string.
