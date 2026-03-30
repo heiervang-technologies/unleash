@@ -643,11 +643,14 @@ fn parse_ansi_line_to_spans_gradient(
 /// Extract raw RGB colors from an ANSI sequence without transforming them.
 /// Returns (fg, bg) as Option<(u8,u8,u8)>.
 #[cfg(feature = "tui")]
+type OptRgb = Option<(u8, u8, u8)>;
+
+#[cfg(feature = "tui")]
 fn parse_gradient_sequence_colors(
     seq: &str,
-    mut fg: Option<(u8, u8, u8)>,
-    mut bg: Option<(u8, u8, u8)>,
-) -> (Option<(u8, u8, u8)>, Option<(u8, u8, u8)>) {
+    mut fg: OptRgb,
+    mut bg: OptRgb,
+) -> (OptRgb, OptRgb) {
     let parts: Vec<&str> = seq.split(';').collect();
     let mut i = 0;
 
