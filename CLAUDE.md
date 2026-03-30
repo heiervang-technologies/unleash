@@ -26,7 +26,7 @@ Or with a custom message to receive after restart:
 unleash-refresh "Continue working on the feature"
 ```
 
-> **Note:** The old names `restart-claude` and `exit-claude` still work as aliases.
+> **Note:** The old aliases `restart-claude` and `exit-claude` have been removed. Use `unleash-refresh` and `unleash-exit`.
 
 ### What Happens When You Restart
 
@@ -46,10 +46,8 @@ unleash-refresh "Continue working on the feature"
 
 | File | Purpose |
 |------|---------|
-| `scripts/unleash-refresh` | Restart command (canonical) |
-| `scripts/unleash-exit` | Exit without restart (canonical) |
-| `scripts/restart-claude` | Backward-compat alias for unleash-refresh |
-| `scripts/exit-claude` | Backward-compat alias for unleash-exit |
+| `scripts/unleash-refresh` | Restart command |
+| `scripts/unleash-exit` | Exit without restart |
 
 ## Repository Overview
 
@@ -74,12 +72,11 @@ unleash/
 ├── scripts/                     # All shell scripts consolidated here
 │   ├── install.sh              # Installation script
 │   ├── install-remote.sh       # Remote one-line installer
-│   ├── unleash-refresh         # Restart command (canonical)
-│   ├── unleash-exit            # Exit command (canonical)
-│   ├── restart-claude          # Backward-compat alias
-│   └── exit-claude             # Backward-compat alias
+│   ├── unleash-refresh         # Restart command
+│   └── unleash-exit            # Exit command
 ├── plugins/bundled/             # Plugin extensions
 │   ├── auto-mode/              # Autonomous operation mode
+│   ├── hyprland-focus/         # Window transparency for Hyprland
 │   ├── mcp-refresh/            # MCP config change detection
 │   ├── process-restart/        # Self-restart hooks and commands
 │   └── voice-output/           # Text-to-speech output

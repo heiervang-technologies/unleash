@@ -77,8 +77,10 @@ The sidecar joins the mesh network but NOT the sandbox network. It has no intern
 
 > **Prerequisite:** The multi-agent override must be running so the `unleash-mesh` network exists. Start the multi-agent compose first, then add sidecars.
 
+Create a `docker-compose.sidecar.yml` in your project (this file is not shipped with Unleash — you write it for your specific services):
+
 ```yaml
-# docker-compose.sidecar.yml
+# docker-compose.sidecar.yml (user-created)
 services:
   postgres:
     image: postgres:16
