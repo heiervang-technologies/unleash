@@ -99,37 +99,10 @@ detect_platform() {
 
 # Check for required commands
 check_prerequisites() {
-    local missing=()
-
-    # curl or wget is always required
     if ! command -v curl &> /dev/null && ! command -v wget &> /dev/null; then
-        missing+=("curl or wget")
-    fi
-
-    # npm is optional (native binary is preferred, npm is fallback)
-    if ! command -v npm &> /dev/null; then
-        warn "npm not found - Claude Code will be installed via native binary"
-    fi
-
-    # If building from source, check for cargo
-    if [[ "$BUILD_FROM_SOURCE" == "1" ]]; then
-        if ! command -v cargo &> /dev/null; then
-            missing+=("cargo (for building from source)")
-        fi
-    fi
-
-    if [[ ${#missing[@]} -gt 0 ]]; then
-        error "Missing required dependencies:"
-        for dep in "${missing[@]}"; do
-            echo "  - $dep"
-        done
-        echo ""
-        echo "Please install the missing dependencies:"
-        echo "  - curl: use your package manager"
-        echo "  - cargo: https://rustup.rs/"
+        error "curl or wget is required. Install one via your package manager."
         exit 1
     fi
-
     success "Prerequisites check passed"
 }
 
@@ -751,39 +724,34 @@ main() {
     # Create install directory
     mkdir -p "$INSTALL_DIR"
 
-    # Install Claude Code
-    install_claude_code
-
     # Determine version to install
     if [[ "$UNLEASH_VERSION" == "latest" ]]; then
         UNLEASH_VERSION=$(get_latest_version)
         if [[ -z "$UNLEASH_VERSION" ]]; then
-            warn "Could not determine latest version, using 'main' branch"
-            UNLEASH_VERSION="main"
+            error "Could not determine latest release version."
+            error "Check https://github.com/${REPO_OWNER}/${REPO_NAME}/releases"
+            exit 1
         fi
     fi
     info "Installing unleash ${UNLEASH_VERSION}"
 
-    # Install binary (try download first, fall back to source)
+    # Download pre-built binaries
     if [[ "$BUILD_FROM_SOURCE" == "1" ]]; then
+        if ! command -v cargo &> /dev/null; then
+            error "Cargo not found. Install Rust (https://rustup.rs/) to build from source."
+            exit 1
+        fi
         build_from_source
     else
         if ! download_binary "$UNLEASH_VERSION"; then
-            warn "Binary download failed, building from source..."
-            if command -v cargo &> /dev/null; then
-                build_from_source
-            else
-                error "Cargo not found. Install Rust (https://rustup.rs/) to build from source."
-                exit 1
-            fi
+            error "Failed to download pre-built binary for ${PLATFORM}-${ARCH}."
+            error "You can build from source: BUILD_FROM_SOURCE=1 bash <(curl -fsSL unleash.software/install)"
+            exit 1
         fi
     fi
 
     # Install support files (helper scripts)
     install_support_files
-
-    # Configure onboarding bypass
-    ensure_onboarding_complete
 
     show_path_instructions
 
