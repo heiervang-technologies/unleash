@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.1](https://github.com/heiervang-technologies/unleash/compare/v0.1.0...v0.1.1) (2026-03-30)
+
+
+### Bug Fixes
+
+* installer downloads prebuilt binaries, no cargo required ([c1791d9](https://github.com/heiervang-technologies/unleash/commit/c1791d90e3c5537906a5b66829d0843be6f44538))
+
 ## 0.1.0 (2026-03-30)
 
 
