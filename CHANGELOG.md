@@ -1,5 +1,12 @@
 # Changelog
 
+## [9.14.1](https://github.com/heiervang-technologies/unleash/compare/v9.14.0...v9.14.1) (2026-03-30)
+
+
+### Bug Fixes
+
+* Codex crossload resume — originator, null payloads, state DB registration ([6c36d42](https://github.com/heiervang-technologies/unleash/commit/6c36d42766c29b604396c69e0b80ff064bc6c3af))
+
 ## [9.14.0](https://github.com/heiervang-technologies/unleash/compare/v9.13.1...v9.14.0) (2026-03-30)
 
 
