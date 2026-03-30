@@ -377,10 +377,11 @@ pub fn run() -> io::Result<()> {
         // Check for --crossload/-x in wrapper mode — handle before launch
         let has_crossload = args.iter().any(|a| a == "-x" || a == "--crossload" || a.starts_with("--crossload="));
         if has_crossload {
-            // Extract crossload query and strip -x/--crossload from args
+            // Extract crossload query and strip -x/--crossload AND profile name from args
             let mut crossload_query = String::new();
             let mut filtered_args = Vec::new();
             let mut skip_next = false;
+            let known_profiles = ["claude", "claude-code", "codex", "gemini", "gemini-cli", "opencode"];
             for (i, arg) in args.iter().enumerate() {
                 if skip_next {
                     skip_next = false;
@@ -395,6 +396,9 @@ pub fn run() -> io::Result<()> {
                     }
                 } else if let Some(val) = arg.strip_prefix("--crossload=") {
                     crossload_query = val.to_string();
+                } else if i == 0 && known_profiles.contains(&arg.as_str()) {
+                    // Skip profile name — it's not a CLI arg
+                    continue;
                 } else {
                     filtered_args.push(arg.clone());
                 }
