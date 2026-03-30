@@ -718,6 +718,19 @@ fn ensure_npm() -> io::Result<bool> {
         return Ok(true);
     }
 
+    // Check if nvm is already installed but not sourced
+    if try_source_nvm() {
+        return Ok(true);
+    }
+
+    // In TUI/non-interactive mode, can't prompt — return error
+    let stdin_is_tty = unsafe { libc::isatty(libc::STDIN_FILENO) != 0 };
+    if !stdin_is_tty || std::env::var("UNLEASH_TUI").is_ok() {
+        return Err(io::Error::other(
+            "npm not found. Install Node.js: https://nodejs.org (or: curl -fsSL https://raw.githubusercontent.com/nvm-sh/nvm/v0.40.3/install.sh | bash)"
+        ));
+    }
+
     eprintln!("\n\x1b[33mnpm not found.\x1b[0m Node.js is required to install this agent.");
     eprint!("Install Node.js via nvm? [Y/n] ");
 
@@ -746,21 +759,8 @@ fn ensure_npm() -> io::Result<bool> {
         return Err(io::Error::other("Failed to install Node.js via nvm"));
     }
 
-    // Verify npm is now available (nvm installs to ~/.nvm/versions/node/...)
-    // We need to find the npm binary since our process doesn't inherit the nvm shell setup
-    let find_npm = Command::new("bash")
-        .args(["-c", "export NVM_DIR=\"$HOME/.nvm\" && . \"$NVM_DIR/nvm.sh\" && which npm"])
-        .output()?;
-    if find_npm.status.success() {
-        let npm_path = String::from_utf8_lossy(&find_npm.stdout).trim().to_string();
-        if let Some(bin_dir) = std::path::Path::new(&npm_path).parent() {
-            // Add nvm's node bin to PATH for this process
-            let current_path = std::env::var("PATH").unwrap_or_default();
-            std::env::set_var("PATH", format!("{}:{}", bin_dir.display(), current_path));
-        }
-    }
-
-    if crate::version::VersionManager::has_npm() {
+    // Add nvm node to PATH for this process
+    if try_source_nvm() {
         eprintln!("\x1b[32m✓\x1b[0m Node.js installed successfully\n");
         Ok(true)
     } else {
@@ -768,6 +768,24 @@ fn ensure_npm() -> io::Result<bool> {
         eprintln!("  Restart your shell and try again.\n");
         Ok(false)
     }
+}
+
+/// Try to find nvm's npm and add it to PATH. Returns true if npm is now available.
+fn try_source_nvm() -> bool {
+    if let Ok(output) = Command::new("bash")
+        .args(["-c", "export NVM_DIR=\"$HOME/.nvm\" && . \"$NVM_DIR/nvm.sh\" 2>/dev/null && which npm"])
+        .output()
+    {
+        if output.status.success() {
+            let npm_path = String::from_utf8_lossy(&output.stdout).trim().to_string();
+            if let Some(bin_dir) = std::path::Path::new(&npm_path).parent() {
+                let current_path = std::env::var("PATH").unwrap_or_default();
+                std::env::set_var("PATH", format!("{}:{}", bin_dir.display(), current_path));
+                return crate::version::VersionManager::has_npm();
+            }
+        }
+    }
+    false
 }
 
 /// Update Gemini CLI via npm.

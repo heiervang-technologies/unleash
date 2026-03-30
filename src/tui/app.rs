@@ -319,6 +319,8 @@ pub struct App {
 
 impl App {
     pub fn new() -> io::Result<Self> {
+        // Signal to child functions that we're in TUI mode (stdin is in raw mode)
+        std::env::set_var("UNLEASH_TUI", "1");
         let profile_manager = ProfileManager::new()?;
         let app_config = profile_manager.load_app_config().unwrap_or_default();
         let profiles = profile_manager.load_all_profiles().unwrap_or_default();
