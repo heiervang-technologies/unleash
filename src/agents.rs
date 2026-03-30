@@ -542,7 +542,7 @@ impl AgentManager {
 
     /// Update Claude Code via npm
     fn update_claude(&self) -> io::Result<String> {
-        let output = Command::new("npm")
+        let output = crate::version::VersionManager::npm_global_command()
             .args(["install", "-g", "@anthropic-ai/claude-code@latest"])
             .output()?;
 
