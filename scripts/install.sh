@@ -103,10 +103,8 @@ done
 if $INTERACTIVE; then
     clear
     # Display the muscular Claude ANSI art
-    if [[ -f "$REPO_ROOT/ct4-right.ans" ]]; then
-        cat "$REPO_ROOT/ct4-right.ans"
-    elif [[ -f "$REPO_ROOT/src/assets/ct4-right.ans" ]]; then
-        cat "$REPO_ROOT/src/assets/ct4-right.ans"
+    if [[ -f "$REPO_ROOT/src/assets/mascot.claude.ans" ]]; then
+        cat "$REPO_ROOT/src/assets/mascot.claude.ans"
     else
         # Fallback ASCII art if ANSI art file not found
         echo ""

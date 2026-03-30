@@ -648,14 +648,99 @@ fn parse_ansi_sequence(seq: &str, style: RatatuiStyle) -> RatatuiStyle {
     parse_ansi_sequence_themed(seq, style, crate::theme::ThemeShift::identity())
 }
 
+/// Split a single line of ANSI-escaped text at a visible character column.
+///
+/// Returns `(left, right)` where:
+/// - `left` contains the first `split_col` visible characters with their escape codes,
+///   terminated with a reset `\x1b[0m`.
+/// - `right` starts with the ANSI state (fg/bg color) that was active at the split point,
+///   then continues with the remaining visible characters.
+///
+/// "Visible characters" means non-escape-sequence characters — the ones that occupy
+/// a column in the terminal.
+fn split_ansi_line(line: &str, split_col: usize) -> (String, String) {
+    let mut left = String::new();
+    let mut right = String::new();
+    let mut visible_count = 0;
+    // Track the active ANSI state so we can replay it at the start of the right half
+    let mut active_seq = String::new();
+    let mut chars = line.chars().peekable();
+
+    while let Some(ch) = chars.next() {
+        if ch == '\x1b' {
+            // Collect the full escape sequence
+            let mut seq = String::from(ch);
+            if let Some(&'[') = chars.peek() {
+                seq.push(chars.next().unwrap());
+                while let Some(&c) = chars.peek() {
+                    seq.push(chars.next().unwrap());
+                    if c == 'm' {
+                        break;
+                    }
+                }
+                // Remember this sequence as the active state
+                active_seq = seq.clone();
+            }
+            // Escape sequences go to whichever side we're currently writing
+            if visible_count < split_col {
+                left.push_str(&seq);
+            } else {
+                right.push_str(&seq);
+            }
+        } else {
+            if visible_count < split_col {
+                left.push(ch);
+            } else {
+                right.push(ch);
+            }
+            visible_count += 1;
+        }
+    }
+
+    // Terminate left half with reset so colors don't bleed
+    left.push_str("\x1b[0m");
+
+    // Prepend the active color state to right half so it renders correctly standalone
+    if !active_seq.is_empty() && active_seq != "\x1b[0m" {
+        right = format!("{active_seq}{right}");
+    }
+
+    (left, right)
+}
+
+/// Split multi-line ANSI art at a visible character column.
+///
+/// Returns `(left_art, right_art)` where each is a complete ANSI string
+/// with newline-separated lines. Used to derive left/right halves from
+/// a single full-width mascot art file.
+pub fn split_ansi_art(art: &str, split_col: usize) -> (String, String) {
+    let mut left_lines = Vec::new();
+    let mut right_lines = Vec::new();
+
+    for line in art.lines() {
+        let (l, r) = split_ansi_line(line, split_col);
+        left_lines.push(l);
+        right_lines.push(r);
+    }
+
+    (left_lines.join("\n"), right_lines.join("\n"))
+}
+
 /// Pre-built mascots and logos
 pub mod mascots {
     use super::*;
 
-    /// Muscular Claude breaking chains - the "Unleashed" mascot
-    /// Returns raw ANSI escape sequences for direct terminal output
+    /// The single source ANSI art file — full-width mascot (106 chars visible).
+    /// Left and right halves are derived at runtime via `split_ansi_art`.
+    const FULL_ART: &str = include_str!("assets/mascot.claude.ans");
+
+    /// Half-width in visible columns (106 / 2 = 53, matches ART_WIDTH in TUI)
+    const HALF_WIDTH: usize = 53;
+
+    /// Right-facing half (columns 53..106 of the full art)
     pub fn unleashed_claude() -> String {
-        include_str!("assets/ct4-right.ans").to_string()
+        let (_, right) = split_ansi_art(FULL_ART, HALF_WIDTH);
+        right
     }
 
     /// Get lines from the unleashed Claude art (for TUI integration)
@@ -668,12 +753,21 @@ pub mod mascots {
             .collect()
     }
 
-    /// Get unleashed Claude art as ratatui Lines (parsed ANSI) - right facing
+    /// Left-facing half (columns 0..53 of the full art)
+    pub fn unleashed_claude_left() -> String {
+        let (left, _) = split_ansi_art(FULL_ART, HALF_WIDTH);
+        left
+    }
+
+    /// Full-figure art (both halves) — 106 chars wide
+    pub fn unleashed_claude_full() -> String {
+        FULL_ART.to_string()
+    }
+
+    /// Helper: parse ANSI art to ratatui Lines, skipping leading blanks
     #[cfg(feature = "tui")]
-    pub fn unleashed_claude_ratatui(max_lines: usize) -> Vec<RatatuiLine<'static>> {
-        let art = unleashed_claude();
-        let all_lines = super::parse_ansi_to_ratatui(&art);
-        // Skip leading blank lines to align art to top
+    fn to_ratatui(art: &str, max_lines: usize) -> Vec<RatatuiLine<'static>> {
+        let all_lines = super::parse_ansi_to_ratatui(art);
         all_lines
             .into_iter()
             .skip_while(|line| line.spans.iter().all(|s| s.content.trim().is_empty()))
@@ -681,117 +775,95 @@ pub mod mascots {
             .collect()
     }
 
-    /// Get unleashed Claude art with dynamic lava lamp colors - right facing
-    /// The animation_frame parameter controls the color cycling (idea by cac taurus)
+    /// Helper: parse with lava effect
+    #[cfg(feature = "tui")]
+    fn to_ratatui_lava(
+        art: &str,
+        max_lines: usize,
+        animation_frame: usize,
+    ) -> Vec<RatatuiLine<'static>> {
+        let all_lines = super::parse_ansi_to_ratatui_lava(art, animation_frame);
+        all_lines
+            .into_iter()
+            .skip_while(|line| line.spans.iter().all(|s| s.content.trim().is_empty()))
+            .take(max_lines)
+            .collect()
+    }
+
+    /// Helper: parse with theme shift
+    #[cfg(feature = "tui")]
+    fn to_ratatui_themed(
+        art: &str,
+        max_lines: usize,
+        shift: crate::theme::ThemeShift,
+    ) -> Vec<RatatuiLine<'static>> {
+        let all_lines = super::parse_ansi_to_ratatui_themed(art, shift);
+        all_lines
+            .into_iter()
+            .skip_while(|line| line.spans.iter().all(|s| s.content.trim().is_empty()))
+            .take(max_lines)
+            .collect()
+    }
+
+    // --- Right-facing ratatui variants ---
+
+    #[cfg(feature = "tui")]
+    pub fn unleashed_claude_ratatui(max_lines: usize) -> Vec<RatatuiLine<'static>> {
+        to_ratatui(&unleashed_claude(), max_lines)
+    }
+
     #[cfg(feature = "tui")]
     pub fn unleashed_claude_ratatui_lava(
         max_lines: usize,
         animation_frame: usize,
     ) -> Vec<RatatuiLine<'static>> {
-        let art = unleashed_claude();
-        let all_lines = super::parse_ansi_to_ratatui_lava(&art, animation_frame);
-        all_lines
-            .into_iter()
-            .skip_while(|line| line.spans.iter().all(|s| s.content.trim().is_empty()))
-            .take(max_lines)
-            .collect()
+        to_ratatui_lava(&unleashed_claude(), max_lines, animation_frame)
     }
 
-    /// Muscular Claude breaking chains - left facing version
-    pub fn unleashed_claude_left() -> String {
-        include_str!("assets/ct4-left.ans").to_string()
-    }
-
-    /// Get unleashed Claude art as ratatui Lines (parsed ANSI) - left facing
-    #[cfg(feature = "tui")]
-    pub fn unleashed_claude_left_ratatui(max_lines: usize) -> Vec<RatatuiLine<'static>> {
-        let art = unleashed_claude_left();
-        let all_lines = super::parse_ansi_to_ratatui(&art);
-        // Skip leading blank lines to align art to top
-        all_lines
-            .into_iter()
-            .skip_while(|line| line.spans.iter().all(|s| s.content.trim().is_empty()))
-            .take(max_lines)
-            .collect()
-    }
-
-    /// Get unleashed Claude art with dynamic lava lamp colors - left facing
-    /// The animation_frame parameter controls the color cycling (idea by cac taurus)
-    #[cfg(feature = "tui")]
-    pub fn unleashed_claude_left_ratatui_lava(
-        max_lines: usize,
-        animation_frame: usize,
-    ) -> Vec<RatatuiLine<'static>> {
-        let art = unleashed_claude_left();
-        let all_lines = super::parse_ansi_to_ratatui_lava(&art, animation_frame);
-        all_lines
-            .into_iter()
-            .skip_while(|line| line.spans.iter().all(|s| s.content.trim().is_empty()))
-            .take(max_lines)
-            .collect()
-    }
-
-    /// Get unleashed Claude art with theme hue rotation - right facing
     #[cfg(feature = "tui")]
     pub fn unleashed_claude_ratatui_themed(
         max_lines: usize,
         shift: crate::theme::ThemeShift,
     ) -> Vec<RatatuiLine<'static>> {
-        let art = unleashed_claude();
-        let all_lines = super::parse_ansi_to_ratatui_themed(&art, shift);
-        all_lines
-            .into_iter()
-            .skip_while(|line| line.spans.iter().all(|s| s.content.trim().is_empty()))
-            .take(max_lines)
-            .collect()
+        to_ratatui_themed(&unleashed_claude(), max_lines, shift)
     }
 
-    /// Get unleashed Claude art with theme hue rotation - left facing
+    // --- Left-facing ratatui variants ---
+
+    #[cfg(feature = "tui")]
+    pub fn unleashed_claude_left_ratatui(max_lines: usize) -> Vec<RatatuiLine<'static>> {
+        to_ratatui(&unleashed_claude_left(), max_lines)
+    }
+
+    #[cfg(feature = "tui")]
+    pub fn unleashed_claude_left_ratatui_lava(
+        max_lines: usize,
+        animation_frame: usize,
+    ) -> Vec<RatatuiLine<'static>> {
+        to_ratatui_lava(&unleashed_claude_left(), max_lines, animation_frame)
+    }
+
     #[cfg(feature = "tui")]
     pub fn unleashed_claude_left_ratatui_themed(
         max_lines: usize,
         shift: crate::theme::ThemeShift,
     ) -> Vec<RatatuiLine<'static>> {
-        let art = unleashed_claude_left();
-        let all_lines = super::parse_ansi_to_ratatui_themed(&art, shift);
-        all_lines
-            .into_iter()
-            .skip_while(|line| line.spans.iter().all(|s| s.content.trim().is_empty()))
-            .take(max_lines)
-            .collect()
+        to_ratatui_themed(&unleashed_claude_left(), max_lines, shift)
     }
 
-    /// Get full-figure Claude art with theme hue rotation
+    // --- Full-figure ratatui variants ---
+
+    #[cfg(feature = "tui")]
+    pub fn unleashed_claude_full_ratatui(max_lines: usize) -> Vec<RatatuiLine<'static>> {
+        to_ratatui(FULL_ART, max_lines)
+    }
+
     #[cfg(feature = "tui")]
     pub fn unleashed_claude_full_ratatui_themed(
         max_lines: usize,
         shift: crate::theme::ThemeShift,
     ) -> Vec<RatatuiLine<'static>> {
-        let art = unleashed_claude_full();
-        let all_lines = super::parse_ansi_to_ratatui_themed(&art, shift);
-        all_lines
-            .into_iter()
-            .skip_while(|line| line.spans.iter().all(|s| s.content.trim().is_empty()))
-            .take(max_lines)
-            .collect()
-    }
-
-    /// Full-figure Claude (both halves merged) - 106 chars wide
-    pub fn unleashed_claude_full() -> String {
-        include_str!("assets/ct4-full.ans").to_string()
-    }
-
-    /// Get full-figure Claude art as ratatui Lines (parsed ANSI)
-    #[cfg(feature = "tui")]
-    pub fn unleashed_claude_full_ratatui(max_lines: usize) -> Vec<RatatuiLine<'static>> {
-        let art = unleashed_claude_full();
-        let all_lines = super::parse_ansi_to_ratatui(&art);
-        // Skip leading blank lines to align art to top
-        all_lines
-            .into_iter()
-            .skip_while(|line| line.spans.iter().all(|s| s.content.trim().is_empty()))
-            .take(max_lines)
-            .collect()
+        to_ratatui_themed(FULL_ART, max_lines, shift)
     }
 
     /// Orange snail mascot for unleash
@@ -967,6 +1039,178 @@ mod tests {
             let art = mascots::unleashed_claude_left();
             assert!(!art.is_empty());
             assert!(art.contains('\x1b')); // Contains ANSI escape codes
+        }
+
+        #[test]
+        fn test_unleashed_claude_full_not_empty() {
+            let art = mascots::unleashed_claude_full();
+            assert!(!art.is_empty());
+            assert!(art.contains('\x1b'));
+        }
+    }
+
+    // --- split_ansi tests (non-TUI) ---
+
+    #[test]
+    fn test_split_ansi_line_plain_text() {
+        let (left, right) = split_ansi_line("ABCDEF", 3);
+        // Left gets first 3 visible chars + reset
+        assert!(left.starts_with("ABC"));
+        assert!(left.contains("\x1b[0m"));
+        // Right gets remaining 3 visible chars
+        assert!(right.contains("DEF"));
+    }
+
+    #[test]
+    fn test_split_ansi_line_preserves_color_state() {
+        // Red foreground applied before split point, text continues after
+        let line = "\x1b[38;2;255;0;0mABCDEF";
+        let (left, right) = split_ansi_line(line, 3);
+
+        // Left should have the red escape + ABC + reset
+        assert!(left.contains("ABC"));
+        assert!(left.contains("\x1b[38;2;255;0;0m"));
+        assert!(left.ends_with("\x1b[0m"));
+
+        // Right should replay the red state before DEF
+        assert!(right.contains("DEF"));
+        assert!(right.contains("\x1b[38;2;255;0;0m"));
+    }
+
+    #[test]
+    fn test_split_ansi_line_mid_color_change() {
+        // Color changes mid-line: first 2 chars red, last 2 blue
+        let line = "\x1b[38;2;255;0;0mAB\x1b[38;2;0;0;255mCD";
+        let (left, right) = split_ansi_line(line, 2);
+
+        // Left gets red AB
+        assert!(left.contains("AB"));
+        assert!(!left.contains("CD"));
+
+        // Right gets blue CD, and the blue state should be prepended
+        assert!(right.contains("CD"));
+        assert!(right.contains("\x1b[38;2;0;0;255m"));
+    }
+
+    #[test]
+    fn test_split_ansi_line_at_zero() {
+        let line = "\x1b[38;2;255;0;0mHello";
+        let (left, right) = split_ansi_line(line, 0);
+
+        // Left should have just the escape code (no visible chars) + reset
+        assert!(!left.contains("H"));
+        // Right gets everything
+        assert!(right.contains("Hello"));
+    }
+
+    #[test]
+    fn test_split_ansi_line_at_end() {
+        let line = "Hello";
+        let (left, right) = split_ansi_line(line, 5);
+
+        assert!(left.contains("Hello"));
+        // Strip the reset from right — should have no visible content
+        let right_visible: String = right.chars().filter(|c| *c != '\x1b')
+            .collect::<String>()
+            .replace("[0m", "");
+        assert!(right_visible.trim().is_empty());
+    }
+
+    #[test]
+    fn test_split_ansi_art_line_count() {
+        let art = "line1\nline2\nline3";
+        let (left, right) = split_ansi_art(art, 2);
+        assert_eq!(left.lines().count(), 3);
+        assert_eq!(right.lines().count(), 3);
+    }
+
+    #[test]
+    fn test_split_ansi_art_visible_chars_match_full() {
+        // The key invariant: stripping ANSI from left + right should equal
+        // stripping ANSI from the full art, for each line
+        let full = mascots::unleashed_claude_full();
+        let (left, right) = split_ansi_art(&full, 53);
+
+        fn strip_ansi(s: &str) -> String {
+            let mut result = String::new();
+            let mut chars = s.chars().peekable();
+            while let Some(ch) = chars.next() {
+                if ch == '\x1b' {
+                    // Skip until 'm'
+                    while let Some(c) = chars.next() {
+                        if c == 'm' { break; }
+                    }
+                } else {
+                    result.push(ch);
+                }
+            }
+            result
+        }
+
+        for (i, ((full_line, left_line), right_line)) in full.lines()
+            .zip(left.lines())
+            .zip(right.lines())
+            .enumerate()
+        {
+            let full_vis = strip_ansi(full_line);
+            let left_vis = strip_ansi(left_line);
+            let right_vis = strip_ansi(right_line);
+            assert_eq!(
+                format!("{}{}", left_vis, right_vis),
+                full_vis,
+                "Visible chars mismatch on line {i}"
+            );
+        }
+    }
+
+    #[test]
+    fn test_split_halves_have_correct_width() {
+        let full = mascots::unleashed_claude_full();
+        let (left, right) = split_ansi_art(&full, 53);
+
+        fn visible_width(line: &str) -> usize {
+            let mut count = 0;
+            let mut chars = line.chars().peekable();
+            while let Some(ch) = chars.next() {
+                if ch == '\x1b' {
+                    while let Some(c) = chars.next() {
+                        if c == 'm' { break; }
+                    }
+                } else {
+                    count += 1;
+                }
+            }
+            count
+        }
+
+        for (i, line) in left.lines().enumerate() {
+            let w = visible_width(line);
+            assert_eq!(w, 53, "Left half line {i} has width {w}, expected 53");
+        }
+        for (i, line) in right.lines().enumerate() {
+            let w = visible_width(line);
+            assert_eq!(w, 53, "Right half line {i} has width {w}, expected 53");
+        }
+    }
+
+    #[test]
+    fn test_split_right_half_has_ansi_escapes() {
+        // The right half should have escape codes (colors carried across the split)
+        let full = mascots::unleashed_claude_full();
+        let (_, right) = split_ansi_art(&full, 53);
+        assert!(right.contains('\x1b'), "Right half should contain ANSI escapes");
+    }
+
+    #[test]
+    fn test_split_left_lines_end_with_reset() {
+        // Every left-half line should end with a reset to prevent color bleed
+        let full = mascots::unleashed_claude_full();
+        let (left, _) = split_ansi_art(&full, 53);
+        for (i, line) in left.lines().enumerate() {
+            assert!(
+                line.ends_with("\x1b[0m"),
+                "Left half line {i} should end with reset"
+            );
         }
     }
 }
