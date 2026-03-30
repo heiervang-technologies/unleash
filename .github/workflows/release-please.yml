@@ -91,16 +91,16 @@ jobs:
         include:
           - target: x86_64-unknown-linux-gnu
             os: ubuntu-latest
-            artifact: unleash-linux-x86_64
+            suffix: linux-x86_64
           - target: aarch64-unknown-linux-gnu
             os: ubuntu-latest
-            artifact: unleash-linux-aarch64
+            suffix: linux-aarch64
           - target: x86_64-apple-darwin
             os: macos-latest
-            artifact: unleash-macos-x86_64
+            suffix: macos-x86_64
           - target: aarch64-apple-darwin
             os: macos-latest
-            artifact: unleash-macos-aarch64
+            suffix: macos-aarch64
     runs-on: ${{ matrix.os }}
     permissions:
       contents: write
@@ -123,14 +123,18 @@ jobs:
       - name: Build release
         run: cargo build --release --target ${{ matrix.target }}
 
-      - name: Rename binary
-        run: cp target/${{ matrix.target }}/release/unleash ${{ matrix.artifact }}
+      - name: Rename binaries
+        run: |
+          cp target/${{ matrix.target }}/release/unleash unleash-${{ matrix.suffix }}
+          cp target/${{ matrix.target }}/release/splash splash-${{ matrix.suffix }}
 
-      - name: Upload artifact
+      - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: ${{ matrix.artifact }}
-          path: ${{ matrix.artifact }}
+          name: binaries-${{ matrix.suffix }}
+          path: |
+            unleash-${{ matrix.suffix }}
+            splash-${{ matrix.suffix }}
 
   # Collect all binaries and upload to release
   upload-release:
@@ -148,7 +152,7 @@ jobs:
       - name: Generate checksums
         run: |
           cd binaries
-          sha256sum unleash-* > checksums.txt
+          sha256sum unleash-* splash-* > checksums.txt
           cat checksums.txt
 
       - name: Upload to release
@@ -160,4 +164,8 @@ jobs:
             binaries/unleash-linux-aarch64
             binaries/unleash-macos-x86_64
             binaries/unleash-macos-aarch64
+            binaries/splash-linux-x86_64
+            binaries/splash-linux-aarch64
+            binaries/splash-macos-x86_64
+            binaries/splash-macos-aarch64
             binaries/checksums.txt

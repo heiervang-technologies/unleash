@@ -522,83 +522,50 @@ install_claude_code() {
     success "Claude Code installed: v${new_version}"
 }
 
-# Download pre-built binary from GitHub releases
-# Tries: gh cli (best for private repos) -> GitHub API -> direct download
+# Download a single release asset by name
+# Usage: download_release_asset <version> <asset_name> <output_path>
+download_release_asset() {
+    local version="$1"
+    local asset_name="$2"
+    local output_path="$3"
+
+    # Method 1: Direct download URL (public repos)
+    local download_url="${REPO_URL}/releases/download/${version}/${asset_name}"
+    if download "$download_url" "$output_path" 2>/dev/null; then
+        if [[ -s "$output_path" ]] && ! file "$output_path" 2>/dev/null | grep -q "text\|HTML"; then
+            return 0
+        fi
+    fi
+
+    # Method 2: gh cli
+    if command -v gh &> /dev/null; then
+        local asset_id
+        asset_id=$(gh api "repos/${REPO_OWNER}/${REPO_NAME}/releases/tags/${version}" --jq ".assets[] | select(.name==\"${asset_name}\") | .id" 2>/dev/null)
+        if [[ -n "$asset_id" ]]; then
+            if gh api "repos/${REPO_OWNER}/${REPO_NAME}/releases/assets/${asset_id}" -H "Accept: application/octet-stream" > "$output_path" 2>/dev/null; then
+                return 0
+            fi
+        fi
+    fi
+
+    return 1
+}
+
+# Download pre-built binaries from GitHub releases
 download_binary() {
     local version="$1"
     local temp_dir
     temp_dir=$(mktemp -d)
 
-    info "Checking for pre-built binary..."
+    info "Downloading pre-built binaries for ${PLATFORM}-${ARCH}..."
 
-    local downloaded=false
-
-    # Method 1: Use gh cli if available (best for private repos, handles auth automatically)
-    if command -v gh &> /dev/null; then
-        # Get asset ID for our artifact
-        local asset_id
-        asset_id=$(gh api "repos/${REPO_OWNER}/${REPO_NAME}/releases/tags/${version}" --jq ".assets[] | select(.name==\"${ARTIFACT_NAME}\") | .id" 2>/dev/null)
-
-        if [[ -n "$asset_id" ]]; then
-            if gh api "repos/${REPO_OWNER}/${REPO_NAME}/releases/assets/${asset_id}" -H "Accept: application/octet-stream" > "${temp_dir}/unleash" 2>/dev/null; then
-                downloaded=true
-            fi
-        fi
-    fi
-
-    # Method 2: Use GitHub API with token (for private repos without gh cli)
-    if [[ "$downloaded" != "true" ]] && [[ -n "${GITHUB_TOKEN:-}" ]]; then
-        local api_url="https://api.github.com/repos/${REPO_OWNER}/${REPO_NAME}/releases/tags/${version}"
-        local release_json
-
-        if command -v curl &> /dev/null; then
-            release_json=$(curl -fsSL -H "Authorization: token $GITHUB_TOKEN" "$api_url" 2>/dev/null)
-        elif command -v wget &> /dev/null; then
-            release_json=$(wget -qO- --header="Authorization: token $GITHUB_TOKEN" "$api_url" 2>/dev/null)
-        fi
-
-        if [[ -n "$release_json" ]]; then
-            # Extract asset ID using grep/sed (works without jq)
-            local asset_id
-            # Find the asset block for our artifact and extract its ID
-            asset_id=$(echo "$release_json" | grep -o "\"id\":[0-9]*,\"node_id\":\"[^\"]*\",\"name\":\"${ARTIFACT_NAME}\"" | grep -o "\"id\":[0-9]*" | sed 's/"id"://')
-
-            if [[ -n "$asset_id" ]]; then
-                local asset_api_url="https://api.github.com/repos/${REPO_OWNER}/${REPO_NAME}/releases/assets/${asset_id}"
-
-                if command -v curl &> /dev/null; then
-                    if curl -fsSL -H "Authorization: token $GITHUB_TOKEN" -H "Accept: application/octet-stream" "$asset_api_url" -o "${temp_dir}/unleash" 2>/dev/null; then
-                        downloaded=true
-                    fi
-                elif command -v wget &> /dev/null; then
-                    if wget -q --header="Authorization: token $GITHUB_TOKEN" --header="Accept: application/octet-stream" "$asset_api_url" -O "${temp_dir}/unleash" 2>/dev/null; then
-                        downloaded=true
-                    fi
-                fi
-            fi
-        fi
-    fi
-
-    # Method 3: Direct download URL (works for public repos only)
-    if [[ "$downloaded" != "true" ]]; then
-        local download_url="${REPO_URL}/releases/download/${version}/${ARTIFACT_NAME}"
-        if download "$download_url" "${temp_dir}/unleash" 2>/dev/null; then
-            downloaded=true
-        fi
-    fi
-
-    if [[ "$downloaded" != "true" ]]; then
+    # Download unleash binary
+    if ! download_release_asset "$version" "${ARTIFACT_NAME}" "${temp_dir}/unleash"; then
         rm -rf "$temp_dir"
         return 1
     fi
 
-    # Verify we got a real binary, not an error page
-    if [[ ! -s "${temp_dir}/unleash" ]] || file "${temp_dir}/unleash" 2>/dev/null | grep -q "text\|HTML"; then
-        rm -rf "$temp_dir"
-        return 1
-    fi
-
-    # Try to verify checksum
+    # Verify checksum if available
     local checksums_url="${REPO_URL}/releases/download/${version}/checksums.txt"
     if download "$checksums_url" "${temp_dir}/checksums.txt" 2>/dev/null && [[ -s "${temp_dir}/checksums.txt" ]] && ! file "${temp_dir}/checksums.txt" 2>/dev/null | grep -q "HTML"; then
         local expected_checksum
@@ -608,20 +575,27 @@ download_binary() {
             actual_checksum=$(sha256sum "${temp_dir}/unleash" 2>/dev/null | cut -d' ' -f1 || shasum -a 256 "${temp_dir}/unleash" 2>/dev/null | cut -d' ' -f1)
             if [[ "$actual_checksum" != "$expected_checksum" ]]; then
                 error "Checksum verification failed for ${ARTIFACT_NAME}"
-                error "  Expected: $expected_checksum"
-                error "  Got:      $actual_checksum"
                 rm -rf "$temp_dir"
                 return 1
             fi
-            success "Checksum verified for ${ARTIFACT_NAME}"
+            success "Checksum verified"
         fi
     fi
 
     chmod +x "${temp_dir}/unleash"
     mv "${temp_dir}/unleash" "${INSTALL_DIR}/unleash"
+
+    # Download splash binary (optional — interactive installer)
+    local splash_name="splash-${PLATFORM}-${ARCH}"
+    if download_release_asset "$version" "$splash_name" "${temp_dir}/splash" 2>/dev/null; then
+        chmod +x "${temp_dir}/splash"
+        mv "${temp_dir}/splash" "${INSTALL_DIR}/splash"
+        success "Splash binary installed"
+    fi
+
     rm -rf "$temp_dir"
 
-    success "Binary downloaded and installed"
+    success "Binaries downloaded and installed"
     return 0
 }
 
@@ -641,10 +615,14 @@ build_from_source() {
     cd "$temp_dir"
     cargo build --release
 
-    # Install unleash binary
+    # Install binaries
     if [[ -f "target/release/unleash" ]]; then
         cp "target/release/unleash" "${INSTALL_DIR}/unleash"
         chmod +x "${INSTALL_DIR}/unleash"
+    fi
+    if [[ -f "target/release/splash" ]]; then
+        cp "target/release/splash" "${INSTALL_DIR}/splash"
+        chmod +x "${INSTALL_DIR}/splash"
     fi
 
     # Cleanup
@@ -810,9 +788,30 @@ main() {
     show_path_instructions
 
     # Interactive mode: run the splash to pick default agent
-    if [[ "$BORING" == "0" ]] && [[ -x "${INSTALL_DIR}/unleash" ]]; then
-        info "Launching interactive setup..."
-        exec "${INSTALL_DIR}/unleash"
+    if [[ "$BORING" == "0" ]]; then
+        if [[ -x "${INSTALL_DIR}/splash" ]]; then
+            info "Launching interactive setup..."
+            SELECTED_AGENT=$("${INSTALL_DIR}/splash") || true
+            if [[ -n "${SELECTED_AGENT:-}" ]]; then
+                info "Default profile set to $SELECTED_AGENT"
+                # Set default profile in config
+                local config_dir="${HOME}/.config/unleash"
+                local config_file="${config_dir}/config.toml"
+                mkdir -p "$config_dir"
+                if [[ -f "$config_file" ]]; then
+                    if grep -q "^current_profile" "$config_file"; then
+                        sed -i "s/^current_profile.*/current_profile = \"$SELECTED_AGENT\"/" "$config_file"
+                    else
+                        echo "current_profile = \"$SELECTED_AGENT\"" >> "$config_file"
+                    fi
+                else
+                    echo "current_profile = \"$SELECTED_AGENT\"" > "$config_file"
+                fi
+            fi
+        elif [[ -x "${INSTALL_DIR}/unleash" ]]; then
+            info "Launching TUI..."
+            exec "${INSTALL_DIR}/unleash"
+        fi
     fi
 
     # Non-interactive (--boring) completion message
