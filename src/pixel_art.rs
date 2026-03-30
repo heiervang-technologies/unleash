@@ -734,8 +734,9 @@ pub mod mascots {
     /// Left and right halves are derived at runtime via `split_ansi_art`.
     const FULL_ART: &str = include_str!("assets/mascot.claude.ans");
 
-    /// Half-width in visible columns (106 / 2 = 53, matches ART_WIDTH in TUI)
-    const HALF_WIDTH: usize = 53;
+    /// Half-width in visible columns (106 / 2 = 53).
+    /// Used by both the TUI and splash binary.
+    pub const HALF_WIDTH: usize = 53;
 
     /// Right-facing half (columns 53..106 of the full art)
     pub fn unleashed_claude() -> String {

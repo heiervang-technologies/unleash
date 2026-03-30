@@ -99,28 +99,26 @@ while [[ $# -gt 0 ]]; do
     esac
 done
 
-# Interactive splash screen
+# Interactive splash screen — use the splash binary if available
 if $INTERACTIVE; then
-    clear
-    # Display the muscular Claude ANSI art
-    if [[ -f "$REPO_ROOT/src/assets/mascot.claude.ans" ]]; then
-        cat "$REPO_ROOT/src/assets/mascot.claude.ans"
-    else
-        # Fallback ASCII art if ANSI art file not found
-        echo ""
-        echo "   ╭─────────────────────────────────────╮"
-        echo "   │                                     │"
-        echo "   │         ⚡ UNLEASH ⚡               │"
-        echo "   │                                     │"
-        echo "   │      Breaking free from limits      │"
-        echo "   │                                     │"
-        echo "   ╰─────────────────────────────────────╯"
-        echo ""
+    SPLASH_BIN="${REPO_ROOT}/target/release/splash"
+    if [[ ! -x "$SPLASH_BIN" ]]; then
+        SPLASH_BIN="${BIN_DIR}/splash"
     fi
-    echo ""
-    echo -e "${GREEN}Press Enter to unleash the agent...${NC}"
-    read -r
-    clear
+    if [[ -x "$SPLASH_BIN" ]]; then
+        SELECTED_AGENT=$("$SPLASH_BIN") || exit 0
+        info "Selected agent: $SELECTED_AGENT"
+    else
+        # Fallback if splash binary not built yet
+        clear
+        if [[ -f "$REPO_ROOT/src/assets/mascot.claude.ans" ]]; then
+            cat "$REPO_ROOT/src/assets/mascot.claude.ans"
+        fi
+        echo ""
+        echo -e "${GREEN}Press Enter to continue...${NC}"
+        read -r
+        clear
+    fi
 fi
 
 echo ""

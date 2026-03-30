@@ -29,8 +29,8 @@ use std::time::{Duration, Instant};
 /// Receiver type for async version-list fetches.
 type VersionListReceiver = Receiver<(AgentType, Vec<VersionInfo>, Vec<ConflictEntry>)>;
 
-/// Width of the ANSI art sidebar (both left and right versions are the same width)
-const ART_WIDTH: u16 = 53;
+/// Width of the ANSI art sidebar — derived from the shared mascot constant.
+const ART_WIDTH: u16 = crate::pixel_art::mascots::HALF_WIDTH as u16;
 
 /// Duration of slide animation in milliseconds
 const ANIMATION_DURATION_MS: u64 = 600;

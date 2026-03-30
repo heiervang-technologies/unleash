@@ -14,14 +14,13 @@ mod hyprland;
 mod input;
 mod json_output;
 mod launcher;
-mod pixel_art;
+pub mod pixel_art;
 mod polyfill;
 mod progress;
 mod updater;
 #[cfg(feature = "tui")]
 mod text_input;
-#[cfg(feature = "tui")]
-mod theme;
+pub mod theme;
 #[cfg(feature = "tui")]
 mod tui;
 mod interchange;
