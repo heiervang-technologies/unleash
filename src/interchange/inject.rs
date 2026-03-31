@@ -562,8 +562,25 @@ fn extract_session_id(records: &[HubRecord]) -> String {
 }
 
 fn encode_claude_project_path(dir: &str) -> String {
-    // Claude encodes /home/me/project as -home-me-project (leading dash, slashes to dashes)
-    dir.replace('/', "-")
+    // Claude replaces ALL non-alphanumeric chars with dashes, and truncates at 200 chars with hash
+    let encoded: String = dir
+        .chars()
+        .map(|c| if c.is_ascii_alphanumeric() { c } else { '-' })
+        .collect();
+    if encoded.len() > 200 {
+        let hash = simple_hash(&encoded);
+        format!("{}-{:x}", &encoded[..200], hash)
+    } else {
+        encoded
+    }
+}
+
+fn simple_hash(s: &str) -> u64 {
+    let mut h: u64 = 0;
+    for b in s.bytes() {
+        h = h.wrapping_mul(31).wrapping_add(b as u64);
+    }
+    h
 }
 
 fn uuid_v4() -> String {

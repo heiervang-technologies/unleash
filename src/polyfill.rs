@@ -208,7 +208,7 @@ mod tests {
             ..default_flags()
         };
         let inv = resolve(&config, &flags, &[]);
-        assert!(inv.args.contains(&"-m".to_string()));
+        assert!(inv.args.contains(&"--model".to_string()));
         assert!(inv.args.contains(&"opus".to_string()));
     }
 
@@ -219,17 +219,17 @@ mod tests {
             model: Some("opus".to_string()),
             ..default_flags()
         };
-        let existing = vec!["-m".to_string()];
+        let existing = vec!["--model".to_string()];
         let inv = resolve(&config, &flags, &existing);
-        // Should not add -m again
-        assert!(!inv.args.contains(&"-m".to_string()));
+        // Should not add --model again
+        assert!(!inv.args.contains(&"--model".to_string()));
     }
 
     #[test]
     fn test_model_not_added_when_none() {
         let config = AgentDefinition::claude().polyfill;
         let inv = resolve(&config, &default_flags(), &[]);
-        assert!(!inv.args.contains(&"-m".to_string()));
+        assert!(!inv.args.contains(&"--model".to_string()));
     }
 
     // ── Continue / Resume ────────────────────────────────────
@@ -436,7 +436,7 @@ mod tests {
             ..default_flags()
         };
         let inv = resolve(&config, &flags, &[]);
-        assert!(inv.args.contains(&"-m".to_string()));
+        assert!(inv.args.contains(&"--model".to_string()));
         assert!(inv.args.contains(&"sonnet".to_string()));
         assert!(inv.args.contains(&"--effort".to_string()));
         assert!(inv.args.contains(&"low".to_string()));

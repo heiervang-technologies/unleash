@@ -40,6 +40,11 @@ runtime environment.
 | `AGENT_WRAPPER_PID` | PID of the wrapper process (used by plugins and Hyprland focus) |
 | `AGENT_UNLEASH_ROOT` | Path to the unleash installation directory |
 | `UNLEASH_POLYFILL_ACTIVE` | Set to `1` when polyfill flag translation is active |
+| `DISABLE_TELEMETRY` | Blocks all Claude Code analytics/telemetry (set to `1`) |
+| `CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC` | Blocks Claude Code analytics, auto-updates, release notes, feature flags (set to `1`) |
+| `GEMINI_TELEMETRY_ENABLED` | Gemini CLI telemetry master switch (set to `false`) |
+| `OPENCODE_DISABLE_SHARE` | Blocks OpenCode session sharing (set to `1`) |
+| `OPENCODE_DISABLE_AUTOUPDATE` | Blocks OpenCode update checks (set to `1`) |
 | `BASH_DEFAULT_TIMEOUT_MS` | Default bash timeout for agent tools (set to `999999999` ~11.5 days) |
 | `BASH_MAX_TIMEOUT_MS` | Max bash timeout (set to `999999999`) |
 | `MCP_TOOL_TIMEOUT` | MCP tool timeout (set to `999999999`) |

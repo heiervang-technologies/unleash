@@ -1,7 +1,7 @@
 # Claude Code Conversation Storage Format
 
 > **Internal developer reference for unleash contributors.**
-> Last verified: 2026-03-29, Claude Code v2.1.87
+> Last verified: 2026-03-31, verified against source
 
 ---
 
@@ -17,23 +17,34 @@ All Claude Code persistent data lives under `~/.claude/`.
 │       ├── <SESSION_UUID>/
 │       │   └── subagents/
 │       │       └── agent-<ID>.jsonl   # Subagent (tool-spawned) transcripts
+│       │       └── agent-<ID>.meta.json  # Subagent metadata
 │       └── memory/
 │           └── MEMORY.md              # Auto-persisted project memory
 ├── sessions/                          # Active session metadata
 │   └── <PID>.json                     # One file per running process
-├── history.jsonl                      # Global conversation index
+├── history.jsonl                      # Prompt history for search/recall
+├── paste-cache/                       # Content-addressed storage for large pastes
+├── image-cache/                       # Per-session image storage
+│   └── <SESSION_ID>/
+├── tool-results/                      # Externalized tool result storage
+├── remote-agents/                     # Remote agent connection metadata
+├── workflows/                         # Workflow run grouping
+│   └── <RUN_ID>/
 ├── settings.json                      # User-level settings
 └── CLAUDE.md                          # User-level global instructions
 ```
 
 ### Path encoding
 
-Project directories use the absolute path with `/` replaced by `-` and the leading slash dropped. Examples:
+Project directories use the absolute path with **all non-alphanumeric characters** replaced by `-` (regex `[^a-zA-Z0-9]` -> `-`). Paths exceeding 200 characters are truncated and suffixed with a hash to avoid collisions.
+
+Examples:
 
 | Actual path | Encoded directory name |
 |---|---|
 | `/home/me/ht/unleash` | `-home-me-ht-unleash` |
 | `/home/me/projects/foo` | `-home-me-projects-foo` |
+| `/home/me/projects/foo.bar` | `-home-me-projects-foo-bar` |
 
 ---
 
@@ -49,17 +60,29 @@ Each conversation is a single **JSONL** (JSON Lines) file named `<UUID>.jsonl`. 
 
 UUIDs are v4 format. File size grows unbounded for the lifetime of a session; there is no rotation or splitting.
 
+**Write batching**: Writes are queued in memory and flushed at 100ms intervals. The JSONL file is not immediately consistent with in-memory state; there is a brief window where the most recent entries have not yet been written to disk.
+
 ### History index
 
-`~/.claude/history.jsonl` is a separate JSONL file where each line records a past conversation for display in the session picker. Fields:
+`~/.claude/history.jsonl` is a JSONL file used for **prompt history search** (the fuzzy-search session picker). Each line records a past conversation. This file is NOT used by `--continue` to find the most recent session (see Section 7).
 
 | Field | Type | Description |
 |---|---|---|
 | `display` | string | First user message (truncated), shown in picker UI |
-| `pastedContents` | string[] | Any pasted text from that first message |
-| `timestamp` | string | ISO 8601 timestamp |
+| `pastedContents` | `Record<number, StoredPastedContent>` | Pasted content from that first message (see below) |
+| `timestamp` | number | Epoch milliseconds |
 | `project` | string | Encoded project path |
 | `sessionId` | string | UUID linking to the `.jsonl` transcript |
+
+**`StoredPastedContent` structure**: Each entry in `pastedContents` is keyed by a numeric ID and contains:
+
+| Field | Type | Description |
+|---|---|---|
+| `id` | number | Paste identifier |
+| `type` | string | Paste type |
+| `content` / `contentHash` | string | Inline content for small pastes, or a content-addressed hash for large pastes stored in `~/.claude/paste-cache/` |
+| `mediaType` | string | MIME type of the pasted content |
+| `filename` | string | Original filename if applicable |
 
 ### Session metadata
 
@@ -70,9 +93,17 @@ UUIDs are v4 format. File size grows unbounded for the lifetime of a session; th
 | `pid` | number | OS process ID |
 | `sessionId` | string | UUID of the active conversation |
 | `cwd` | string | Working directory |
-| `startedAt` | string | ISO 8601 start time |
+| `startedAt` | number | Epoch milliseconds |
 | `kind` | string | Session type (e.g. `"interactive"`, `"headless"`) |
-| `entrypoint` | string | How Claude Code was launched (e.g. `"cli"`, `"sdk"`) |
+| `entrypoint` | string | How Claude Code was launched (e.g. `"cli"`, `"sdk-ts"`, `"sdk-py"`) |
+| `messagingSocketPath` | string | Unix socket path for IPC messaging |
+| `name` | string | Session display name |
+| `logPath` | string | Path to session log file |
+| `agent` | boolean | Whether this is an agent/subagent session |
+| `status` | string | Current status: `"busy"`, `"idle"`, or `"waiting"` |
+| `waitingFor` | string | What the session is waiting for (when status is `"waiting"`) |
+| `updatedAt` | number | Epoch milliseconds of last status update |
+| `bridgeSessionId` | string | Session ID of the bridge connection (if applicable) |
 
 These files are cleaned up when the process exits normally. Stale files from crashed processes may linger.
 
@@ -102,6 +133,7 @@ Every line in a `.jsonl` transcript shares these **universal top-level fields**:
 | `type` | string | yes | Message type discriminator (see Section 4) |
 | `uuid` | string | yes | Unique ID for this message |
 | `parentUuid` | string | yes | UUID of the preceding message in the conversation chain |
+| `logicalParentUuid` | string | no | UUID of the logical parent (may differ from `parentUuid` in branched conversations) |
 | `timestamp` | string | yes | ISO 8601 with milliseconds |
 | `sessionId` | string | yes | Session UUID this message belongs to |
 | `version` | string | yes | Claude Code version that wrote this line |
@@ -110,10 +142,22 @@ Every line in a `.jsonl` transcript shares these **universal top-level fields**:
 | `isSidechain` | boolean | yes | `true` if this message is part of a branched/sidechain conversation |
 | `userType` | string | yes | `"external"` for human, `"internal"` for system-generated |
 | `promptId` | string | no | Links related request/response pairs in the same exchange |
+| `agentId` | string | no | Identifier of the agent that produced this message |
+| `teamName` | string | no | Team name in multi-agent contexts |
+| `agentName` | string | no | Display name of the agent |
+| `agentColor` | string | no | UI color assigned to the agent |
+| `entrypoint` | string | no | How the session was launched: `"cli"`, `"sdk-ts"`, `"sdk-py"`, etc. |
+| `slug` | string | no | Short identifier slug |
+| `sourceToolAssistantUUID` | string | no | UUID of the assistant message whose tool call produced this message |
+| `isMeta` | boolean | no | `true` on user messages that are system-generated metadata, not actual human input |
 
 ---
 
 ## 4. Message Types
+
+### Transcript message types
+
+Only four message types are persisted to the conversation transcript: `user`, `assistant`, `attachment`, and `system`. Other entry types (metadata, state) are also stored in the JSONL file but are not part of the conversational transcript.
 
 ### `user`
 
@@ -132,40 +176,44 @@ Human input. `role` is always `"user"`.
 - A **string** for plain text input
 - An **array** of content blocks when delivering tool results back to the model (see Section 5)
 
+The `isMeta` field, when `true`, indicates this is a system-generated metadata message rather than actual human input.
+
 ### `assistant`
 
-Model response. Contains the full API response envelope.
+Model response. The API response fields (`role`, `content`, `model`, `usage`, `stop_reason`, `id`) are nested inside a `message` sub-object:
 
 ```json
 {
   "type": "assistant",
-  "role": "assistant",
-  "model": "claude-opus-4-6-20250327",
-  "id": "msg_01ABC...",
-  "content": [
-    {
-      "type": "thinking",
-      "thinking": "Let me examine the config...",
-      "signature": "ErUBCkYI..."
-    },
-    {
-      "type": "text",
-      "text": "Here is the config file contents:"
-    },
-    {
-      "type": "tool_use",
-      "id": "toolu_01XYZ...",
-      "name": "Read",
-      "input": { "file_path": "/home/me/.config/app/config.json" }
-    }
-  ],
-  "usage": { ... },
-  "stop_reason": "tool_use",
+  "message": {
+    "role": "assistant",
+    "model": "claude-opus-4-6-20250327",
+    "id": "msg_01ABC...",
+    "content": [
+      {
+        "type": "thinking",
+        "thinking": "Let me examine the config...",
+        "signature": "ErUBCkYI..."
+      },
+      {
+        "type": "text",
+        "text": "Here is the config file contents:"
+      },
+      {
+        "type": "tool_use",
+        "id": "toolu_01XYZ...",
+        "name": "Read",
+        "input": { "file_path": "/home/me/.config/app/config.json" }
+      }
+    ],
+    "usage": { ... },
+    "stop_reason": "tool_use"
+  },
   ...universal fields
 }
 ```
 
-Key fields:
+Key fields inside `message`:
 
 | Field | Type | Description |
 |---|---|---|
@@ -175,9 +223,21 @@ Key fields:
 | `usage` | object | Token counts (see Section 6) |
 | `stop_reason` | string | `"end_turn"`, `"tool_use"`, `"max_tokens"`, `"stop_sequence"` |
 
+### `attachment`
+
+File attachments and hook outputs. This is the fourth transcript message type, used to carry file content, hook output, and other attached data into the conversation.
+
+```json
+{
+  "type": "attachment",
+  "content": "...",
+  ...universal fields
+}
+```
+
 ### `system`
 
-Internal system events, not shown to users.
+Internal system events. These are persisted to the transcript.
 
 ```json
 {
@@ -191,21 +251,51 @@ Internal system events, not shown to users.
 
 | Field | Type | Description |
 |---|---|---|
-| `subtype` | string | Event category (e.g. `"local_command"`) |
+| `subtype` | string | Event category (see below) |
 | `content` | string | Human-readable description |
 | `level` | string | Severity: `"info"`, `"warning"`, `"error"` |
 
+**System message subtypes**:
+
+| Subtype | Description |
+|---|---|
+| `informational` | General informational message |
+| `permission_retry` | Permission was denied, retrying |
+| `bridge_status` | Bridge connection status change |
+| `scheduled_task_fire` | A scheduled task was triggered |
+| `stop_hook_summary` | Summary from a Stop hook execution |
+| `turn_duration` | Turn timing information |
+| `away_summary` | Summary of activity while user was away |
+| `memory_saved` | Memory was persisted |
+| `agents_killed` | Subagents were terminated |
+| `api_metrics` | API performance metrics |
+| `local_command` | Local shell command was executed |
+| `compact_boundary` | Marks a compaction point in the transcript |
+| `microcompact_boundary` | Lighter compaction that clears specific tool results |
+| `api_error` | API error encountered |
+
+### `tombstone`
+
+Marks a message as deleted or invalidated. Used for message deletion and content replacement workflows.
+
+```json
+{
+  "type": "tombstone",
+  "targetUuid": "uuid-of-deleted-message",
+  ...universal fields
+}
+```
+
 ### `progress`
 
-Hook lifecycle events emitted by the plugin/hook system.
+Hook lifecycle events emitted by the plugin/hook system. **Note**: `progress` messages are NOT persisted to the transcript. They are transient events used during execution. Old transcripts may contain `progress` entries from earlier versions, but these are bridged/skipped on load.
 
 ```json
 {
   "type": "progress",
   "hookEvent": "PreToolUse",
   "toolName": "Bash",
-  "hookResult": { "decision": "approve" },
-  ...universal fields
+  "hookResult": { "decision": "approve" }
 }
 ```
 
@@ -230,32 +320,46 @@ Tracks queue state changes (relevant to auto-mode and message queuing).
 
 ### `file-history-snapshot`
 
-Captures file state for undo/restore functionality.
+Captures file state references for undo/restore functionality. Stores backup references, not inline content.
 
 ```json
 {
   "type": "file-history-snapshot",
-  "files": {
-    "/home/me/ht/unleash/src/lib.rs": {
-      "content": "...",
-      "hash": "abc123..."
-    }
-  },
+  "messageId": "uuid-of-associated-message",
+  "trackedFileBackups": [ ... ],
+  "timestamp": "2026-03-29T10:15:30.123Z",
   ...universal fields
 }
 ```
 
+| Field | Type | Description |
+|---|---|---|
+| `messageId` | string | UUID of the message this snapshot is associated with |
+| `trackedFileBackups` | array | List of backup file references |
+| `timestamp` | string | When the snapshot was taken |
+
 ### Metadata-only types
 
-These carry no conversational content. They store UI/session state inline in the transcript:
+These carry no conversational content. They store UI/session state inline in the JSONL file:
 
-| Type | Purpose | Key field |
+| Type | Purpose | Key field(s) |
 |---|---|---|
 | `pr-link` | GitHub PR URL associated with session | `url` |
 | `custom-title` | User-set conversation title | `title` |
 | `agent-name` | Display name for the agent | `name` |
 | `agent-color` | UI color preference | `color` |
 | `last-prompt` | Caches the most recent user prompt | `prompt` |
+| `ai-title` | AI-generated conversation title | `title` |
+| `task-summary` | AI-generated summary of the task | `summary` |
+| `tag` | Tags/labels applied to the session | `tag` |
+| `agent-setting` | Agent configuration change | setting key/value |
+| `attribution-snapshot` | Snapshot of file attribution state | attribution data |
+| `speculation-accept` | Speculative execution acceptance | speculation data |
+| `mode` | Mode change record (e.g. auto-mode toggle) | `mode` |
+| `worktree-state` | Git worktree state snapshot | worktree data |
+| `content-replacement` | Content replacement/substitution record | replacement data |
+| `marble-origami-commit` | Commit event in marble-origami workflow | commit data |
+| `marble-origami-snapshot` | Snapshot in marble-origami workflow | snapshot data |
 
 ---
 
@@ -265,7 +369,7 @@ Tool interactions span two messages: an `assistant` message containing `tool_use
 
 ### Tool Use (assistant -> tool)
 
-Appears as a content block inside an `assistant` message:
+Appears as a content block inside an `assistant` message's `message.content` array:
 
 ```json
 {
@@ -335,15 +439,29 @@ Some tool result messages include a `toolUseResult` object with execution metada
 
 ## 6. Token Tracking
 
-Every `assistant` message includes a `usage` object:
+Every `assistant` message includes a `usage` object nested inside `message`:
 
 ```json
 {
-  "usage": {
-    "input_tokens": 15234,
-    "output_tokens": 892,
-    "cache_creation_input_tokens": 4096,
-    "cache_read_input_tokens": 11138
+  "type": "assistant",
+  "message": {
+    "usage": {
+      "input_tokens": 15234,
+      "output_tokens": 892,
+      "cache_creation_input_tokens": 4096,
+      "cache_read_input_tokens": 11138,
+      "server_tool_use": {
+        "web_search_requests": 2,
+        "web_fetch_requests": 1
+      },
+      "service_tier": "standard",
+      "cache_creation": {
+        "ephemeral_1h_input_tokens": 1024,
+        "ephemeral_5m_input_tokens": 512
+      },
+      "inference_geo": "us"
+    },
+    ...
   }
 }
 ```
@@ -354,10 +472,21 @@ Every `assistant` message includes a `usage` object:
 | `output_tokens` | number | Tokens generated in the response |
 | `cache_creation_input_tokens` | number | Tokens written to prompt cache this turn |
 | `cache_read_input_tokens` | number | Tokens served from prompt cache |
+| `server_tool_use` | object | Server-side tool usage counts (`web_search_requests`, `web_fetch_requests`) |
+| `service_tier` | string | API service tier used for the request |
+| `cache_creation` | object | Granular cache creation breakdown (`ephemeral_1h_input_tokens`, `ephemeral_5m_input_tokens`) |
+| `inference_geo` | string | Geographic region where inference ran |
+
+Additional session-level tracking fields may appear on assistant messages:
+
+| Field | Type | Description |
+|---|---|---|
+| `iterations` | number | Number of agentic loop iterations in this turn |
+| `speed` | number | Tokens per second |
 
 **Cost calculation**: Total input = `input_tokens + cache_creation_input_tokens + cache_read_input_tokens`. Cache reads are billed at reduced rate. Cache creation tokens are billed at a premium over standard input.
 
-Summing `usage` across all `assistant` messages in a transcript gives total session consumption.
+Summing `usage` objects across all `assistant` messages in a transcript gives total session consumption.
 
 ---
 
@@ -370,10 +499,13 @@ Each conversation is identified by a v4 UUID, stored as `sessionId` in every mes
 ### Continuing sessions
 
 The `--continue` flag (or `-c`) resumes the most recent session. Claude Code:
-1. Reads `~/.claude/history.jsonl` to find the latest `sessionId`
-2. Loads the corresponding `.jsonl` file
-3. Replays the conversation into context
-4. Appends new messages to the same file
+1. Scans the project directory (`~/.claude/projects/<path>/`) for `.jsonl` files
+2. Selects the most recently modified file by **filesystem modification time**
+3. Loads the corresponding `.jsonl` file
+4. Replays the conversation into context
+5. Appends new messages to the same file
+
+**Note**: `history.jsonl` is NOT used by `--continue`. It serves only as the prompt history index for the fuzzy session picker. Session resumption is based on filesystem mtime of `.jsonl` transcript files.
 
 A specific session can be resumed by `--session <UUID>`.
 
@@ -383,21 +515,26 @@ When Claude Code spawns a subagent (e.g. via the Agent tool), the subagent's tra
 
 ```
 <SESSION_UUID>/subagents/agent-<ID>.jsonl
+<SESSION_UUID>/subagents/agent-<ID>.meta.json
 ```
 
-The `<ID>` is an incrementing integer. Subagent transcripts follow the same JSONL schema. The parent transcript references subagent results through tool_result messages.
+The `<ID>` is an incrementing integer. Subagent transcripts follow the same JSONL schema. The `.meta.json` file contains agent metadata (name, role, configuration). The parent transcript references subagent results through tool_result messages.
 
 ### Session lifecycle
 
 ```
 Process starts
-  → Creates ~/.claude/sessions/<PID>.json
-  → Creates or appends to ~/.claude/projects/<path>/<UUID>.jsonl
-  → Appends to ~/.claude/history.jsonl
+  -> Creates ~/.claude/sessions/<PID>.json
+  -> Creates or appends to ~/.claude/projects/<path>/<UUID>.jsonl
+  -> Appends to ~/.claude/history.jsonl (for prompt search)
+
+During session
+  -> Updates ~/.claude/sessions/<PID>.json (status, updatedAt)
+  -> Writes are batched in memory, flushed every 100ms
 
 Process exits
-  → Removes ~/.claude/sessions/<PID>.json
-  → Transcript file remains permanently
+  -> Removes ~/.claude/sessions/<PID>.json
+  -> Transcript file remains permanently
 ```
 
 ---
@@ -409,7 +546,7 @@ Claude Code scopes conversations and configuration by project path.
 ```
 ~/.claude/projects/-home-me-ht-unleash/
 ├── *.jsonl                    # Conversation transcripts
-├── */subagents/               # Subagent transcripts
+├── */subagents/               # Subagent transcripts + meta files
 ├── memory/
 │   └── MEMORY.md             # Auto-persisted learnings
 └── settings.json             # Project-level settings (optional)
@@ -510,7 +647,7 @@ Images appear as content blocks within message arrays, typically in `tool_result
 
 ### Storage implications
 
-Images are stored inline as base64 in the JSONL transcript. There is no external blob storage or deduplication. A single screenshot can add 1-5 MB to the transcript. This is the primary driver of large transcript files.
+Images are stored inline as base64 in the JSONL transcript, with additional caching in `~/.claude/image-cache/<session-id>/`. A single screenshot can add 1-5 MB to the transcript. This is the primary driver of large transcript files.
 
 When reading transcripts programmatically, be prepared for very long lines containing base64 image data.
 
@@ -544,7 +681,7 @@ Long tool outputs may be truncated by Claude Code before storage. When this happ
 
 If Claude Code crashes or is killed (SIGKILL), the last line of the JSONL file may be:
 - Truncated (invalid JSON) - the line was being written when the process died
-- Missing entirely - the message was buffered but not flushed
+- Missing entirely - the message was buffered but not flushed (writes are batched at 100ms intervals)
 
 Parsers should handle malformed trailing lines gracefully. All preceding lines will be valid JSON.
 
@@ -563,7 +700,7 @@ Failed tool executions produce an `is_error` field in the tool_result:
 
 ### Stop reasons
 
-The `stop_reason` field on assistant messages indicates why generation stopped:
+The `stop_reason` field on assistant messages (inside `message`) indicates why generation stopped:
 
 | Value | Meaning |
 |---|---|
@@ -577,10 +714,14 @@ The `stop_reason` field on assistant messages indicates why generation stopped:
 ## Appendix: Parsing Tips for unleash Developers
 
 1. **Line-by-line processing**: Each JSONL line is independent. Use streaming parsers for large files.
-2. **Type dispatch**: Switch on the `type` field first, then handle type-specific fields.
-3. **Reconstruct conversations**: Follow `parentUuid` chains to build the message tree. `isSidechain` marks branched explorations.
+2. **Type dispatch**: Switch on the `type` field first, then handle type-specific fields. Only `user`, `assistant`, `attachment`, and `system` are transcript messages; other types are metadata/state entries.
+3. **Reconstruct conversations**: Follow `parentUuid` chains to build the message tree. `isSidechain` marks branched explorations. Use `logicalParentUuid` when available for logical ordering.
 4. **Correlate tool calls**: Match `tool_use.id` in assistant messages to `tool_result.tool_use_id` in the next user message.
-5. **Calculate costs**: Sum `usage` objects across all assistant messages. Apply per-model pricing.
+5. **Calculate costs**: Sum `usage` objects (inside `message`) across all assistant messages. Apply per-model pricing.
 6. **Handle images**: Skip or truncate base64 `data` fields when you don't need image content. They dominate file size.
-7. **Detect active sessions**: Cross-reference `~/.claude/sessions/*.json` with transcript `sessionId` values to find live conversations.
+7. **Detect active sessions**: Cross-reference `~/.claude/sessions/*.json` with transcript `sessionId` values to find live conversations. Check the `status` field for busy/idle/waiting state.
 8. **promptId grouping**: Messages sharing the same `promptId` belong to the same request-response exchange (user prompt + assistant reply + tool calls within that turn).
+9. **Handle tombstones**: When processing transcripts, check for `tombstone` entries that invalidate earlier messages by `targetUuid`.
+10. **Write consistency**: Due to 100ms write batching, the on-disk file may lag slightly behind the in-memory state. Account for this when reading transcripts of active sessions.
+11. **Progress entries**: Skip `progress` type entries when loading transcripts. They are not part of the conversation and are only present in older transcripts.
+12. **Assistant message nesting**: Remember that `role`, `content`, `model`, `usage`, and `stop_reason` are inside `message`, not at the top level of assistant entries.

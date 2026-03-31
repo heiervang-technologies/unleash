@@ -6,8 +6,13 @@ Reference documentation for unleash developers. Not user-facing.
 
 ### Claude Code (`claude-code/`)
 
-- [CLI Format](claude-code/CLI_FORMAT.md) — JSONL transcripts, 12+ message types
+- [CLI Format](claude-code/CLI_FORMAT.md) — JSONL transcripts, 12+ message types, path encoding, source-verified
 - [XML Message Signatures](claude-code/XML_MESSAGE_SIGNATURES.md) — Native XML tags for custom rendering and agent messages
+- [Hooks](claude-code/HOOKS.md) — All 27 hook events, 4 types, input/output schemas, asyncRewake, once flag
+- [Telemetry](claude-code/TELEMETRY.md) — All telemetry systems, env vars to block them, Statsig + OTEL details
+- [Plugins](claude-code/PLUGINS.md) — `--plugin-dir` internals, manifest schema, hooks.json format, `${CLAUDE_PLUGIN_ROOT}`
+- [Tools](claude-code/TOOLS.md) — Built-in tool names, input schemas, hook matcher patterns, allowed-tools
+- [Plugin Development Guide](claude-code/plugin-development.md) — Developer workflow: scaffolding, testing, PR process
 
 ### Codex (`codex/`)
 
