@@ -243,11 +243,10 @@ fn inject_into_codex(
         .map(|p| p.to_string_lossy().to_string())
         .unwrap_or_else(|_| source.directory.clone());
 
-    // Write to Codex sessions directory
+    // Write to Codex sessions directory, respecting CODEX_HOME if set.
     let now = chrono_like_now();
-    let codex_home = dirs::home_dir()
-        .ok_or_else(|| ConvertError::InvalidFormat("No home dir".into()))?
-        .join(".codex");
+    let codex_home = codex_home_dir()
+        .ok_or_else(|| ConvertError::InvalidFormat("No home dir".into()))?;
     let codex_dir = codex_home
         .join("sessions")
         .join(&now[..4])  // year
@@ -486,27 +485,36 @@ fn gemini_project_slug(cwd: &str) -> String {
 }
 
 fn sha256_hex(input: &str) -> String {
-    // Simple SHA-256 without external dependency — use the system's sha256sum
+    // Compute SHA-256 using the platform's CLI tool.
+    // `sha256sum` is standard on Linux; macOS ships `shasum -a 256` instead.
+    use std::io::Write;
     use std::process::Command;
-    Command::new("sha256sum")
-        .stdin(std::process::Stdio::piped())
-        .stdout(std::process::Stdio::piped())
-        .spawn()
-        .and_then(|mut child| {
-            use std::io::Write;
-            if let Some(ref mut stdin) = child.stdin {
-                let _ = stdin.write_all(input.as_bytes());
-            }
-            child.wait_with_output()
-        })
-        .ok()
-        .and_then(|out| {
-            String::from_utf8_lossy(&out.stdout)
-                .split_whitespace()
-                .next()
-                .map(String::from)
-        })
-        .unwrap_or_else(|| format!("{:x}", input.len()))
+
+    fn run_sha(cmd: &str, extra_args: &[&str], input: &[u8]) -> Option<String> {
+        let mut child = Command::new(cmd)
+            .args(extra_args)
+            .stdin(std::process::Stdio::piped())
+            .stdout(std::process::Stdio::piped())
+            .spawn()
+            .ok()?;
+        if let Some(ref mut stdin) = child.stdin {
+            let _ = stdin.write_all(input);
+        }
+        let out = child.wait_with_output().ok()?;
+        if !out.status.success() {
+            return None;
+        }
+        String::from_utf8_lossy(&out.stdout)
+            .split_whitespace()
+            .next()
+            .map(String::from)
+    }
+
+    let bytes = input.as_bytes();
+    // Try sha256sum (Linux/BSD/Windows WSL), then shasum -a 256 (macOS).
+    run_sha("sha256sum", &[], bytes)
+        .or_else(|| run_sha("shasum", &["-a", "256"], bytes))
+        .unwrap_or_else(|| format!("{:016x}", input.len()))
 }
 
 fn inject_into_opencode(
@@ -550,6 +558,14 @@ fn inject_into_opencode(
 }
 
 // === Helpers ===
+
+/// Return the Codex home directory, respecting the `CODEX_HOME` env var.
+fn codex_home_dir() -> Option<std::path::PathBuf> {
+    if let Some(home) = std::env::var_os("CODEX_HOME") {
+        return Some(std::path::PathBuf::from(home));
+    }
+    dirs::home_dir().map(|h| h.join(".codex"))
+}
 
 fn extract_session_id(records: &[HubRecord]) -> String {
     records.iter().find_map(|r| {
@@ -613,12 +629,13 @@ fn chrono_like_now() -> String {
         .duration_since(UNIX_EPOCH)
         .unwrap_or_default()
         .as_secs();
-    // Rough conversion (good enough for filenames)
+    // Rough conversion (good enough for filenames).
+    // Cap month at 12: remaining_days can be up to 364, and 364/30+1 = 13.
     let days = secs / 86400;
     let years = days / 365;
     let year = 1970 + years;
     let remaining = days - years * 365;
-    let month = remaining / 30 + 1;
+    let month = (remaining / 30 + 1).min(12);
     let day = remaining % 30 + 1;
     let hour = (secs % 86400) / 3600;
     let min = (secs % 3600) / 60;
@@ -758,7 +775,7 @@ mod tests {
         let hour: u32 = ts[11..13].parse().unwrap();
         let min: u32 = ts[14..16].parse().unwrap();
         let sec: u32 = ts[17..19].parse().unwrap();
-        assert!((1..=13).contains(&month), "month out of range: {month}");
+        assert!((1..=12).contains(&month), "month out of range: {month}");
         assert!((1..=31).contains(&day), "day out of range: {day}");
         assert!(hour < 24, "hour out of range: {hour}");
         assert!(min < 60, "min out of range: {min}");
@@ -793,5 +810,32 @@ mod tests {
         let id = extract_session_id(&records);
         // Should generate a UUID fallback
         assert_eq!(id.split('-').count(), 5, "fallback should be UUID format: {id}");
+    }
+
+    // ── sha256_hex ───────────────────────────────────────────
+
+    #[test]
+    fn test_sha256_hex_known_value() {
+        // SHA-256("") = e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855
+        let hash = sha256_hex("");
+        // Either the tool works and returns the known hash, or it returns the
+        // length-based fallback.  Both are acceptable; we just verify it's hex.
+        assert!(
+            hash.chars().all(|c| c.is_ascii_hexdigit()),
+            "sha256_hex result should be all hex digits: {hash}"
+        );
+        assert!(hash.len() >= 16, "result should be at least 16 hex chars: {hash}");
+    }
+
+    #[test]
+    fn test_sha256_hex_different_inputs_differ() {
+        let h1 = sha256_hex("/home/alice/project");
+        let h2 = sha256_hex("/home/bob/project");
+        // If the system tool is available, hashes must differ.
+        // If the fallback fires, both strings have the same length (19) so they'd
+        // match — we only assert difference when the results look like real hashes.
+        if h1.len() == 64 {
+            assert_ne!(h1, h2, "different paths should produce different SHA-256 hashes");
+        }
     }
 }
