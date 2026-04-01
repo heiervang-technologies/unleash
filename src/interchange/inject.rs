@@ -562,8 +562,30 @@ fn extract_session_id(records: &[HubRecord]) -> String {
 }
 
 fn encode_claude_project_path(dir: &str) -> String {
-    // Claude encodes /home/me/project as -home-me-project (leading dash, slashes to dashes)
-    dir.replace('/', "-")
+    // Claude replaces ALL non-alphanumeric chars with dashes, and truncates at 200 chars with hash
+    let encoded: String = dir
+        .chars()
+        .map(|c| if c.is_ascii_alphanumeric() { c } else { '-' })
+        .collect();
+    if encoded.len() > 200 {
+        let hash = simple_hash(&encoded);
+        format!("{}-{:x}", &encoded[..200], hash)
+    } else {
+        encoded
+    }
+}
+
+fn simple_hash(s: &str) -> u64 {
+    // TODO: verify this matches Claude Code's actual truncation hash implementation.
+    // Claude Code's source uses a hash suffix for long paths, but the exact algorithm
+    // (polynomial basis, seed, output width) has not been confirmed against a live binary.
+    // Until verified, injected long-path sessions may land in a different directory than
+    // Claude Code would create natively — meaning resume won't find them.
+    let mut h: u64 = 0;
+    for b in s.bytes() {
+        h = h.wrapping_mul(31).wrapping_add(b as u64);
+    }
+    h
 }
 
 fn uuid_v4() -> String {
@@ -632,6 +654,26 @@ mod tests {
     #[test]
     fn test_encode_claude_project_path_no_slash() {
         assert_eq!(encode_claude_project_path("relative"), "relative");
+    }
+
+    #[test]
+    fn test_encode_claude_project_path_long_path_truncates_with_hash() {
+        // Paths over 200 chars should be truncated to 200 chars with a hex hash suffix
+        let long_path = "/home/me/".to_string() + &"a".repeat(200);
+        let result = encode_claude_project_path(&long_path);
+        // Result must be longer than 200 (truncated prefix + "-" + hex hash)
+        assert!(result.len() > 200, "long path result should be longer than 200: len={}", result.len());
+        // The 200-char prefix is the encoded version of the first 200 encoded chars
+        let encoded_full: String = long_path.chars()
+            .map(|c| if c.is_ascii_alphanumeric() { c } else { '-' })
+            .collect();
+        assert!(result.starts_with(&encoded_full[..200]), "should start with first 200 encoded chars");
+        // Must have a dash-separated hex suffix
+        let suffix = &result[200..];
+        assert!(suffix.starts_with('-'), "suffix should start with dash");
+        let hex_part = &suffix[1..];
+        assert!(!hex_part.is_empty(), "hex hash suffix should not be empty");
+        assert!(hex_part.chars().all(|c| c.is_ascii_hexdigit()), "suffix should be hex: {hex_part}");
     }
 
     // ── uuid_v4 ──────────────────────────────────────────────

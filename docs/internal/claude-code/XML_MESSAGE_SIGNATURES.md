@@ -1,9 +1,9 @@
 # Claude Code Native XML Tags — Complete Reference
 
-> **Last verified:** 2026-03-30, Claude Code v2.1.87
+> **Last verified:** 2026-03-31, verified against source + live observation
 > **Source issue:** [#222](https://github.com/heiervang-technologies/unleash/issues/222)
 
-Research into the XML tags that Claude Code natively uses for custom renders, system messages, and agent communication. Compiled from Piebald-AI system prompt extractions, Yuyz0112 runtime reverse engineering, cs50victor teams reimplementation, and live observation.
+Research into the XML tags that Claude Code natively uses for custom renders, system messages, and agent communication. Compiled from Piebald-AI system prompt extractions, Yuyz0112 runtime reverse engineering, cs50victor teams reimplementation, live observation, and source code review (2026-03-31).
 
 ## Why This Matters
 

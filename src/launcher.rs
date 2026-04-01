@@ -317,6 +317,35 @@ fn run_agent(
         println!("Auto mode activated on startup");
     }
 
+    // Block telemetry for all agents — only allow inference API calls
+    // Claude Code
+    if env::var("DISABLE_TELEMETRY").is_err() {
+        cmd.env("DISABLE_TELEMETRY", "1");
+    }
+    if env::var("CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC").is_err() {
+        cmd.env("CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC", "1");
+    }
+    // Gemini CLI (telemetry off by default, but be explicit)
+    if env::var("GEMINI_TELEMETRY_ENABLED").is_err() {
+        cmd.env("GEMINI_TELEMETRY_ENABLED", "false");
+    }
+    // OpenCode
+    if env::var("OPENCODE_DISABLE_SHARE").is_err() {
+        cmd.env("OPENCODE_DISABLE_SHARE", "1");
+    }
+    if env::var("OPENCODE_DISABLE_AUTOUPDATE").is_err() {
+        cmd.env("OPENCODE_DISABLE_AUTOUPDATE", "1");
+    }
+
+    // Clean up stale telemetry retry queue (Claude Code persists failed events here)
+    if let Some(home) = dirs::home_dir() {
+        let telemetry_dir = home.join(".claude/telemetry");
+        if telemetry_dir.exists() {
+            let _ = fs::remove_dir_all(&telemetry_dir);
+            let _ = fs::create_dir_all(&telemetry_dir);
+        }
+    }
+
     // Set timeout environment variables (extended timeouts)
     if env::var("BASH_DEFAULT_TIMEOUT_MS").is_err() {
         cmd.env("BASH_DEFAULT_TIMEOUT_MS", "999999999");

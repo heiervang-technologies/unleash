@@ -213,7 +213,7 @@ impl AgentDefinition {
                 },
                 fork: ForkStrategy::Flag("--fork-session".to_string()),
                 yolo_flag: Some("--dangerously-skip-permissions".to_string()),
-                model_flag: "-m".to_string(),
+                model_flag: "--model".to_string(),
                 effort_flag: Some("--effort".to_string()),
             },
             github_repo: Some("anthropics/claude-code".to_string()),
