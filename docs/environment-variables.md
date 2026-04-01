@@ -10,6 +10,8 @@ These can be set before launching `unleash` to change behavior.
 | `AU_HYPRLAND_FOCUS` | Hyprland window transparency during agent work | `1` (on) |
 | `HOOK_NO_SOUND` | Suppress notification sounds from hooks | unset |
 | `EDITOR` / `VISUAL` | Editor for TUI text input fields | system default |
+| `AGENT_UNLEASH_ROOT` | Path to the unleash installation directory (read by plugins and hooks) | unset |
+| `CODEX_HOME` | Override Codex home directory (used to locate Codex sessions and history) | `~/.codex` |
 
 ### Examples
 
@@ -38,7 +40,6 @@ runtime environment.
 | `AGENT_CMD` | Which agent binary is running (`claude`, `codex`, `gemini`, `opencode`) |
 | `AGENT_UNLEASH` | Set to `1` when running under the unleash wrapper |
 | `AGENT_WRAPPER_PID` | PID of the wrapper process (used by plugins and Hyprland focus) |
-| `AGENT_UNLEASH_ROOT` | Path to the unleash installation directory |
 | `UNLEASH_POLYFILL_ACTIVE` | Set to `1` when polyfill flag translation is active |
 | `DISABLE_TELEMETRY` | Blocks all Claude Code analytics/telemetry (set to `1`) |
 | `CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC` | Blocks Claude Code analytics, auto-updates, release notes, feature flags (set to `1`) |
@@ -48,7 +49,6 @@ runtime environment.
 | `BASH_DEFAULT_TIMEOUT_MS` | Default bash timeout for agent tools (set to `999999999` ~11.5 days) |
 | `BASH_MAX_TIMEOUT_MS` | Max bash timeout (set to `999999999`) |
 | `MCP_TOOL_TIMEOUT` | MCP tool timeout (set to `999999999`) |
-| `CODEX_HOME` | Override Codex home directory (read from environment if already set) |
 
 ### Timeout Variables
 

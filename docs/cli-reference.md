@@ -63,24 +63,30 @@ unleash codex -- --notify
 
 Launch the interactive TUI for profile and version management.
 
-### `unleash update [agent]`
+### `unleash update`
 
-Update installed agents. Updates all agents in parallel by default.
+Update unleash and/or agent CLIs.
 
 ```bash
-unleash update              # Update all agents
+unleash update              # Update unleash itself
+unleash update -c           # Update all installed agent CLIs
+unleash update -a           # Update unleash + all agent CLIs
 unleash update claude       # Update only Claude
+unleash update claude codex # Update Claude and Codex
 unleash update --check      # Dry run, show available updates
 ```
 
 ### `unleash version`
 
-Show installed agent versions.
+Manage Claude Code versions (install, list, switch).
 
 ```bash
-unleash version             # Current installed versions
-unleash version --list      # All available versions
+unleash version                   # Show installed Claude Code version
+unleash version --list            # List all available Claude Code versions
+unleash version --install 2.1.87  # Install a specific Claude Code version
 ```
+
+> For all agents' versions at a glance, use `unleash agents status`.
 
 ### `unleash auth`
 
@@ -99,13 +105,26 @@ Show all agent versions and update status in a single table.
 
 List sessions across all installed CLIs.
 
-### `unleash convert <input> <output>`
+### `unleash convert`
 
-Convert between CLI session formats.
+Convert between CLI session formats. Use `--from` to specify the source format and
+`--to` for the target (defaults to `hub`). Output goes to stdout unless `-o` is given.
 
 ```bash
-unleash convert claude-session.json codex-session.json
+unleash convert --from claude session.jsonl                         # Convert to hub format (stdout)
+unleash convert --from claude --to codex session.jsonl              # Convert Claude → Codex
+unleash convert --from claude --to codex session.jsonl -o out.json  # Write to file
+unleash convert --from codex session.jsonl --verify                 # round-trip lossless check
 ```
+
+Required:
+- `--from <format>`: source format (`claude`, `codex`, `gemini`, `opencode`, `hub`)
+- `<input>`: path to the input file (positional)
+
+Optional:
+- `--to <format>`: target format (default: `hub`)
+- `--output <path>` / `-o <path>`: output file (default: stdout)
+- `--verify`: verify lossless round-trip instead of converting
 
 ## Examples
 

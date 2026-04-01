@@ -10,7 +10,6 @@ when launching an agent.
 | **auto-mode** | Autonomous operation -- agent keeps working without user prompts | `--auto` / `-a` flag, or `defaults.auto = true` in profile |
 | **process-restart** | Restart agent while preserving session state | `unleash-refresh` command |
 | **mcp-refresh** | Detect MCP config changes and notify for reload | Automatic via PreToolUse hook |
-
 | **hyprland-focus** | Window transparency while agent works (Hyprland only) | `AU_HYPRLAND_FOCUS=0` to disable |
 | **omnihook** | Unified hook handler with voice input integration and FIFO wakeup | Automatic |
 
