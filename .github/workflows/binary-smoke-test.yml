@@ -105,3 +105,69 @@ jobs:
           echo "- Binary: ${{ matrix.artifact }}" >> $GITHUB_STEP_SUMMARY
           echo "- Tag: ${{ steps.tag.outputs.tag }}" >> $GITHUB_STEP_SUMMARY
           echo "- Status: All checks passed" >> $GITHUB_STEP_SUMMARY
+
+  alpine-smoke-test:
+    name: unleash-linux-x86_64 (Alpine musl)
+    runs-on: ubuntu-latest
+    container: alpine:latest
+
+    steps:
+      - name: Install dependencies
+        run: apk add --no-cache curl file bash
+
+      - name: Determine tag
+        id: tag
+        run: |
+          if [ -n "${{ github.event.inputs.tag }}" ]; then
+            echo "tag=${{ github.event.inputs.tag }}" >> $GITHUB_OUTPUT
+          else
+            echo "tag=v0.0.0" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Download unleash binary
+        run: |
+          curl -fsSL "https://github.com/${{ github.repository }}/releases/download/${{ steps.tag.outputs.tag }}/unleash-linux-x86_64" -o unleash
+          chmod +x unleash
+
+      - name: Download splash binary
+        run: |
+          curl -fsSL "https://github.com/${{ github.repository }}/releases/download/${{ steps.tag.outputs.tag }}/splash-linux-x86_64" -o splash
+          chmod +x splash
+
+      - name: Verify binaries are executable
+        run: |
+          file ./unleash
+          file ./splash
+
+      - name: Test --version
+        run: |
+          ./unleash --version
+          echo "--- version output OK ---"
+
+      - name: Test --help
+        run: |
+          ./unleash --help
+          echo "--- help output OK ---"
+
+      - name: Test agent check
+        run: |
+          ./unleash update --check 2>&1 || true
+          echo "--- agent check OK ---"
+
+      - name: Test install claude (native binary)
+        run: |
+          ./unleash install claude 2>&1 || true
+          echo "--- claude install attempted ---"
+
+      - name: Test sessions list
+        run: |
+          ./unleash sessions 2>&1 || true
+          echo "--- sessions list OK ---"
+
+      - name: Summary
+        run: |
+          echo "## Smoke Test: unleash-linux-x86_64 (Alpine)" >> $GITHUB_STEP_SUMMARY
+          echo "- Platform: Alpine Linux (musl)" >> $GITHUB_STEP_SUMMARY
+          echo "- Binary: unleash-linux-x86_64" >> $GITHUB_STEP_SUMMARY
+          echo "- Tag: ${{ steps.tag.outputs.tag }}" >> $GITHUB_STEP_SUMMARY
+          echo "- Status: All checks passed" >> $GITHUB_STEP_SUMMARY

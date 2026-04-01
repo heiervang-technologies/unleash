@@ -51,6 +51,116 @@ jobs:
 
   test-headless:
     name: Test Headless Commands
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            env_linker: clang
+            env_rustflags: "-C link-arg=-fuse-ld=mold"
+            install_build_tools: true
+          - os: macos-latest
+            env_linker: ""
+            env_rustflags: ""
+            install_build_tools: false
+    runs-on: ${{ matrix.os }}
+    env:
+      CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_LINKER: ${{ matrix.env_linker }}
+      CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_RUSTFLAGS: ${{ matrix.env_rustflags }}
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install build tools (Linux)
+        if: matrix.install_build_tools
+        run: |
+          sudo apt-get update && sudo apt-get install -y clang
+          MOLD_VERSION=2.40.1
+          curl -fsSL "https://github.com/rui314/mold/releases/download/v${MOLD_VERSION}/mold-${MOLD_VERSION}-x86_64-linux.tar.gz" \
+            | sudo tar xz -C /usr/local --strip-components=1
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Build binaries
+        run: cargo build --profile fast
+
+      - name: Make test scripts executable
+        run: chmod +x tests/*.sh
+
+      - name: Run headless tests
+        run: |
+          ./tests/test-headless.sh
+          ./tests/test_docs_drift.sh
+          ./tests/test_auth_check_comprehensive.sh
+
+  test-plugins:
+    name: Test Plugins
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Make test scripts executable
+        run: chmod +x tests/*.sh
+
+      - name: Run plugin tests
+        run: ./tests/test-plugins.sh
+
+  test-install-script:
+    name: Test Install Script
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Make test scripts executable
+        run: chmod +x tests/*.sh scripts/*.sh
+
+      - name: Run install symlink tests
+        run: ./tests/test-install.sh
+
+      - name: Validate install-remote.sh syntax
+        run: bash -n scripts/install-remote.sh
+
+      - name: Validate install.sh syntax
+        run: bash -n scripts/install.sh
+
+      - name: Test install-remote.sh platform detection
+        run: |
+          # Source install-remote.sh functions in dry-run mode to test detection
+          PLATFORM=$(uname -s | tr '[:upper:]' '[:lower:]')
+          ARCH=$(uname -m)
+          case "$ARCH" in
+            x86_64|amd64) ARCH="x86_64" ;;
+            aarch64|arm64) ARCH="aarch64" ;;
+          esac
+          echo "Detected: $PLATFORM-$ARCH"
+          # Verify expected platform strings
+          if [[ "$PLATFORM" != "linux" && "$PLATFORM" != "darwin" ]]; then
+            echo "FAIL: Unexpected platform: $PLATFORM"
+            exit 1
+          fi
+          if [[ "$ARCH" != "x86_64" && "$ARCH" != "aarch64" ]]; then
+            echo "FAIL: Unexpected arch: $ARCH"
+            exit 1
+          fi
+          echo "PASS: Platform detection OK"
+
+  test-auth-comprehensive:
+    name: Test Auth (Comprehensive)
     runs-on: ubuntu-latest
     env:
       CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_LINKER: clang
@@ -76,29 +186,9 @@ jobs:
       - name: Make test scripts executable
         run: chmod +x tests/*.sh
 
-      - name: Run headless tests
+      - name: Run comprehensive auth tests
         run: |
-          ./tests/test-headless.sh
-          ./tests/test_docs_drift.sh
-
-  test-plugins:
-    name: Test Plugins
-    runs-on: ubuntu-latest
-
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: '3.12'
-
-      - name: Make test scripts executable
-        run: chmod +x tests/*.sh
-
-      - name: Run plugin tests
-        run: ./tests/test-plugins.sh
+          UNLEASH_BIN=./target/fast/unleash ./tests/test_auth_check_comprehensive.sh
 
   test-auto-mode:
     name: Test Auto Mode Hook
@@ -158,7 +248,7 @@ jobs:
   summary:
     name: Test Summary
     runs-on: ubuntu-latest
-    needs: [shellcheck, test-headless, test-plugins, test-auto-mode]
+    needs: [shellcheck, test-headless, test-plugins, test-auto-mode, test-install-script, test-auth-comprehensive]
     if: always()
 
     steps:
@@ -172,20 +262,26 @@ jobs:
           echo "| Headless Commands | ${{ needs.test-headless.result == 'success' && '✅ Passed' || '❌ Failed' }} |" >> $GITHUB_STEP_SUMMARY
           echo "| Plugin Tests | ${{ needs.test-plugins.result == 'success' && '✅ Passed' || '❌ Failed' }} |" >> $GITHUB_STEP_SUMMARY
           echo "| Auto Mode Hook | ${{ needs.test-auto-mode.result == 'success' && '✅ Passed' || '❌ Failed' }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Install Script | ${{ needs.test-install-script.result == 'success' && '✅ Passed' || '❌ Failed' }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Auth Comprehensive | ${{ needs.test-auth-comprehensive.result == 'success' && '✅ Passed' || '❌ Failed' }} |" >> $GITHUB_STEP_SUMMARY
 
       - name: Check test results
         run: |
           if [[ "${{ needs.shellcheck.result }}" == "success" ]] && \
              [[ "${{ needs.test-headless.result }}" == "success" ]] && \
              [[ "${{ needs.test-plugins.result }}" == "success" ]] && \
-             [[ "${{ needs.test-auto-mode.result }}" == "success" ]]; then
-            echo "✅ All integration tests passed!"
+             [[ "${{ needs.test-auto-mode.result }}" == "success" ]] && \
+             [[ "${{ needs.test-install-script.result }}" == "success" ]] && \
+             [[ "${{ needs.test-auth-comprehensive.result }}" == "success" ]]; then
+            echo "All integration tests passed!"
             exit 0
           else
-            echo "❌ Some tests failed:"
+            echo "Some tests failed:"
             echo "  - shellcheck: ${{ needs.shellcheck.result }}"
             echo "  - test-headless: ${{ needs.test-headless.result }}"
             echo "  - test-plugins: ${{ needs.test-plugins.result }}"
             echo "  - test-auto-mode: ${{ needs.test-auto-mode.result }}"
+            echo "  - test-install-script: ${{ needs.test-install-script.result }}"
+            echo "  - test-auth-comprehensive: ${{ needs.test-auth-comprehensive.result }}"
             exit 1
           fi
