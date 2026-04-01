@@ -221,10 +221,51 @@ pub struct AppConfig {
     /// Whether TUI animations are enabled
     #[serde(default)]
     pub animations: bool,
+    /// List of enabled plugin names. Empty = all enabled (backwards compat).
+    #[serde(default)]
+    pub enabled_plugins: Vec<String>,
 }
 
 fn default_profile_name() -> String {
     "claude".to_string()
+}
+
+/// Metadata about a discovered plugin (read from plugin.json)
+#[derive(Debug, Clone)]
+pub struct PluginMeta {
+    pub name: String,
+    pub description: String,
+    pub version: String,
+    pub path: std::path::PathBuf,
+    pub experimental: bool,
+}
+
+/// Discover all bundled plugins by scanning plugin directories.
+pub fn discover_plugins() -> Vec<PluginMeta> {
+    let mut plugins = Vec::new();
+    // Use find_all_plugin_dirs to get unfiltered list (including disabled)
+    for dir in crate::launcher::find_all_plugin_dirs() {
+        let manifest = dir.join(".claude-plugin/plugin.json");
+        if !manifest.exists() {
+            continue;
+        }
+        if let Ok(content) = std::fs::read_to_string(&manifest) {
+            if let Ok(json) = serde_json::from_str::<serde_json::Value>(&content) {
+                let name = json["name"].as_str().unwrap_or("unknown").to_string();
+                let description = json["description"].as_str().unwrap_or("").to_string();
+                let version = json["version"].as_str().unwrap_or("0.0.0").to_string();
+                let experimental = json["experimental"].as_bool().unwrap_or(false);
+                plugins.push(PluginMeta {
+                    name,
+                    description,
+                    version,
+                    path: dir,
+                    experimental,
+                });
+            }
+        }
+    }
+    plugins
 }
 
 fn default_theme() -> String {
@@ -251,6 +292,7 @@ impl Default for AppConfig {
         Self {
             current_profile: default_profile_name(),
             animations: false,
+            enabled_plugins: Vec::new(),
         }
     }
 }

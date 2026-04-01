@@ -1,0 +1,15 @@
+{
+  "description": "Supercompact PreCompact hook - backs up full transcript and runs EITF compaction before Claude's default compaction",
+  "hooks": {
+    "PreCompact": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "${CLAUDE_PLUGIN_ROOT}/hooks-handlers/supercompact-precompact.sh"
+          }
+        ]
+      }
+    ]
+  }
+}

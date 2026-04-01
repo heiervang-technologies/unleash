@@ -264,11 +264,11 @@ fn load_profile_env() -> io::Result<HashMap<String, String>> {
     Ok(profile.map(|p| p.env.clone()).unwrap_or_default())
 }
 
-/// Find plugin directories (returns paths)
+/// Find ALL plugin directories regardless of enabled state (for discovery).
 /// Only returns from ONE source to avoid duplicate hooks:
 /// - Prefer repo dev path (plugins/bundled/) when running from repo
 /// - Fall back to installed path (~/.local/share/unleash/plugins/)
-pub fn find_plugin_dirs() -> Vec<PathBuf> {
+pub fn find_all_plugin_dirs() -> Vec<PathBuf> {
     let mut dirs = Vec::new();
     let mut seen_names = std::collections::HashSet::new();
 
@@ -311,6 +311,32 @@ pub fn find_plugin_dirs() -> Vec<PathBuf> {
     }
 
     dirs
+}
+
+/// Find enabled plugin directories only (filtered by AppConfig.enabled_plugins).
+/// Empty enabled list = all plugins enabled (backwards compat).
+pub fn find_plugin_dirs() -> Vec<PathBuf> {
+    let config = ProfileManager::new()
+        .and_then(|m| m.load_app_config())
+        .unwrap_or_default();
+
+    let all_dirs = find_all_plugin_dirs();
+
+    // Empty list = all enabled (backwards compat)
+    if config.enabled_plugins.is_empty() {
+        return all_dirs;
+    }
+
+    all_dirs
+        .into_iter()
+        .filter(|dir| {
+            let name = dir
+                .file_name()
+                .and_then(|n| n.to_str())
+                .unwrap_or("");
+            config.enabled_plugins.contains(&name.to_string())
+        })
+        .collect()
 }
 
 /// Convert plugin directories to CLI args

@@ -126,6 +126,7 @@ pub enum Screen {
     Help,
     ConfirmDelete,
     VersionManagement,
+    Features,
 }
 
 /// Focus zone within the unified version management screen
@@ -316,6 +317,10 @@ pub struct App {
     /// Currently active color theme (preset or custom RGB)
     pub theme_color: ThemeColor,
 
+    // Features screen
+    pub feature_menu: MenuState,
+    pub discovered_plugins: Vec<crate::config::PluginMeta>,
+
     // Mouse support
     /// Clickable regions registered during the last render pass for hit-testing
     clickable_areas: Vec<(Rect, ClickTarget)>,
@@ -391,7 +396,7 @@ impl App {
             running: true,
             last_frame_area: Rect::default(),
             screen: Screen::Main,
-            main_menu: MenuState::new(5), // Start, Profiles, Versions & Updates, Help, Quit
+            main_menu: MenuState::new(6), // Start, Profiles, Features, Versions & Updates, Help, Quit
             profile_menu: MenuState::new(profiles.len()),
             profile_manager,
             app_config,
@@ -444,6 +449,8 @@ impl App {
             konami_progress: 0,
             theme_menu: MenuState::new(ThemePreset::all().len() + 1), // presets + Custom
             theme_color,
+            feature_menu: MenuState::new(0),
+            discovered_plugins: Vec::new(),
             clickable_areas: Vec::new(),
         })
     }
@@ -766,6 +773,7 @@ impl App {
             | Screen::EnvVarEdit
             | Screen::Theme
             | Screen::Help
+            | Screen::Features
             | Screen::ConfirmDelete => {}
         }
     }
@@ -1197,6 +1205,7 @@ impl App {
                 Screen::Help => self.handle_help_input(action),
                 Screen::ConfirmDelete => self.handle_confirm_delete_input(action),
                 Screen::VersionManagement => return self.handle_version_input(action, key),
+                Screen::Features => self.handle_features_input(action),
             }
         }
         Ok(None)
@@ -1465,17 +1474,24 @@ impl App {
                         self.pending_screen = Some(Screen::Profiles);
                     }
                     2 => {
+                        // Features
+                        self.discovered_plugins = crate::config::discover_plugins();
+                        self.feature_menu = MenuState::new(self.discovered_plugins.len());
+                        self.trigger_screen_animation(true, Screen::Features);
+                        self.pending_screen = Some(Screen::Features);
+                    }
+                    3 => {
                         // Versions & Updates
                         self.trigger_screen_animation(true, Screen::VersionManagement);
                         self.pending_screen = Some(Screen::VersionManagement);
                     }
-                    3 => {
+                    4 => {
                         // Help
                         self.help_return_screen = Some(Screen::Main);
                         self.trigger_screen_animation(true, Screen::Help);
                         self.pending_screen = Some(Screen::Help);
                     }
-                    4 => {
+                    5 => {
                         // Quit
                         self.running = false;
                     }
@@ -2313,6 +2329,10 @@ impl App {
                     ),
                     ("Profiles", "Manage profiles and their settings".to_string()),
                     (
+                        "Features",
+                        "Toggle plugins and experimental features".to_string(),
+                    ),
+                    (
                         "Versions & Updates",
                         "Manage unleash and agent CLI versions".to_string(),
                     ),
@@ -2586,6 +2606,10 @@ impl App {
                 "Launch Claude with selected profile".to_string(),
             ),
             ("Profiles", "Manage profiles and their settings".to_string()),
+            (
+                "Features",
+                "Toggle plugins and experimental features".to_string(),
+            ),
             (
                 "Versions & Updates",
                 "Manage unleash and agent CLI versions".to_string(),
@@ -4092,6 +4116,8 @@ mod tests {
             konami_progress: 0,
             theme_menu: MenuState::new(ThemePreset::all().len() + 1),
             theme_color: ThemeColor::Preset(ThemePreset::Orange),
+            feature_menu: MenuState::new(0),
+            discovered_plugins: Vec::new(),
             clickable_areas: Vec::new(),
         };
 
