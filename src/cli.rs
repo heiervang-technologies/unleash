@@ -141,7 +141,7 @@ impl PolyfillArgs {
                 "-a" | "--auto" => polyfill.auto = true,
                 "--dry-run" => polyfill.dry_run = true,
                 "-p" | "--prompt" => {
-                    if let Some(val) = args.get(i + 1) {
+                    if let Some(val) = args.get(i + 1).filter(|v| !v.starts_with('-')) {
                         polyfill.prompt = Some(val.clone());
                         i += 1;
                         last_value_flag = None;
@@ -150,7 +150,7 @@ impl PolyfillArgs {
                     }
                 }
                 "-m" | "--model" => {
-                    if let Some(val) = args.get(i + 1) {
+                    if let Some(val) = args.get(i + 1).filter(|v| !v.starts_with('-')) {
                         polyfill.model = Some(val.clone());
                         i += 1;
                         last_value_flag = None;
@@ -159,7 +159,7 @@ impl PolyfillArgs {
                     }
                 }
                 "-e" | "--effort" => {
-                    if let Some(val) = args.get(i + 1) {
+                    if let Some(val) = args.get(i + 1).filter(|v| !v.starts_with('-')) {
                         polyfill.effort = Some(val.clone());
                         i += 1;
                         last_value_flag = None;
@@ -811,5 +811,32 @@ mod tests {
         let args: Vec<String> = vec!["-p".into()];
         let (polyfill, _) = PolyfillArgs::parse_from_raw(&args);
         assert!(polyfill.prompt.is_none());
+    }
+
+    #[test]
+    fn test_model_followed_by_flag_not_consumed_as_value() {
+        // -m --safe should NOT treat --safe as the model name
+        let args: Vec<String> = vec!["-m".into(), "--safe".into()];
+        let (polyfill, _) = PolyfillArgs::parse_from_raw(&args);
+        assert!(polyfill.model.is_none(), "model should not consume --safe as its value");
+        assert!(polyfill.safe, "--safe should still be parsed");
+    }
+
+    #[test]
+    fn test_prompt_followed_by_flag_not_consumed_as_value() {
+        // -p --continue should NOT treat --continue as the prompt
+        let args: Vec<String> = vec!["-p".into(), "--continue".into()];
+        let (polyfill, _) = PolyfillArgs::parse_from_raw(&args);
+        assert!(polyfill.prompt.is_none(), "prompt should not consume --continue as its value");
+        assert!(polyfill.continue_session, "--continue should still be parsed");
+    }
+
+    #[test]
+    fn test_effort_followed_by_flag_not_consumed_as_value() {
+        // -e --auto should NOT treat --auto as the effort level
+        let args: Vec<String> = vec!["-e".into(), "--auto".into()];
+        let (polyfill, _) = PolyfillArgs::parse_from_raw(&args);
+        assert!(polyfill.effort.is_none(), "effort should not consume --auto as its value");
+        assert!(polyfill.auto, "--auto should still be parsed");
     }
 }
