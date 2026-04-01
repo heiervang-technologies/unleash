@@ -16,7 +16,16 @@ use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
 use std::process::{Command, ExitStatus};
+use std::sync::atomic::{AtomicI32, Ordering};
 use which::which;
+
+/// Signal number received while waiting for a child process.
+/// 0 = no signal, >0 = signal number (e.g. 2 for SIGINT, 15 for SIGTERM).
+static CHILD_SIGNAL: AtomicI32 = AtomicI32::new(0);
+
+extern "C" fn child_signal_handler(sig: libc::c_int) {
+    CHILD_SIGNAL.store(sig, Ordering::Relaxed);
+}
 
 /// Environment variable set when running under the wrapper
 pub const UNLEASHED_ENV_VAR: &str = "AGENT_UNLEASH";
@@ -144,6 +153,18 @@ pub fn run(auto_mode: bool, prompt: Option<String>, extra_args: Vec<String>) -> 
             auto_mode,
             agent_type,
         )?;
+
+        // If we caught a signal while waiting for the child, exit immediately.
+        // The child has been reaped; just clean up and go.
+        let sig = CHILD_SIGNAL.load(Ordering::Relaxed);
+        if sig != 0 {
+            let _ = hyprland::focus_reset(wrapper_pid);
+            hyprland::focus_cleanup(wrapper_pid);
+            if hyprland::is_hyprland() {
+                let _ = hyprland::notify_info("unleash stopped");
+            }
+            std::process::exit(128 + sig);
+        }
 
         // Reset to opaque + play sound after agent exit
         let _ = hyprland::focus_reset(wrapper_pid);
@@ -415,7 +436,29 @@ fn run_agent(
     // Add user arguments
     cmd.args(args);
 
-    cmd.status()
+    // Reset signal flag before spawning
+    CHILD_SIGNAL.store(0, Ordering::Relaxed);
+
+    let mut child = cmd.spawn()?;
+
+    // While the child runs, catch SIGINT/SIGTERM instead of dying immediately.
+    // The child shares our process group and receives terminal signals directly;
+    // we just need to stay alive until it exits so we can reap it cleanly.
+    unsafe {
+        let handler = child_signal_handler as *const () as libc::sighandler_t;
+        libc::signal(libc::SIGINT, handler);
+        libc::signal(libc::SIGTERM, handler);
+    }
+
+    let status = child.wait()?;
+
+    // Restore default signal handlers now that the child has exited
+    unsafe {
+        libc::signal(libc::SIGINT, libc::SIG_DFL);
+        libc::signal(libc::SIGTERM, libc::SIG_DFL);
+    }
+
+    Ok(status)
 }
 
 /// Check if authentication is configured
