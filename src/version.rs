@@ -638,7 +638,7 @@ impl VersionManager {
 
         // Fallback: try npm
         if Self::has_npm() {
-            let output = Command::new("npm")
+            let output = Self::npm_global_command()
                 .args([
                     "install",
                     "-g",
@@ -1142,13 +1142,15 @@ impl VersionManager {
         // Fallback: try npm
         if Self::has_npm() {
             let _ = log_tx.send("Native install failed, trying npm fallback...".to_string());
+            let use_sudo = Self::npm_global_needs_sudo();
             let _ = log_tx.send(format!(
-                "Running: npm install -g @anthropic-ai/claude-code@{}",
+                "Running: {}npm install -g @anthropic-ai/claude-code@{}",
+                if use_sudo { "sudo " } else { "" },
                 version
             ));
 
             let (ok, stdout, stderr) = Self::run_streaming(
-                Command::new("npm").args([
+                Self::npm_global_command().args([
                     "install",
                     "-g",
                     "--force",
@@ -1708,10 +1710,9 @@ pub fn show_current() -> io::Result<()> {
 pub fn show_current_json() {
     let cu_version = env!("CARGO_PKG_VERSION");
     let vm = VersionManager::new();
-    let claude_code_version = vm
-        .get_installed_version()
-        .unwrap_or_else(|| "not installed".to_string());
-    let is_installed = vm.get_installed_version().is_some();
+    let installed = vm.get_installed_version();
+    let is_installed = installed.is_some();
+    let claude_code_version = installed.unwrap_or_else(|| "not installed".to_string());
 
     let output = VersionOutput {
         unleash_version: cu_version.to_string(),

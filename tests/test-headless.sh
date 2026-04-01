@@ -230,6 +230,30 @@ else
     fail "sessions --json" "output is not valid JSON: $OUT"
 fi
 
+# ─── 18. unleash agents info --json ─────────────────────────────
+echo "[18] unleash agents info claude --json"
+if run_headless "$BIN" agents info claude --json; then
+    if echo "$OUT" | python3 -c "import json,sys; d=json.load(sys.stdin); exit(0 if 'agent_type' in d else 1)" 2>/dev/null; then
+        pass "agents info claude --json produces valid JSON with agent_type"
+    else
+        fail "agents info claude --json" "missing agent_type field: $OUT"
+    fi
+else
+    fail "agents info claude --json" "non-zero exit code"
+fi
+
+# ─── 19. unleash agents list --json ─────────────────────────────
+echo "[19] unleash agents list --json"
+if run_headless "$BIN" agents list --json; then
+    if echo "$OUT" | python3 -c "import json,sys; items=json.load(sys.stdin); exit(0 if isinstance(items, list) and len(items) > 0 else 1)" 2>/dev/null; then
+        pass "agents list --json produces valid JSON array"
+    else
+        fail "agents list --json" "not a non-empty JSON array: $OUT"
+    fi
+else
+    fail "agents list --json" "non-zero exit code"
+fi
+
 # ─── Cleanup ────────────────────────────────────────────────────
 rm -f /tmp/unleash-test-stderr
 

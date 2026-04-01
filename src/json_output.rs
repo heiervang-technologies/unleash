@@ -34,6 +34,19 @@ pub struct AuthCheckOutput {
     pub details: Option<String>,
 }
 
+/// Agent information output (for `unleash agents info --json` and `unleash agents list --json`)
+#[derive(Debug, Serialize, Deserialize)]
+pub struct AgentInfoOutput {
+    pub agent_type: String,
+    pub name: String,
+    pub binary: String,
+    pub description: String,
+    pub github_repo: Option<String>,
+    pub npm_package: Option<String>,
+    pub enabled: bool,
+    pub installed_version: Option<String>,
+}
+
 /// Generic success response
 #[derive(Debug, Serialize, Deserialize)]
 pub struct SuccessOutput {

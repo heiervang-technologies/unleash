@@ -542,7 +542,7 @@ impl AgentManager {
 
     /// Update Claude Code via npm
     fn update_claude(&self) -> io::Result<String> {
-        let output = Command::new("npm")
+        let output = crate::version::VersionManager::npm_global_command()
             .args(["install", "-g", "@anthropic-ai/claude-code@latest"])
             .output()?;
 
@@ -633,7 +633,6 @@ impl AgentManager {
         fs::create_dir_all(&tmp_dir)?;
         let tmp_archive = tmp_dir.join(&asset_name);
 
-        eprintln!("Downloading Codex {} ({})...", version, asset_name);
         let dl_output = Command::new("curl")
             .args(["-fsSL", "-o", &tmp_archive.to_string_lossy(), &download_url])
             .output()?;
@@ -646,7 +645,6 @@ impl AgentManager {
         }
 
         // Extract — codex binary is at the root of the tar.gz
-        eprintln!("Extracting...");
         let extract_output = Command::new("tar")
             .args(["xzf", &tmp_archive.to_string_lossy(), "-C", &tmp_dir.to_string_lossy()])
             .output()?;
