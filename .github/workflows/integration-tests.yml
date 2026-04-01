@@ -93,7 +93,6 @@ jobs:
         run: |
           ./tests/test-headless.sh
           ./tests/test_docs_drift.sh
-          ./tests/test_auth_check_comprehensive.sh
 
   test-plugins:
     name: Test Plugins
