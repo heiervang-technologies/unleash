@@ -54,14 +54,32 @@ fi
 SUPERCOMPACT_DIR="${PLUGIN_SETTING_DIR:-${HOME}/ht/supercompact}"
 METHOD="${PLUGIN_SETTING_METHOD:-eitf}"
 
-# Dynamic budget based on trigger type:
-#   preemptive (Layer 1): 50% of context window — gentler, leaves room for new work
-#   manual (Layer 2): 80K tokens — aggressive safety net
+# Budget calculation. Two modes controlled by PLUGIN_SETTING_BUDGET_MODE:
+#   "manual" — use fixed PLUGIN_SETTING_BUDGET token count
+#   "auto" (default) — percentage of current conversation size
+#
+# Auto mode estimates tokens from file size and applies a percentage:
+#   preemptive (Layer 1): default 50% — gentler, leaves room for new work
+#   manual trigger (Layer 2): default 40% — more aggressive
+BUDGET_MODE="${PLUGIN_SETTING_BUDGET_MODE:-auto}"
+
 if [[ -z "${BUDGET}" ]]; then
-  if [[ "${TRIGGER}" == "preemptive" ]]; then
-    BUDGET="${PLUGIN_SETTING_BUDGET_PREEMPTIVE:-90000}"
+  if [[ "${BUDGET_MODE}" == "manual" && -n "${PLUGIN_SETTING_BUDGET:-}" ]]; then
+    BUDGET="${PLUGIN_SETTING_BUDGET}"
   else
-    BUDGET="${PLUGIN_SETTING_BUDGET:-80000}"
+    FILE_BYTES=$(stat -c %s "${JSONL_FILE}" 2>/dev/null || echo 0)
+    # ~4 bytes per token is a reasonable estimate for JSONL with tool output
+    ESTIMATED_TOKENS=$((FILE_BYTES / 4))
+
+    if [[ "${TRIGGER}" == "preemptive" ]]; then
+      PCT="${PLUGIN_SETTING_BUDGET_PCT_PREEMPTIVE:-50}"
+    else
+      PCT="${PLUGIN_SETTING_BUDGET_PCT:-40}"
+    fi
+    BUDGET=$((ESTIMATED_TOKENS * PCT / 100))
+
+    # Floor: never set budget below 10k tokens (would lose too much)
+    (( BUDGET < 10000 )) && BUDGET=10000
   fi
 fi
 
@@ -130,7 +148,18 @@ fi
 
 if [[ ! -f "${SC_OUTPUT}" ]]; then
   log "SKIP: No output file produced (conversation may already be within budget)"
-  exit 0
+  if [[ "${TRIGGER}" == "manual" ]]; then
+    # We CANNOT block the native API compaction via hook exit codes.
+    # The only way to abort it is to kill the process via unleash-refresh.
+    if command -v unleash-refresh &>/dev/null; then
+      log "Restarting via unleash-refresh to abort native API compaction"
+      unleash-refresh "Compaction skipped: Context is already within the ${BUDGET} token budget."
+      sleep 10
+    fi
+    exit 0
+  else
+    exit 0
+  fi
 fi
 
 if [[ ! -s "${SC_OUTPUT}" ]]; then

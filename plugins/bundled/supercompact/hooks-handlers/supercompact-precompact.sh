@@ -23,6 +23,7 @@ HOOK_INPUT=$(cat)
 
 TRIGGER=$(echo "${HOOK_INPUT}" | jq -r '.trigger // "manual"' 2>/dev/null) || TRIGGER="manual"
 JSONL_FILE=$(echo "${HOOK_INPUT}" | jq -r '.transcript_path // empty' 2>/dev/null) || JSONL_FILE=""
+CUSTOM_INSTRUCTIONS=$(echo "${HOOK_INPUT}" | jq -r '.custom_instructions // empty' 2>/dev/null)
 
 log "PreCompact hook triggered (trigger=${TRIGGER})"
 
@@ -40,8 +41,18 @@ if [[ ! -x "${PIPELINE}" ]]; then
   exit 0
 fi
 
+BUDGET_ARG=""
+if [[ "${CUSTOM_INSTRUCTIONS}" =~ ^[0-9]+$ ]]; then
+  log "Parsed custom budget from instructions: ${CUSTOM_INSTRUCTIONS}"
+  BUDGET_ARG="--budget ${CUSTOM_INSTRUCTIONS}"
+fi
+
 # Delegate to shared pipeline
 # Run in foreground — we WANT to block the hook return so the pipeline
 # can kill Claude before the API compaction call fires.
 log "Delegating to shared pipeline"
-exec "${PIPELINE}" --jsonl "${JSONL_FILE}" --trigger "manual"
+if [[ -n "${BUDGET_ARG}" ]]; then
+  exec "${PIPELINE}" --jsonl "${JSONL_FILE}" --trigger "manual" --budget "${CUSTOM_INSTRUCTIONS}"
+else
+  exec "${PIPELINE}" --jsonl "${JSONL_FILE}" --trigger "manual"
+fi
