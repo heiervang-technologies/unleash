@@ -75,6 +75,7 @@ RUN apt-get update \
        openssh-client \
        tmux \
        jq \
+       mesa-vulkan-drivers \
     && rm -rf /var/lib/apt/lists/*
 
 # Create non-root user for sandboxing

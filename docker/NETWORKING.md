@@ -140,7 +140,9 @@ Safe configurations:
 |-------|---------|----------|----------|
 | base | runsc | sandbox | Single agent (default) |
 | base + runc | runc | default | No gVisor available |
+| base + gpu | runc | sandbox | Single agent with GPU/Vulkan |
 | base + multi-agent | runsc | sandbox + mesh | Agent team |
+| base + gpu + multi-agent | runc | sandbox + mesh | Agent team with GPU/Vulkan |
 | base + runc + multi-agent | runc | default + mesh | Agent team, no gVisor |
 
 The runc + multi-agent combination uses the default Docker bridge for internet (no LAN blocking, no gVisor) and the mesh network for inter-agent communication. This is a lower-security mode suitable for development.
