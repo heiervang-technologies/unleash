@@ -86,8 +86,8 @@ pub fn run(auto_mode: bool, prompt: Option<String>, extra_args: Vec<String>) -> 
     // Check authentication on first run
     check_authentication();
 
-    // Hyprland integration: set window rules and notify on start
-    if hyprland::is_hyprland() {
+    // Hyprland integration: set window rules and notify on start (only if plugin enabled)
+    if hyprland::is_focus_enabled() {
         if let Err(e) = hyprland::apply_agent_window_rules() {
             eprintln!("Warning: Failed to apply Hyprland window rules: {}", e);
         }
@@ -139,7 +139,7 @@ pub fn run(auto_mode: bool, prompt: Option<String>, extra_args: Vec<String>) -> 
 
         // For non-Claude agents, set window transparent before launch
         // (Claude handles this via its own UserPromptSubmit hook)
-        if !is_claude {
+        if !is_claude && hyprland::is_focus_enabled() {
             let _ = hyprland::focus_set(wrapper_pid);
         }
 
@@ -158,17 +158,19 @@ pub fn run(auto_mode: bool, prompt: Option<String>, extra_args: Vec<String>) -> 
         // The child has been reaped; just clean up and go.
         let sig = CHILD_SIGNAL.load(Ordering::Relaxed);
         if sig != 0 {
-            let _ = hyprland::focus_reset(wrapper_pid);
-            hyprland::focus_cleanup(wrapper_pid);
-            if hyprland::is_hyprland() {
+            if hyprland::is_focus_enabled() {
+                let _ = hyprland::focus_reset(wrapper_pid);
+                hyprland::focus_cleanup(wrapper_pid);
                 let _ = hyprland::notify_info("unleash stopped");
             }
             std::process::exit(128 + sig);
         }
 
         // Reset to opaque + play sound after agent exit
-        let _ = hyprland::focus_reset(wrapper_pid);
-        hyprland::play_idle_sound();
+        if hyprland::is_focus_enabled() {
+            let _ = hyprland::focus_reset(wrapper_pid);
+            hyprland::play_idle_sound();
+        }
 
         // Check if restart was requested
         if trigger_file.exists() {
@@ -183,20 +185,20 @@ pub fn run(auto_mode: bool, prompt: Option<String>, extra_args: Vec<String>) -> 
 
         // Treat SIGTERM (143 = 128 + 15) as clean exit
         if exit_code == 143 {
-            let _ = hyprland::focus_reset(wrapper_pid);
-            hyprland::focus_cleanup(wrapper_pid);
-            if hyprland::is_hyprland() {
+            if hyprland::is_focus_enabled() {
+                let _ = hyprland::focus_reset(wrapper_pid);
+                hyprland::focus_cleanup(wrapper_pid);
                 let _ = hyprland::notify_info("unleash stopped");
             }
             return Ok(());
         }
 
         // Reset focus and clean up on exit (safety net for all agents)
-        let _ = hyprland::focus_reset(wrapper_pid);
-        hyprland::focus_cleanup(wrapper_pid);
+        if hyprland::is_focus_enabled() {
+            let _ = hyprland::focus_reset(wrapper_pid);
+            hyprland::focus_cleanup(wrapper_pid);
 
-        // Notify on exit if running under Hyprland
-        if hyprland::is_hyprland() {
+            // Notify on exit
             if exit_code == 0 {
                 let _ = hyprland::notify_info("unleash stopped");
             } else {
@@ -482,10 +484,7 @@ fn run_agent(
     }
 
     // Codex native notify hook: end-of-turn => reset opaque + idle sound.
-    if agent_type == Some(AgentType::Codex)
-        && hyprland::is_hyprland()
-        && env::var("AU_HYPRLAND_FOCUS").ok().as_deref() != Some("0")
-    {
+    if agent_type == Some(AgentType::Codex) && hyprland::is_focus_enabled() {
         if let Ok(exe) = env::current_exe() {
             let exe = exe.to_string_lossy().replace('\\', "\\\\").replace('\"', "\\\"");
             let notify_override = format!(
