@@ -66,6 +66,34 @@ Agents find each other using `.mesh` aliases (`claude.mesh`, `codex.mesh`, etc.)
 
 For advanced networking (sidecars, custom topologies), see [NETWORKING.md](NETWORKING.md).
 
+### GPU / Vulkan
+
+To give containers access to a host GPU (e.g., for Vulkan compute), use the GPU override. This switches to runc (gVisor cannot expose host devices) but keeps the sandbox network for LAN isolation.
+
+```bash
+docker compose -f docker/docker-compose.yml \
+  -f docker/docker-compose.gpu.yml \
+  run --rm claude
+```
+
+The override mounts `/dev/dri/card1` and `/dev/dri/renderD128` and adds the host `video` and `render` group IDs. Verify the group IDs match your host:
+
+```bash
+getent group video render
+```
+
+If your GIDs differ from the defaults in `docker-compose.gpu.yml`, update the `group_add` values.
+
+Inside the container, verify with:
+
+```bash
+vulkaninfo --summary
+```
+
+**Security note:** GPU containers use runc instead of gVisor, so kernel isolation is standard Docker namespaces rather than gVisor's syscall filter. LAN blocking via the sandbox network is still active.
+
+> **Kubernetes host caveat:** On hosts running RKE2/k3s with Calico CNI, the CNI's iptables rules in the FORWARD chain may take priority over DOCKER-USER, bypassing LAN blocking. If LAN isolation is critical, verify with `timeout 2 bash -c 'echo > /dev/tcp/192.168.8.1/80'` from inside the container, and consider adding DROP rules earlier in the FORWARD chain if needed.
+
 ## How Sandboxing Works
 
 ### gVisor (runsc)
@@ -90,12 +118,13 @@ sudo ./docker/sandbox-network.sh status    # Check current state
 
 ### Security Summary
 
-| Setup | Kernel Isolation | LAN Blocked | Inter-Container | Internet |
-|-------|-----------------|-------------|-----------------|----------|
-| Default compose (gVisor + sandbox) | gVisor syscall filter | Yes | No | Yes |
-| Multi-agent (+ mesh) | gVisor syscall filter | Yes | Mesh only | Yes |
-| runc override | Standard Docker (namespaces) | No | Default Docker | Yes |
-| `--network none` | N/A | Yes | No | No |
+| Setup | Kernel Isolation | LAN Blocked | Inter-Container | Internet | GPU |
+|-------|-----------------|-------------|-----------------|----------|-----|
+| Default compose (gVisor + sandbox) | gVisor syscall filter | Yes | No | Yes | No |
+| Multi-agent (+ mesh) | gVisor syscall filter | Yes | Mesh only | Yes | No |
+| GPU override (runc + sandbox) | Standard Docker (namespaces) | Yes | No | Yes | Yes |
+| runc override | Standard Docker (namespaces) | No | Default Docker | Yes | No |
+| `--network none` | N/A | Yes | No | No | No |
 
 ## Authentication
 
