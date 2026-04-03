@@ -28,10 +28,19 @@ fi
 TRIGGER_FILE="${CACHE_DIR}/restart-trigger-${WRAPPER_PID}"
 RESTART_MESSAGE_FILE="${CACHE_DIR}/restart-message-${WRAPPER_PID}"
 
-# Get Claude's PID - it's the grandparent of this script
-# Process tree: wrapper -> claude -> bash -c -> this script
-BASH_SHELL_PID=$PPID
-CLAUDE_PID=$(ps -o ppid= -p "${BASH_SHELL_PID}" 2>/dev/null | tr -d ' ')
+# Find Claude's PID. Since unleash-refresh can be run from a background script (e.g., supercompact pipeline)
+# where the process tree to the wrapper is broken, we must find the direct child of WRAPPER_PID
+# instead of relying on $PPID.
+CLAUDE_PID=$(pgrep -P "${WRAPPER_PID}" | head -n 1)
+
+# Safety guard: Verify the process name to ensure we never kill critical system processes
+if [[ -n "${CLAUDE_PID}" ]]; then
+    CMD_NAME=$(ps -p "${CLAUDE_PID}" -o comm= 2>/dev/null || echo "unknown")
+    if [[ "${CMD_NAME}" == "systemd" || "${CMD_NAME}" =~ "Hyprland" || "${CLAUDE_PID}" == "1" ]]; then
+        echo "Error: Refusing to kill critical system process (${CMD_NAME}, PID ${CLAUDE_PID})"
+        exit 1
+    fi
+fi
 
 if [[ -z "${CLAUDE_PID}" ]]; then
     echo "Error: Could not determine Claude PID"
