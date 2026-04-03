@@ -45,7 +45,7 @@ pub fn inject_session(
     }
 }
 
-fn source_to_hub(session: &SessionInfo) -> Result<Vec<HubRecord>, ConvertError> {
+pub fn source_to_hub(session: &SessionInfo) -> Result<Vec<HubRecord>, ConvertError> {
     match session.cli.as_str() {
         "claude" => {
             let data = std::fs::read_to_string(&session.path)?;
@@ -65,6 +65,19 @@ fn source_to_hub(session: &SessionInfo) -> Result<Vec<HubRecord>, ConvertError> 
             // For OpenCode, we need to export from the DB
             let input = export_opencode_session(&session.id)?;
             opencode::to_hub(&input)
+        }
+        "ucf" => {
+            let data = std::fs::read_to_string(&session.path)?;
+            let mut records = Vec::new();
+            for line in data.lines() {
+                if line.trim().is_empty() {
+                    continue;
+                }
+                if let Ok(record) = serde_json::from_str(line) {
+                    records.push(record);
+                }
+            }
+            Ok(records)
         }
         _ => Err(ConvertError::InvalidFormat(format!(
             "Unknown source CLI: {}",

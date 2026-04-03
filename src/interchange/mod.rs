@@ -18,6 +18,7 @@ pub enum CliFormat {
     Codex,
     GeminiCli,
     OpenCode,
+    Ucf,
 }
 
 impl fmt::Display for CliFormat {
@@ -27,6 +28,7 @@ impl fmt::Display for CliFormat {
             Self::Codex => write!(f, "codex"),
             Self::GeminiCli => write!(f, "gemini-cli"),
             Self::OpenCode => write!(f, "opencode"),
+            Self::Ucf => write!(f, "ucf"),
         }
     }
 }
@@ -40,6 +42,7 @@ impl std::str::FromStr for CliFormat {
             "codex" => Ok(Self::Codex),
             "gemini" | "gemini-cli" => Ok(Self::GeminiCli),
             "opencode" => Ok(Self::OpenCode),
+            "ucf" | "hub" => Ok(Self::Ucf),
             _ => Err(ConvertError::InvalidFormat(format!(
                 "Unknown CLI format: {s}"
             ))),

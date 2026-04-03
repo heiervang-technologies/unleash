@@ -83,6 +83,10 @@ pub struct PolyfillArgs {
     #[arg(short, long)]
     pub auto: bool,
 
+    /// Keep the conversation natively in UCF (Hub) format
+    #[arg(short = 'u', long)]
+    pub ucf: Option<String>,
+
     /// Reasoning effort level (e.g., "high", "low")
     #[arg(short = 'e', long)]
     pub effort: Option<String>,
@@ -112,6 +116,7 @@ impl PolyfillArgs {
             resume: None,
             fork: false,
             auto: false,
+            ucf: None,
             effort: None,
             crossload: None,
             dry_run: false,
@@ -206,6 +211,8 @@ impl PolyfillArgs {
                         polyfill.resume = Some(val.to_string());
                     } else if let Some(val) = arg.strip_prefix("--effort=") {
                         polyfill.effort = Some(val.to_string());
+                    } else if let Some(val) = arg.strip_prefix("--ucf=") {
+                        polyfill.ucf = Some(val.to_string());
                     } else if let Some(val) = arg.strip_prefix("--crossload=") {
                         polyfill.crossload = Some(val.to_string());
                     } else {

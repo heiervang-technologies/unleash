@@ -249,13 +249,23 @@ fn run_agent_with_polyfill(
     }
 
     // --crossload: inject a foreign session before launching
-    if let Some(ref crossload_query) = polyfill_args.crossload {
-        let target_cli = match agent_type {
-            AgentType::Claude => "claude",
-            AgentType::Codex => "codex",
-            AgentType::Gemini => "gemini",
-            AgentType::OpenCode => "opencode",
-        };
+    let target_cli = match agent_type {
+        AgentType::Claude => "claude",
+        AgentType::Codex => "codex",
+        AgentType::Gemini => "gemini",
+        AgentType::OpenCode => "opencode",
+    };
+
+    let mut ucf_active = None;
+    if let Some(ref ucf_name) = polyfill_args.ucf {
+        if ucf_name.is_empty() {
+            eprintln!("\x1b[31m✗\x1b[0m --ucf requires a session name (e.g. --ucf my-project)");
+            return Ok(());
+        }
+        let (session_id, resume_args) = setup_ucf_session(ucf_name, target_cli)?;
+        extra_args.extend(resume_args);
+        ucf_active = Some((ucf_name.clone(), target_cli.to_string(), session_id));
+    } else if let Some(ref crossload_query) = polyfill_args.crossload {
 
         let query = if crossload_query.is_empty() {
             // Interactive picker
@@ -325,7 +335,13 @@ fn run_agent_with_polyfill(
 
     // Headless prompt is handled by the polyfill (adds -p/exec/run to args)
     // Don't pass prompt separately to launcher since it would double-add for Claude
-    launcher::run(auto, None, launch_args)
+    let res = launcher::run(auto, None, launch_args);
+
+    if let Some((ucf_name, target_cli, session_id)) = ucf_active {
+        sync_ucf_session(&ucf_name, &target_cli, &session_id);
+    }
+
+    res
 }
 
 /// Returns true if `first_arg` is a known unleash subcommand that must be
@@ -410,13 +426,18 @@ pub fn run() -> io::Result<()> {
     if is_wrapper_reentry && !has_meta_flag && !first_arg_is_subcommand {
         let args: Vec<String> = env::args().skip(1).collect();
 
-        // Check for --crossload/-x in wrapper mode — handle before launch
+        // Check for --crossload/-x or --ucf/-u in wrapper mode — handle before launch
         let has_crossload = args
             .iter()
             .any(|a| a == "-x" || a == "--crossload" || a.starts_with("--crossload="));
-        if has_crossload {
-            // Extract crossload query and strip -x/--crossload AND profile name from args
+        let has_ucf = args
+            .iter()
+            .any(|a| a == "-u" || a == "--ucf" || a.starts_with("--ucf="));
+
+        if has_crossload || has_ucf {
+            // Extract crossload query and strip args
             let mut crossload_query = String::new();
+            let mut ucf_name = String::new();
             let mut filtered_args = Vec::new();
             let mut skip_next = false;
             for (i, arg) in args.iter().enumerate() {
@@ -431,12 +452,19 @@ pub fn run() -> io::Result<()> {
                             skip_next = true;
                         }
                     }
+                } else if arg == "-u" || arg == "--ucf" {
+                    if let Some(next) = args.get(i + 1) {
+                        if !next.starts_with('-') {
+                            ucf_name = next.clone();
+                            skip_next = true;
+                        }
+                    }
                 } else if let Some(val) = arg.strip_prefix("--crossload=") {
                     crossload_query = val.to_string();
+                } else if let Some(val) = arg.strip_prefix("--ucf=") {
+                    ucf_name = val.to_string();
                 } else if i == 0 && !arg.starts_with('-') {
                     // First positional arg is the profile name — skip it.
-                    // This handles both built-in profiles (claude, codex, …) and
-                    // custom user-defined profiles without a hardcoded allow-list.
                     continue;
                 } else {
                     filtered_args.push(arg.clone());
@@ -466,39 +494,47 @@ pub fn run() -> io::Result<()> {
                 }
             };
 
-            let query = if crossload_query.is_empty() {
-                #[cfg(feature = "tui")]
-                {
-                    match tui::session_picker::pick_session() {
-                        Ok(Some(session)) => format!("{}:{}", session.cli, session.id),
-                        Ok(None) => {
-                            eprintln!("No session selected.");
-                            return Ok(());
-                        }
-                        Err(e) => {
-                            eprintln!("Picker error: {e}");
-                            return Ok(());
+            let mut ucf_session_id = None;
+
+            if !ucf_name.is_empty() {
+                let (session_id, resume_args) = setup_ucf_session(&ucf_name, target_cli)?;
+                filtered_args.extend(resume_args);
+                ucf_session_id = Some(session_id);
+            } else {
+                let query = if crossload_query.is_empty() {
+                    #[cfg(feature = "tui")]
+                    {
+                        match tui::session_picker::pick_session() {
+                            Ok(Some(session)) => format!("{}:{}", session.cli, session.id),
+                            Ok(None) => {
+                                eprintln!("No session selected.");
+                                return Ok(());
+                            }
+                            Err(e) => {
+                                eprintln!("Picker error: {e}");
+                                return Ok(());
+                            }
                         }
                     }
-                }
-                #[cfg(not(feature = "tui"))]
-                {
-                    eprintln!("Interactive picker requires TUI. Use: --crossload cli:name");
-                    return Ok(());
-                }
-            } else {
-                crossload_query
-            };
+                    #[cfg(not(feature = "tui"))]
+                    {
+                        eprintln!("Interactive picker requires TUI. Use: --crossload cli:name");
+                        return Ok(());
+                    }
+                } else {
+                    crossload_query
+                };
 
-            eprintln!("\x1b[34minfo:\x1b[0m Loading session: {query} into {target_cli}");
-            match interchange::inject::inject_session(&query, target_cli) {
-                Ok(result) => {
-                    eprintln!("\x1b[32m✓\x1b[0m {}", result.message);
-                    filtered_args.extend(result.resume_args);
-                }
-                Err(e) => {
-                    eprintln!("\x1b[31m✗\x1b[0m Crossload failed: {e}");
-                    return Err(io::Error::other(e.to_string()));
+                eprintln!("\x1b[34minfo:\x1b[0m Loading session: {query} into {target_cli}");
+                match interchange::inject::inject_session(&query, target_cli) {
+                    Ok(result) => {
+                        eprintln!("\x1b[32m✓\x1b[0m {}", result.message);
+                        filtered_args.extend(result.resume_args);
+                    }
+                    Err(e) => {
+                        eprintln!("\x1b[31m✗\x1b[0m Crossload failed: {e}");
+                        return Err(io::Error::other(e.to_string()));
+                    }
                 }
             }
 
@@ -509,7 +545,11 @@ pub fn run() -> io::Result<()> {
 
             let (auto, prompt, pass_args) =
                 parse_wrapper_launch_args(filtered_args, parse_prompt_flags);
-            return launcher::run(auto, prompt, pass_args);
+            let res = launcher::run(auto, prompt, pass_args);
+            if let Some(session_id) = ucf_session_id {
+                sync_ucf_session(&ucf_name, target_cli, &session_id);
+            }
+            return res;
         }
 
         let parse_prompt_flags = env::var("AGENT_CMD")
@@ -1139,5 +1179,80 @@ mod tests {
         assert!(!is_known_subcommand("invalid-subcommand"));
         assert!(!is_known_subcommand(""));
         assert!(!is_known_subcommand("VERSION")); // case sensitive
+    }
+}
+
+fn setup_ucf_session(ucf_name: &str, target_cli: &str) -> io::Result<(String, Vec<String>)> {
+    let ucf_path = dirs::data_dir()
+        .unwrap_or_else(|| std::path::PathBuf::from(env::var("HOME").unwrap_or_default()).join(".local/share"))
+        .join("unleash")
+        .join("sessions")
+        .join(format!("{}.ucf.jsonl", ucf_name));
+        
+    let ucf_query = format!("ucf:{}", ucf_name);
+
+    if !ucf_path.exists() {
+        eprintln!("\x1b[34minfo:\x1b[0m Starting new native UCF session: {ucf_name}");
+        std::fs::create_dir_all(ucf_path.parent().unwrap())?;
+        let now_iso = std::process::Command::new("date")
+            .arg("-u")
+            .arg("+%Y-%m-%dT%H:%M:%SZ")
+            .output()
+            .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string())
+            .unwrap_or_else(|_| "1970-01-01T00:00:00Z".to_string());
+
+        let header = interchange::hub::SessionHeader {
+            ucf_version: interchange::hub::UCF_VERSION.to_string(),
+            session_id: ucf_name.to_string(),
+            created_at: now_iso.clone(),
+            updated_at: now_iso,
+            source_cli: "ucf".to_string(),            source_version: "1.0.0".to_string(),
+            project: None,
+            model: None,
+            title: Some(ucf_name.to_string()),
+            slug: Some(ucf_name.to_string()),
+            parent_session_id: None,
+            extensions: serde_json::json!({}),
+        };
+        let record = interchange::hub::HubRecord::Session(header);
+        let data = serde_json::to_string(&record).unwrap() + "\n";
+        std::fs::write(&ucf_path, data)?;
+    } else {
+        eprintln!("\x1b[34minfo:\x1b[0m Loading native UCF session: {ucf_name} into {target_cli}");
+    }
+
+    match interchange::inject::inject_session(&ucf_query, target_cli) {
+        Ok(result) => {
+            eprintln!("\x1b[32m✓\x1b[0m {}", result.message);
+            Ok((result.session_id, result.resume_args))
+        }
+        Err(e) => {
+            eprintln!("\x1b[31m✗\x1b[0m UCF initialization failed: {e}");
+            Err(io::Error::other(e.to_string()))
+        }
+    }
+}
+
+fn sync_ucf_session(ucf_name: &str, target_cli: &str, session_id: &str) {
+    let query = format!("{}:{}", target_cli, session_id);
+    if let Some(session) = interchange::sessions::find_session(&query) {
+        if let Ok(records) = interchange::inject::source_to_hub(&session) {
+            let ucf_path = dirs::data_dir()
+                .unwrap_or_else(|| std::path::PathBuf::from(env::var("HOME").unwrap_or_default()).join(".local/share"))
+                .join("unleash")
+                .join("sessions")
+                .join(format!("{}.ucf.jsonl", ucf_name));
+            
+            let mut out = String::new();
+            for r in records {
+                out.push_str(&serde_json::to_string(&r).unwrap());
+                out.push('\n');
+            }
+            if let Err(e) = std::fs::write(&ucf_path, out) {
+                eprintln!("Warning: Failed to save UCF session back to {}: {}", ucf_path.display(), e);
+            } else {
+                eprintln!("\x1b[32m✓\x1b[0m Saved native UCF session: {}", ucf_name);
+            }
+        }
     }
 }

@@ -23,6 +23,7 @@ pub fn discover_all() -> Vec<SessionInfo> {
     sessions.extend(discover_codex());
     sessions.extend(discover_gemini());
     sessions.extend(discover_opencode());
+    sessions.extend(discover_ucf());
     sessions.sort_by(|a, b| b.updated_at.cmp(&a.updated_at));
     sessions
 }
@@ -34,6 +35,7 @@ pub fn discover_for(cli: CliFormat) -> Vec<SessionInfo> {
         CliFormat::Codex => discover_codex(),
         CliFormat::GeminiCli => discover_gemini(),
         CliFormat::OpenCode => discover_opencode(),
+        CliFormat::Ucf => discover_ucf(),
     }
 }
 
@@ -478,4 +480,73 @@ mod tests {
             ts2
         );
     }
+}
+
+// === UCF (Native Hub) discovery ===
+
+fn discover_ucf() -> Vec<SessionInfo> {
+    let mut sessions = Vec::new();
+    let ucf_dir = match dirs::data_dir() {
+        Some(d) => d.join("unleash").join("sessions"),
+        None => return sessions,
+    };
+
+    if !ucf_dir.exists() {
+        return sessions;
+    }
+
+    let Ok(entries) = std::fs::read_dir(&ucf_dir) else {
+        return sessions;
+    };
+
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if path.extension().and_then(|s| s.to_str()) != Some("jsonl") {
+            continue;
+        }
+
+        let file_name = path.file_name().unwrap_or_default().to_string_lossy();
+        if !file_name.ends_with(".ucf.jsonl") {
+            continue;
+        }
+
+        let id = file_name.strip_suffix(".ucf.jsonl").unwrap_or(&file_name).to_string();
+
+        let Ok(file) = std::fs::File::open(&path) else {
+            continue;
+        };
+
+        use std::io::BufRead;
+        let reader = std::io::BufReader::new(file);
+        let mut lines = reader.lines();
+
+        if let Some(Ok(first_line)) = lines.next() {
+            if let Ok(val) = serde_json::from_str::<serde_json::Value>(&first_line) {
+                if let Some(session) = val.get("session") {
+                    let updated_at = session
+                        .get("updated_at")
+                        .and_then(|t| t.as_str())
+                        .unwrap_or("1970-01-01T00:00:00.000Z")
+                        .to_string();
+                    let title = session.get("title").and_then(|t| t.as_str()).map(|s| s.to_string());
+                    
+                    // message count = total lines - 1 (for the header)
+                    let message_count = lines.filter(|l| l.is_ok()).count();
+
+                    sessions.push(SessionInfo {
+                        cli: "ucf".to_string(),
+                        id: id.clone(),
+                        name: Some(id),
+                        title,
+                        directory: ucf_dir.to_string_lossy().to_string(),
+                        path,
+                        updated_at,
+                        message_count: Some(message_count),
+                    });
+                }
+            }
+        }
+    }
+
+    sessions
 }
