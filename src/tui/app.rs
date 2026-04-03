@@ -129,6 +129,27 @@ pub enum Screen {
     Features,
 }
 
+/// Main menu items — order here defines display order in the TUI.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum MainMenuItem {
+    Start,
+    Profiles,
+    Versions,
+    Features,
+    Help,
+    Quit,
+}
+
+/// Single source of truth for main menu layout.
+const MAIN_MENU: &[(MainMenuItem, &str, &str)] = &[
+    (MainMenuItem::Start, "Start Session", "Launch with selected profile"),
+    (MainMenuItem::Profiles, "Profiles", "Manage profiles and their settings"),
+    (MainMenuItem::Versions, "Versions & Updates", "Manage unleash and agent CLI versions"),
+    (MainMenuItem::Features, "Features & Plugins", "Toggle plugins and experimental features"),
+    (MainMenuItem::Help, "Help", "Keyboard shortcuts and tips"),
+    (MainMenuItem::Quit, "Quit", "Exit the launcher"),
+];
+
 /// Focus zone within the unified version management screen
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum VersionFocus {
@@ -205,6 +226,7 @@ pub enum ClickTarget {
     VersionAgentItem(usize),
     VersionListItem(usize),
     ThemeItem(usize),
+    FeatureItem(usize),
     /// The Claude mascot / avatar art sidebar
     AvatarArt,
     DialogYes,
@@ -396,7 +418,7 @@ impl App {
             running: true,
             last_frame_area: Rect::default(),
             screen: Screen::Main,
-            main_menu: MenuState::new(6), // Start, Profiles, Features, Versions & Updates, Help, Quit
+            main_menu: MenuState::new(MAIN_MENU.len()),
             profile_menu: MenuState::new(profiles.len()),
             profile_manager,
             app_config,
@@ -1077,6 +1099,13 @@ impl App {
                     self.theme_menu.selected = i;
                 }
             }
+            (ClickTarget::FeatureItem(i), Screen::Features) => {
+                if self.feature_menu.selected == i {
+                    self.handle_features_input(NavAction::Select);
+                } else {
+                    self.feature_menu.selected = i;
+                }
+            }
             (ClickTarget::AvatarArt, screen) if screen != Screen::Main => {
                 // Clicking the avatar from any sub-screen returns to Main
                 self.trigger_screen_animation(false, Screen::Main);
@@ -1457,9 +1486,9 @@ impl App {
                 self.main_menu.handle_action(action);
             }
             NavAction::Select => {
-                match self.main_menu.selected {
-                    0 => {
-                        // Start Session
+                let item = MAIN_MENU.get(self.main_menu.selected).map(|(id, _, _)| *id);
+                match item {
+                    Some(MainMenuItem::Start) => {
                         if let Some(profile) = &self.selected_profile {
                             return Ok(Some(AppAction::Launch(Box::new(LaunchRequest {
                                 profile: profile.clone(),
@@ -1468,34 +1497,29 @@ impl App {
                             self.status_message = Some("No profile selected!".to_string());
                         }
                     }
-                    1 => {
-                        // Profiles
+                    Some(MainMenuItem::Profiles) => {
                         self.trigger_screen_animation(true, Screen::Profiles);
                         self.pending_screen = Some(Screen::Profiles);
                     }
-                    2 => {
-                        // Features
+                    Some(MainMenuItem::Versions) => {
+                        self.trigger_screen_animation(true, Screen::VersionManagement);
+                        self.pending_screen = Some(Screen::VersionManagement);
+                    }
+                    Some(MainMenuItem::Features) => {
                         self.discovered_plugins = crate::config::discover_plugins();
                         self.feature_menu = MenuState::new(self.discovered_plugins.len());
                         self.trigger_screen_animation(true, Screen::Features);
                         self.pending_screen = Some(Screen::Features);
                     }
-                    3 => {
-                        // Versions & Updates
-                        self.trigger_screen_animation(true, Screen::VersionManagement);
-                        self.pending_screen = Some(Screen::VersionManagement);
-                    }
-                    4 => {
-                        // Help
+                    Some(MainMenuItem::Help) => {
                         self.help_return_screen = Some(Screen::Main);
                         self.trigger_screen_animation(true, Screen::Help);
                         self.pending_screen = Some(Screen::Help);
                     }
-                    5 => {
-                        // Quit
+                    Some(MainMenuItem::Quit) => {
                         self.running = false;
                     }
-                    _ => {}
+                    None => {}
                 }
             }
             NavAction::Quit | NavAction::Back => {
@@ -2258,6 +2282,66 @@ impl App {
         }
     }
 
+    fn handle_features_input(&mut self, action: NavAction) {
+        match action {
+            NavAction::Up | NavAction::Down => {
+                self.feature_menu.handle_action(action);
+            }
+            NavAction::Select => {
+                // Toggle the selected plugin
+                if let Some(plugin) = self.discovered_plugins.get(self.feature_menu.selected) {
+                    let plugin_name = plugin.name.clone();
+                    let all_names: Vec<String> =
+                        self.discovered_plugins.iter().map(|p| p.name.clone()).collect();
+
+                    if self.app_config.enabled_plugins.is_empty() {
+                        // Empty = all enabled. To disable one, populate with all-but-selected.
+                        self.app_config.enabled_plugins =
+                            all_names.into_iter().filter(|n| *n != plugin_name).collect();
+                    } else if self.app_config.enabled_plugins.contains(&plugin_name) {
+                        // Currently enabled — disable it
+                        self.app_config.enabled_plugins.retain(|n| *n != plugin_name);
+                    } else {
+                        // Currently disabled — enable it
+                        self.app_config.enabled_plugins.push(plugin_name.clone());
+                    }
+
+                    // If all plugins are now enabled, clear the list (back to "all enabled" default)
+                    if !self.app_config.enabled_plugins.is_empty() {
+                        let all_enabled = self
+                            .discovered_plugins
+                            .iter()
+                            .all(|p| self.app_config.enabled_plugins.contains(&p.name));
+                        if all_enabled {
+                            self.app_config.enabled_plugins.clear();
+                        }
+                    }
+
+                    let _ = self.profile_manager.save_app_config(&self.app_config);
+                    self.status_message = Some(format!("Toggled: {}", plugin_name));
+                }
+            }
+            NavAction::Back | NavAction::Quit => {
+                self.trigger_screen_animation(false, Screen::Main);
+                self.pending_screen = Some(Screen::Main);
+                if self.art_animation.is_none() {
+                    self.screen = Screen::Main;
+                    self.refresh_screen_data();
+                }
+            }
+            _ => {}
+        }
+    }
+
+    /// Check if a plugin is enabled based on current config
+    fn is_plugin_enabled(&self, name: &str) -> bool {
+        if self.app_config.enabled_plugins.is_empty() {
+            true // empty = all enabled
+        } else {
+            self.app_config.enabled_plugins.contains(&name.to_string())
+        }
+    }
+
     /// Get the current accent color based on theme
     fn accent_color(&self) -> Color {
         let (r, g, b) = self.theme_color.accent_rgb();
@@ -2321,26 +2405,8 @@ impl App {
     fn content_width_for_screen(&self, screen: Screen) -> u16 {
         match screen {
             Screen::Main => {
-                // Calculate based on actual menu content
-                let menu_items = [
-                    (
-                        "Start Session",
-                        "Launch Claude with selected profile".to_string(),
-                    ),
-                    ("Profiles", "Manage profiles and their settings".to_string()),
-                    (
-                        "Features",
-                        "Toggle plugins and experimental features".to_string(),
-                    ),
-                    (
-                        "Versions & Updates",
-                        "Manage unleash and agent CLI versions".to_string(),
-                    ),
-                    ("Help", "Keyboard shortcuts and tips".to_string()),
-                    ("Quit", "Exit the launcher".to_string()),
-                ];
-                let max_name = menu_items.iter().map(|(n, _)| n.len()).max().unwrap_or(0);
-                let max_desc = menu_items.iter().map(|(_, d)| d.len()).max().unwrap_or(0);
+                let max_name = MAIN_MENU.iter().map(|(_, n, _)| n.len()).max().unwrap_or(0);
+                let max_desc = MAIN_MENU.iter().map(|(_, _, d)| d.len()).max().unwrap_or(0);
                 // "> " prefix (2) + name, or "    " prefix (4) + desc
                 let name_width = 2 + max_name;
                 let desc_width = 4 + max_desc;
@@ -2374,6 +2440,7 @@ impl App {
                 // Profile editing needs more space for env var keys/values
                 50
             }
+            Screen::Features => 50,
         }
     }
 
@@ -2516,6 +2583,7 @@ impl App {
                     self.render_conflict_dialog(frame, frame.area());
                 }
             }
+            Screen::Features => self.render_features(frame, area),
         }
     }
 
@@ -2600,24 +2668,6 @@ impl App {
         let title = Paragraph::new(title_text);
         frame.render_widget(title, chunks[0]);
 
-        let menu_items = [
-            (
-                "Start Session",
-                "Launch Claude with selected profile".to_string(),
-            ),
-            ("Profiles", "Manage profiles and their settings".to_string()),
-            (
-                "Features",
-                "Toggle plugins and experimental features".to_string(),
-            ),
-            (
-                "Versions & Updates",
-                "Manage unleash and agent CLI versions".to_string(),
-            ),
-            ("Help", "Keyboard shortcuts and tips".to_string()),
-            ("Quit", "Exit the launcher".to_string()),
-        ];
-
         // Each menu item takes 2 lines, calculate visible count
         // Area height minus 2 for borders, divided by 2 for lines per item
         let menu_area = chunks[1];
@@ -2627,12 +2677,12 @@ impl App {
         self.main_menu.ensure_visible(visible_items);
         let scroll_offset = self.main_menu.scroll_offset;
 
-        let items: Vec<ListItem> = menu_items
+        let items: Vec<ListItem> = MAIN_MENU
             .iter()
             .enumerate()
             .skip(scroll_offset)
             .take(visible_items)
-            .map(|(i, (name, desc))| {
+            .map(|(i, (_, name, desc))| {
                 let style = if i == self.main_menu.selected {
                     Style::default()
                         .fg(self.accent_color())
@@ -2656,18 +2706,18 @@ impl App {
             .collect();
 
         // Show scroll indicator if needed
-        let _scroll_hint = if menu_items.len() > visible_items {
+        let _scroll_hint = if MAIN_MENU.len() > visible_items {
             format!(
                 " [{}/{}]",
                 scroll_offset + 1,
-                menu_items.len().saturating_sub(visible_items) + 1
+                MAIN_MENU.len().saturating_sub(visible_items) + 1
             )
         } else {
             String::new()
         };
 
         // Register clickable areas for mouse: each item takes 2 rows
-        let visible_count = visible_items.min(menu_items.len().saturating_sub(scroll_offset));
+        let visible_count = visible_items.min(MAIN_MENU.len().saturating_sub(scroll_offset));
         for j in 0..visible_count {
             let item_idx = scroll_offset + j;
             let row = menu_area.y + (j as u16 * 2);
@@ -3377,6 +3427,104 @@ impl App {
         self.clickable_areas.push((no_rect, ClickTarget::DialogNo));
     }
 
+    fn render_features(&mut self, frame: &mut Frame, area: Rect) {
+        let chunks = Layout::default()
+            .direction(Direction::Vertical)
+            .constraints([
+                Constraint::Length(3), // Title
+                Constraint::Min(5),   // Plugin list
+                Constraint::Length(2), // Help hint
+            ])
+            .split(area);
+
+        // Title
+        let title = Paragraph::new(vec![
+            Line::from(Span::styled(
+                "Features & Plugins",
+                Style::default()
+                    .fg(self.accent_color())
+                    .add_modifier(Modifier::BOLD),
+            )),
+            Line::from(""),
+        ]);
+        frame.render_widget(title, chunks[0]);
+
+        if self.discovered_plugins.is_empty() {
+            let empty = Paragraph::new(Span::styled(
+                "  No plugins found",
+                Style::default().fg(Color::DarkGray),
+            ));
+            frame.render_widget(empty, chunks[1]);
+        } else {
+            let items: Vec<ListItem> = self
+                .discovered_plugins
+                .iter()
+                .enumerate()
+                .map(|(i, plugin)| {
+                    let is_selected = i == self.feature_menu.selected;
+                    let is_on = self.is_plugin_enabled(&plugin.name);
+
+                    let checkbox = if is_on { "[x]" } else { "[ ]" };
+                    let prefix = if is_selected { "> " } else { "  " };
+
+                    let name_style = if is_selected {
+                        Style::default()
+                            .fg(self.accent_color())
+                            .add_modifier(Modifier::BOLD)
+                    } else if is_on {
+                        Style::default().fg(Color::White)
+                    } else {
+                        Style::default().fg(Color::DarkGray)
+                    };
+
+                    let check_style = if is_on {
+                        Style::default().fg(Color::Green)
+                    } else {
+                        Style::default().fg(Color::DarkGray)
+                    };
+
+                    let desc_style = Style::default().fg(Color::DarkGray);
+
+                    ListItem::new(vec![
+                        Line::from(vec![
+                            Span::styled(prefix, name_style),
+                            Span::styled(checkbox, check_style),
+                            Span::styled(format!(" {}", plugin.name), name_style),
+                            Span::styled(format!("  v{}", plugin.version), desc_style),
+                        ]),
+                        Line::from(vec![
+                            Span::raw("      "),
+                            Span::styled(&plugin.description, desc_style),
+                        ]),
+                    ])
+                })
+                .collect();
+
+            // Register clickable areas (each plugin takes 2 rows)
+            for i in 0..self.discovered_plugins.len() {
+                let row = chunks[1].y + (i as u16 * 2);
+                if row + 1 < chunks[1].y + chunks[1].height {
+                    self.clickable_areas.push((
+                        Rect::new(chunks[1].x, row, chunks[1].width, 2),
+                        ClickTarget::FeatureItem(i),
+                    ));
+                }
+            }
+
+            let menu = List::new(items);
+            frame.render_widget(menu, chunks[1]);
+        }
+
+        // Help hint
+        let hint = Paragraph::new(Line::from(vec![
+            Span::styled("  Enter", Style::default().fg(Color::Yellow)),
+            Span::styled(" toggle  ", Style::default().fg(Color::DarkGray)),
+            Span::styled("Esc", Style::default().fg(Color::Yellow)),
+            Span::styled(" back", Style::default().fg(Color::DarkGray)),
+        ]));
+        frame.render_widget(hint, chunks[2]);
+    }
+
     fn render_theme(&mut self, frame: &mut Frame, area: Rect) {
         let presets = ThemePreset::all();
         let custom_index = presets.len();
@@ -4063,7 +4211,7 @@ mod tests {
             running: true,
             last_frame_area: Rect::default(),
             screen: Screen::Main,
-            main_menu: MenuState::new(5),
+            main_menu: MenuState::new(6), // Start, Profiles, Features, Versions, Help, Quit
             profile_menu: MenuState::new(profiles.len()),
             profile_manager,
             app_config,
@@ -4136,6 +4284,11 @@ mod tests {
             NavAction::Quit => KeyEvent::new(KeyCode::Char('q'), KeyModifiers::NONE),
             _ => KeyEvent::new(KeyCode::Null, KeyModifiers::NONE),
         }
+    }
+
+    /// Find the index of a MainMenuItem in the MAIN_MENU array.
+    fn menu_index(item: MainMenuItem) -> usize {
+        MAIN_MENU.iter().position(|(id, _, _)| *id == item).unwrap()
     }
 
     #[test]
@@ -4421,8 +4574,7 @@ mod tests {
         let (mut app, _temp) = test_app();
         app.animations_enabled = false;
 
-        // Select Help menu item (index 3)
-        app.main_menu.selected = 3;
+        app.main_menu.selected = menu_index(MainMenuItem::Help);
         let _ = app.handle_main_input(NavAction::Select);
         app.tick();
         assert_eq!(app.screen, Screen::Help);
@@ -4475,12 +4627,11 @@ mod tests {
     }
 
     #[test]
-    fn test_quit_is_index_4() {
+    fn test_quit_menu_item() {
         let (mut app, _temp) = test_app();
         app.animations_enabled = false;
 
-        // Selecting index 4 should quit
-        app.main_menu.selected = 4;
+        app.main_menu.selected = menu_index(MainMenuItem::Quit);
         let _ = app.handle_main_input(NavAction::Select);
         assert!(!app.running);
     }
@@ -4640,8 +4791,7 @@ mod tests {
         let (mut app, _temp) = test_app();
         app.animations_enabled = false;
 
-        // Select "Versions & Updates" (index 2) from main menu
-        app.main_menu.selected = 2;
+        app.main_menu.selected = menu_index(MainMenuItem::Versions);
         let _ = app.handle_main_input(NavAction::Select);
         app.tick();
         assert_eq!(app.screen, Screen::VersionManagement);
@@ -4926,3 +5076,4 @@ mod tests {
         assert!(!app.g_pending);
     }
 }
+

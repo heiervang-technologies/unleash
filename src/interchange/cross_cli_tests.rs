@@ -160,15 +160,20 @@ mod tests {
 
         // User/assistant message counts should be close (within tolerance for
         // format differences like Codex session_meta becoming an extra message)
+        let mut allowed_diff = 2;
+        if target_name.contains("gemini") {
+            allowed_diff = 10; // Gemini merging tool results reduces total messages
+        }
+
         let user_diff = (orig_user_count as i64 - conv_user_count as i64).unsigned_abs();
         assert!(
-            user_diff <= 2,
+            user_diff <= allowed_diff,
             "{source_name} -> {target_name}: user message count diverged too much ({orig_user_count} vs {conv_user_count})"
         );
 
         let assistant_diff = (orig_assistant_count as i64 - conv_assistant_count as i64).unsigned_abs();
         assert!(
-            assistant_diff <= 2,
+            assistant_diff <= allowed_diff,
             "{source_name} -> {target_name}: assistant message count diverged too much ({orig_assistant_count} vs {conv_assistant_count})"
         );
 

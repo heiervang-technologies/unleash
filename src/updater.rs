@@ -30,6 +30,10 @@ pub struct UpdateConfig {
     /// Only update agents that are already installed (skip uninstalled).
     /// When false (install mode), all listed agents are installed.
     pub update_only: bool,
+    /// Only install agents that are NOT already installed (skip installed).
+    /// When true, already-installed agents are left untouched.
+    #[allow(dead_code)]
+    pub install_only: bool,
 }
 
 /// Result of a version check for a single agent.
@@ -87,6 +91,7 @@ pub fn run(config: UpdateConfig) -> io::Result<()> {
 
     // Collect agents that need updating.
     // In update_only mode, skip agents that aren't installed.
+    // In install_only mode, skip agents that ARE already installed.
     let to_update: Vec<&CheckResult> = check_results
         .iter()
         .filter(|r| {
@@ -94,6 +99,9 @@ pub fn run(config: UpdateConfig) -> io::Result<()> {
                 return false;
             }
             if config.update_only && r.installed.is_none() {
+                return false;
+            }
+            if config.install_only && r.installed.is_some() {
                 return false;
             }
             true

@@ -265,39 +265,69 @@ fn load_profile_env() -> io::Result<HashMap<String, String>> {
 }
 
 /// Find ALL plugin directories regardless of enabled state (for discovery).
-/// Only returns from ONE source to avoid duplicate hooks:
-/// - Prefer repo dev path (plugins/bundled/) when running from repo
-/// - Fall back to installed path (~/.local/share/unleash/plugins/)
+/// Searches multiple locations in priority order; first match per plugin name wins.
+///
+/// Search order:
+/// 1. `AGENT_UNLEASH_ROOT` env var → `$ROOT/plugins/bundled/`
+/// 2. Relative to executable → `<exe_dir>/../share/unleash/plugins/bundled/`
+/// 3. CWD-relative → `plugins/bundled/` (development from repo root)
+/// 4. `~/.local/share/unleash/plugins/` (user-installed / non-bundled)
 pub fn find_all_plugin_dirs() -> Vec<PathBuf> {
     let mut dirs = Vec::new();
     let mut seen_names = std::collections::HashSet::new();
 
-    // Check repo location (for development) - PREFERRED when available
-    // Canonicalize to absolute path so hook commands in settings.json work from any CWD
-    let repo_plugins = PathBuf::from("plugins/bundled");
-    if repo_plugins.exists() {
-        let repo_plugins = fs::canonicalize(&repo_plugins).unwrap_or(repo_plugins);
-        if let Ok(entries) = fs::read_dir(&repo_plugins) {
+    // Build candidate roots for bundled plugins (first existing root wins per plugin)
+    let mut candidate_roots: Vec<PathBuf> = Vec::new();
+
+    // 1. AGENT_UNLEASH_ROOT env var (explicit override, e.g. for dev/CI)
+    if let Ok(root) = std::env::var("AGENT_UNLEASH_ROOT") {
+        candidate_roots.push(PathBuf::from(root).join("plugins/bundled"));
+    }
+
+    // 2. Relative to executable (works for installed binary at ~/.local/bin/unleash)
+    if let Ok(exe) = std::env::current_exe() {
+        if let Ok(resolved) = exe.canonicalize() {
+            if let Some(exe_dir) = resolved.parent() {
+                // Installed layout: exe at ~/.local/bin/, plugins at ~/.local/share/unleash/plugins/bundled/
+                candidate_roots.push(exe_dir.join("../share/unleash/plugins/bundled"));
+                // Dev build: exe at target/release/ or target/debug/, repo root is ../..
+                candidate_roots.push(exe_dir.join("../../plugins/bundled"));
+            }
+        }
+    }
+
+    // 3. CWD-relative (original behavior — works when running from repo root)
+    candidate_roots.push(PathBuf::from("plugins/bundled"));
+
+    // Scan candidate roots for plugin directories
+    for root in &candidate_roots {
+        if !root.exists() {
+            continue;
+        }
+        let root = fs::canonicalize(root).unwrap_or_else(|_| root.clone());
+        if let Ok(entries) = fs::read_dir(&root) {
             for entry in entries.flatten() {
                 let path = entry.path();
                 if path.is_dir() {
                     if let Some(name) = path.file_name() {
-                        seen_names.insert(name.to_string_lossy().to_string());
+                        let name_str = name.to_string_lossy().to_string();
+                        if !seen_names.contains(&name_str) {
+                            seen_names.insert(name_str);
+                            dirs.push(path);
+                        }
                     }
-                    dirs.push(path);
                 }
             }
         }
     }
 
-    // Check ~/.local/share/unleash/plugins - only add if not already seen
+    // 4. ~/.local/share/unleash/plugins/ — user-installed / non-bundled plugins
     if let Some(data_dir) = dirs::data_local_dir() {
         let plugins_dir = data_dir.join("unleash/plugins");
         if plugins_dir.exists() {
             if let Ok(entries) = fs::read_dir(&plugins_dir) {
                 for entry in entries.flatten() {
                     if entry.path().is_dir() {
-                        // Skip if we already have this plugin from repo path
                         if let Some(name) = entry.path().file_name() {
                             if seen_names.contains(&name.to_string_lossy().to_string()) {
                                 continue;
@@ -426,6 +456,13 @@ fn run_agent(
     }
     if env::var("MCP_TOOL_TIMEOUT").is_err() {
         cmd.env("MCP_TOOL_TIMEOUT", "999999999");
+    }
+
+    // If supercompact plugin is active, disable Claude's auto-compaction.
+    // Our preemptive Layer 1 (UserPromptSubmit hook) handles compaction instead,
+    // eliminating the race condition with Claude's API compaction call.
+    if plugin_args.iter().any(|a| a.contains("supercompact")) {
+        cmd.env("DISABLE_AUTO_COMPACT", "1");
     }
 
     // Claude Code-specific flags (other agents don't support these)
