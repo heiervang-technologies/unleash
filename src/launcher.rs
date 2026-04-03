@@ -16,7 +16,16 @@ use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
 use std::process::{Command, ExitStatus};
+use std::sync::atomic::{AtomicI32, Ordering};
 use which::which;
+
+/// Signal number received while waiting for a child process.
+/// 0 = no signal, >0 = signal number (e.g. 2 for SIGINT, 15 for SIGTERM).
+static CHILD_SIGNAL: AtomicI32 = AtomicI32::new(0);
+
+extern "C" fn child_signal_handler(sig: libc::c_int) {
+    CHILD_SIGNAL.store(sig, Ordering::Relaxed);
+}
 
 /// Environment variable set when running under the wrapper
 pub const UNLEASHED_ENV_VAR: &str = "AGENT_UNLEASH";
@@ -77,8 +86,8 @@ pub fn run(auto_mode: bool, prompt: Option<String>, extra_args: Vec<String>) -> 
     // Check authentication on first run
     check_authentication();
 
-    // Hyprland integration: set window rules and notify on start
-    if hyprland::is_hyprland() {
+    // Hyprland integration: set window rules and notify on start (only if plugin enabled)
+    if hyprland::is_focus_enabled() {
         if let Err(e) = hyprland::apply_agent_window_rules() {
             eprintln!("Warning: Failed to apply Hyprland window rules: {}", e);
         }
@@ -130,7 +139,7 @@ pub fn run(auto_mode: bool, prompt: Option<String>, extra_args: Vec<String>) -> 
 
         // For non-Claude agents, set window transparent before launch
         // (Claude handles this via its own UserPromptSubmit hook)
-        if !is_claude {
+        if !is_claude && hyprland::is_focus_enabled() {
             let _ = hyprland::focus_set(wrapper_pid);
         }
 
@@ -145,9 +154,23 @@ pub fn run(auto_mode: bool, prompt: Option<String>, extra_args: Vec<String>) -> 
             agent_type,
         )?;
 
+        // If we caught a signal while waiting for the child, exit immediately.
+        // The child has been reaped; just clean up and go.
+        let sig = CHILD_SIGNAL.load(Ordering::Relaxed);
+        if sig != 0 {
+            if hyprland::is_focus_enabled() {
+                let _ = hyprland::focus_reset(wrapper_pid);
+                hyprland::focus_cleanup(wrapper_pid);
+                let _ = hyprland::notify_info("unleash stopped");
+            }
+            std::process::exit(128 + sig);
+        }
+
         // Reset to opaque + play sound after agent exit
-        let _ = hyprland::focus_reset(wrapper_pid);
-        hyprland::play_idle_sound();
+        if hyprland::is_focus_enabled() {
+            let _ = hyprland::focus_reset(wrapper_pid);
+            hyprland::play_idle_sound();
+        }
 
         // Check if restart was requested
         if trigger_file.exists() {
@@ -162,20 +185,20 @@ pub fn run(auto_mode: bool, prompt: Option<String>, extra_args: Vec<String>) -> 
 
         // Treat SIGTERM (143 = 128 + 15) as clean exit
         if exit_code == 143 {
-            let _ = hyprland::focus_reset(wrapper_pid);
-            hyprland::focus_cleanup(wrapper_pid);
-            if hyprland::is_hyprland() {
+            if hyprland::is_focus_enabled() {
+                let _ = hyprland::focus_reset(wrapper_pid);
+                hyprland::focus_cleanup(wrapper_pid);
                 let _ = hyprland::notify_info("unleash stopped");
             }
             return Ok(());
         }
 
         // Reset focus and clean up on exit (safety net for all agents)
-        let _ = hyprland::focus_reset(wrapper_pid);
-        hyprland::focus_cleanup(wrapper_pid);
+        if hyprland::is_focus_enabled() {
+            let _ = hyprland::focus_reset(wrapper_pid);
+            hyprland::focus_cleanup(wrapper_pid);
 
-        // Notify on exit if running under Hyprland
-        if hyprland::is_hyprland() {
+            // Notify on exit
             if exit_code == 0 {
                 let _ = hyprland::notify_info("unleash stopped");
             } else {
@@ -243,40 +266,70 @@ fn load_profile_env() -> io::Result<HashMap<String, String>> {
     Ok(profile.map(|p| p.env.clone()).unwrap_or_default())
 }
 
-/// Find plugin directories (returns paths)
-/// Only returns from ONE source to avoid duplicate hooks:
-/// - Prefer repo dev path (plugins/bundled/) when running from repo
-/// - Fall back to installed path (~/.local/share/unleash/plugins/)
-pub fn find_plugin_dirs() -> Vec<PathBuf> {
+/// Find ALL plugin directories regardless of enabled state (for discovery).
+/// Searches multiple locations in priority order; first match per plugin name wins.
+///
+/// Search order:
+/// 1. `AGENT_UNLEASH_ROOT` env var → `$ROOT/plugins/bundled/`
+/// 2. Relative to executable → `<exe_dir>/../share/unleash/plugins/bundled/`
+/// 3. CWD-relative → `plugins/bundled/` (development from repo root)
+/// 4. `~/.local/share/unleash/plugins/` (user-installed / non-bundled)
+pub fn find_all_plugin_dirs() -> Vec<PathBuf> {
     let mut dirs = Vec::new();
     let mut seen_names = std::collections::HashSet::new();
 
-    // Check repo location (for development) - PREFERRED when available
-    // Canonicalize to absolute path so hook commands in settings.json work from any CWD
-    let repo_plugins = PathBuf::from("plugins/bundled");
-    if repo_plugins.exists() {
-        let repo_plugins = fs::canonicalize(&repo_plugins).unwrap_or(repo_plugins);
-        if let Ok(entries) = fs::read_dir(&repo_plugins) {
+    // Build candidate roots for bundled plugins (first existing root wins per plugin)
+    let mut candidate_roots: Vec<PathBuf> = Vec::new();
+
+    // 1. AGENT_UNLEASH_ROOT env var (explicit override, e.g. for dev/CI)
+    if let Ok(root) = std::env::var("AGENT_UNLEASH_ROOT") {
+        candidate_roots.push(PathBuf::from(root).join("plugins/bundled"));
+    }
+
+    // 2. Relative to executable (works for installed binary at ~/.local/bin/unleash)
+    if let Ok(exe) = std::env::current_exe() {
+        if let Ok(resolved) = exe.canonicalize() {
+            if let Some(exe_dir) = resolved.parent() {
+                // Installed layout: exe at ~/.local/bin/, plugins at ~/.local/share/unleash/plugins/bundled/
+                candidate_roots.push(exe_dir.join("../share/unleash/plugins/bundled"));
+                // Dev build: exe at target/release/ or target/debug/, repo root is ../..
+                candidate_roots.push(exe_dir.join("../../plugins/bundled"));
+            }
+        }
+    }
+
+    // 3. CWD-relative (original behavior — works when running from repo root)
+    candidate_roots.push(PathBuf::from("plugins/bundled"));
+
+    // Scan candidate roots for plugin directories
+    for root in &candidate_roots {
+        if !root.exists() {
+            continue;
+        }
+        let root = fs::canonicalize(root).unwrap_or_else(|_| root.clone());
+        if let Ok(entries) = fs::read_dir(&root) {
             for entry in entries.flatten() {
                 let path = entry.path();
                 if path.is_dir() {
                     if let Some(name) = path.file_name() {
-                        seen_names.insert(name.to_string_lossy().to_string());
+                        let name_str = name.to_string_lossy().to_string();
+                        if !seen_names.contains(&name_str) {
+                            seen_names.insert(name_str);
+                            dirs.push(path);
+                        }
                     }
-                    dirs.push(path);
                 }
             }
         }
     }
 
-    // Check ~/.local/share/unleash/plugins - only add if not already seen
+    // 4. ~/.local/share/unleash/plugins/ — user-installed / non-bundled plugins
     if let Some(data_dir) = dirs::data_local_dir() {
         let plugins_dir = data_dir.join("unleash/plugins");
         if plugins_dir.exists() {
             if let Ok(entries) = fs::read_dir(&plugins_dir) {
                 for entry in entries.flatten() {
                     if entry.path().is_dir() {
-                        // Skip if we already have this plugin from repo path
                         if let Some(name) = entry.path().file_name() {
                             if seen_names.contains(&name.to_string_lossy().to_string()) {
                                 continue;
@@ -290,6 +343,32 @@ pub fn find_plugin_dirs() -> Vec<PathBuf> {
     }
 
     dirs
+}
+
+/// Find enabled plugin directories only (filtered by AppConfig.enabled_plugins).
+/// Empty enabled list = all plugins enabled (backwards compat).
+pub fn find_plugin_dirs() -> Vec<PathBuf> {
+    let config = ProfileManager::new()
+        .and_then(|m| m.load_app_config())
+        .unwrap_or_default();
+
+    let all_dirs = find_all_plugin_dirs();
+
+    // Empty list = all enabled (backwards compat)
+    if config.enabled_plugins.is_empty() {
+        return all_dirs;
+    }
+
+    all_dirs
+        .into_iter()
+        .filter(|dir| {
+            let name = dir
+                .file_name()
+                .and_then(|n| n.to_str())
+                .unwrap_or("");
+            config.enabled_plugins.contains(&name.to_string())
+        })
+        .collect()
 }
 
 /// Convert plugin directories to CLI args
@@ -381,6 +460,13 @@ fn run_agent(
         cmd.env("MCP_TOOL_TIMEOUT", "999999999");
     }
 
+    // If supercompact plugin is active, disable Claude's auto-compaction.
+    // Our preemptive Layer 1 (UserPromptSubmit hook) handles compaction instead,
+    // eliminating the race condition with Claude's API compaction call.
+    if plugin_args.iter().any(|a| a.contains("supercompact")) {
+        cmd.env("DISABLE_AUTO_COMPACT", "1");
+    }
+
     // Claude Code-specific flags (other agents don't support these)
     if is_claude {
         // Add plugin arguments
@@ -398,10 +484,7 @@ fn run_agent(
     }
 
     // Codex native notify hook: end-of-turn => reset opaque + idle sound.
-    if agent_type == Some(AgentType::Codex)
-        && hyprland::is_hyprland()
-        && env::var("AU_HYPRLAND_FOCUS").ok().as_deref() != Some("0")
-    {
+    if agent_type == Some(AgentType::Codex) && hyprland::is_focus_enabled() {
         if let Ok(exe) = env::current_exe() {
             let exe = exe.to_string_lossy().replace('\\', "\\\\").replace('\"', "\\\"");
             let notify_override = format!(
@@ -415,7 +498,29 @@ fn run_agent(
     // Add user arguments
     cmd.args(args);
 
-    cmd.status()
+    // Reset signal flag before spawning
+    CHILD_SIGNAL.store(0, Ordering::Relaxed);
+
+    let mut child = cmd.spawn()?;
+
+    // While the child runs, catch SIGINT/SIGTERM instead of dying immediately.
+    // The child shares our process group and receives terminal signals directly;
+    // we just need to stay alive until it exits so we can reap it cleanly.
+    unsafe {
+        let handler = child_signal_handler as *const () as libc::sighandler_t;
+        libc::signal(libc::SIGINT, handler);
+        libc::signal(libc::SIGTERM, handler);
+    }
+
+    let status = child.wait()?;
+
+    // Restore default signal handlers now that the child has exited
+    unsafe {
+        libc::signal(libc::SIGINT, libc::SIG_DFL);
+        libc::signal(libc::SIGTERM, libc::SIG_DFL);
+    }
+
+    Ok(status)
 }
 
 /// Check if authentication is configured

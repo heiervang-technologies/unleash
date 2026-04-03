@@ -67,7 +67,9 @@ pub fn from_hub(records: &[HubRecord]) -> Result<Value, ConvertError> {
     let mut last_updated = String::new();
     let mut messages = Vec::new();
 
-    for record in records {
+    let normalized_records = normalize_hub_records_for_gemini(records);
+
+    for record in &normalized_records {
         match record {
             HubRecord::Session(s) => {
                 session_id = s.session_id.clone();
@@ -132,6 +134,115 @@ pub fn from_hub(records: &[HubRecord]) -> Result<Value, ConvertError> {
     }
 
     Ok(root)
+}
+
+fn normalize_hub_records_for_gemini(records: &[HubRecord]) -> Vec<HubRecord> {
+    let mut norm = Vec::new();
+    for record in records {
+        norm.push(record.clone());
+    }
+
+    // Pass 1: move ToolResults to the message that has the matching ToolUse
+    for i in 0..norm.len() {
+        if let HubRecord::Message(msg) = &norm[i] {
+            let mut extracted_results = Vec::new();
+            let mut new_content = Vec::new();
+            for block in &msg.content {
+                if let ContentBlock::ToolResult { tool_use_id, .. } = block {
+                    extracted_results.push((tool_use_id.clone(), block.clone()));
+                } else {
+                    new_content.push(block.clone());
+                }
+            }
+            
+            if !extracted_results.is_empty() {
+                if let HubRecord::Message(m) = &mut norm[i] {
+                    m.content = new_content;
+                }
+                
+                for (t_id, res_block) in extracted_results {
+                    let mut found = false;
+                    for j in (0..=i).rev() {
+                        if let HubRecord::Message(prev_msg) = &mut norm[j] {
+                            let mut insert_idx = None;
+                            for (k, prev_block) in prev_msg.content.iter().enumerate() {
+                                if let ContentBlock::ToolUse { id, .. } = prev_block {
+                                    if id == &t_id {
+                                        insert_idx = Some(k + 1);
+                                        break;
+                                    }
+                                }
+                            }
+                            if let Some(idx) = insert_idx {
+                                prev_msg.content.insert(idx, res_block.clone());
+                                found = true;
+                                break;
+                            }
+                        }
+                    }
+                    if !found {
+                        if let HubRecord::Message(m) = &mut norm[i] {
+                            m.content.push(res_block);
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // Pass 2: strip empty text blocks and remove messages that become totally empty
+    let norm2: Vec<HubRecord> = norm.into_iter().filter_map(|mut r| {
+        if let HubRecord::Message(m) = &mut r {
+            m.content.retain(|b| match b {
+                ContentBlock::Text { text } => !text.trim().is_empty(),
+                _ => true,
+            });
+            if m.content.is_empty() {
+                return None;
+            }
+        }
+        Some(r)
+    }).collect();
+
+    // Pass 3: Merge adjacent messages of the same role, and drop leading assistant messages
+    let mut final_norm = Vec::new();
+    let mut has_seen_user_message = false;
+
+    for r in norm2 {
+        match r {
+            HubRecord::Message(mut msg) => {
+                if !has_seen_user_message && msg.role != "user" {
+                    // Drop leading non-user messages
+                    continue;
+                }
+                has_seen_user_message = true;
+
+                // Check if we can merge with the previous message
+                let mut merged = false;
+                for prev in final_norm.iter_mut().rev() {
+                    if let HubRecord::Message(prev_msg) = prev {
+                        if prev_msg.role == msg.role {
+                            prev_msg.content.append(&mut msg.content);
+                            merged = true;
+                        }
+                        break; // Only look at the immediately preceding message
+                    } else if let HubRecord::Session(_) | HubRecord::Event(_) = prev {
+                        // Ignore non-message records between messages
+                        continue;
+                    }
+                }
+
+                if !merged {
+                    final_norm.push(HubRecord::Message(msg));
+                }
+            }
+            other => {
+                final_norm.push(other);
+            }
+        }
+    }
+
+    final_norm
 }
 
 /// Build a logs.json entry array for the Gemini session.
@@ -718,11 +829,19 @@ mod tests {
             "timestamp": "2026-03-29T12:00:02.000Z"
         });
 
-        let data = gemini_session_json(&[msg.clone()]);
+        let data = gemini_session_json(&[
+            serde_json::json!({
+                "id": "msg-user",
+                "type": "user",
+                "content": [{"text": "hello"}],
+                "timestamp": "2026-03-29T12:00:00.000Z"
+            }),
+            msg.clone()
+        ]);
         let hub = to_hub(&data).unwrap();
 
         // Verify hub has correct structure
-        if let HubRecord::Message(ref hub_msg) = hub[1] {
+        if let HubRecord::Message(ref hub_msg) = hub[2] {
             assert_eq!(hub_msg.role, "assistant");
             // Should have thinking + text content blocks
             assert!(hub_msg.content.iter().any(|b| matches!(b, ContentBlock::Thinking { .. })));
@@ -735,7 +854,7 @@ mod tests {
 
         let back = from_hub(&hub).unwrap();
         let back_messages = back.get("messages").unwrap().as_array().unwrap();
-        semantic_eq(&msg, &back_messages[0]).unwrap();
+        semantic_eq(&msg, &back_messages[1]).unwrap();
     }
 
     #[test]
@@ -760,11 +879,19 @@ mod tests {
             "timestamp": "2026-03-29T12:01:00.000Z"
         });
 
-        let data = gemini_session_json(&[msg.clone()]);
+        let data = gemini_session_json(&[
+            serde_json::json!({
+                "id": "msg-user",
+                "type": "user",
+                "content": [{"text": "list"}],
+                "timestamp": "2026-03-29T12:00:00.000Z"
+            }),
+            msg.clone()
+        ]);
         let hub = to_hub(&data).unwrap();
 
         // Verify tool call and result are in content
-        if let HubRecord::Message(ref hub_msg) = hub[1] {
+        if let HubRecord::Message(ref hub_msg) = hub[2] {
             let tool_uses: Vec<_> = hub_msg
                 .content
                 .iter()
@@ -786,7 +913,7 @@ mod tests {
 
         let back = from_hub(&hub).unwrap();
         let back_messages = back.get("messages").unwrap().as_array().unwrap();
-        semantic_eq(&msg, &back_messages[0]).unwrap();
+        semantic_eq(&msg, &back_messages[1]).unwrap();
     }
 
     #[test]
@@ -848,6 +975,12 @@ mod tests {
 
     #[test]
     fn test_multiple_tool_calls_round_trip() {
+        let user_msg = serde_json::json!({
+            "id": "msg-user",
+            "type": "user",
+            "content": [{"text": "run command"}],
+            "timestamp": "2026-03-29T12:01:00.000Z"
+        });
         let msg = serde_json::json!({
             "id": "msg-4",
             "type": "gemini",
@@ -872,12 +1005,12 @@ mod tests {
             "timestamp": "2026-03-29T12:02:00.000Z"
         });
 
-        let data = gemini_session_json(&[msg.clone()]);
+        let data = gemini_session_json(&[user_msg.clone(), msg.clone()]);
         let hub = to_hub(&data).unwrap();
         let back = from_hub(&hub).unwrap();
         let back_messages = back.get("messages").unwrap().as_array().unwrap();
 
-        semantic_eq(&msg, &back_messages[0]).unwrap();
+        semantic_eq(&msg, &back_messages[1]).unwrap();
     }
 
     #[test]

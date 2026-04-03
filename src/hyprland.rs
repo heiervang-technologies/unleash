@@ -3,6 +3,7 @@
 //! Provides detection of Hyprland environment, window rule management,
 //! workspace assignment, and notification support via `hyprctl`.
 
+use crate::config::ProfileManager;
 use std::env;
 use std::fs;
 use std::io;
@@ -12,6 +13,30 @@ use std::process::Command;
 /// Check if the current session is running under Hyprland
 pub fn is_hyprland() -> bool {
     env::var("HYPRLAND_INSTANCE_SIGNATURE").is_ok()
+}
+
+/// Check if Hyprland focus integration is enabled.
+/// Returns true only when ALL of:
+/// 1. Running under Hyprland
+/// 2. The hyprland-focus plugin is enabled in AppConfig (TUI toggle)
+/// 3. AU_HYPRLAND_FOCUS env var is not "0"
+pub fn is_focus_enabled() -> bool {
+    if !is_hyprland() {
+        return false;
+    }
+    if env::var("AU_HYPRLAND_FOCUS").ok().as_deref() == Some("0") {
+        return false;
+    }
+    // Check plugin toggle from TUI config
+    let config = ProfileManager::new()
+        .and_then(|m| m.load_app_config())
+        .unwrap_or_default();
+    if config.enabled_plugins.is_empty() {
+        return true; // empty = all enabled
+    }
+    config
+        .enabled_plugins
+        .contains(&"hyprland-focus".to_string())
 }
 
 /// Information about the running Hyprland instance
@@ -172,7 +197,7 @@ fn focus_script_path() -> Option<PathBuf> {
 /// Set window to transparent (agent is working).
 /// Calls the hyprland-focus plugin's opacity script.
 pub fn focus_set(wrapper_pid: u32) -> io::Result<()> {
-    if !is_hyprland() || env::var("AU_HYPRLAND_FOCUS").ok().as_deref() == Some("0") {
+    if !is_focus_enabled() {
         return Ok(());
     }
     let script = match focus_script_path() {
@@ -195,7 +220,7 @@ pub fn focus_set(wrapper_pid: u32) -> io::Result<()> {
 
 /// Reset window to opaque (agent is idle/stopped). Non-blocking.
 pub fn focus_reset(wrapper_pid: u32) -> io::Result<()> {
-    if !is_hyprland() || env::var("AU_HYPRLAND_FOCUS").ok().as_deref() == Some("0") {
+    if !is_focus_enabled() {
         return Ok(());
     }
     let script = match focus_script_path() {
@@ -215,7 +240,7 @@ pub fn focus_reset(wrapper_pid: u32) -> io::Result<()> {
 
 /// Play the idle sound (agent stopped). Non-blocking.
 pub fn play_idle_sound() {
-    if !is_hyprland() || env::var("AU_HYPRLAND_FOCUS").ok().as_deref() == Some("0") {
+    if !is_focus_enabled() {
         return;
     }
     let sound_file = focus_script_path()

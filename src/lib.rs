@@ -826,6 +826,7 @@ pub fn run() -> io::Result<()> {
                 include_self: false,
                 json: cli.json,
                 update_only: false, // install mode: install even if not present
+                install_only: true, // install mode: skip already-installed agents
             })
         }
         Some(Commands::Uninstall { agents, all }) => {
@@ -884,6 +885,7 @@ pub fn run() -> io::Result<()> {
                 include_self,
                 json: cli.json,
                 update_only: true, // update mode: skip agents not already installed
+                install_only: false, // update mode: update existing agents
             })
         }
         Some(Commands::Sessions { cli: cli_filter, find }) => {
