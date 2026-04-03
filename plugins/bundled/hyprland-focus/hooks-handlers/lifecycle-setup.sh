@@ -9,11 +9,16 @@ set -euo pipefail
 # Skip if not running under Hyprland
 [[ -z "${HYPRLAND_INSTANCE_SIGNATURE:-}" ]] && exit 0
 
+SCRIPT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
+
+# Clear stale window address cache from previous sessions
+"$SCRIPT_DIR/scripts/hypr-window-opacity.sh" clear-state 2>/dev/null || true
+
 # Apply window rules for unleash windows
-hyprctl --batch \
+timeout 3 hyprctl --batch \
     "keyword windowrule float on, match:class ^(unleash)$ ; \
      keyword windowrule opacity 0.95 0.9, match:class ^(unleash)$" \
     2>/dev/null || true
 
 # Startup notification
-hyprctl notify 1 5000 0 "unleash started" 2>/dev/null || true
+timeout 2 hyprctl notify 1 5000 0 "unleash started" 2>/dev/null || true

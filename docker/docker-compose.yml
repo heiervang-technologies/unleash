@@ -12,6 +12,29 @@
 
 services:
   # Base service — gVisor runtime + sandbox network by default
+  # 
+  #
+  #
+  bash:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+    image: unleash:latest
+    entrypoint: /bin/bash
+    runtime: runsc
+    stdin_open: true
+    tty: true
+    working_dir: /workspace
+    volumes:
+      - ${WORKSPACE_DIR:-.}:/workspace
+    environment:
+      - ANTHROPIC_API_KEY
+      - OPENAI_API_KEY
+      - GEMINI_API_KEY
+      - CLAUDE_CODE_OAUTH_TOKEN
+    networks:
+      - sandbox
+
   unleash:
     build:
       context: ..

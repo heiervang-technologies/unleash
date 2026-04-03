@@ -1,0 +1,61 @@
+{
+  "name": "supercompact",
+  "description": "Entity-preservation conversation compaction - replaces /compact with ~400x faster, 2x better entity retention via EITF scoring",
+  "version": "1.0.0",
+  "author": {
+    "name": "Heiervang Technologies",
+    "email": "support@heiervang.com"
+  },
+  "settings": {
+    "method": {
+      "type": "choice",
+      "choices": ["eitf", "setcover", "dedup"],
+      "default": "eitf",
+      "label": "Scoring Method",
+      "description": "Algorithm for ranking turn importance"
+    },
+    "budget_mode": {
+      "type": "choice",
+      "choices": ["auto", "manual"],
+      "default": "auto",
+      "label": "Budget Mode",
+      "description": "Auto uses percentage of current size; manual uses fixed token count"
+    },
+    "budget_pct": {
+      "type": "integer",
+      "min": 10,
+      "max": 90,
+      "step": 5,
+      "default": 40,
+      "label": "Compact To %",
+      "description": "Target size as percentage of current conversation (auto mode)"
+    },
+    "budget_pct_preemptive": {
+      "type": "integer",
+      "min": 10,
+      "max": 90,
+      "step": 5,
+      "default": 50,
+      "label": "Preemptive %",
+      "description": "Target size for preemptive Layer 1 compaction (auto mode)"
+    },
+    "budget": {
+      "type": "integer",
+      "min": 10000,
+      "max": 200000,
+      "step": 5000,
+      "default": 80000,
+      "label": "Token Budget",
+      "description": "Fixed token budget (manual mode only)"
+    },
+    "threshold_bytes": {
+      "type": "integer",
+      "min": 100000,
+      "max": 2000000,
+      "step": 50000,
+      "default": 432000,
+      "label": "Trigger Threshold",
+      "description": "File size in bytes that triggers preemptive compaction"
+    }
+  }
+}

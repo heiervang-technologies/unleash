@@ -1,0 +1,25 @@
+{
+  "description": "Supercompact two-layer compaction: preemptive (UserPromptSubmit) + manual (PreCompact)",
+  "hooks": {
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "${CLAUDE_PLUGIN_ROOT}/hooks-handlers/supercompact-userprompt.sh"
+          }
+        ]
+      }
+    ],
+    "PreCompact": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "${CLAUDE_PLUGIN_ROOT}/hooks-handlers/supercompact-precompact.sh"
+          }
+        ]
+      }
+    ]
+  }
+}

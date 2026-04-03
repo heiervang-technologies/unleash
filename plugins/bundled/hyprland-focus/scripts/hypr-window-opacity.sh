@@ -11,7 +11,7 @@
 #   AU_FOCUS_OPACITY_ACTIVE=0.7      Focused window opacity while agent runs (default: 0.7)
 #   AU_FOCUS_OPACITY_INACTIVE=0.4    Unfocused window opacity while agent runs (default: 0.4)
 #
-# State file: /tmp/unleash-hyprfocus-<wrapper_pid>
+# State file: /tmp/unleash-hyprfocus/<wrapper_pid>
 
 set -euo pipefail
 
@@ -29,6 +29,11 @@ fi
 
 # jq required
 if ! command -v jq &>/dev/null; then
+    exit 0
+fi
+
+# hyprctl must be available and responsive (timeout prevents hanging if Hyprland is wedged)
+if ! timeout 2 hyprctl version &>/dev/null; then
     exit 0
 fi
 
@@ -67,7 +72,7 @@ walk_pid_to_window() {
 # Strategy 2: If in tmux, get the tmux client PID and walk from there
 find_window_address() {
     local clients
-    clients=$(hyprctl clients -j 2>/dev/null) || return 1
+    clients=$(timeout 2 hyprctl clients -j 2>/dev/null) || return 1
 
     # Try direct PID walk first
     local addr
@@ -85,12 +90,27 @@ find_window_address() {
     return 1
 }
 
+# Validate that a cached address still exists in Hyprland's client list
+validate_address() {
+    local addr="$1"
+    local clients
+    clients=$(timeout 2 hyprctl clients -j 2>/dev/null) || return 1
+    echo "$clients" | jq -e --arg addr "$addr" '.[] | select(.address==$addr)' &>/dev/null
+}
+
 # Get or discover the window address (cached in state file)
 get_address() {
     # Check state file first
     if [[ -f "$STATE_FILE" ]]; then
-        cat "$STATE_FILE"
-        return 0
+        local cached
+        cached=$(cat "$STATE_FILE")
+        # Validate the cached address still exists in Hyprland
+        if [[ -n "$cached" ]] && validate_address "$cached"; then
+            echo "$cached"
+            return 0
+        fi
+        # Stale — remove and rediscover
+        rm -f "$STATE_FILE"
     fi
 
     # Discover and cache
@@ -105,11 +125,9 @@ set_opacity() {
     local inactive="$2"
     local addr
     addr=$(get_address) || return 1
-    # opacity = focused/hovered, opacity_inactive = unfocused/unhovered
-    hyprctl --batch \
-        "dispatch setprop address:$addr opacity $active override ; \
-         dispatch setprop address:$addr opacity_inactive $inactive override" \
-        &>/dev/null || true
+    # Use separate hyprctl calls instead of --batch to reduce IPC complexity
+    timeout 2 hyprctl dispatch setprop "address:$addr" opacity "$active" override &>/dev/null || true
+    timeout 2 hyprctl dispatch setprop "address:$addr" opacity_inactive "$inactive" override &>/dev/null || true
 }
 
 # --- Main ---
@@ -125,8 +143,12 @@ case "${1:-}" in
     address)
         get_address
         ;;
+    clear-state)
+        # Clear cached state (called on session start to avoid stale addresses)
+        rm -f "$STATE_FILE"
+        ;;
     *)
-        echo "Usage: $0 {set [opacity]|reset|address}" >&2
+        echo "Usage: $0 {set|reset|address|clear-state}" >&2
         exit 1
         ;;
 esac
