@@ -1,7 +1,7 @@
 //! Session injection: convert a foreign session and load it into a target CLI.
 
-use crate::interchange::{claude, codex, gemini, opencode, hub::HubRecord, ConvertError};
-use crate::interchange::sessions::{SessionInfo, find_session};
+use crate::interchange::sessions::{find_session, SessionInfo};
+use crate::interchange::{claude, codex, gemini, hub::HubRecord, opencode, ConvertError};
 
 /// Result of injecting a session: the session ID to resume with and any extra args.
 pub struct InjectionResult {
@@ -18,9 +18,8 @@ pub fn inject_session(
     target_cli: &str,
 ) -> Result<InjectionResult, ConvertError> {
     // Find the source session
-    let session = find_session(source_query).ok_or_else(|| {
-        ConvertError::InvalidFormat(format!("Session not found: {source_query}"))
-    })?;
+    let session = find_session(source_query)
+        .ok_or_else(|| ConvertError::InvalidFormat(format!("Session not found: {source_query}")))?;
 
     eprintln!(
         "Found session: {} ({}) from {} at {}",
@@ -85,18 +84,16 @@ fn export_opencode_session(session_id: &str) -> Result<opencode::OpenCodeInput, 
         rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY,
     )?;
 
-    let mut msg_stmt = conn.prepare(
-        "SELECT data FROM message WHERE session_id = ? ORDER BY time_created",
-    )?;
+    let mut msg_stmt =
+        conn.prepare("SELECT data FROM message WHERE session_id = ? ORDER BY time_created")?;
     let messages: Vec<serde_json::Value> = msg_stmt
         .query_map([session_id], |row| row.get::<_, String>(0))?
         .filter_map(|r| r.ok())
         .filter_map(|s| serde_json::from_str(&s).ok())
         .collect();
 
-    let mut part_stmt = conn.prepare(
-        "SELECT data FROM part WHERE session_id = ? ORDER BY time_created",
-    )?;
+    let mut part_stmt =
+        conn.prepare("SELECT data FROM part WHERE session_id = ? ORDER BY time_created")?;
     let parts: Vec<serde_json::Value> = part_stmt
         .query_map([session_id], |row| row.get::<_, String>(0))?
         .filter_map(|r| r.ok())
@@ -136,13 +133,12 @@ fn inject_into_claude(
                         && !s.starts_with("<permissions")
                         && !s.starts_with("<user_shell_command")
                 }
-                Some(serde_json::Value::Array(arr)) => {
-                    arr.iter().any(|block| {
-                        block.get("text").and_then(|t| t.as_str()).is_some_and(|t| {
-                            !t.is_empty() && !t.starts_with("[Reasoning]: \n")
-                        })
-                    })
-                }
+                Some(serde_json::Value::Array(arr)) => arr.iter().any(|block| {
+                    block
+                        .get("text")
+                        .and_then(|t| t.as_str())
+                        .is_some_and(|t| !t.is_empty() && !t.starts_with("[Reasoning]: \n"))
+                }),
                 _ => false,
             }
         })
@@ -190,7 +186,10 @@ fn inject_into_claude(
                 .filter(|s| !s.is_empty())
                 .map(String::from);
             let this_uuid = existing_uuid.unwrap_or_else(uuid_v4);
-            obj.insert("uuid".to_string(), serde_json::Value::String(this_uuid.clone()));
+            obj.insert(
+                "uuid".to_string(),
+                serde_json::Value::String(this_uuid.clone()),
+            );
 
             // Build parentUuid chain: ALWAYS set, each line points to the previous
             // This overwrites any existing parentUuid to ensure a clean linear chain
@@ -205,10 +204,7 @@ fn inject_into_claude(
 
             // Ensure cwd is set
             if !obj.contains_key("cwd") || obj["cwd"].is_null() {
-                obj.insert(
-                    "cwd".to_string(),
-                    serde_json::Value::String(cwd.clone()),
-                );
+                obj.insert("cwd".to_string(), serde_json::Value::String(cwd.clone()));
             }
         }
         output.push_str(&serde_json::to_string(&patched)?);
@@ -216,7 +212,11 @@ fn inject_into_claude(
     }
     std::fs::write(&output_path, &output)?;
 
-    eprintln!("Injected {} lines to {}", claude_lines.len(), output_path.display());
+    eprintln!(
+        "Injected {} lines to {}",
+        claude_lines.len(),
+        output_path.display()
+    );
 
     Ok(InjectionResult {
         session_id: session_id.clone(),
@@ -245,11 +245,11 @@ fn inject_into_codex(
 
     // Write to Codex sessions directory, respecting CODEX_HOME if set.
     let now = chrono_like_now();
-    let codex_home = codex_home_dir()
-        .ok_or_else(|| ConvertError::InvalidFormat("No home dir".into()))?;
+    let codex_home =
+        codex_home_dir().ok_or_else(|| ConvertError::InvalidFormat("No home dir".into()))?;
     let codex_dir = codex_home
         .join("sessions")
-        .join(&now[..4])  // year
+        .join(&now[..4]) // year
         .join(&now[5..7]) // month
         .join(&now[8..10]); // day
 
@@ -265,7 +265,12 @@ fn inject_into_codex(
         if patched.get("type").and_then(|t| t.as_str()) == Some("session_meta") {
             if let Some(payload) = patched.get_mut("payload") {
                 payload["id"] = serde_json::Value::String(session_id.clone());
-                if payload.get("cwd").and_then(|c| c.as_str()).unwrap_or("").is_empty() {
+                if payload
+                    .get("cwd")
+                    .and_then(|c| c.as_str())
+                    .unwrap_or("")
+                    .is_empty()
+                {
                     payload["cwd"] = serde_json::Value::String(cwd.clone());
                 }
             }
@@ -275,7 +280,11 @@ fn inject_into_codex(
     }
     std::fs::write(&output_path, &output)?;
 
-    eprintln!("Injected {} lines to {}", codex_lines.len(), output_path.display());
+    eprintln!(
+        "Injected {} lines to {}",
+        codex_lines.len(),
+        output_path.display()
+    );
 
     // Register the session in Codex's session_index.jsonl so `codex resume` can find it
     let index_path = codex_home.join("session_index.jsonl");
@@ -337,9 +346,10 @@ fn register_codex_thread(
         .unwrap_or_default()
         .as_secs() as i64;
 
-    let title = source.title.as_deref().unwrap_or(
-        source.name.as_deref().unwrap_or("Imported session")
-    );
+    let title = source
+        .title
+        .as_deref()
+        .unwrap_or(source.name.as_deref().unwrap_or("Imported session"));
     let first_user_message = title;
 
     let result = conn.execute(
@@ -459,8 +469,7 @@ fn inject_into_gemini(
 
 fn gemini_project_slug(cwd: &str) -> String {
     // Look up project slug from ~/.gemini/projects.json
-    let projects_path = dirs::home_dir()
-        .map(|h| h.join(".gemini").join("projects.json"));
+    let projects_path = dirs::home_dir().map(|h| h.join(".gemini").join("projects.json"));
 
     if let Some(path) = projects_path {
         if let Ok(content) = std::fs::read_to_string(&path) {
@@ -568,13 +577,16 @@ fn codex_home_dir() -> Option<std::path::PathBuf> {
 }
 
 fn extract_session_id(records: &[HubRecord]) -> String {
-    records.iter().find_map(|r| {
-        if let HubRecord::Session(s) = r {
-            Some(s.session_id.clone())
-        } else {
-            None
-        }
-    }).unwrap_or_else(uuid_v4)
+    records
+        .iter()
+        .find_map(|r| {
+            if let HubRecord::Session(s) = r {
+                Some(s.session_id.clone())
+            } else {
+                None
+            }
+        })
+        .unwrap_or_else(uuid_v4)
 }
 
 fn encode_claude_project_path(dir: &str) -> String {
@@ -646,13 +658,16 @@ fn chrono_like_now() -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::interchange::hub::{SessionHeader, HubRecord, UCF_VERSION};
+    use crate::interchange::hub::{HubRecord, SessionHeader, UCF_VERSION};
 
     // ── encode_claude_project_path ───────────────────────────
 
     #[test]
     fn test_encode_claude_project_path_absolute() {
-        assert_eq!(encode_claude_project_path("/home/me/project"), "-home-me-project");
+        assert_eq!(
+            encode_claude_project_path("/home/me/project"),
+            "-home-me-project"
+        );
     }
 
     #[test]
@@ -679,18 +694,29 @@ mod tests {
         let long_path = "/home/me/".to_string() + &"a".repeat(200);
         let result = encode_claude_project_path(&long_path);
         // Result must be longer than 200 (truncated prefix + "-" + hex hash)
-        assert!(result.len() > 200, "long path result should be longer than 200: len={}", result.len());
+        assert!(
+            result.len() > 200,
+            "long path result should be longer than 200: len={}",
+            result.len()
+        );
         // The 200-char prefix is the encoded version of the first 200 encoded chars
-        let encoded_full: String = long_path.chars()
+        let encoded_full: String = long_path
+            .chars()
             .map(|c| if c.is_ascii_alphanumeric() { c } else { '-' })
             .collect();
-        assert!(result.starts_with(&encoded_full[..200]), "should start with first 200 encoded chars");
+        assert!(
+            result.starts_with(&encoded_full[..200]),
+            "should start with first 200 encoded chars"
+        );
         // Must have a dash-separated hex suffix
         let suffix = &result[200..];
         assert!(suffix.starts_with('-'), "suffix should start with dash");
         let hex_part = &suffix[1..];
         assert!(!hex_part.is_empty(), "hex hash suffix should not be empty");
-        assert!(hex_part.chars().all(|c| c.is_ascii_hexdigit()), "suffix should be hex: {hex_part}");
+        assert!(
+            hex_part.chars().all(|c| c.is_ascii_hexdigit()),
+            "suffix should be hex: {hex_part}"
+        );
     }
 
     // ── uuid_v4 ──────────────────────────────────────────────
@@ -699,7 +725,11 @@ mod tests {
     fn test_uuid_v4_format() {
         let id = uuid_v4();
         let parts: Vec<&str> = id.split('-').collect();
-        assert_eq!(parts.len(), 5, "UUID should have 5 dash-separated parts: {id}");
+        assert_eq!(
+            parts.len(),
+            5,
+            "UUID should have 5 dash-separated parts: {id}"
+        );
         assert_eq!(parts[0].len(), 8);
         assert_eq!(parts[1].len(), 4);
         assert_eq!(parts[2].len(), 4);
@@ -714,7 +744,10 @@ mod tests {
         // The implementation ORs with 0x4000 (sets bit 14), but doesn't mask
         // higher bits, so it's not strict RFC 4122 — just verify the bit is set.
         let third_group = u16::from_str_radix(parts[2], 16).unwrap();
-        assert!(third_group & 0x4000 != 0, "version bit 14 should be set: {id}");
+        assert!(
+            third_group & 0x4000 != 0,
+            "version bit 14 should be set: {id}"
+        );
     }
 
     #[test]
@@ -723,7 +756,10 @@ mod tests {
         let parts: Vec<&str> = id.split('-').collect();
         // The implementation ORs with 0x8000 (sets bit 15), so variant 1 bit is set.
         let fourth_group = u16::from_str_radix(parts[3], 16).unwrap();
-        assert!(fourth_group & 0x8000 != 0, "variant bit 15 should be set: {id}");
+        assert!(
+            fourth_group & 0x8000 != 0,
+            "variant bit 15 should be set: {id}"
+        );
     }
 
     #[test]
@@ -809,7 +845,11 @@ mod tests {
         let records: Vec<HubRecord> = vec![];
         let id = extract_session_id(&records);
         // Should generate a UUID fallback
-        assert_eq!(id.split('-').count(), 5, "fallback should be UUID format: {id}");
+        assert_eq!(
+            id.split('-').count(),
+            5,
+            "fallback should be UUID format: {id}"
+        );
     }
 
     // ── sha256_hex ───────────────────────────────────────────
@@ -824,7 +864,10 @@ mod tests {
             hash.chars().all(|c| c.is_ascii_hexdigit()),
             "sha256_hex result should be all hex digits: {hash}"
         );
-        assert!(hash.len() >= 16, "result should be at least 16 hex chars: {hash}");
+        assert!(
+            hash.len() >= 16,
+            "result should be at least 16 hex chars: {hash}"
+        );
     }
 
     #[test]
@@ -835,7 +878,10 @@ mod tests {
         // If the fallback fires, both strings have the same length (19) so they'd
         // match — we only assert difference when the results look like real hashes.
         if h1.len() == 64 {
-            assert_ne!(h1, h2, "different paths should produce different SHA-256 hashes");
+            assert_ne!(
+                h1, h2,
+                "different paths should produce different SHA-256 hashes"
+            );
         }
     }
 }

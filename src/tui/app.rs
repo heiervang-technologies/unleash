@@ -142,10 +142,26 @@ pub enum MainMenuItem {
 
 /// Single source of truth for main menu layout.
 const MAIN_MENU: &[(MainMenuItem, &str, &str)] = &[
-    (MainMenuItem::Start, "Start Session", "Launch with selected profile"),
-    (MainMenuItem::Profiles, "Profiles", "Manage profiles and their settings"),
-    (MainMenuItem::Versions, "Versions & Updates", "Manage unleash and agent CLI versions"),
-    (MainMenuItem::Features, "Features & Plugins", "Toggle plugins and experimental features"),
+    (
+        MainMenuItem::Start,
+        "Start Session",
+        "Launch with selected profile",
+    ),
+    (
+        MainMenuItem::Profiles,
+        "Profiles",
+        "Manage profiles and their settings",
+    ),
+    (
+        MainMenuItem::Versions,
+        "Versions & Updates",
+        "Manage unleash and agent CLI versions",
+    ),
+    (
+        MainMenuItem::Features,
+        "Features & Plugins",
+        "Toggle plugins and experimental features",
+    ),
     (MainMenuItem::Help, "Help", "Keyboard shortcuts and tips"),
     (MainMenuItem::Quit, "Quit", "Exit the launcher"),
 ];
@@ -411,8 +427,8 @@ impl App {
             .and_then(|p| ThemeColor::from_config(&p.theme))
             .unwrap_or(ThemeColor::Preset(ThemePreset::Orange));
 
-        let animations_enabled = app_config.animations
-            || std::env::var("UNLEASH_ANIMATIONS").is_ok_and(|v| v == "1");
+        let animations_enabled =
+            app_config.animations || std::env::var("UNLEASH_ANIMATIONS").is_ok_and(|v| v == "1");
 
         Ok(Self {
             running: true,
@@ -900,8 +916,7 @@ impl App {
             };
             self.start_async_version_fetch(agent);
         } else {
-            self.status_message =
-                Some(format!("{} versions (cached)", agent.display_name()));
+            self.status_message = Some(format!("{} versions (cached)", agent.display_name()));
         }
     }
 
@@ -1059,7 +1074,10 @@ impl App {
             }
             (ClickTarget::ProfileItem(i), Screen::Profiles | Screen::ConfirmDelete) => {
                 if self.profile_menu.selected == i {
-                    self.handle_profiles_input(NavAction::Select, KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
+                    self.handle_profiles_input(
+                        NavAction::Select,
+                        KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE),
+                    );
                 } else {
                     self.profile_menu.selected = i;
                 }
@@ -1403,10 +1421,8 @@ impl App {
                                             Err(e) => {
                                                 // Restore old name — old file still on disk
                                                 profile.name = old_name;
-                                                self.status_message = Some(format!(
-                                                    "Failed to save profile: {}",
-                                                    e
-                                                ));
+                                                self.status_message =
+                                                    Some(format!("Failed to save profile: {}", e));
                                             }
                                         }
                                     }
@@ -1580,7 +1596,9 @@ impl App {
                         let _ = log_tx.send("Failed to install nvm".into());
                         let _ = step_tx.send(InstallStepResult::InstallComplete(
                             crate::version::InstallResult {
-                                success: false, stdout: String::new(), stderr: String::new(),
+                                success: false,
+                                stdout: String::new(),
+                                stderr: String::new(),
                                 error: Some("Failed to install nvm".into()),
                             },
                         ));
@@ -1595,7 +1613,9 @@ impl App {
                         let _ = log_tx.send("Failed to install Node.js".into());
                         let _ = step_tx.send(InstallStepResult::InstallComplete(
                             crate::version::InstallResult {
-                                success: false, stdout: String::new(), stderr: String::new(),
+                                success: false,
+                                stdout: String::new(),
+                                stderr: String::new(),
                                 error: Some("Failed to install Node.js via nvm".into()),
                             },
                         ));
@@ -1603,14 +1623,21 @@ impl App {
                     }
                     // Find npm and add to PATH
                     if let Ok(output) = std::process::Command::new("bash")
-                        .args(["-c", "export NVM_DIR=\"$HOME/.nvm\" && . \"$NVM_DIR/nvm.sh\" && which npm"])
+                        .args([
+                            "-c",
+                            "export NVM_DIR=\"$HOME/.nvm\" && . \"$NVM_DIR/nvm.sh\" && which npm",
+                        ])
                         .output()
                     {
                         if output.status.success() {
-                            let npm_path = String::from_utf8_lossy(&output.stdout).trim().to_string();
+                            let npm_path =
+                                String::from_utf8_lossy(&output.stdout).trim().to_string();
                             if let Some(bin_dir) = std::path::Path::new(&npm_path).parent() {
                                 let current = std::env::var("PATH").unwrap_or_default();
-                                std::env::set_var("PATH", format!("{}:{}", bin_dir.display(), current));
+                                std::env::set_var(
+                                    "PATH",
+                                    format!("{}:{}", bin_dir.display(), current),
+                                );
                             }
                         }
                     }
@@ -1618,20 +1645,33 @@ impl App {
 
                     // Now install the pending agent
                     if let Some((agent, version)) = pending {
-                        let _ = log_tx.send(format!("Installing {} v{}...", agent.display_name(), version));
+                        let _ = log_tx.send(format!(
+                            "Installing {} v{}...",
+                            agent.display_name(),
+                            version
+                        ));
                         let vm = VersionManager::new();
                         let result = match agent {
-                            AgentType::Gemini => vm.install_gemini_version_streaming(&version, log_tx),
-                            AgentType::OpenCode => vm.install_opencode_version_streaming(&version, log_tx),
+                            AgentType::Gemini => {
+                                vm.install_gemini_version_streaming(&version, log_tx)
+                            }
+                            AgentType::OpenCode => {
+                                vm.install_opencode_version_streaming(&version, log_tx)
+                            }
                             _ => Ok(crate::version::InstallResult {
-                                success: false, stdout: String::new(), stderr: String::new(),
+                                success: false,
+                                stdout: String::new(),
+                                stderr: String::new(),
                                 error: Some("Unexpected agent".into()),
                             }),
                         };
-                        let install_result = result.unwrap_or_else(|e| crate::version::InstallResult {
-                            success: false, stdout: String::new(), stderr: e.to_string(),
-                            error: Some(e.to_string()),
-                        });
+                        let install_result =
+                            result.unwrap_or_else(|e| crate::version::InstallResult {
+                                success: false,
+                                stdout: String::new(),
+                                stderr: e.to_string(),
+                                error: Some(e.to_string()),
+                            });
                         let _ = step_tx.send(InstallStepResult::InstallComplete(install_result));
                     }
                 });
@@ -1865,7 +1905,8 @@ impl App {
                 // Still no npm? Show dialog
                 if !VersionManager::has_npm() {
                     self.npm_dialog_open = true;
-                    self.npm_dialog_pending = Some((self.version_agent, version_info.version.clone()));
+                    self.npm_dialog_pending =
+                        Some((self.version_agent, version_info.version.clone()));
                     return;
                 }
             }
@@ -1949,7 +1990,10 @@ impl App {
             self.profiles
                 .iter()
                 .enumerate()
-                .filter(|(_, p)| p.name.to_lowercase().contains(&query) || p.description.to_lowercase().contains(&query))
+                .filter(|(_, p)| {
+                    p.name.to_lowercase().contains(&query)
+                        || p.description.to_lowercase().contains(&query)
+                })
                 .map(|(i, _)| i)
                 .collect()
         };
@@ -1984,8 +2028,14 @@ impl App {
                     self.profile_menu.scroll_offset = 0;
                     return;
                 }
-                KeyCode::Up => { self.profile_menu.select_prev(); return; }
-                KeyCode::Down => { self.profile_menu.select_next(); return; }
+                KeyCode::Up => {
+                    self.profile_menu.select_prev();
+                    return;
+                }
+                KeyCode::Down => {
+                    self.profile_menu.select_next();
+                    return;
+                }
                 _ => return,
             }
         }
@@ -2008,7 +2058,8 @@ impl App {
                     new_profile.name = new_name.clone();
                     if self.profile_manager.save_profile(&new_profile).is_ok() {
                         self.refresh_profiles();
-                        self.status_message = Some(format!("Duplicated: {} -> {}", source.name, new_name));
+                        self.status_message =
+                            Some(format!("Duplicated: {} -> {}", source.name, new_name));
                     }
                 }
             }
@@ -2046,10 +2097,8 @@ impl App {
                         if !is_default {
                             self.screen = Screen::ConfirmDelete;
                         } else {
-                            self.status_message = Some(format!(
-                                "Cannot delete default profile '{}'",
-                                profile.name
-                            ));
+                            self.status_message =
+                                Some(format!("Cannot delete default profile '{}'", profile.name));
                         }
                     }
                 }
@@ -2291,16 +2340,23 @@ impl App {
                 // Toggle the selected plugin
                 if let Some(plugin) = self.discovered_plugins.get(self.feature_menu.selected) {
                     let plugin_name = plugin.name.clone();
-                    let all_names: Vec<String> =
-                        self.discovered_plugins.iter().map(|p| p.name.clone()).collect();
+                    let all_names: Vec<String> = self
+                        .discovered_plugins
+                        .iter()
+                        .map(|p| p.name.clone())
+                        .collect();
 
                     if self.app_config.enabled_plugins.is_empty() {
                         // Empty = all enabled. To disable one, populate with all-but-selected.
-                        self.app_config.enabled_plugins =
-                            all_names.into_iter().filter(|n| *n != plugin_name).collect();
+                        self.app_config.enabled_plugins = all_names
+                            .into_iter()
+                            .filter(|n| *n != plugin_name)
+                            .collect();
                     } else if self.app_config.enabled_plugins.contains(&plugin_name) {
                         // Currently enabled — disable it
-                        self.app_config.enabled_plugins.retain(|n| *n != plugin_name);
+                        self.app_config
+                            .enabled_plugins
+                            .retain(|n| *n != plugin_name);
                     } else {
                         // Currently disabled — enable it
                         self.app_config.enabled_plugins.push(plugin_name.clone());
@@ -2757,7 +2813,10 @@ impl App {
             self.profiles
                 .iter()
                 .enumerate()
-                .filter(|(_, p)| p.name.to_lowercase().contains(&query) || p.description.to_lowercase().contains(&query))
+                .filter(|(_, p)| {
+                    p.name.to_lowercase().contains(&query)
+                        || p.description.to_lowercase().contains(&query)
+                })
                 .map(|(i, _)| i)
                 .collect()
         };
@@ -2769,7 +2828,12 @@ impl App {
         let list_area = chunks[1];
 
         // Reserve lines for search bar and scroll indicators
-        let search_height: u16 = if self.profile_search_active || !self.profile_search_query.is_empty() { 2 } else { 0 };
+        let search_height: u16 =
+            if self.profile_search_active || !self.profile_search_query.is_empty() {
+                2
+            } else {
+                0
+            };
         let available_height = list_area.height.saturating_sub(search_height);
         let visible_items = (available_height / 2) as usize;
 
@@ -2783,7 +2847,12 @@ impl App {
 
         // Build profile item lines (2 lines per profile: name + env count)
         let mut item_lines: Vec<(Line, Line)> = Vec::new();
-        for (filter_idx, &profile_idx) in filtered_indices.iter().enumerate().skip(scroll_offset).take(visible_items) {
+        for (filter_idx, &profile_idx) in filtered_indices
+            .iter()
+            .enumerate()
+            .skip(scroll_offset)
+            .take(visible_items)
+        {
             let profile = &self.profiles[profile_idx];
             let is_current = self
                 .selected_profile
@@ -2940,7 +3009,7 @@ impl App {
         let outer_chunks = Layout::default()
             .direction(Direction::Vertical)
             .constraints([
-                Constraint::Length(1),                        // Key hints
+                Constraint::Length(1),                       // Key hints
                 Constraint::Length(num_settings as u16 + 1), // Settings + separator
                 Constraint::Min(3),                          // Env vars
             ])
@@ -3040,12 +3109,13 @@ impl App {
                 spans.push(Span::styled(after, value_style));
             } else {
                 // Truncate display value to fit available width
-                let display_value = if value.chars().count() > max_value_width && max_value_width > 1 {
-                    let truncated: String = value.chars().take(max_value_width - 1).collect();
-                    format!("{}\u{2026}", truncated)
-                } else {
-                    value.clone()
-                };
+                let display_value =
+                    if value.chars().count() > max_value_width && max_value_width > 1 {
+                        let truncated: String = value.chars().take(max_value_width - 1).collect();
+                        format!("{}\u{2026}", truncated)
+                    } else {
+                        value.clone()
+                    };
                 spans.push(Span::styled(display_value, value_style));
             }
 
@@ -3306,7 +3376,8 @@ impl App {
 
         frame.render_widget(Clear, dialog_area);
 
-        let agent_name = self.npm_dialog_pending
+        let agent_name = self
+            .npm_dialog_pending
             .as_ref()
             .map(|(a, _)| a.display_name())
             .unwrap_or("this agent");
@@ -3315,7 +3386,9 @@ impl App {
             Line::default(),
             Line::from(Span::styled(
                 "  npm not found",
-                Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD),
+                Style::default()
+                    .fg(Color::Yellow)
+                    .add_modifier(Modifier::BOLD),
             )),
             Line::default(),
             Line::from(format!("  Node.js is required to install {}.", agent_name)),
@@ -3328,8 +3401,11 @@ impl App {
             )),
         ];
 
-        let dialog = Paragraph::new(lines)
-            .block(Block::default().borders(Borders::ALL).title(" Install Node.js "));
+        let dialog = Paragraph::new(lines).block(
+            Block::default()
+                .borders(Borders::ALL)
+                .title(" Install Node.js "),
+        );
         frame.render_widget(dialog, dialog_area);
     }
 
@@ -3403,16 +3479,14 @@ impl App {
             ),
         ]));
 
-        let dialog = Paragraph::new(lines)
-            .wrap(Wrap { trim: false })
-            .block(
-                Block::default()
-                    .title(" Conflict Warning — [Y]es / [N]o ")
-                    .title_alignment(Alignment::Center)
-                    .borders(Borders::ALL)
-                    .border_style(Style::default().fg(Color::Yellow))
-                    .style(Style::default().bg(Color::Black)),
-            );
+        let dialog = Paragraph::new(lines).wrap(Wrap { trim: false }).block(
+            Block::default()
+                .title(" Conflict Warning — [Y]es / [N]o ")
+                .title_alignment(Alignment::Center)
+                .borders(Borders::ALL)
+                .border_style(Style::default().fg(Color::Yellow))
+                .style(Style::default().bg(Color::Black)),
+        );
 
         frame.render_widget(dialog, dialog_area);
 
@@ -3432,7 +3506,7 @@ impl App {
             .direction(Direction::Vertical)
             .constraints([
                 Constraint::Length(3), // Title
-                Constraint::Min(5),   // Plugin list
+                Constraint::Min(5),    // Plugin list
                 Constraint::Length(2), // Help hint
             ])
             .split(area);
@@ -4350,7 +4424,10 @@ mod tests {
         app.tick(); // Complete pending transition
         assert_eq!(app.screen, Screen::Profiles);
 
-        app.handle_profiles_input(NavAction::Back, KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE));
+        app.handle_profiles_input(
+            NavAction::Back,
+            KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE),
+        );
         app.tick(); // Complete pending transition
         assert_eq!(app.screen, Screen::Main);
     }
@@ -5076,4 +5153,3 @@ mod tests {
         assert!(!app.g_pending);
     }
 }
-

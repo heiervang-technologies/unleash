@@ -15,10 +15,7 @@ pub fn to_hub<R: BufRead>(reader: R) -> Result<Vec<HubRecord>, ConvertError> {
         }
         let val: Value = serde_json::from_str(&line)?;
 
-        let event_type = val
-            .get("type")
-            .and_then(|t| t.as_str())
-            .unwrap_or("");
+        let event_type = val.get("type").and_then(|t| t.as_str()).unwrap_or("");
         let timestamp = val
             .get("timestamp")
             .and_then(|t| t.as_str())
@@ -28,7 +25,9 @@ pub fn to_hub<R: BufRead>(reader: R) -> Result<Vec<HubRecord>, ConvertError> {
 
         match event_type {
             "session_meta" => {
-                records.push(HubRecord::Session(session_meta_to_hub(&payload, &timestamp)));
+                records.push(HubRecord::Session(session_meta_to_hub(
+                    &payload, &timestamp,
+                )));
                 session_emitted = true;
             }
             "response_item" => {
@@ -59,10 +58,7 @@ pub fn to_hub<R: BufRead>(reader: R) -> Result<Vec<HubRecord>, ConvertError> {
                     records.push(HubRecord::Session(default_session(&timestamp)));
                     session_emitted = true;
                 }
-                let sub_type = payload
-                    .get("type")
-                    .and_then(|t| t.as_str())
-                    .unwrap_or("");
+                let sub_type = payload.get("type").and_then(|t| t.as_str()).unwrap_or("");
                 match sub_type {
                     // Skip user_message/agent_message — these duplicate response_item
                     // entries with the same content and timestamp. response_item has
@@ -215,10 +211,7 @@ fn default_session(timestamp: &str) -> SessionHeader {
 }
 
 fn response_item_to_hub(payload: &Value, timestamp: &str) -> Result<HubMessage, ConvertError> {
-    let role = payload
-        .get("role")
-        .and_then(|r| r.as_str())
-        .unwrap_or("");
+    let role = payload.get("role").and_then(|r| r.as_str()).unwrap_or("");
     let payload_type = payload
         .get("type")
         .and_then(|t| t.as_str())
@@ -236,16 +229,19 @@ fn response_item_to_hub(payload: &Value, timestamp: &str) -> Result<HubMessage, 
                 .and_then(|t| t.as_str())
                 .unwrap_or("")
                 .to_string();
-            ("assistant", vec![ContentBlock::Thinking {
-                text,
-                subject: None,
-                description: None,
-                signature: None,
-                encrypted: false,
-                encryption_format: None,
-                encrypted_data: None,
-                timestamp: None,
-            }])
+            (
+                "assistant",
+                vec![ContentBlock::Thinking {
+                    text,
+                    subject: None,
+                    description: None,
+                    signature: None,
+                    encrypted: false,
+                    encryption_format: None,
+                    encrypted_data: None,
+                    timestamp: None,
+                }],
+            )
         }
         "function_call" => {
             // Function calls → assistant tool_use
@@ -264,14 +260,18 @@ fn response_item_to_hub(payload: &Value, timestamp: &str) -> Result<HubMessage, 
                 .and_then(|a| a.as_str())
                 .unwrap_or("{}")
                 .to_string();
-            let input: Value = serde_json::from_str(&arguments).unwrap_or(Value::Object(Default::default()));
-            ("assistant", vec![ContentBlock::ToolUse {
-                id: call_id,
-                name,
-                display_name: None,
-                description: None,
-                input,
-            }])
+            let input: Value =
+                serde_json::from_str(&arguments).unwrap_or(Value::Object(Default::default()));
+            (
+                "assistant",
+                vec![ContentBlock::ToolUse {
+                    id: call_id,
+                    name,
+                    display_name: None,
+                    description: None,
+                    input,
+                }],
+            )
         }
         "function_call_output" => {
             // Function call output → user tool_result
@@ -285,17 +285,20 @@ fn response_item_to_hub(payload: &Value, timestamp: &str) -> Result<HubMessage, 
                 .and_then(|o| o.as_str())
                 .unwrap_or("")
                 .to_string();
-            ("user", vec![ContentBlock::ToolResult {
-                tool_use_id: call_id,
-                content: vec![ContentBlock::Text { text: output }],
-                is_error: false,
-                exit_code: None,
-                interrupted: false,
-                status: None,
-                duration_ms: None,
-                title: None,
-                truncated: false,
-            }])
+            (
+                "user",
+                vec![ContentBlock::ToolResult {
+                    tool_use_id: call_id,
+                    content: vec![ContentBlock::Text { text: output }],
+                    is_error: false,
+                    exit_code: None,
+                    interrupted: false,
+                    status: None,
+                    duration_ms: None,
+                    title: None,
+                    truncated: false,
+                }],
+            )
         }
         _ => {
             // Regular message — use role from payload
@@ -314,7 +317,10 @@ fn response_item_to_hub(payload: &Value, timestamp: &str) -> Result<HubMessage, 
     if let Some(v) = payload.get("id") {
         ext.insert("item_id".into(), v.clone());
     }
-    ext.insert("payload_type".into(), Value::String(payload_type.to_string()));
+    ext.insert(
+        "payload_type".into(),
+        Value::String(payload_type.to_string()),
+    );
 
     Ok(HubMessage {
         id: payload
@@ -355,10 +361,7 @@ fn event_msg_to_hub(
         .to_string();
 
     let mut ext = serde_json::Map::new();
-    ext.insert(
-        "event_msg_type".into(),
-        Value::String(sub_type.to_string()),
-    );
+    ext.insert("event_msg_type".into(), Value::String(sub_type.to_string()));
     if let Some(v) = payload.get("phase") {
         ext.insert("phase".into(), v.clone());
     }
@@ -412,10 +415,7 @@ fn extract_codex_content(payload: &Value) -> Result<Vec<ContentBlock>, ConvertEr
                             .and_then(|v| v.as_str())
                             .unwrap_or("")
                             .to_string(),
-                        source_url: block
-                            .get("url")
-                            .and_then(|v| v.as_str())
-                            .map(String::from),
+                        source_url: block.get("url").and_then(|v| v.as_str()).map(String::from),
                     }),
                     _ => Ok(ContentBlock::Text {
                         text: block
@@ -470,7 +470,12 @@ fn hub_session_to_codex(session: &SessionHeader) -> Result<Value, ConvertError> 
     });
 
     // Restore Codex-specific fields (override defaults if present)
-    for key in &["originator", "source", "model_provider", "base_instructions"] {
+    for key in &[
+        "originator",
+        "source",
+        "model_provider",
+        "base_instructions",
+    ] {
         if let Some(v) = cc.get(*key) {
             payload[*key] = v.clone();
         }
@@ -484,11 +489,7 @@ fn hub_session_to_codex(session: &SessionHeader) -> Result<Value, ConvertError> 
 }
 
 fn hub_message_to_codex(msg: &HubMessage) -> Result<Value, ConvertError> {
-    let cc = msg
-        .extensions
-        .get("codex")
-        .cloned()
-        .unwrap_or(Value::Null);
+    let cc = msg.extensions.get("codex").cloned().unwrap_or(Value::Null);
 
     // Check if this was an event_msg or response_item
     let is_event_msg = cc.get("event_msg_type").is_some();
@@ -535,8 +536,12 @@ fn hub_message_to_codex(msg: &HubMessage) -> Result<Value, ConvertError> {
         match payload_type {
             "function_call" => {
                 // Reconstruct function_call from ToolUse content block
-                if let Some(ContentBlock::ToolUse { id, name, input, .. }) = msg.content.first() {
-                    let arguments = serde_json::to_string(input).unwrap_or_else(|_| "{}".to_string());
+                if let Some(ContentBlock::ToolUse {
+                    id, name, input, ..
+                }) = msg.content.first()
+                {
+                    let arguments =
+                        serde_json::to_string(input).unwrap_or_else(|_| "{}".to_string());
                     let payload = serde_json::json!({
                         "type": "function_call",
                         "name": name,
@@ -552,11 +557,19 @@ fn hub_message_to_codex(msg: &HubMessage) -> Result<Value, ConvertError> {
             }
             "function_call_output" => {
                 // Reconstruct function_call_output from ToolResult content block
-                if let Some(ContentBlock::ToolResult { tool_use_id, content, .. }) = msg.content.first() {
-                    let output = content.first().and_then(|b| match b {
-                        ContentBlock::Text { text } => Some(text.as_str()),
-                        _ => None,
-                    }).unwrap_or("");
+                if let Some(ContentBlock::ToolResult {
+                    tool_use_id,
+                    content,
+                    ..
+                }) = msg.content.first()
+                {
+                    let output = content
+                        .first()
+                        .and_then(|b| match b {
+                            ContentBlock::Text { text } => Some(text.as_str()),
+                            _ => None,
+                        })
+                        .unwrap_or("");
                     let payload = serde_json::json!({
                         "type": "function_call_output",
                         "call_id": tool_use_id,
@@ -662,7 +675,9 @@ fn hub_event_to_codex(evt: &HubEvent) -> Result<Value, ConvertError> {
     }
 
     let codex_type = if evt.event_type.starts_with("codex_") {
-        evt.event_type.strip_prefix("codex_").unwrap_or(&evt.event_type)
+        evt.event_type
+            .strip_prefix("codex_")
+            .unwrap_or(&evt.event_type)
     } else {
         &evt.event_type
     };
@@ -729,9 +744,15 @@ mod tests {
         let reader = std::io::BufReader::new(input.as_bytes());
         let hub = to_hub(reader).unwrap();
         // Should have session + token_count event only (no messages from event_msg)
-        let messages: Vec<_> = hub.iter().filter(|r| matches!(r, HubRecord::Message(_))).collect();
+        let messages: Vec<_> = hub
+            .iter()
+            .filter(|r| matches!(r, HubRecord::Message(_)))
+            .collect();
         assert_eq!(messages.len(), 0, "event_msg user/agent should be skipped");
-        let events: Vec<_> = hub.iter().filter(|r| matches!(r, HubRecord::Event(_))).collect();
+        let events: Vec<_> = hub
+            .iter()
+            .filter(|r| matches!(r, HubRecord::Event(_)))
+            .collect();
         assert_eq!(events.len(), 1, "token_count event should be kept");
     }
 
@@ -743,9 +764,16 @@ mod tests {
 
         let reader = std::io::BufReader::new(input.as_bytes());
         let hub = to_hub(reader).unwrap();
-        let messages: Vec<_> = hub.iter().filter_map(|r| {
-            if let HubRecord::Message(m) = r { Some(m) } else { None }
-        }).collect();
+        let messages: Vec<_> = hub
+            .iter()
+            .filter_map(|r| {
+                if let HubRecord::Message(m) = r {
+                    Some(m)
+                } else {
+                    None
+                }
+            })
+            .collect();
         // developer message should be filtered out, only user + assistant remain
         assert_eq!(messages.len(), 2);
         assert_eq!(messages[0].role, "user");
@@ -761,9 +789,10 @@ mod tests {
         let back = from_hub(&hub).unwrap();
 
         let orig_val: Value = serde_json::from_str(original).unwrap();
-        let ctx_line = back.iter().find(|l| {
-            l.get("type").and_then(|t| t.as_str()) == Some("turn_context")
-        }).unwrap();
+        let ctx_line = back
+            .iter()
+            .find(|l| l.get("type").and_then(|t| t.as_str()) == Some("turn_context"))
+            .unwrap();
         semantic_eq(&orig_val, ctx_line).unwrap();
     }
 }

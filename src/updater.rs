@@ -162,7 +162,10 @@ fn phase_check(agents: &[AgentType], json: bool) -> io::Result<Vec<CheckResult>>
     let agent_list: Vec<AgentType> = agents.to_vec();
     let (tx, rx) = mpsc::channel::<(usize, LineState)>();
 
-    let names: Vec<String> = agent_list.iter().map(|a| a.display_name().to_string()).collect();
+    let names: Vec<String> = agent_list
+        .iter()
+        .map(|a| a.display_name().to_string())
+        .collect();
     let mut renderer = ProgressRenderer::new(names.as_slice());
 
     // Spawn one thread per agent.
@@ -178,7 +181,9 @@ fn phase_check(agents: &[AgentType], json: bool) -> io::Result<Vec<CheckResult>>
                     to: r.latest.clone().unwrap_or_default(),
                 },
                 Ok(r) => LineState::UpToDate(
-                    r.installed.clone().unwrap_or_else(|| "not installed".into()),
+                    r.installed
+                        .clone()
+                        .unwrap_or_else(|| "not installed".into()),
                 ),
                 Err(e) => LineState::Error(e.to_string()),
             };
@@ -390,7 +395,10 @@ fn check_or_update_self(check_only: bool) -> io::Result<()> {
     match latest {
         Some(ref ver) if version_less_than(current, ver) => {
             if check_only {
-                println!("  unleash          {} -> {} (update available)", current, ver);
+                println!(
+                    "  unleash          {} -> {} (update available)",
+                    current, ver
+                );
             } else {
                 println!("  unleash          updating {} -> {}...", current, ver);
                 // Self-update: re-run install script
@@ -400,7 +408,10 @@ fn check_or_update_self(check_only: bool) -> io::Result<()> {
                 if output.status.success() {
                     println!("  unleash          {} -> {} (updated)", current, ver);
                 } else {
-                    eprintln!("  unleash          update failed: {}", String::from_utf8_lossy(&output.stderr));
+                    eprintln!(
+                        "  unleash          update failed: {}",
+                        String::from_utf8_lossy(&output.stderr)
+                    );
                 }
             }
         }
@@ -480,7 +491,10 @@ fn get_latest_npm_version(package: &str) -> io::Result<Option<String>> {
 
     // Fallback: curl the npm registry API (works without npm installed)
     if let Ok(output) = Command::new("curl")
-        .args(["-fsSL", &format!("https://registry.npmjs.org/{}/latest", package)])
+        .args([
+            "-fsSL",
+            &format!("https://registry.npmjs.org/{}/latest", package),
+        ])
         .output()
     {
         if output.status.success() {
@@ -545,7 +559,10 @@ pub fn uninstall(agents: Vec<AgentType>) -> io::Result<()> {
     for agent_type in &agents {
         let installed = get_installed_version(*agent_type);
         if installed.is_none() {
-            println!("  . {}    not installed, skipping", agent_type.display_name());
+            println!(
+                "  . {}    not installed, skipping",
+                agent_type.display_name()
+            );
             continue;
         }
 
@@ -561,11 +578,7 @@ pub fn uninstall(agents: Vec<AgentType>) -> io::Result<()> {
                 );
             }
             Err(e) => {
-                println!(
-                    "\r  x {}    FAILED: {}",
-                    agent_type.display_name(),
-                    e,
-                );
+                println!("\r  x {}    FAILED: {}", agent_type.display_name(), e,);
             }
         }
     }
@@ -590,9 +603,8 @@ fn uninstall_agent(agent_type: AgentType) -> io::Result<()> {
     // For binary-installed agents, remove the binary directly
     let binary_path = which_binary(&def.binary);
     if let Some(path) = binary_path {
-        std::fs::remove_file(&path).map_err(|e| {
-            io::Error::other(format!("Failed to remove {}: {}", path.display(), e))
-        })?;
+        std::fs::remove_file(&path)
+            .map_err(|e| io::Error::other(format!("Failed to remove {}: {}", path.display(), e)))?;
         return Ok(());
     }
 
@@ -608,11 +620,7 @@ fn which_binary(name: &str) -> Option<std::path::PathBuf> {
         .output()
         .ok()
         .filter(|o| o.status.success())
-        .map(|o| {
-            std::path::PathBuf::from(
-                String::from_utf8_lossy(&o.stdout).trim().to_string(),
-            )
-        })
+        .map(|o| std::path::PathBuf::from(String::from_utf8_lossy(&o.stdout).trim().to_string()))
 }
 
 /// Strip version prefixes like "v", "rust-v" to get a clean semver string.
@@ -752,7 +760,10 @@ fn ensure_npm() -> io::Result<bool> {
 
     // Install nvm
     let nvm_install = Command::new("bash")
-        .args(["-c", "curl -fsSL https://raw.githubusercontent.com/nvm-sh/nvm/v0.40.3/install.sh | bash"])
+        .args([
+            "-c",
+            "curl -fsSL https://raw.githubusercontent.com/nvm-sh/nvm/v0.40.3/install.sh | bash",
+        ])
         .status()?;
     if !nvm_install.success() {
         return Err(io::Error::other("Failed to install nvm"));
@@ -780,7 +791,10 @@ fn ensure_npm() -> io::Result<bool> {
 /// Try to find nvm's npm and add it to PATH. Returns true if npm is now available.
 fn try_source_nvm() -> bool {
     if let Ok(output) = Command::new("bash")
-        .args(["-c", "export NVM_DIR=\"$HOME/.nvm\" && . \"$NVM_DIR/nvm.sh\" 2>/dev/null && which npm"])
+        .args([
+            "-c",
+            "export NVM_DIR=\"$HOME/.nvm\" && . \"$NVM_DIR/nvm.sh\" 2>/dev/null && which npm",
+        ])
         .output()
     {
         if output.status.success() {
@@ -828,8 +842,7 @@ fn update_gemini(tx: &mpsc::Sender<(usize, LineState)>, index: usize) -> io::Res
 /// Gets the target version from npm first, then passes it explicitly to `opencode upgrade`.
 fn update_opencode(tx: &mpsc::Sender<(usize, LineState)>, index: usize) -> io::Result<String> {
     // Get the target version from npm (source of truth)
-    let target = get_latest_npm_version("opencode-ai")?
-        .unwrap_or_else(|| "latest".to_string());
+    let target = get_latest_npm_version("opencode-ai")?.unwrap_or_else(|| "latest".to_string());
 
     let _ = tx.send((
         index,
@@ -847,8 +860,7 @@ fn update_opencode(tx: &mpsc::Sender<(usize, LineState)>, index: usize) -> io::R
         .is_some_and(|o| o.status.success());
 
     if upgrade_ok {
-        let version =
-            get_installed_version(AgentType::OpenCode).unwrap_or_else(|| target.clone());
+        let version = get_installed_version(AgentType::OpenCode).unwrap_or_else(|| target.clone());
         Ok(version)
     } else {
         // Fallback: npm install (handles both upgrade failure and binary not found)

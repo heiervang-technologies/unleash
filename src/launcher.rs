@@ -362,10 +362,7 @@ pub fn find_plugin_dirs() -> Vec<PathBuf> {
     all_dirs
         .into_iter()
         .filter(|dir| {
-            let name = dir
-                .file_name()
-                .and_then(|n| n.to_str())
-                .unwrap_or("");
+            let name = dir.file_name().and_then(|n| n.to_str()).unwrap_or("");
             config.enabled_plugins.contains(&name.to_string())
         })
         .collect()
@@ -486,7 +483,10 @@ fn run_agent(
     // Codex native notify hook: end-of-turn => reset opaque + idle sound.
     if agent_type == Some(AgentType::Codex) && hyprland::is_focus_enabled() {
         if let Ok(exe) = env::current_exe() {
-            let exe = exe.to_string_lossy().replace('\\', "\\\\").replace('\"', "\\\"");
+            let exe = exe
+                .to_string_lossy()
+                .replace('\\', "\\\\")
+                .replace('\"', "\\\"");
             let notify_override = format!(
                 "notify=[\"{}\",\"__unleash-focus-turn-complete\",\"{}\"]",
                 exe, wrapper_pid
@@ -589,4 +589,3 @@ pub fn trigger_exit(wrapper_pid: u32) -> io::Result<()> {
 
     Ok(())
 }
-

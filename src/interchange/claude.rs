@@ -26,10 +26,7 @@ pub fn to_hub<R: BufRead>(reader: R) -> Result<Vec<HubRecord>, ConvertError> {
             last_timestamp = ts;
         }
 
-        let msg_type = val
-            .get("type")
-            .and_then(|t| t.as_str())
-            .unwrap_or("");
+        let msg_type = val.get("type").and_then(|t| t.as_str()).unwrap_or("");
 
         match msg_type {
             "user" | "assistant" => {
@@ -76,7 +73,7 @@ pub fn from_hub(records: &[HubRecord]) -> Result<Vec<Value>, ConvertError> {
 
 // === Helpers ===
 
-use super::helpers::{str_field, opt_str};
+use super::helpers::{opt_str, str_field};
 
 fn build_session_header(val: &Value) -> SessionHeader {
     SessionHeader {
@@ -213,10 +210,7 @@ fn build_claude_extensions(val: &Value, msg_type: &str) -> Value {
     }
 }
 
-fn extract_content_blocks(
-    val: &Value,
-    msg_type: &str,
-) -> Result<Vec<ContentBlock>, ConvertError> {
+fn extract_content_blocks(val: &Value, msg_type: &str) -> Result<Vec<ContentBlock>, ConvertError> {
     let message = val.get("message");
 
     if msg_type == "assistant" {
@@ -257,10 +251,11 @@ fn claude_content_to_hub(block: &Value) -> Result<ContentBlock, ConvertError> {
         "tool_result" => {
             let content = match block.get("content") {
                 Some(Value::String(s)) => vec![ContentBlock::Text { text: s.clone() }],
-                Some(Value::Array(arr)) => arr
-                    .iter()
-                    .map(claude_content_to_hub)
-                    .collect::<Result<Vec<_>, _>>()?,
+                Some(Value::Array(arr)) => {
+                    arr.iter()
+                        .map(claude_content_to_hub)
+                        .collect::<Result<Vec<_>, _>>()?
+                }
                 _ => vec![],
             };
             Ok(ContentBlock::ToolResult {
@@ -322,10 +317,7 @@ fn extract_metadata(val: &Value, msg_type: &str) -> MessageMetadata {
             model: message.and_then(|m| opt_str(m, "model")),
             tokens: usage.map(|u| TokenUsage {
                 input: u.get("input_tokens").and_then(|v| v.as_u64()).unwrap_or(0),
-                output: u
-                    .get("output_tokens")
-                    .and_then(|v| v.as_u64())
-                    .unwrap_or(0),
+                output: u.get("output_tokens").and_then(|v| v.as_u64()).unwrap_or(0),
                 cache_creation: u
                     .get("cache_creation_input_tokens")
                     .and_then(|v| v.as_u64())
@@ -647,14 +639,12 @@ fn hub_event_to_claude(
     }
 
     // Fill session/version if not already present
-    if (line.get("sessionId").is_none() || line["sessionId"].is_null())
-        && !session_id.is_empty() {
-            line["sessionId"] = Value::String(session_id.to_string());
-        }
-    if (line.get("version").is_none() || line["version"].is_null())
-        && !version.is_empty() {
-            line["version"] = Value::String(version.to_string());
-        }
+    if (line.get("sessionId").is_none() || line["sessionId"].is_null()) && !session_id.is_empty() {
+        line["sessionId"] = Value::String(session_id.to_string());
+    }
+    if (line.get("version").is_none() || line["version"].is_null()) && !version.is_empty() {
+        line["version"] = Value::String(version.to_string());
+    }
 
     Ok(line)
 }

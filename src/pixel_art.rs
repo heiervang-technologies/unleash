@@ -646,11 +646,7 @@ fn parse_ansi_line_to_spans_gradient(
 type OptRgb = Option<(u8, u8, u8)>;
 
 #[cfg(feature = "tui")]
-fn parse_gradient_sequence_colors(
-    seq: &str,
-    mut fg: OptRgb,
-    mut bg: OptRgb,
-) -> (OptRgb, OptRgb) {
+fn parse_gradient_sequence_colors(seq: &str, mut fg: OptRgb, mut bg: OptRgb) -> (OptRgb, OptRgb) {
     let parts: Vec<&str> = seq.split(';').collect();
     let mut i = 0;
 
@@ -922,12 +918,20 @@ pub mod mascots {
     }
 
     #[cfg(feature = "tui")]
-    pub fn right_ratatui_lava(agent: &str, max_lines: usize, frame: usize) -> Vec<RatatuiLine<'static>> {
+    pub fn right_ratatui_lava(
+        agent: &str,
+        max_lines: usize,
+        frame: usize,
+    ) -> Vec<RatatuiLine<'static>> {
         to_ratatui_lava(&right_half(agent), max_lines, frame)
     }
 
     #[cfg(feature = "tui")]
-    pub fn right_ratatui_themed(agent: &str, max_lines: usize, shift: crate::theme::ThemeShift) -> Vec<RatatuiLine<'static>> {
+    pub fn right_ratatui_themed(
+        agent: &str,
+        max_lines: usize,
+        shift: crate::theme::ThemeShift,
+    ) -> Vec<RatatuiLine<'static>> {
         to_ratatui_themed(&right_half(agent), max_lines, shift)
     }
 
@@ -939,12 +943,20 @@ pub mod mascots {
     }
 
     #[cfg(feature = "tui")]
-    pub fn left_ratatui_lava(agent: &str, max_lines: usize, frame: usize) -> Vec<RatatuiLine<'static>> {
+    pub fn left_ratatui_lava(
+        agent: &str,
+        max_lines: usize,
+        frame: usize,
+    ) -> Vec<RatatuiLine<'static>> {
         to_ratatui_lava(&left_half(agent), max_lines, frame)
     }
 
     #[cfg(feature = "tui")]
-    pub fn left_ratatui_themed(agent: &str, max_lines: usize, shift: crate::theme::ThemeShift) -> Vec<RatatuiLine<'static>> {
+    pub fn left_ratatui_themed(
+        agent: &str,
+        max_lines: usize,
+        shift: crate::theme::ThemeShift,
+    ) -> Vec<RatatuiLine<'static>> {
         to_ratatui_themed(&left_half(agent), max_lines, shift)
     }
 
@@ -956,7 +968,11 @@ pub mod mascots {
     }
 
     #[cfg(feature = "tui")]
-    pub fn full_ratatui_themed(agent: &str, max_lines: usize, shift: crate::theme::ThemeShift) -> Vec<RatatuiLine<'static>> {
+    pub fn full_ratatui_themed(
+        agent: &str,
+        max_lines: usize,
+        shift: crate::theme::ThemeShift,
+    ) -> Vec<RatatuiLine<'static>> {
         to_ratatui_themed(full_art(agent), max_lines, shift)
     }
 
@@ -968,12 +984,18 @@ pub mod mascots {
     }
 
     #[cfg(feature = "tui")]
-    pub fn unleashed_claude_ratatui_lava(max_lines: usize, animation_frame: usize) -> Vec<RatatuiLine<'static>> {
+    pub fn unleashed_claude_ratatui_lava(
+        max_lines: usize,
+        animation_frame: usize,
+    ) -> Vec<RatatuiLine<'static>> {
         right_ratatui_lava("claude", max_lines, animation_frame)
     }
 
     #[cfg(feature = "tui")]
-    pub fn unleashed_claude_ratatui_themed(max_lines: usize, shift: crate::theme::ThemeShift) -> Vec<RatatuiLine<'static>> {
+    pub fn unleashed_claude_ratatui_themed(
+        max_lines: usize,
+        shift: crate::theme::ThemeShift,
+    ) -> Vec<RatatuiLine<'static>> {
         right_ratatui_themed("claude", max_lines, shift)
     }
 
@@ -991,12 +1013,18 @@ pub mod mascots {
     }
 
     #[cfg(feature = "tui")]
-    pub fn unleashed_claude_left_ratatui_lava(max_lines: usize, animation_frame: usize) -> Vec<RatatuiLine<'static>> {
+    pub fn unleashed_claude_left_ratatui_lava(
+        max_lines: usize,
+        animation_frame: usize,
+    ) -> Vec<RatatuiLine<'static>> {
         left_ratatui_lava("claude", max_lines, animation_frame)
     }
 
     #[cfg(feature = "tui")]
-    pub fn unleashed_claude_left_ratatui_themed(max_lines: usize, shift: crate::theme::ThemeShift) -> Vec<RatatuiLine<'static>> {
+    pub fn unleashed_claude_left_ratatui_themed(
+        max_lines: usize,
+        shift: crate::theme::ThemeShift,
+    ) -> Vec<RatatuiLine<'static>> {
         left_ratatui_themed("claude", max_lines, shift)
     }
 
@@ -1014,7 +1042,10 @@ pub mod mascots {
     }
 
     #[cfg(feature = "tui")]
-    pub fn unleashed_claude_full_ratatui_themed(max_lines: usize, shift: crate::theme::ThemeShift) -> Vec<RatatuiLine<'static>> {
+    pub fn unleashed_claude_full_ratatui_themed(
+        max_lines: usize,
+        shift: crate::theme::ThemeShift,
+    ) -> Vec<RatatuiLine<'static>> {
         full_ratatui_themed("claude", max_lines, shift)
     }
 
@@ -1270,7 +1301,9 @@ mod tests {
 
         assert!(left.contains("Hello"));
         // Strip the reset from right — should have no visible content
-        let right_visible: String = right.chars().filter(|c| *c != '\x1b')
+        let right_visible: String = right
+            .chars()
+            .filter(|c| *c != '\x1b')
             .collect::<String>()
             .replace("[0m", "");
         assert!(right_visible.trim().is_empty());
@@ -1298,7 +1331,9 @@ mod tests {
                 if ch == '\x1b' {
                     // Skip until 'm'
                     while let Some(c) = chars.next() {
-                        if c == 'm' { break; }
+                        if c == 'm' {
+                            break;
+                        }
                     }
                 } else {
                     result.push(ch);
@@ -1307,7 +1342,8 @@ mod tests {
             result
         }
 
-        for (i, ((full_line, left_line), right_line)) in full.lines()
+        for (i, ((full_line, left_line), right_line)) in full
+            .lines()
             .zip(left.lines())
             .zip(right.lines())
             .enumerate()
@@ -1334,7 +1370,9 @@ mod tests {
             while let Some(ch) = chars.next() {
                 if ch == '\x1b' {
                     while let Some(c) = chars.next() {
-                        if c == 'm' { break; }
+                        if c == 'm' {
+                            break;
+                        }
                     }
                 } else {
                     count += 1;
@@ -1358,7 +1396,10 @@ mod tests {
         // The right half should have escape codes (colors carried across the split)
         let full = mascots::unleashed_claude_full();
         let (_, right) = split_ansi_art(&full, 53);
-        assert!(right.contains('\x1b'), "Right half should contain ANSI escapes");
+        assert!(
+            right.contains('\x1b'),
+            "Right half should contain ANSI escapes"
+        );
     }
 
     #[test]

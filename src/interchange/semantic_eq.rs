@@ -22,11 +22,7 @@ fn semantic_eq_inner(a: &Value, b: &Value, path: &str) -> Result<(), String> {
         (Value::String(a), Value::String(b)) if a == b => Ok(()),
         (Value::Array(a), Value::Array(b)) => {
             if a.len() != b.len() {
-                return Err(format!(
-                    "{path}: array length {} != {}",
-                    a.len(),
-                    b.len()
-                ));
+                return Err(format!("{path}: array length {} != {}", a.len(), b.len()));
             }
             for (i, (av, bv)) in a.iter().zip(b.iter()).enumerate() {
                 semantic_eq_inner(av, bv, &format!("{path}[{i}]"))?;

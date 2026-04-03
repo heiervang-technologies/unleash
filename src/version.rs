@@ -189,7 +189,10 @@ impl VersionManager {
                     .map(|h| h.join(".local/bin/claude"))
                     .unwrap_or_else(|| PathBuf::from("/usr/local/bin/claude"));
                 let version = Self::version_at_path(&bin_path);
-                let canonical = bin_path.canonicalize().ok().unwrap_or_else(|| bin_path.clone());
+                let canonical = bin_path
+                    .canonicalize()
+                    .ok()
+                    .unwrap_or_else(|| bin_path.clone());
                 let is_active = active_path.as_ref().is_some_and(|a| *a == canonical);
                 entries.push(ConflictEntry {
                     path: bin_path,
@@ -217,7 +220,8 @@ impl VersionManager {
                         .as_ref()
                         .map(|p| Self::version_at_path(p))
                         .unwrap_or_default();
-                    let path = npm_bin.unwrap_or_else(|| PathBuf::from("npm:@anthropic-ai/claude-code"));
+                    let path =
+                        npm_bin.unwrap_or_else(|| PathBuf::from("npm:@anthropic-ai/claude-code"));
                     let canonical = path.canonicalize().ok().unwrap_or_else(|| path.clone());
                     let is_active = active_path.as_ref().is_some_and(|a| *a == canonical);
                     entries.push(ConflictEntry {
@@ -430,7 +434,12 @@ impl VersionManager {
         // We use the abbreviated metadata endpoint for speed.
         let url = format!("https://registry.npmjs.org/{}", package);
         let output = Command::new("curl")
-            .args(["-fsSL", "-H", "Accept: application/vnd.npm.install-v1+json", &url])
+            .args([
+                "-fsSL",
+                "-H",
+                "Accept: application/vnd.npm.install-v1+json",
+                &url,
+            ])
             .output()
             .map_err(|e| io::Error::other(format!("curl not found: {}", e)))?;
 
@@ -484,9 +493,7 @@ impl VersionManager {
                     use std::os::unix::fs::MetadataExt;
                     let path = std::path::Path::new(&p);
                     let uid = nix::unistd::getuid().as_raw();
-                    path.metadata()
-                        .map(|m| m.uid() != uid)
-                        .unwrap_or(false)
+                    path.metadata().map(|m| m.uid() != uid).unwrap_or(false)
                 }
                 None => false,
             }
@@ -729,7 +736,10 @@ impl VersionManager {
             }
             ChecksumResult::Mismatch { expected, actual } => {
                 let _ = std::fs::remove_file(&temp_path);
-                eprintln!("  \x1b[31mx\x1b[0m Checksum FAILED: expected {}, got {}", expected, actual);
+                eprintln!(
+                    "  \x1b[31mx\x1b[0m Checksum FAILED: expected {}, got {}",
+                    expected, actual
+                );
                 return Ok(InstallResult {
                     success: false,
                     stdout: String::new(),
@@ -1038,7 +1048,10 @@ impl VersionManager {
                 error: if output.status.success() {
                     None
                 } else {
-                    Some(format!("Failed to upgrade OpenCode to v{}: {}", version, stderr))
+                    Some(format!(
+                        "Failed to upgrade OpenCode to v{}: {}",
+                        version, stderr
+                    ))
                 },
             });
         }
@@ -1049,7 +1062,10 @@ impl VersionManager {
                 success: false,
                 stdout: String::new(),
                 stderr: "Neither opencode nor npm is available".to_string(),
-                error: Some("Install opencode first: curl -fsSL https://opencode.ai/install | bash".to_string()),
+                error: Some(
+                    "Install opencode first: curl -fsSL https://opencode.ai/install | bash"
+                        .to_string(),
+                ),
             });
         }
 
@@ -1067,7 +1083,10 @@ impl VersionManager {
             error: if output.status.success() {
                 None
             } else {
-                Some(format!("Failed to install OpenCode v{}: {}", version, stderr))
+                Some(format!(
+                    "Failed to install OpenCode v{}: {}",
+                    version, stderr
+                ))
             },
         })
     }
@@ -1455,10 +1474,8 @@ impl VersionManager {
         // Prefer `opencode upgrade` if already installed (updates the actual binary in-place)
         if which::which("opencode").is_ok() {
             let _ = log_tx.send(format!("Running: opencode upgrade {}", version));
-            let (ok, stdout, stderr) = Self::run_streaming(
-                Command::new("opencode").args(["upgrade", version]),
-                &log_tx,
-            )?;
+            let (ok, stdout, stderr) =
+                Self::run_streaming(Command::new("opencode").args(["upgrade", version]), &log_tx)?;
 
             return Ok(InstallResult {
                 success: ok,
@@ -1467,7 +1484,10 @@ impl VersionManager {
                 error: if ok {
                     None
                 } else {
-                    Some(format!("Failed to upgrade OpenCode to v{}: {}", version, stderr))
+                    Some(format!(
+                        "Failed to upgrade OpenCode to v{}: {}",
+                        version, stderr
+                    ))
                 },
             });
         }
@@ -1478,7 +1498,10 @@ impl VersionManager {
                 success: false,
                 stdout: String::new(),
                 stderr: "Neither opencode nor npm is available".to_string(),
-                error: Some("Install opencode first: curl -fsSL https://opencode.ai/install | bash".to_string()),
+                error: Some(
+                    "Install opencode first: curl -fsSL https://opencode.ai/install | bash"
+                        .to_string(),
+                ),
             });
         }
 
@@ -1489,11 +1512,7 @@ impl VersionManager {
             version
         ));
         let (ok, stdout, stderr) = Self::run_streaming(
-            Self::npm_global_command().args([
-                "install",
-                "-g",
-                &format!("opencode-ai@{}", version),
-            ]),
+            Self::npm_global_command().args(["install", "-g", &format!("opencode-ai@{}", version)]),
             &log_tx,
         )?;
 
@@ -1504,7 +1523,10 @@ impl VersionManager {
             error: if ok {
                 None
             } else {
-                Some(format!("Failed to install OpenCode v{}: {}", version, stderr))
+                Some(format!(
+                    "Failed to install OpenCode v{}: {}",
+                    version, stderr
+                ))
             },
         })
     }
@@ -1592,12 +1614,12 @@ fn compare_prerelease(a: &str, b: &str) -> std::cmp::Ordering {
         let ap = a_parts.get(i);
         let bp = b_parts.get(i);
         match (ap, bp) {
-            (None, Some(_)) => return std::cmp::Ordering::Less,  // fewer fields = lower precedence
+            (None, Some(_)) => return std::cmp::Ordering::Less, // fewer fields = lower precedence
             (Some(_), None) => return std::cmp::Ordering::Greater,
             (Some(a_seg), Some(b_seg)) => {
                 let ord = match (a_seg.parse::<u64>(), b_seg.parse::<u64>()) {
                     (Ok(an), Ok(bn)) => an.cmp(&bn),
-                    (Ok(_), Err(_)) => std::cmp::Ordering::Less,   // numeric < alphanumeric
+                    (Ok(_), Err(_)) => std::cmp::Ordering::Less, // numeric < alphanumeric
                     (Err(_), Ok(_)) => std::cmp::Ordering::Greater,
                     (Err(_), Err(_)) => a_seg.cmp(b_seg),
                 };
@@ -1761,17 +1783,41 @@ mod tests {
         assert_eq!(version_compare("1.2.3", "1.2.3-beta"), Ordering::Greater);
         // Pre-release suffixes are compared lexicographically
         assert_eq!(version_compare("1.2.3-alpha", "1.2.3-beta"), Ordering::Less);
-        assert_eq!(version_compare("1.2.3-beta", "1.2.3-alpha"), Ordering::Greater);
+        assert_eq!(
+            version_compare("1.2.3-beta", "1.2.3-alpha"),
+            Ordering::Greater
+        );
         // Gemini-style preview versions sort correctly
-        assert_eq!(version_compare("0.36.0-preview.0", "0.36.0-preview.2"), Ordering::Less);
-        assert_eq!(version_compare("0.36.0-preview.5", "0.36.0-preview.6"), Ordering::Less);
-        assert_eq!(version_compare("0.36.0-nightly.20260318", "0.36.0-nightly.20260325"), Ordering::Less);
+        assert_eq!(
+            version_compare("0.36.0-preview.0", "0.36.0-preview.2"),
+            Ordering::Less
+        );
+        assert_eq!(
+            version_compare("0.36.0-preview.5", "0.36.0-preview.6"),
+            Ordering::Less
+        );
+        assert_eq!(
+            version_compare("0.36.0-nightly.20260318", "0.36.0-nightly.20260325"),
+            Ordering::Less
+        );
         // nightly < preview (lexicographic)
-        assert_eq!(version_compare("0.36.0-nightly.1", "0.36.0-preview.0"), Ordering::Less);
+        assert_eq!(
+            version_compare("0.36.0-nightly.1", "0.36.0-preview.0"),
+            Ordering::Less
+        );
         // Multi-digit numeric segments (SemVer 11.4 — numeric comparison, not lexicographic)
-        assert_eq!(version_compare("0.36.0-preview.2", "0.36.0-preview.10"), Ordering::Less);
-        assert_eq!(version_compare("0.36.0-preview.10", "0.36.0-preview.2"), Ordering::Greater);
-        assert_eq!(version_compare("0.36.0-preview.15", "0.36.0-preview.15"), Ordering::Equal);
+        assert_eq!(
+            version_compare("0.36.0-preview.2", "0.36.0-preview.10"),
+            Ordering::Less
+        );
+        assert_eq!(
+            version_compare("0.36.0-preview.10", "0.36.0-preview.2"),
+            Ordering::Greater
+        );
+        assert_eq!(
+            version_compare("0.36.0-preview.15", "0.36.0-preview.15"),
+            Ordering::Equal
+        );
 
         // Single component
         assert_eq!(version_compare("2", "1"), Ordering::Greater);

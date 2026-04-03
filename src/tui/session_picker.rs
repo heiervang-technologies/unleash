@@ -144,7 +144,7 @@ fn render_picker(frame: &mut Frame, state: &mut PickerState) {
         .direction(Direction::Vertical)
         .constraints([
             Constraint::Length(3), // title + search
-            Constraint::Min(5),   // session list
+            Constraint::Min(5),    // session list
             Constraint::Length(1), // help bar
         ])
         .split(area);
@@ -160,14 +160,16 @@ fn render_picker(frame: &mut Frame, state: &mut PickerState) {
     } else {
         Style::default().fg(Color::White)
     };
-    let search = Paragraph::new(search_text)
-        .style(search_style)
-        .block(
-            Block::default()
-                .borders(Borders::ALL)
-                .title(" Crossload Session Picker ")
-                .title_style(Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)),
-        );
+    let search = Paragraph::new(search_text).style(search_style).block(
+        Block::default()
+            .borders(Borders::ALL)
+            .title(" Crossload Session Picker ")
+            .title_style(
+                Style::default()
+                    .fg(Color::Cyan)
+                    .add_modifier(Modifier::BOLD),
+            ),
+    );
     frame.render_widget(search, chunks[0]);
 
     // Session list
@@ -227,21 +229,14 @@ fn render_picker(frame: &mut Frame, state: &mut PickerState) {
                         Style::default().fg(Color::Yellow)
                     },
                 ),
-                Span::styled(
-                    format!(" {:<30}", truncate_str(&name_or_id, 30)),
-                    style,
-                ),
+                Span::styled(format!(" {:<30}", truncate_str(&name_or_id, 30)), style),
                 Span::styled(dir, Style::default().fg(Color::DarkGray)),
                 Span::styled(format!("  {}", date), Style::default().fg(Color::DarkGray)),
             ])
         })
         .collect();
 
-    let count_info = format!(
-        " {} of {} sessions ",
-        filtered.len(),
-        state.sessions.len()
-    );
+    let count_info = format!(" {} of {} sessions ", filtered.len(), state.sessions.len());
     let list = Paragraph::new(items).block(
         Block::default()
             .borders(Borders::ALL)

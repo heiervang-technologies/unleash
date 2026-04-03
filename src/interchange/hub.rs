@@ -250,7 +250,9 @@ mod tests {
     #[test]
     fn test_content_block_variants() {
         let blocks = vec![
-            ContentBlock::Text { text: "hello".into() },
+            ContentBlock::Text {
+                text: "hello".into(),
+            },
             ContentBlock::ToolUse {
                 id: "tool-1".into(),
                 name: "bash".into(),
@@ -293,7 +295,9 @@ mod tests {
         let result = ContentBlock::ToolResult {
             tool_use_id: "tool-1".into(),
             content: vec![
-                ContentBlock::Text { text: "output text".into() },
+                ContentBlock::Text {
+                    text: "output text".into(),
+                },
                 ContentBlock::Image {
                     media_type: "image/png".into(),
                     encoding: "base64".into(),
@@ -328,7 +332,9 @@ mod tests {
             timestamp: "2026-03-29T12:00:00Z".into(),
             completed_at: Some("2026-03-29T12:00:03Z".into()),
             role: "assistant".into(),
-            content: vec![ContentBlock::Text { text: "hello".into() }],
+            content: vec![ContentBlock::Text {
+                text: "hello".into(),
+            }],
             metadata: MessageMetadata {
                 model: Some("claude-opus-4-6".into()),
                 tokens: Some(TokenUsage {

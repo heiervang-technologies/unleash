@@ -56,9 +56,11 @@ pub fn hyprctl(args: &[&str]) -> io::Result<String> {
 
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr);
-        return Err(io::Error::other(
-            format!("hyprctl {} failed: {}", args.join(" "), stderr),
-        ));
+        return Err(io::Error::other(format!(
+            "hyprctl {} failed: {}",
+            args.join(" "),
+            stderr
+        )));
     }
     Ok(String::from_utf8_lossy(&output.stdout).to_string())
 }
@@ -184,8 +186,7 @@ pub fn notify_ok(message: &str) -> io::Result<()> {
 /// Find the hypr-window-opacity.sh script path.
 /// Checks repo path first (development), then installed path.
 fn focus_script_path() -> Option<PathBuf> {
-    let repo_path =
-        PathBuf::from("plugins/bundled/hyprland-focus/scripts/hypr-window-opacity.sh");
+    let repo_path = PathBuf::from("plugins/bundled/hyprland-focus/scripts/hypr-window-opacity.sh");
     if repo_path.exists() {
         return fs::canonicalize(&repo_path).ok();
     }

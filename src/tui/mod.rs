@@ -247,8 +247,7 @@ fn run_app(
                             Ok(reloaded) => {
                                 app.load_profile_for_editing(reloaded);
                                 app.sync_editing_to_selected();
-                                app.status_message =
-                                    Some("Profile reloaded from file".to_string());
+                                app.status_message = Some("Profile reloaded from file".to_string());
                             }
                             Err(e) => {
                                 app.status_message =

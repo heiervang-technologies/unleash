@@ -450,9 +450,19 @@ impl ProfileManager {
 
     /// Names reserved for unleash subcommands — cannot be used as profile names
     const RESERVED_NAMES: &[&str] = &[
-        "version", "auth", "auth-check", "hooks", "agents", "update", "help",
-        "install", "uninstall", "sessions", "convert",
-        "config", "plugins",
+        "version",
+        "auth",
+        "auth-check",
+        "hooks",
+        "agents",
+        "update",
+        "help",
+        "install",
+        "uninstall",
+        "sessions",
+        "convert",
+        "config",
+        "plugins",
     ];
 
     /// Check if a profile name conflicts with a reserved subcommand
@@ -877,8 +887,19 @@ theme = "#ffff00"
         let (manager, _temp) = test_manager();
 
         // Actual subcommands must be blocked
-        for name in &["version", "auth", "auth-check", "hooks", "agents", "update",
-                      "install", "uninstall", "sessions", "convert", "help"] {
+        for name in &[
+            "version",
+            "auth",
+            "auth-check",
+            "hooks",
+            "agents",
+            "update",
+            "install",
+            "uninstall",
+            "sessions",
+            "convert",
+            "help",
+        ] {
             let profile = Profile::new(name);
             assert!(
                 manager.save_profile(&profile).is_err(),

@@ -1,14 +1,14 @@
-pub mod hub;
-pub(crate) mod helpers;
-pub mod semantic_eq;
 pub mod claude;
 pub mod codex;
-pub mod gemini;
-pub mod opencode;
-pub mod sessions;
-pub mod inject;
 #[cfg(test)]
 mod cross_cli_tests;
+pub mod gemini;
+pub(crate) mod helpers;
+pub mod hub;
+pub mod inject;
+pub mod opencode;
+pub mod semantic_eq;
+pub mod sessions;
 
 use std::fmt;
 
@@ -40,7 +40,9 @@ impl std::str::FromStr for CliFormat {
             "codex" => Ok(Self::Codex),
             "gemini" | "gemini-cli" => Ok(Self::GeminiCli),
             "opencode" => Ok(Self::OpenCode),
-            _ => Err(ConvertError::InvalidFormat(format!("Unknown CLI format: {s}"))),
+            _ => Err(ConvertError::InvalidFormat(format!(
+                "Unknown CLI format: {s}"
+            ))),
         }
     }
 }
@@ -109,9 +111,7 @@ pub fn convert_command(
             let reader = BufReader::new(input_data.as_bytes());
             codex::to_hub(reader)?
         }
-        "gemini" | "gemini-cli" => {
-            gemini::to_hub(input_data.as_bytes())?
-        }
+        "gemini" | "gemini-cli" => gemini::to_hub(input_data.as_bytes())?,
         "opencode" => {
             let messages: Vec<serde_json::Value> = serde_json::from_str(&input_data)?;
             // Parts file: same directory, replace -messages.json with -parts.json
@@ -231,7 +231,10 @@ pub fn convert_command(
         }
 
         if mismatches == 0 {
-            println!("Lossless round-trip verified: {} lines OK", original_lines.len());
+            println!(
+                "Lossless round-trip verified: {} lines OK",
+                original_lines.len()
+            );
         } else {
             eprintln!("{mismatches} mismatches found");
             return Err(ConvertError::InvalidFormat(

@@ -22,7 +22,11 @@ pub fn to_hub(data: &[u8]) -> Result<Vec<HubRecord>, ConvertError> {
         // Gemini uses "type" for the role field in some versions, "role" in others
         let role_raw = {
             let r = str_field(msg, "role");
-            if r.is_empty() { str_field(msg, "type") } else { r }
+            if r.is_empty() {
+                str_field(msg, "type")
+            } else {
+                r
+            }
         };
         match role_raw.as_str() {
             "user" | "gemini" => {
@@ -76,8 +80,10 @@ pub fn from_hub(records: &[HubRecord]) -> Result<Value, ConvertError> {
                 start_time = s.created_at.clone();
                 last_updated = s.updated_at.clone();
                 let gc = s.extensions.get("gemini-cli");
-                project_hash =
-                    gc.and_then(|g| g.get("projectHash")).and_then(|v| v.as_str()).map(String::from);
+                project_hash = gc
+                    .and_then(|g| g.get("projectHash"))
+                    .and_then(|v| v.as_str())
+                    .map(String::from);
             }
             HubRecord::Message(msg) => {
                 messages.push(hub_message_to_gemini(msg)?);
@@ -95,7 +101,11 @@ pub fn from_hub(records: &[HubRecord]) -> Result<Value, ConvertError> {
     for (i, msg) in messages.iter_mut().enumerate().take(msg_count) {
         if let Some(obj) = msg.as_object_mut() {
             // Ensure id exists
-            if obj.get("id").and_then(|v| v.as_str()).is_none_or(|s| s.is_empty()) {
+            if obj
+                .get("id")
+                .and_then(|v| v.as_str())
+                .is_none_or(|s| s.is_empty())
+            {
                 obj.insert("id".to_string(), Value::String(format!("msg-{i:04}")));
             }
             // Track timestamps
@@ -118,7 +128,11 @@ pub fn from_hub(records: &[HubRecord]) -> Result<Value, ConvertError> {
         start_time = "1970-01-01T00:00:00.000Z".to_string(); // Fallback
     }
     if last_updated.is_empty() {
-        last_updated = if last_valid_ts.is_empty() { start_time.clone() } else { last_valid_ts };
+        last_updated = if last_valid_ts.is_empty() {
+            start_time.clone()
+        } else {
+            last_valid_ts
+        };
     }
 
     let mut root = serde_json::json!({
@@ -154,12 +168,12 @@ fn normalize_hub_records_for_gemini(records: &[HubRecord]) -> Vec<HubRecord> {
                     new_content.push(block.clone());
                 }
             }
-            
+
             if !extracted_results.is_empty() {
                 if let HubRecord::Message(m) = &mut norm[i] {
                     m.content = new_content;
                 }
-                
+
                 for (t_id, res_block) in extracted_results {
                     let mut found = false;
                     for j in (0..=i).rev() {
@@ -191,18 +205,21 @@ fn normalize_hub_records_for_gemini(records: &[HubRecord]) -> Vec<HubRecord> {
     }
 
     // Pass 2: strip empty text blocks and remove messages that become totally empty
-    let norm2: Vec<HubRecord> = norm.into_iter().filter_map(|mut r| {
-        if let HubRecord::Message(m) = &mut r {
-            m.content.retain(|b| match b {
-                ContentBlock::Text { text } => !text.trim().is_empty(),
-                _ => true,
-            });
-            if m.content.is_empty() {
-                return None;
+    let norm2: Vec<HubRecord> = norm
+        .into_iter()
+        .filter_map(|mut r| {
+            if let HubRecord::Message(m) = &mut r {
+                m.content.retain(|b| match b {
+                    ContentBlock::Text { text } => !text.trim().is_empty(),
+                    _ => true,
+                });
+                if m.content.is_empty() {
+                    return None;
+                }
             }
-        }
-        Some(r)
-    }).collect();
+            Some(r)
+        })
+        .collect();
 
     // Pass 3: Merge adjacent messages of the same role, and drop leading assistant messages
     let mut final_norm = Vec::new();
@@ -259,13 +276,17 @@ pub fn build_logs_entries(records: &[HubRecord]) -> Vec<Value> {
             }
             HubRecord::Message(msg) if msg.role == "user" => {
                 // Extract first text content for the message field
-                let text = msg.content.iter().find_map(|b| {
-                    if let ContentBlock::Text { text } = b {
-                        Some(text.clone())
-                    } else {
-                        None
-                    }
-                }).unwrap_or_default();
+                let text = msg
+                    .content
+                    .iter()
+                    .find_map(|b| {
+                        if let ContentBlock::Text { text } = b {
+                            Some(text.clone())
+                        } else {
+                            None
+                        }
+                    })
+                    .unwrap_or_default();
 
                 entries.push(serde_json::json!({
                     "sessionId": session_id,
@@ -285,7 +306,7 @@ pub fn build_logs_entries(records: &[HubRecord]) -> Vec<Value> {
 
 // === Helpers ===
 
-use super::helpers::{str_field, opt_str};
+use super::helpers::{opt_str, str_field};
 
 fn build_session_header(root: &Value) -> SessionHeader {
     let session_id = str_field(root, "sessionId");
@@ -336,7 +357,11 @@ fn build_session_header(root: &Value) -> SessionHeader {
 fn message_to_hub(msg: &Value) -> Result<HubMessage, ConvertError> {
     let role_raw = {
         let r = str_field(msg, "role");
-        if r.is_empty() { str_field(msg, "type") } else { r }
+        if r.is_empty() {
+            str_field(msg, "type")
+        } else {
+            r
+        }
     };
     let role = match role_raw.as_str() {
         "gemini" => "assistant",
@@ -410,10 +435,16 @@ fn message_to_hub(msg: &Value) -> Result<HubMessage, ConvertError> {
             if let Some(result) = tc.get("result") {
                 let result_content = if let Some(arr) = result.as_array() {
                     arr.iter()
-                        .filter_map(|r| r.as_str().map(|s| ContentBlock::Text { text: s.to_string() }))
+                        .filter_map(|r| {
+                            r.as_str().map(|s| ContentBlock::Text {
+                                text: s.to_string(),
+                            })
+                        })
                         .collect()
                 } else if let Some(s) = result.as_str() {
-                    vec![ContentBlock::Text { text: s.to_string() }]
+                    vec![ContentBlock::Text {
+                        text: s.to_string(),
+                    }]
                 } else {
                     vec![ContentBlock::Text {
                         text: result.to_string(),
@@ -421,13 +452,16 @@ fn message_to_hub(msg: &Value) -> Result<HubMessage, ConvertError> {
                 };
 
                 let status = opt_str(tc, "status");
-                let is_error = status.as_deref() == Some("ERROR")
-                    || status.as_deref() == Some("CANCELLED");
+                let is_error =
+                    status.as_deref() == Some("ERROR") || status.as_deref() == Some("CANCELLED");
 
                 content.push(ContentBlock::ToolResult {
                     tool_use_id: tool_id,
                     content: result_content,
-                    exit_code: tc.get("exitCode").and_then(|v| v.as_i64()).map(|v| v as i32),
+                    exit_code: tc
+                        .get("exitCode")
+                        .and_then(|v| v.as_i64())
+                        .map(|v| v as i32),
                     is_error,
                     interrupted: status.as_deref() == Some("CANCELLED"),
                     status,
@@ -836,7 +870,7 @@ mod tests {
                 "content": [{"text": "hello"}],
                 "timestamp": "2026-03-29T12:00:00.000Z"
             }),
-            msg.clone()
+            msg.clone(),
         ]);
         let hub = to_hub(&data).unwrap();
 
@@ -844,8 +878,14 @@ mod tests {
         if let HubRecord::Message(ref hub_msg) = hub[2] {
             assert_eq!(hub_msg.role, "assistant");
             // Should have thinking + text content blocks
-            assert!(hub_msg.content.iter().any(|b| matches!(b, ContentBlock::Thinking { .. })));
-            assert!(hub_msg.content.iter().any(|b| matches!(b, ContentBlock::Text { .. })));
+            assert!(hub_msg
+                .content
+                .iter()
+                .any(|b| matches!(b, ContentBlock::Thinking { .. })));
+            assert!(hub_msg
+                .content
+                .iter()
+                .any(|b| matches!(b, ContentBlock::Text { .. })));
             // Token mapping
             let tokens = hub_msg.metadata.tokens.as_ref().unwrap();
             assert_eq!(tokens.cache_read, 20);
@@ -886,7 +926,7 @@ mod tests {
                 "content": [{"text": "list"}],
                 "timestamp": "2026-03-29T12:00:00.000Z"
             }),
-            msg.clone()
+            msg.clone(),
         ]);
         let hub = to_hub(&data).unwrap();
 
@@ -905,7 +945,12 @@ mod tests {
             assert_eq!(tool_uses.len(), 1);
             assert_eq!(tool_results.len(), 1);
 
-            if let ContentBlock::ToolUse { display_name, description, .. } = &tool_uses[0] {
+            if let ContentBlock::ToolUse {
+                display_name,
+                description,
+                ..
+            } = &tool_uses[0]
+            {
                 assert_eq!(display_name.as_deref(), Some("Shell Command"));
                 assert_eq!(description.as_deref(), Some("Execute a shell command"));
             }
@@ -955,8 +1000,14 @@ mod tests {
         let hub = to_hub(&data).unwrap();
         let back = from_hub(&hub).unwrap();
 
-        assert_eq!(back.get("sessionId").unwrap().as_str().unwrap(), "gem-session-1");
-        assert_eq!(back.get("projectHash").unwrap().as_str().unwrap(), "abc123hash");
+        assert_eq!(
+            back.get("sessionId").unwrap().as_str().unwrap(),
+            "gem-session-1"
+        );
+        assert_eq!(
+            back.get("projectHash").unwrap().as_str().unwrap(),
+            "abc123hash"
+        );
         // Verify new required fields
         assert!(back.get("startTime").is_some());
         assert!(back.get("lastUpdated").is_some());
@@ -969,7 +1020,10 @@ mod tests {
         let hub = to_hub(&data).unwrap();
         let back = from_hub(&hub).unwrap();
 
-        assert_eq!(back.get("sessionId").unwrap().as_str().unwrap(), "gem-session-1");
+        assert_eq!(
+            back.get("sessionId").unwrap().as_str().unwrap(),
+            "gem-session-1"
+        );
         assert!(back.get("messages").unwrap().as_array().unwrap().is_empty());
     }
 

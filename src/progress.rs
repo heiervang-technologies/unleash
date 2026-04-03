@@ -7,11 +7,27 @@ use std::time::Duration;
 pub enum LineState {
     Checking,
     UpToDate(String),
-    UpdateAvailable { from: String, to: String },
-    Downloading { version: String, progress: f32 },
-    Installing { version: String, progress: f32 },
-    Building { version: String, phase: String },
-    Complete { from: String, to: String, duration: Duration },
+    UpdateAvailable {
+        from: String,
+        to: String,
+    },
+    Downloading {
+        version: String,
+        progress: f32,
+    },
+    Installing {
+        version: String,
+        progress: f32,
+    },
+    Building {
+        version: String,
+        phase: String,
+    },
+    Complete {
+        from: String,
+        to: String,
+        duration: Duration,
+    },
     Error(String),
     NotInstalled,
 }
@@ -183,12 +199,22 @@ fn format_line(line: &ProgressLine, label_width: usize, term_width: usize, color
                 format!("{}{}", padded_name, status)
             }
         }
-        LineState::Downloading { version, progress } => {
-            format_bar_line(&padded_name, *progress, &format!("downloading {}", version), term_width, color, CYAN)
-        }
-        LineState::Installing { version, progress } => {
-            format_bar_line(&padded_name, *progress, &format!("installing {}", version), term_width, color, CYAN)
-        }
+        LineState::Downloading { version, progress } => format_bar_line(
+            &padded_name,
+            *progress,
+            &format!("downloading {}", version),
+            term_width,
+            color,
+            CYAN,
+        ),
+        LineState::Installing { version, progress } => format_bar_line(
+            &padded_name,
+            *progress,
+            &format!("installing {}", version),
+            term_width,
+            color,
+            CYAN,
+        ),
         LineState::Building { version, phase } => {
             let status = format!("building {} ({})", version, phase);
             if color {
@@ -199,20 +225,56 @@ fn format_line(line: &ProgressLine, label_width: usize, term_width: usize, color
         }
         LineState::Complete { from, to, duration } => {
             let secs = duration.as_secs_f64();
-            let marker = if color { format!("{}✓{}", GREEN, RESET) } else { "✓".to_string() };
+            let marker = if color {
+                format!("{}✓{}", GREEN, RESET)
+            } else {
+                "✓".to_string()
+            };
             let status = format!("{} -> {} ({:.1}s)", from, to, secs);
             if color {
-                format!("  {}{} {:<width$}{}{}", GREEN, marker, name, status, RESET, width = label_width - 2)
+                format!(
+                    "  {}{} {:<width$}{}{}",
+                    GREEN,
+                    marker,
+                    name,
+                    status,
+                    RESET,
+                    width = label_width - 2
+                )
             } else {
-                format!("  {} {:<width$}{}", marker, name, status, width = label_width - 2)
+                format!(
+                    "  {} {:<width$}{}",
+                    marker,
+                    name,
+                    status,
+                    width = label_width - 2
+                )
             }
         }
         LineState::Error(msg) => {
-            let marker = if color { format!("{}✗{}", RED, RESET) } else { "✗".to_string() };
-            if color {
-                format!("  {}{} {:<width$}{}{}", RED, marker, name, msg, RESET, width = label_width - 2)
+            let marker = if color {
+                format!("{}✗{}", RED, RESET)
             } else {
-                format!("  {} {:<width$}{}", marker, name, msg, width = label_width - 2)
+                "✗".to_string()
+            };
+            if color {
+                format!(
+                    "  {}{} {:<width$}{}{}",
+                    RED,
+                    marker,
+                    name,
+                    msg,
+                    RESET,
+                    width = label_width - 2
+                )
+            } else {
+                format!(
+                    "  {} {:<width$}{}",
+                    marker,
+                    name,
+                    msg,
+                    width = label_width - 2
+                )
             }
         }
         LineState::NotInstalled => {

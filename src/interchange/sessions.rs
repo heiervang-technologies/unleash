@@ -123,9 +123,7 @@ fn discover_claude() -> Vec<SessionInfo> {
                 .ok()
                 .and_then(|m| m.modified().ok())
                 .map(|t| {
-                    let duration = t
-                        .duration_since(std::time::UNIX_EPOCH)
-                        .unwrap_or_default();
+                    let duration = t.duration_since(std::time::UNIX_EPOCH).unwrap_or_default();
                     format_epoch_ms(duration.as_millis() as u64)
                 })
                 .unwrap_or_default();
@@ -241,10 +239,7 @@ fn walk_codex_dir(dir: &std::path::Path, sessions: &mut Vec<SessionInfo>) {
             // Extract session ID from filename: rollout-YYYY-MM-DDTHH-mm-ss-UUID.jsonl
             // The timestamp is exactly 19 chars: YYYY-MM-DDTHH-mm-ss
             // After "rollout-" (8 chars) + timestamp (19 chars) + "-" (1 char) = UUID starts at 28
-            let filename = path
-                .file_stem()
-                .and_then(|s| s.to_str())
-                .unwrap_or("");
+            let filename = path.file_stem().and_then(|s| s.to_str()).unwrap_or("");
             let after_prefix = filename.strip_prefix("rollout-").unwrap_or(filename);
             let session_id = if after_prefix.len() > 20 {
                 // Skip timestamp (19 chars) + separator (1 char)
@@ -261,9 +256,7 @@ fn walk_codex_dir(dir: &std::path::Path, sessions: &mut Vec<SessionInfo>) {
                 .ok()
                 .and_then(|m| m.modified().ok())
                 .map(|t| {
-                    let duration = t
-                        .duration_since(std::time::UNIX_EPOCH)
-                        .unwrap_or_default();
+                    let duration = t.duration_since(std::time::UNIX_EPOCH).unwrap_or_default();
                     format_epoch_ms(duration.as_millis() as u64)
                 })
                 .unwrap_or_default();
@@ -383,10 +376,9 @@ fn discover_opencode() -> Vec<SessionInfo> {
         return sessions;
     }
 
-    let Ok(conn) = rusqlite::Connection::open_with_flags(
-        &db_path,
-        rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY,
-    ) else {
+    let Ok(conn) =
+        rusqlite::Connection::open_with_flags(&db_path, rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY)
+    else {
         return sessions;
     };
 
@@ -469,11 +461,21 @@ mod tests {
         // Exact day 360 of 1970 = 1970-12-27 ~ 31104000000 ms
         let ts = format_epoch_ms(31_104_000_000);
         let month: u32 = ts[5..7].parse().unwrap();
-        assert!(month >= 1 && month <= 12, "month={} out of range in '{}'", month, ts);
+        assert!(
+            month >= 1 && month <= 12,
+            "month={} out of range in '{}'",
+            month,
+            ts
+        );
 
         // Also verify a timestamp at end of a later year
         let ts2 = format_epoch_ms(1_735_603_200_000); // ~2024-12-31
         let month2: u32 = ts2[5..7].parse().unwrap();
-        assert!(month2 >= 1 && month2 <= 12, "month={} out of range in '{}'", month2, ts2);
+        assert!(
+            month2 >= 1 && month2 <= 12,
+            "month={} out of range in '{}'",
+            month2,
+            ts2
+        );
     }
 }

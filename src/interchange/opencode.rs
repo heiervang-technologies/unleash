@@ -36,15 +36,19 @@ pub fn to_hub(input: &OpenCodeInput) -> Result<Vec<HubRecord>, ConvertError> {
     let part_count = input.parts.len();
 
     for (msg_i, msg) in input.messages.iter().enumerate() {
-        let role = msg
-            .get("role")
-            .and_then(|v| v.as_str())
-            .unwrap_or("user");
+        let role = msg.get("role").and_then(|v| v.as_str()).unwrap_or("user");
 
         // Collect parts for this message: parts belong to messages in order.
         // For user messages: typically 1 text part (the prompt).
         // For assistant messages: multiple parts (step-start, reasoning, text, tool, step-finish).
-        let msg_parts = collect_message_parts(&input.parts, &mut part_idx, part_count, role, msg_i, input.messages.len());
+        let msg_parts = collect_message_parts(
+            &input.parts,
+            &mut part_idx,
+            part_count,
+            role,
+            msg_i,
+            input.messages.len(),
+        );
 
         let content = parts_to_content_blocks(&msg_parts)?;
         let metadata = extract_metadata(msg);
@@ -96,15 +100,22 @@ pub fn from_hub(records: &[HubRecord]) -> Result<OpenCodeOutput, ConvertError> {
     let mut messages = Vec::new();
     let mut parts = Vec::new();
 
+    let mut msg_idx = 0;
     for record in records {
         match record {
             HubRecord::Session(_) => {
                 // Session header is metadata, not a message
             }
             HubRecord::Message(msg) => {
-                let (oc_msg, oc_parts) = hub_message_to_opencode(msg)?;
+                let (oc_msg, mut oc_parts) = hub_message_to_opencode(msg)?;
+                for part in &mut oc_parts {
+                    if let Some(obj) = part.as_object_mut() {
+                        obj.insert("_msg_idx".to_string(), serde_json::json!(msg_idx));
+                    }
+                }
                 messages.push(oc_msg);
                 parts.extend(oc_parts);
+                msg_idx += 1;
             }
             HubRecord::Event(_) => {
                 // OpenCode doesn't have standalone events
@@ -274,14 +285,41 @@ fn collect_message_parts(
 ) -> Vec<Value> {
     let mut collected = Vec::new();
 
+    // If parts have _msg_idx (injected by from_hub for reliable round-tripping), use it
+    if *idx < total {
+        if all_parts[*idx].get("_msg_idx").is_some() {
+            while *idx < total {
+                let part = &all_parts[*idx];
+                if part.get("_msg_idx").and_then(|v| v.as_u64()) == Some(_msg_i as u64) {
+                    let mut cleaned_part = part.clone();
+                    if let Some(obj) = cleaned_part.as_object_mut() {
+                        obj.remove("_msg_idx");
+                    }
+                    collected.push(cleaned_part);
+                    *idx += 1;
+                } else {
+                    break;
+                }
+            }
+            return collected;
+        }
+    }
+
     if role == "user" {
-        // User messages typically have one text part
-        if *idx < total {
+        // User messages typically have one text part, maybe tool results
+        while *idx < total {
             let part = &all_parts[*idx];
             let ptype = part.get("type").and_then(|v| v.as_str()).unwrap_or("");
+            if ptype == "step-start" || ptype == "reasoning" {
+                break;
+            }
+            collected.push(part.clone());
+            *idx += 1;
+
+            // If it's a native opencode export without _msg_idx, we conservatively break after one text part
+            // to avoid consuming the next user message's text part.
             if ptype == "text" {
-                collected.push(part.clone());
-                *idx += 1;
+                break;
             }
         }
     } else {
@@ -331,8 +369,8 @@ fn collect_message_parts(
                     if next_type == "step-start" {
                         // Another step in same message, continue
                         continue;
-                    } else if next_type == "text" {
-                        // Could be next user message text, break
+                    } else if next_type == "text" || next_type == "tool" {
+                        // Could be next user message text/tool, break
                         break;
                     }
                 }
@@ -418,10 +456,14 @@ fn parts_to_content_blocks(parts: &[Value]) -> Result<Vec<ContentBlock>, Convert
                             == Some("reasoning.encrypted")
                         {
                             encrypted = true;
-                            encryption_format =
-                                detail.get("format").and_then(|v| v.as_str()).map(String::from);
-                            encrypted_data =
-                                detail.get("data").and_then(|v| v.as_str()).map(String::from);
+                            encryption_format = detail
+                                .get("format")
+                                .and_then(|v| v.as_str())
+                                .map(String::from);
+                            encrypted_data = detail
+                                .get("data")
+                                .and_then(|v| v.as_str())
+                                .map(String::from);
                             break;
                         }
                     }
@@ -556,10 +598,7 @@ fn parts_to_content_blocks(parts: &[Value]) -> Result<Vec<ContentBlock>, Convert
 }
 
 fn extract_metadata(msg: &Value) -> MessageMetadata {
-    let role = msg
-        .get("role")
-        .and_then(|v| v.as_str())
-        .unwrap_or("user");
+    let role = msg.get("role").and_then(|v| v.as_str()).unwrap_or("user");
 
     if role == "assistant" {
         let tokens = msg.get("tokens").map(|t| TokenUsage {
@@ -874,11 +913,10 @@ fn hub_content_to_opencode_parts(blocks: &[ContentBlock]) -> Vec<Value> {
                     .collect::<Vec<_>>()
                     .join("\n");
 
-                let oc_status = status.as_deref().unwrap_or(if *is_error {
-                    "error"
-                } else {
-                    "completed"
-                });
+                let oc_status =
+                    status
+                        .as_deref()
+                        .unwrap_or(if *is_error { "error" } else { "completed" });
 
                 // Find and update the matching ToolUse part
                 let mut merged = false;
@@ -1203,20 +1241,13 @@ mod tests {
             .iter()
             .find(|p| p.get("type").and_then(|v| v.as_str()) == Some("tool"))
             .unwrap();
+        assert_eq!(tool_part.get("tool").and_then(|v| v.as_str()), Some("bash"));
         assert_eq!(
-            tool_part.get("tool").and_then(|v| v.as_str()),
-            Some("bash")
-        );
-        assert_eq!(
-            tool_part["state"]
-                .get("status")
-                .and_then(|v| v.as_str()),
+            tool_part["state"].get("status").and_then(|v| v.as_str()),
             Some("completed")
         );
         assert_eq!(
-            tool_part["state"]
-                .get("output")
-                .and_then(|v| v.as_str()),
+            tool_part["state"].get("output").and_then(|v| v.as_str()),
             Some("hello")
         );
     }
@@ -1330,14 +1361,8 @@ mod tests {
             .iter()
             .find(|p| p.get("type").and_then(|v| v.as_str()) == Some("patch"))
             .unwrap();
-        assert_eq!(
-            patch_part["hash"]["before"].as_str(),
-            Some("aaa111")
-        );
-        assert_eq!(
-            patch_part["hash"]["after"].as_str(),
-            Some("bbb222")
-        );
+        assert_eq!(patch_part["hash"]["before"].as_str(), Some("aaa111"));
+        assert_eq!(patch_part["hash"]["after"].as_str(), Some("bbb222"));
     }
 
     #[test]

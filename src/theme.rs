@@ -273,7 +273,10 @@ impl GradientTheme {
     /// Create a gradient from RGB tuples.
     pub fn new(stops: &[(u8, u8, u8)]) -> Self {
         Self {
-            stops: stops.iter().map(|&(r, g, b)| GradientStop { r, g, b }).collect(),
+            stops: stops
+                .iter()
+                .map(|&(r, g, b)| GradientStop { r, g, b })
+                .collect(),
         }
     }
 
@@ -290,7 +293,13 @@ impl GradientTheme {
 /// Transform a color using a diagonal gradient.
 /// `t` is the gradient position in 0.0..=1.0 (typically `(x + y) / (width + height)`).
 /// Only affects orange-tone pixels (same detection as ThemeShift).
-pub fn transform_gradient_color(r: u8, g: u8, b: u8, gradient: &GradientTheme, t: f64) -> (u8, u8, u8) {
+pub fn transform_gradient_color(
+    r: u8,
+    g: u8,
+    b: u8,
+    gradient: &GradientTheme,
+    t: f64,
+) -> (u8, u8, u8) {
     let (h, s, l) = rgb_to_hsl(r, g, b);
 
     if !is_orange_tone(h, s) {

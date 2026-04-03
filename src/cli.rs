@@ -27,9 +27,7 @@ pub fn get_full_version() -> String {
                 let version_str = String::from_utf8_lossy(&output.stdout);
                 version_str
                     .lines()
-                    .find(|line| {
-                        line.contains('.') && line.chars().any(|c| c.is_ascii_digit())
-                    })
+                    .find(|line| line.contains('.') && line.chars().any(|c| c.is_ascii_digit()))
                     .map(|line| line.trim().replace(" (Claude Code)", ""))
             } else {
                 None
@@ -38,9 +36,15 @@ pub fn get_full_version() -> String {
         .unwrap_or_else(|| "not installed".to_string());
 
     if agent_version == "not installed" {
-        format!("unleash: v{}\n{}: {}", au_version, agent_label, agent_version)
+        format!(
+            "unleash: v{}\n{}: {}",
+            au_version, agent_label, agent_version
+        )
     } else {
-        format!("unleash: v{}\n{}: v{}", au_version, agent_label, agent_version)
+        format!(
+            "unleash: v{}\n{}: v{}",
+            au_version, agent_label, agent_version
+        )
     }
 }
 
@@ -276,9 +280,7 @@ impl PolyfillArgs {
         let safe = if self.safe {
             true
         } else if self.yolo && profile_defaults.safe {
-            eprintln!(
-                "\x1b[34minfo:\x1b[0m overriding profile safe mode with CLI flag '--yolo'"
-            );
+            eprintln!("\x1b[34minfo:\x1b[0m overriding profile safe mode with CLI flag '--yolo'");
             false
         } else {
             profile_defaults.safe
@@ -302,7 +304,9 @@ impl PolyfillArgs {
 #[command(name = "unleash")]
 #[command(author = "Heiervang Technologies")]
 #[command(version)]
-#[command(about = "unleash - Extended CLI for AI Code Agents\n\nRun a profile:  unleash <profile> [flags] [-- passthrough]\nDefault profiles: claude, codex, gemini, opencode\n\nRun 'unleash <profile> --help' for unified flag details.")]
+#[command(
+    about = "unleash - Extended CLI for AI Code Agents\n\nRun a profile:  unleash <profile> [flags] [-- passthrough]\nDefault profiles: claude, codex, gemini, opencode\n\nRun 'unleash <profile> --help' for unified flag details."
+)]
 #[command(long_about = r#"unleash - Extended CLI for AI Code Agents
 
 A wrapper for AI code agents (Claude, Codex, Gemini, OpenCode) with extended features:
@@ -558,9 +562,9 @@ mod tests {
 
     #[test]
     fn test_profile_with_passthrough() {
-        let cli = Cli::try_parse_from([
-            "unleash", "claude", "-m", "opus", "--", "--effort", "high",
-        ]).unwrap();
+        let cli =
+            Cli::try_parse_from(["unleash", "claude", "-m", "opus", "--", "--effort", "high"])
+                .unwrap();
         match cli.command {
             Some(Commands::Profile(args)) => {
                 assert_eq!(args[0], "claude");
@@ -645,21 +649,34 @@ mod tests {
     #[test]
     fn test_parse_passthrough_separator() {
         let args: Vec<String> = vec![
-            "-m".into(), "opus".into(), "--".into(), "--effort".into(), "high".into(),
+            "-m".into(),
+            "opus".into(),
+            "--".into(),
+            "--effort".into(),
+            "high".into(),
         ];
         let (polyfill, passthrough) = PolyfillArgs::parse_from_raw(&args);
         assert_eq!(polyfill.model, Some("opus".to_string()));
-        assert_eq!(passthrough, vec!["--effort".to_string(), "high".to_string()]);
+        assert_eq!(
+            passthrough,
+            vec!["--effort".to_string(), "high".to_string()]
+        );
     }
 
     #[test]
     fn test_parse_unrecognized_flags_pass_through() {
         let args: Vec<String> = vec![
-            "-m".into(), "opus".into(), "--verbose".into(), "--debug".into(),
+            "-m".into(),
+            "opus".into(),
+            "--verbose".into(),
+            "--debug".into(),
         ];
         let (polyfill, passthrough) = PolyfillArgs::parse_from_raw(&args);
         assert_eq!(polyfill.model, Some("opus".to_string()));
-        assert_eq!(passthrough, vec!["--verbose".to_string(), "--debug".to_string()]);
+        assert_eq!(
+            passthrough,
+            vec!["--verbose".to_string(), "--debug".to_string()]
+        );
     }
 
     #[test]
@@ -818,7 +835,10 @@ mod tests {
         // -m --safe should NOT treat --safe as the model name
         let args: Vec<String> = vec!["-m".into(), "--safe".into()];
         let (polyfill, _) = PolyfillArgs::parse_from_raw(&args);
-        assert!(polyfill.model.is_none(), "model should not consume --safe as its value");
+        assert!(
+            polyfill.model.is_none(),
+            "model should not consume --safe as its value"
+        );
         assert!(polyfill.safe, "--safe should still be parsed");
     }
 
@@ -827,8 +847,14 @@ mod tests {
         // -p --continue should NOT treat --continue as the prompt
         let args: Vec<String> = vec!["-p".into(), "--continue".into()];
         let (polyfill, _) = PolyfillArgs::parse_from_raw(&args);
-        assert!(polyfill.prompt.is_none(), "prompt should not consume --continue as its value");
-        assert!(polyfill.continue_session, "--continue should still be parsed");
+        assert!(
+            polyfill.prompt.is_none(),
+            "prompt should not consume --continue as its value"
+        );
+        assert!(
+            polyfill.continue_session,
+            "--continue should still be parsed"
+        );
     }
 
     #[test]
@@ -836,7 +862,10 @@ mod tests {
         // -e --auto should NOT treat --auto as the effort level
         let args: Vec<String> = vec!["-e".into(), "--auto".into()];
         let (polyfill, _) = PolyfillArgs::parse_from_raw(&args);
-        assert!(polyfill.effort.is_none(), "effort should not consume --auto as its value");
+        assert!(
+            polyfill.effort.is_none(),
+            "effort should not consume --auto as its value"
+        );
         assert!(polyfill.auto, "--auto should still be parsed");
     }
 }

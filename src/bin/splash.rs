@@ -15,10 +15,7 @@ use crossterm::{
     execute,
     terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
 };
-use ratatui::{
-    prelude::*,
-    widgets::Paragraph,
-};
+use ratatui::{prelude::*, widgets::Paragraph};
 use unleash::pixel_art;
 use unleash::theme::ThemeShift;
 
@@ -37,12 +34,18 @@ fn agents() -> Vec<Agent> {
     vec![
         Agent {
             name: "claude",
-            theme: AgentTheme::Shift(ThemeShift { hue: 0.0, sat_scale: 1.0 }),
+            theme: AgentTheme::Shift(ThemeShift {
+                hue: 0.0,
+                sat_scale: 1.0,
+            }),
             accent: Color::Rgb(217, 119, 87),
         },
         Agent {
             name: "codex",
-            theme: AgentTheme::Shift(ThemeShift { hue: 345.23, sat_scale: 0.0 }),
+            theme: AgentTheme::Shift(ThemeShift {
+                hue: 345.23,
+                sat_scale: 0.0,
+            }),
             accent: Color::Rgb(140, 140, 140),
         },
         Agent {
@@ -52,7 +55,10 @@ fn agents() -> Vec<Agent> {
         },
         Agent {
             name: "opencode",
-            theme: AgentTheme::Shift(ThemeShift { hue: 200.0, sat_scale: 1.0 }),
+            theme: AgentTheme::Shift(ThemeShift {
+                hue: 200.0,
+                sat_scale: 1.0,
+            }),
             accent: Color::Rgb(87, 142, 217),
         },
     ]
@@ -105,7 +111,10 @@ enum Selection {
     Cancelled,
 }
 
-fn run_loop<W: Write>(terminal: &mut Terminal<CrosstermBackend<W>>, agents: &[Agent]) -> io::Result<Selection> {
+fn run_loop<W: Write>(
+    terminal: &mut Terminal<CrosstermBackend<W>>,
+    agents: &[Agent],
+) -> io::Result<Selection> {
     let mut current: usize = 0;
 
     loop {
@@ -141,10 +150,12 @@ fn render(frame: &mut Frame, current: usize, agents: &[Agent]) {
     // Count actual mascot art lines to size the layout tightly (no bottom gap).
     let cols = area.width as usize;
     let full = mascots::full_art(agent.name);
-    let art_str = if cols >= 106 { full.to_string() } else { mascots::right_half(agent.name) };
-    let art_height = art_str.lines()
-        .skip_while(|l| l.trim().is_empty())
-        .count() as u16;
+    let art_str = if cols >= 106 {
+        full.to_string()
+    } else {
+        mascots::right_half(agent.name)
+    };
+    let art_height = art_str.lines().skip_while(|l| l.trim().is_empty()).count() as u16;
 
     // Layout: title (2) + mascot (art_height) + input box (3) + hint (2) + spacer
     let chunks = Layout::default()
@@ -154,7 +165,7 @@ fn render(frame: &mut Frame, current: usize, agents: &[Agent]) {
             Constraint::Length(art_height), // mascot art (exact fit)
             Constraint::Length(3),          // input box
             Constraint::Length(2),          // hint
-            Constraint::Min(0),            // spacer pushes everything to top
+            Constraint::Min(0),             // spacer pushes everything to top
         ])
         .split(area);
 
@@ -191,9 +202,7 @@ fn render_mascot(frame: &mut Frame, area: Rect, agent: &Agent) {
         AgentTheme::Shift(shift) if shift.is_identity() => {
             pixel_art::parse_ansi_to_ratatui(&art_str)
         }
-        AgentTheme::Shift(shift) => {
-            pixel_art::parse_ansi_to_ratatui_themed(&art_str, *shift)
-        }
+        AgentTheme::Shift(shift) => pixel_art::parse_ansi_to_ratatui_themed(&art_str, *shift),
         AgentTheme::Gradient(gradient) => {
             let height = art_str.lines().count();
             // Use visible column width, not byte length (ANSI escapes inflate byte count ~5x)
@@ -238,11 +247,7 @@ fn render_input_box(frame: &mut Frame, area: Rect, agent: &Agent) {
             Span::raw(pad),
             Span::raw("│"),
         ]),
-        Line::from(vec![
-            Span::raw("  ╰"),
-            Span::raw(bar),
-            Span::raw("╯"),
-        ]),
+        Line::from(vec![Span::raw("  ╰"), Span::raw(bar), Span::raw("╯")]),
     ];
 
     frame.render_widget(Paragraph::new(box_lines), area);

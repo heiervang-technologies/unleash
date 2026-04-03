@@ -415,7 +415,11 @@ impl AgentManager {
 
         let tag = String::from_utf8_lossy(&output.stdout).trim().to_string();
         // Tags are like "rust-v0.116.0" — strip "rust-v" prefix
-        Some(tag.trim_start_matches("rust-v").trim_start_matches('v').to_string())
+        Some(
+            tag.trim_start_matches("rust-v")
+                .trim_start_matches('v')
+                .to_string(),
+        )
     }
 
     /// Get a GitHub token for API auth (needed for private repos).
@@ -489,15 +493,12 @@ impl AgentManager {
         let json: serde_json::Value = serde_json::from_slice(&output.stdout)
             .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e.to_string()))?;
 
-        let tag = json
-            .get("tag_name")
-            .and_then(|t| t.as_str())
-            .map(|s| {
-                // Handle tags like "rust-v0.116.0" (Codex) and "v1.2.3" (others)
-                s.trim_start_matches("rust-v")
-                    .trim_start_matches('v')
-                    .to_string()
-            });
+        let tag = json.get("tag_name").and_then(|t| t.as_str()).map(|s| {
+            // Handle tags like "rust-v0.116.0" (Codex) and "v1.2.3" (others)
+            s.trim_start_matches("rust-v")
+                .trim_start_matches('v')
+                .to_string()
+        });
 
         // Update cache
         if let Some(ref version) = tag {
@@ -567,7 +568,10 @@ impl AgentManager {
         match Self::install_codex_binary(&install_path) {
             Ok(msg) => return Ok(msg),
             Err(e) => {
-                eprintln!("Prebuilt binary install failed ({}), falling back to source build...", e);
+                eprintln!(
+                    "Prebuilt binary install failed ({}), falling back to source build...",
+                    e
+                );
             }
         }
 
@@ -593,7 +597,9 @@ impl AgentManager {
         // Get latest release tag
         let tag_output = Command::new("curl")
             .args([
-                "-s", "-H", "Accept: application/vnd.github.v3+json",
+                "-s",
+                "-H",
+                "Accept: application/vnd.github.v3+json",
                 "https://api.github.com/repos/openai/codex/releases/latest",
             ])
             .output()?;
@@ -601,23 +607,28 @@ impl AgentManager {
         let json: serde_json::Value = serde_json::from_slice(&tag_output.stdout)
             .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e.to_string()))?;
 
-        let tag = json.get("tag_name")
+        let tag = json
+            .get("tag_name")
             .and_then(|t| t.as_str())
             .ok_or_else(|| io::Error::other("Could not determine latest Codex release tag"))?;
 
         let version = tag.trim_start_matches("rust-v").trim_start_matches('v');
 
         // Check if asset exists in this release
-        let has_asset = json.get("assets")
+        let has_asset = json
+            .get("assets")
             .and_then(|a| a.as_array())
-            .map(|assets| assets.iter().any(|a| {
-                a.get("name").and_then(|n| n.as_str()) == Some(&asset_name)
-            }))
+            .map(|assets| {
+                assets
+                    .iter()
+                    .any(|a| a.get("name").and_then(|n| n.as_str()) == Some(&asset_name))
+            })
             .unwrap_or(false);
 
         if !has_asset {
             return Err(io::Error::other(format!(
-                "No prebuilt binary '{}' found in release {}", asset_name, tag
+                "No prebuilt binary '{}' found in release {}",
+                asset_name, tag
             )));
         }
 
@@ -646,7 +657,12 @@ impl AgentManager {
 
         // Extract — codex binary is at the root of the tar.gz
         let extract_output = Command::new("tar")
-            .args(["xzf", &tmp_archive.to_string_lossy(), "-C", &tmp_dir.to_string_lossy()])
+            .args([
+                "xzf",
+                &tmp_archive.to_string_lossy(),
+                "-C",
+                &tmp_dir.to_string_lossy(),
+            ])
             .output()?;
 
         if !extract_output.status.success() {
@@ -689,13 +705,21 @@ impl AgentManager {
     /// Detect the platform triple for prebuilt binary downloads
     fn detect_platform_triple() -> Option<&'static str> {
         #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
-        { return Some("x86_64-unknown-linux-gnu"); }
+        {
+            return Some("x86_64-unknown-linux-gnu");
+        }
         #[cfg(all(target_os = "linux", target_arch = "aarch64"))]
-        { return Some("aarch64-unknown-linux-gnu"); }
+        {
+            return Some("aarch64-unknown-linux-gnu");
+        }
         #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
-        { return Some("aarch64-apple-darwin"); }
+        {
+            return Some("aarch64-apple-darwin");
+        }
         #[cfg(all(target_os = "macos", target_arch = "x86_64"))]
-        { return Some("x86_64-apple-darwin"); }
+        {
+            return Some("x86_64-apple-darwin");
+        }
         #[allow(unreachable_code)]
         None
     }

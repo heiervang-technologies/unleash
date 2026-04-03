@@ -12,22 +12,22 @@ mod hooks;
 mod hyprland;
 #[cfg(feature = "tui")]
 mod input;
+mod interchange;
 mod json_output;
 mod launcher;
 pub mod pixel_art;
 mod polyfill;
 mod progress;
-mod updater;
 #[cfg(feature = "tui")]
 mod text_input;
 pub mod theme;
 #[cfg(feature = "tui")]
 mod tui;
-mod interchange;
+mod updater;
 mod version;
 
-use clap::Parser;
 use crate::agents::AgentType;
+use clap::Parser;
 use cli::{Cli, Commands};
 use config::ProfileManager;
 use std::env;
@@ -161,7 +161,9 @@ fn print_profile_help(profile_name: &str) {
     println!("Run the '{}' profile with unified flags\n", profile_name);
     println!("Usage: unleash {} [FLAGS] [-- PASSTHROUGH]\n", profile_name);
     println!("Unified flags (translated to agent-specific syntax):");
-    println!("      --safe               Restore approval prompts (permissions bypassed by default)");
+    println!(
+        "      --safe               Restore approval prompts (permissions bypassed by default)"
+    );
     println!("  -p, --prompt <PROMPT>    Run non-interactively with the given prompt");
     println!("  -m, --model <MODEL>      Model to use for the session");
     println!("  -c, --continue           Continue the most recent session");
@@ -177,9 +179,18 @@ fn print_profile_help(profile_name: &str) {
     println!("  Use this for agent-specific flags that unleash doesn't polyfill.");
     println!();
     println!("Examples:");
-    println!("  unleash {} -m opus -c              Continue with model override", profile_name);
-    println!("  unleash {} -p \"fix the tests\"       Run headless", profile_name);
-    println!("  unleash {} --safe -- --verbose      Safe mode + agent-specific flag", profile_name);
+    println!(
+        "  unleash {} -m opus -c              Continue with model override",
+        profile_name
+    );
+    println!(
+        "  unleash {} -p \"fix the tests\"       Run headless",
+        profile_name
+    );
+    println!(
+        "  unleash {} --safe -- --verbose      Safe mode + agent-specific flag",
+        profile_name
+    );
 }
 
 fn run_agent_with_polyfill(
@@ -317,7 +328,6 @@ fn run_agent_with_polyfill(
     launcher::run(auto, None, launch_args)
 }
 
-
 /// Returns true if `first_arg` is a known unleash subcommand that must be
 /// routed through clap even when running inside the wrapper (AGENT_UNLEASH=1).
 ///
@@ -387,7 +397,10 @@ pub fn run() -> io::Result<()> {
     // enter wrapper mode directly. This prevents stale AGENT_CMD from a previous
     // session from hijacking a fresh `unleash codex` invocation.
     // Skip wrapper mode for help/version flags — let clap handle those
-    let has_meta_flag = args.iter().skip(1).any(|a| matches!(a.as_str(), "-h" | "--help" | "-V" | "--version"));
+    let has_meta_flag = args
+        .iter()
+        .skip(1)
+        .any(|a| matches!(a.as_str(), "-h" | "--help" | "-V" | "--version"));
     let first_arg_is_subcommand = args
         .get(1)
         .map(|a| is_known_subcommand(a.as_str()))
@@ -398,7 +411,9 @@ pub fn run() -> io::Result<()> {
         let args: Vec<String> = env::args().skip(1).collect();
 
         // Check for --crossload/-x in wrapper mode — handle before launch
-        let has_crossload = args.iter().any(|a| a == "-x" || a == "--crossload" || a.starts_with("--crossload="));
+        let has_crossload = args
+            .iter()
+            .any(|a| a == "-x" || a == "--crossload" || a.starts_with("--crossload="));
         if has_crossload {
             // Extract crossload query and strip -x/--crossload AND profile name from args
             let mut crossload_query = String::new();
@@ -487,11 +502,13 @@ pub fn run() -> io::Result<()> {
                 }
             }
 
-            let parse_prompt_flags = detect_agent_type_from_cmd_path(
-                &env::var("AGENT_CMD").unwrap_or_default()
-            ).map(|a| a == AgentType::Claude).unwrap_or(true);
+            let parse_prompt_flags =
+                detect_agent_type_from_cmd_path(&env::var("AGENT_CMD").unwrap_or_default())
+                    .map(|a| a == AgentType::Claude)
+                    .unwrap_or(true);
 
-            let (auto, prompt, pass_args) = parse_wrapper_launch_args(filtered_args, parse_prompt_flags);
+            let (auto, prompt, pass_args) =
+                parse_wrapper_launch_args(filtered_args, parse_prompt_flags);
             return launcher::run(auto, prompt, pass_args);
         }
 
@@ -525,8 +542,7 @@ pub fn run() -> io::Result<()> {
                 return Ok(());
             }
 
-            let (polyfill_args, passthrough) =
-                cli::PolyfillArgs::parse_from_raw(&args[1..]);
+            let (polyfill_args, passthrough) = cli::PolyfillArgs::parse_from_raw(&args[1..]);
             run_agent_with_polyfill(profile_name, polyfill_args, passthrough)
         }
         Some(Commands::Version { list, install }) => {
@@ -677,10 +693,8 @@ pub fn run() -> io::Result<()> {
                         let items: Vec<json_output::AgentInfoOutput> = defs
                             .iter()
                             .map(|def| {
-                                let installed = manager
-                                    .get_installed_version(def.agent_type)
-                                    .ok()
-                                    .flatten();
+                                let installed =
+                                    manager.get_installed_version(def.agent_type).ok().flatten();
                                 json_output::AgentInfoOutput {
                                     agent_type: format!("{:?}", def.agent_type).to_lowercase(),
                                     name: def.name.clone(),
@@ -805,14 +819,20 @@ pub fn run() -> io::Result<()> {
             let agent_types = if all {
                 AgentType::all().to_vec()
             } else if !agents.is_empty() {
-                agents.iter().map(|name| {
-                    AgentType::from_str(name).ok_or_else(|| {
-                        io::Error::new(
-                            io::ErrorKind::InvalidInput,
-                            format!("Unknown agent: {}. Valid: claude, codex, gemini, opencode", name),
-                        )
+                agents
+                    .iter()
+                    .map(|name| {
+                        AgentType::from_str(name).ok_or_else(|| {
+                            io::Error::new(
+                                io::ErrorKind::InvalidInput,
+                                format!(
+                                    "Unknown agent: {}. Valid: claude, codex, gemini, opencode",
+                                    name
+                                ),
+                            )
+                        })
                     })
-                }).collect::<io::Result<Vec<_>>>()?
+                    .collect::<io::Result<Vec<_>>>()?
             } else {
                 return Err(io::Error::new(
                     io::ErrorKind::InvalidInput,
@@ -833,14 +853,20 @@ pub fn run() -> io::Result<()> {
             let agent_types = if all {
                 AgentType::all().to_vec()
             } else if !agents.is_empty() {
-                agents.iter().map(|name| {
-                    AgentType::from_str(name).ok_or_else(|| {
-                        io::Error::new(
-                            io::ErrorKind::InvalidInput,
-                            format!("Unknown agent: {}. Valid: claude, codex, gemini, opencode", name),
-                        )
+                agents
+                    .iter()
+                    .map(|name| {
+                        AgentType::from_str(name).ok_or_else(|| {
+                            io::Error::new(
+                                io::ErrorKind::InvalidInput,
+                                format!(
+                                    "Unknown agent: {}. Valid: claude, codex, gemini, opencode",
+                                    name
+                                ),
+                            )
+                        })
                     })
-                }).collect::<io::Result<Vec<_>>>()?
+                    .collect::<io::Result<Vec<_>>>()?
             } else {
                 return Err(io::Error::new(
                     io::ErrorKind::InvalidInput,
@@ -864,14 +890,20 @@ pub fn run() -> io::Result<()> {
             let agent_types = if all || clis {
                 AgentType::all().to_vec()
             } else if !agents.is_empty() {
-                agents.iter().map(|name| {
-                    AgentType::from_str(name).ok_or_else(|| {
-                        io::Error::new(
-                            io::ErrorKind::InvalidInput,
-                            format!("Unknown agent: {}. Valid: claude, codex, gemini, opencode", name),
-                        )
+                agents
+                    .iter()
+                    .map(|name| {
+                        AgentType::from_str(name).ok_or_else(|| {
+                            io::Error::new(
+                                io::ErrorKind::InvalidInput,
+                                format!(
+                                    "Unknown agent: {}. Valid: claude, codex, gemini, opencode",
+                                    name
+                                ),
+                            )
+                        })
                     })
-                }).collect::<io::Result<Vec<_>>>()?
+                    .collect::<io::Result<Vec<_>>>()?
             } else {
                 // No args: self-update only
                 vec![]
@@ -888,7 +920,10 @@ pub fn run() -> io::Result<()> {
                 install_only: false, // update mode: update existing agents
             })
         }
-        Some(Commands::Sessions { cli: cli_filter, find }) => {
+        Some(Commands::Sessions {
+            cli: cli_filter,
+            find,
+        }) => {
             let json = cli.json;
             if let Some(query) = find {
                 match interchange::sessions::find_session(&query) {
@@ -898,7 +933,10 @@ pub fn run() -> io::Result<()> {
                         } else {
                             println!(
                                 "{:<10} {:<40} {:<20} {}",
-                                session.cli, session.id, session.name.unwrap_or_default(), session.directory
+                                session.cli,
+                                session.id,
+                                session.name.unwrap_or_default(),
+                                session.directory
                             );
                         }
                     }
@@ -909,7 +947,8 @@ pub fn run() -> io::Result<()> {
                 }
             } else {
                 let sessions = if let Some(ref cli_name) = cli_filter {
-                    let format: interchange::CliFormat = cli_name.parse()
+                    let format: interchange::CliFormat = cli_name
+                        .parse()
                         .map_err(|e: interchange::ConvertError| io::Error::other(e.to_string()))?;
                     interchange::sessions::discover_for(format)
                 } else {
@@ -921,14 +960,22 @@ pub fn run() -> io::Result<()> {
                 } else if sessions.is_empty() {
                     println!("No sessions found.");
                 } else {
-                    println!("{:<10} {:<20} {:<30} {:<20} DIRECTORY", "CLI", "NAME", "TITLE", "UPDATED");
+                    println!(
+                        "{:<10} {:<20} {:<30} {:<20} DIRECTORY",
+                        "CLI", "NAME", "TITLE", "UPDATED"
+                    );
                     println!("{}", "-".repeat(100));
                     for s in sessions.iter().take(50) {
                         println!(
                             "{:<10} {:<20} {:<30} {:<20} {}",
                             s.cli,
                             s.name.as_deref().unwrap_or(&s.id[..s.id.len().min(18)]),
-                            s.title.as_deref().unwrap_or("").chars().take(28).collect::<String>(),
+                            s.title
+                                .as_deref()
+                                .unwrap_or("")
+                                .chars()
+                                .take(28)
+                                .collect::<String>(),
                             &s.updated_at[..s.updated_at.len().min(10)],
                             s.directory,
                         );

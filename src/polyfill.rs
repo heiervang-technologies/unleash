@@ -164,7 +164,9 @@ mod tests {
     fn test_claude_yolo_added_when_absent() {
         let config = AgentDefinition::claude().polyfill;
         let inv = resolve(&config, &default_flags(), &[]);
-        assert!(inv.args.contains(&"--dangerously-skip-permissions".to_string()));
+        assert!(inv
+            .args
+            .contains(&"--dangerously-skip-permissions".to_string()));
     }
 
     #[test]
@@ -175,7 +177,9 @@ mod tests {
             ..default_flags()
         };
         let inv = resolve(&config, &flags, &[]);
-        assert!(!inv.args.contains(&"--dangerously-skip-permissions".to_string()));
+        assert!(!inv
+            .args
+            .contains(&"--dangerously-skip-permissions".to_string()));
     }
 
     #[test]
@@ -183,7 +187,10 @@ mod tests {
         let config = AgentDefinition::opencode().polyfill;
         let inv = resolve(&config, &default_flags(), &[]);
         // OpenCode has no yolo flag — args should not contain any permission-bypass
-        assert!(inv.args.iter().all(|a| !a.contains("yolo") && !a.contains("skip-permissions")));
+        assert!(inv
+            .args
+            .iter()
+            .all(|a| !a.contains("yolo") && !a.contains("skip-permissions")));
     }
 
     #[test]
@@ -197,7 +204,9 @@ mod tests {
     fn test_codex_yolo_flag() {
         let config = AgentDefinition::codex().polyfill;
         let inv = resolve(&config, &default_flags(), &[]);
-        assert!(inv.args.contains(&"--dangerously-bypass-approvals-and-sandbox".to_string()));
+        assert!(inv
+            .args
+            .contains(&"--dangerously-bypass-approvals-and-sandbox".to_string()));
     }
 
     // ── Model ────────────────────────────────────────────────
@@ -412,7 +421,10 @@ mod tests {
         };
         let inv = resolve(&config, &flags, &[]);
         // Gemini does not support forking — no fork args
-        assert!(inv.subcommand_prefix.is_empty() || !inv.subcommand_prefix.contains(&"fork".to_string()));
+        assert!(
+            inv.subcommand_prefix.is_empty()
+                || !inv.subcommand_prefix.contains(&"fork".to_string())
+        );
         assert!(!inv.args.contains(&"--fork".to_string()));
     }
 
@@ -472,8 +484,14 @@ mod tests {
             ..default_flags()
         };
         let inv = resolve(&config, &flags, &[]);
-        assert!(inv.subcommand_prefix.is_empty(), "exec subcommand must not be added when resume is set");
-        assert!(!inv.args.contains(&"do the thing".to_string()), "headless prompt must not appear");
+        assert!(
+            inv.subcommand_prefix.is_empty(),
+            "exec subcommand must not be added when resume is set"
+        );
+        assert!(
+            !inv.args.contains(&"do the thing".to_string()),
+            "headless prompt must not appear"
+        );
         // resume args should still be present
         assert!(inv.args.contains(&"resume".to_string()));
         assert!(inv.args.contains(&"sess-1".to_string()));
@@ -489,8 +507,14 @@ mod tests {
             ..default_flags()
         };
         let inv = resolve(&config, &flags, &[]);
-        assert!(inv.subcommand_prefix.is_empty(), "exec subcommand must not be added when continue is set");
-        assert!(!inv.args.contains(&"keep going".to_string()), "headless prompt must not appear");
+        assert!(
+            inv.subcommand_prefix.is_empty(),
+            "exec subcommand must not be added when continue is set"
+        );
+        assert!(
+            !inv.args.contains(&"keep going".to_string()),
+            "headless prompt must not appear"
+        );
         assert!(inv.args.contains(&"resume".to_string()));
     }
 
