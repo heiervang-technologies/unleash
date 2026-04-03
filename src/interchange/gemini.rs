@@ -30,7 +30,40 @@ pub fn to_hub(data: &[u8]) -> Result<Vec<HubRecord>, ConvertError> {
         };
         match role_raw.as_str() {
             "user" | "gemini" => {
-                records.push(HubRecord::Message(message_to_hub(msg)?));
+                let mut hub_msg = message_to_hub(msg)?;
+                let mut results = Vec::new();
+                
+                // Gemini bundles ToolUse and ToolResult in the same assistant message.
+                // The Hub format expects ToolResults in a subsequent user message.
+                hub_msg.content.retain(|b| {
+                    if matches!(b, ContentBlock::ToolResult { .. }) {
+                        results.push(b.clone());
+                        false
+                    } else {
+                        true
+                    }
+                });
+                
+                let result_msg = if !results.is_empty() {
+                    Some(HubMessage {
+                        id: format!("{}_results", hub_msg.id),
+                        api_message_id: None,
+                        parent_id: Some(hub_msg.id.clone()),
+                        timestamp: hub_msg.timestamp.clone(),
+                        completed_at: hub_msg.completed_at.clone(),
+                        role: "user".to_string(),
+                        content: results,
+                        metadata: hub_msg.metadata.clone(),
+                        extensions: hub_msg.extensions.clone(),
+                    })
+                } else {
+                    None
+                };
+
+                records.push(HubRecord::Message(hub_msg));
+                if let Some(rm) = result_msg {
+                    records.push(HubRecord::Message(rm));
+                }
             }
             "info" => {
                 records.push(HubRecord::Event(info_to_hub_event(msg)?));
@@ -595,10 +628,16 @@ fn hub_message_to_gemini(msg: &HubMessage) -> Result<Value, ConvertError> {
 
     if role == "user" {
         // User messages use content: [{text: "..."}] array format
-        let content_arr: Vec<Value> = text_parts
+        let mut content_arr: Vec<Value> = text_parts
             .iter()
             .map(|t| serde_json::json!({"text": t}))
             .collect();
+            
+        // Gemini API will fail if a user message has an empty parts array
+        if content_arr.is_empty() {
+            content_arr.push(serde_json::json!({"text": " "}));
+        }
+
         gemini_msg["content"] = Value::Array(content_arr);
     } else {
         // Gemini messages: "content" is a string (often empty when toolCalls present)
