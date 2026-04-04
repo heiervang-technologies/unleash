@@ -38,6 +38,8 @@ pub struct PolyfillFlags {
     pub verbose: bool,
     /// Output format (e.g., "json", "text", "stream-json").
     pub output_format: Option<String>,
+    /// System prompt text to inject.
+    pub system_prompt: Option<String>,
 }
 
 impl Default for PolyfillFlags {
@@ -54,6 +56,7 @@ impl Default for PolyfillFlags {
             auto: false,
             verbose: false,
             output_format: None,
+            system_prompt: None,
         }
     }
 }
@@ -150,6 +153,16 @@ pub fn resolve(
             if !is_dup(output_format_flag) {
                 args.push(output_format_flag.clone());
                 args.push(format.clone());
+            }
+        }
+    }
+
+    // --- System Prompt ---
+    if let Some(ref prompt) = flags.system_prompt {
+        if let Some(ref system_prompt_flag) = config.system_prompt_flag {
+            if !is_dup(system_prompt_flag) {
+                args.push(system_prompt_flag.clone());
+                args.push(prompt.clone());
             }
         }
     }
@@ -696,5 +709,30 @@ mod tests {
         };
         let inv = resolve(&config, &flags, &[]);
         assert!(!inv.args.contains(&"json".to_string()));
+    }
+
+    // ── System Prompt ───────────────────────────────────────
+
+    #[test]
+    fn test_claude_system_prompt() {
+        let config = AgentDefinition::claude().polyfill;
+        let flags = PolyfillFlags {
+            system_prompt: Some("You are a code reviewer".into()),
+            ..default_flags()
+        };
+        let inv = resolve(&config, &flags, &[]);
+        assert!(inv.args.contains(&"--system-prompt".to_string()));
+        assert!(inv.args.contains(&"You are a code reviewer".to_string()));
+    }
+
+    #[test]
+    fn test_codex_no_system_prompt_support() {
+        let config = AgentDefinition::codex().polyfill;
+        let flags = PolyfillFlags {
+            system_prompt: Some("test".into()),
+            ..default_flags()
+        };
+        let inv = resolve(&config, &flags, &[]);
+        assert!(!inv.args.contains(&"--system-prompt".to_string()));
     }
 }

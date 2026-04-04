@@ -105,6 +105,10 @@ pub struct PolyfillArgs {
     #[arg(long)]
     pub output_format: Option<String>,
 
+    /// System prompt text to inject
+    #[arg(long)]
+    pub system_prompt: Option<String>,
+
     /// Show the resolved command without executing it
     #[arg(long)]
     pub dry_run: bool,
@@ -129,6 +133,7 @@ impl PolyfillArgs {
             crossload: None,
             verbose: false,
             output_format: None,
+            system_prompt: None,
             dry_run: false,
         };
         let mut passthrough = Vec::new();
@@ -196,6 +201,15 @@ impl PolyfillArgs {
                         last_value_flag = Some(arg.clone());
                     }
                 }
+                "--system-prompt" => {
+                    if let Some(val) = args.get(i + 1).filter(|v| !v.starts_with('-')) {
+                        polyfill.system_prompt = Some(val.clone());
+                        i += 1;
+                        last_value_flag = None;
+                    } else {
+                        last_value_flag = Some(arg.clone());
+                    }
+                }
                 "-x" | "--crossload" => {
                     if let Some(val) = args.get(i + 1) {
                         if !val.starts_with('-') {
@@ -237,6 +251,8 @@ impl PolyfillArgs {
                         polyfill.crossload = Some(val.to_string());
                     } else if let Some(val) = arg.strip_prefix("--output-format=") {
                         polyfill.output_format = Some(val.to_string());
+                    } else if let Some(val) = arg.strip_prefix("--system-prompt=") {
+                        polyfill.system_prompt = Some(val.to_string());
                     } else {
                         // Unrecognized — pass through to agent
                         passthrough.push(arg.clone());
@@ -327,6 +343,7 @@ impl PolyfillArgs {
             auto: self.auto,
             verbose: self.verbose,
             output_format: self.output_format.clone(),
+            system_prompt: self.system_prompt.clone(),
         }
     }
 }
