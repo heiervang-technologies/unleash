@@ -112,6 +112,9 @@ pub struct AgentPolyfillConfig {
     /// Flag name for system prompt injection, if supported
     #[serde(default)]
     pub system_prompt_flag: Option<String>,
+    /// Flag name for allowed tools filter, if supported
+    #[serde(default)]
+    pub allowed_tools_flag: Option<String>,
 }
 
 impl AgentPolyfillConfig {
@@ -231,6 +234,7 @@ impl AgentDefinition {
                 verbose_flag: Some("--verbose".to_string()),
                 output_format_flag: Some("--output-format".to_string()),
                 system_prompt_flag: Some("--system-prompt".to_string()),
+                allowed_tools_flag: Some("--allowedTools".to_string()),
             },
             github_repo: Some("anthropics/claude-code".to_string()),
             npm_package: Some("@anthropic-ai/claude-code".to_string()),
@@ -259,6 +263,7 @@ impl AgentDefinition {
                 verbose_flag: None,
                 output_format_flag: None,
                 system_prompt_flag: None,
+                allowed_tools_flag: None,
             },
             github_repo: Some("openai/codex".to_string()),
             npm_package: None,
@@ -287,6 +292,7 @@ impl AgentDefinition {
                 verbose_flag: Some("--debug".to_string()),
                 output_format_flag: Some("-o".to_string()),
                 system_prompt_flag: None,
+                allowed_tools_flag: Some("--allowed-tools".to_string()),
             },
             github_repo: Some("google-gemini/gemini-cli".to_string()),
             npm_package: Some("@google/gemini-cli".to_string()),
@@ -315,6 +321,7 @@ impl AgentDefinition {
                 verbose_flag: Some("--print-logs".to_string()),
                 output_format_flag: None,
                 system_prompt_flag: None,
+                allowed_tools_flag: None,
             },
             github_repo: Some("anomalyco/opencode".to_string()),
             npm_package: Some("opencode-ai".to_string()),

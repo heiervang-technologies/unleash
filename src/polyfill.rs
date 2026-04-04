@@ -40,6 +40,8 @@ pub struct PolyfillFlags {
     pub output_format: Option<String>,
     /// System prompt text to inject.
     pub system_prompt: Option<String>,
+    /// Allowed tools filter (comma-separated list).
+    pub allowed_tools: Option<String>,
 }
 
 impl Default for PolyfillFlags {
@@ -57,6 +59,7 @@ impl Default for PolyfillFlags {
             verbose: false,
             output_format: None,
             system_prompt: None,
+            allowed_tools: None,
         }
     }
 }
@@ -163,6 +166,16 @@ pub fn resolve(
             if !is_dup(system_prompt_flag) {
                 args.push(system_prompt_flag.clone());
                 args.push(prompt.clone());
+            }
+        }
+    }
+
+    // --- Allowed Tools ---
+    if let Some(ref tools) = flags.allowed_tools {
+        if let Some(ref allowed_tools_flag) = config.allowed_tools_flag {
+            if !is_dup(allowed_tools_flag) {
+                args.push(allowed_tools_flag.clone());
+                args.push(tools.clone());
             }
         }
     }
@@ -734,5 +747,42 @@ mod tests {
         };
         let inv = resolve(&config, &flags, &[]);
         assert!(!inv.args.contains(&"--system-prompt".to_string()));
+    }
+
+    // ── Allowed Tools ───────────────────────────────────────
+
+    #[test]
+    fn test_claude_allowed_tools() {
+        let config = AgentDefinition::claude().polyfill;
+        let flags = PolyfillFlags {
+            allowed_tools: Some("Bash,Read,Edit".into()),
+            ..default_flags()
+        };
+        let inv = resolve(&config, &flags, &[]);
+        assert!(inv.args.contains(&"--allowedTools".to_string()));
+        assert!(inv.args.contains(&"Bash,Read,Edit".to_string()));
+    }
+
+    #[test]
+    fn test_gemini_allowed_tools() {
+        let config = AgentDefinition::gemini().polyfill;
+        let flags = PolyfillFlags {
+            allowed_tools: Some("Bash".into()),
+            ..default_flags()
+        };
+        let inv = resolve(&config, &flags, &[]);
+        assert!(inv.args.contains(&"--allowed-tools".to_string()));
+        assert!(inv.args.contains(&"Bash".to_string()));
+    }
+
+    #[test]
+    fn test_codex_no_allowed_tools_support() {
+        let config = AgentDefinition::codex().polyfill;
+        let flags = PolyfillFlags {
+            allowed_tools: Some("Bash".into()),
+            ..default_flags()
+        };
+        let inv = resolve(&config, &flags, &[]);
+        assert!(!inv.args.contains(&"Bash".to_string()));
     }
 }
