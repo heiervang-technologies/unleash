@@ -742,4 +742,162 @@ mod tests {
             assert!(cc.get("timestamp").is_none());
         }
     }
+
+    /// Foreign thinking blocks (no Claude signature) are converted to
+    /// `[Reasoning]: text` format. Claude's API requires a signature on
+    /// thinking blocks, so unsigned thinking must be preserved as text.
+    /// This test documents and locks that behavior.
+    #[test]
+    fn test_foreign_thinking_preserved_as_text_block_not_lost() {
+        let records = vec![
+            HubRecord::Session(SessionHeader {
+                ucf_version: UCF_VERSION.to_string(),
+                session_id: "foreign-think".into(),
+                created_at: "2026-01-01T00:00:00Z".into(),
+                updated_at: "2026-01-01T00:00:01Z".into(),
+                source_cli: "gemini".into(),
+                source_version: "1.0".into(),
+                project: None,
+                model: None,
+                title: None,
+                slug: None,
+                parent_session_id: None,
+                extensions: serde_json::json!({}),
+            }),
+            HubRecord::Message(HubMessage {
+                id: "m1".into(),
+                api_message_id: None,
+                parent_id: None,
+                timestamp: "2026-01-01T00:00:00Z".into(),
+                completed_at: None,
+                role: "assistant".into(),
+                content: vec![
+                    ContentBlock::Thinking {
+                        text: "Let me think about this...".into(),
+                        signature: None, // foreign thinking — no Claude signature
+                        subject: None,
+                        description: None,
+                        encrypted: false,
+                        encryption_format: None,
+                        encrypted_data: None,
+                        timestamp: None,
+                    },
+                    ContentBlock::Text {
+                        text: "Here is my answer.".into(),
+                    },
+                ],
+                metadata: MessageMetadata::default(),
+                extensions: serde_json::json!({}),
+            }),
+        ];
+        let claude_lines = from_hub(&records).unwrap();
+
+        // The thinking text should appear somewhere in the output as [Reasoning]: ...
+        let all_text: String = claude_lines
+            .iter()
+            .filter_map(|l| l.get("message").and_then(|m| m.get("content")))
+            .filter_map(|c| {
+                if let Some(s) = c.as_str() {
+                    Some(s.to_string())
+                } else if let Some(arr) = c.as_array() {
+                    Some(
+                        arr.iter()
+                            .filter_map(|b| b.get("text").and_then(|t| t.as_str()))
+                            .collect::<Vec<_>>()
+                            .join(" "),
+                    )
+                } else {
+                    None
+                }
+            })
+            .collect::<Vec<_>>()
+            .join(" ");
+        assert!(
+            all_text.contains("think about this"),
+            "foreign thinking content must not be lost: {all_text}"
+        );
+        assert!(
+            all_text.contains("[Reasoning]"),
+            "foreign thinking should be tagged as [Reasoning]: {all_text}"
+        );
+        // The original text answer should also survive
+        assert!(
+            all_text.contains("Here is my answer"),
+            "regular text content must survive: {all_text}"
+        );
+    }
+
+    /// Signed thinking blocks (from Claude itself) should be preserved
+    /// as proper thinking blocks, not converted to text.
+    #[test]
+    fn test_signed_thinking_preserved_as_thinking_block() {
+        let records = vec![
+            HubRecord::Session(SessionHeader {
+                ucf_version: UCF_VERSION.to_string(),
+                session_id: "signed-think".into(),
+                created_at: "2026-01-01T00:00:00Z".into(),
+                updated_at: "2026-01-01T00:00:01Z".into(),
+                source_cli: "claude-code".into(),
+                source_version: "2.1".into(),
+                project: None,
+                model: None,
+                title: None,
+                slug: None,
+                parent_session_id: None,
+                extensions: serde_json::json!({}),
+            }),
+            HubRecord::Message(HubMessage {
+                id: "m1".into(),
+                api_message_id: None,
+                parent_id: None,
+                timestamp: "2026-01-01T00:00:00Z".into(),
+                completed_at: None,
+                role: "assistant".into(),
+                content: vec![
+                    ContentBlock::Thinking {
+                        text: "I need to analyze this carefully.".into(),
+                        signature: Some("sig_abc123".into()),
+                        subject: None,
+                        description: None,
+                        encrypted: false,
+                        encryption_format: None,
+                        encrypted_data: None,
+                        timestamp: None,
+                    },
+                    ContentBlock::Text {
+                        text: "My analysis shows...".into(),
+                    },
+                ],
+                metadata: MessageMetadata::default(),
+                extensions: serde_json::json!({}),
+            }),
+        ];
+        let claude_lines = from_hub(&records).unwrap();
+
+        // Find the assistant message content
+        let content = claude_lines
+            .iter()
+            .find(|l| l.get("type").and_then(|t| t.as_str()) == Some("assistant"))
+            .and_then(|l| l.get("message"))
+            .and_then(|m| m.get("content"))
+            .and_then(|c| c.as_array())
+            .expect("assistant message should have content array");
+
+        // Should have a thinking block with the signature
+        let thinking = content
+            .iter()
+            .find(|b| b.get("type").and_then(|t| t.as_str()) == Some("thinking"));
+        assert!(
+            thinking.is_some(),
+            "signed thinking should be preserved as thinking block"
+        );
+        assert_eq!(
+            thinking
+                .unwrap()
+                .get("signature")
+                .and_then(|s| s.as_str()),
+            Some("sig_abc123"),
+            "signature should be preserved"
+        );
+    }
 }
