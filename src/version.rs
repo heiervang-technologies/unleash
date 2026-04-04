@@ -635,6 +635,11 @@ impl VersionManager {
     /// Install a specific version of Claude Code
     /// Tries native binary from GCS first, falls back to npm
     pub fn install_version(&self, version: &str) -> io::Result<InstallResult> {
+        // Skip native download in test mode to prevent overwriting real installations
+        if std::env::var("UNLEASH_SKIP_NATIVE_INSTALL").is_ok() {
+            return self.install_version_npm_only(version);
+        }
+
         // Try native (GCS) first
         let native_result = self.install_version_native(version)?;
         if native_result.success {
@@ -688,6 +693,42 @@ impl VersionManager {
 
         // Both methods failed - return the native error
         Ok(native_result)
+    }
+
+    /// Install via npm only (skips native binary download).
+    /// Used by tests to avoid overwriting real installations.
+    fn install_version_npm_only(&self, version: &str) -> io::Result<InstallResult> {
+        if Self::has_npm() {
+            let output = Self::npm_global_command()
+                .args([
+                    "install",
+                    "-g",
+                    "--force",
+                    &format!("@anthropic-ai/claude-code@{}", version),
+                ])
+                .output()?;
+
+            let stdout = String::from_utf8_lossy(&output.stdout).to_string();
+            let stderr = String::from_utf8_lossy(&output.stderr).to_string();
+
+            Ok(InstallResult {
+                success: output.status.success(),
+                stdout,
+                stderr: stderr.clone(),
+                error: if output.status.success() {
+                    None
+                } else {
+                    Some(stderr)
+                },
+            })
+        } else {
+            Ok(InstallResult {
+                success: false,
+                stdout: String::new(),
+                stderr: "npm not available".into(),
+                error: Some("npm not available (native install skipped by UNLEASH_SKIP_NATIVE_INSTALL)".into()),
+            })
+        }
     }
 
     /// Install Claude Code using the native installer (GCS binary download)
@@ -1980,17 +2021,22 @@ mod tests {
         let original_path = std::env::var("PATH").unwrap_or_default();
         let new_path = format!("{}:{}", mock_path.display(), original_path);
 
-        // SAFETY: This test runs single-threaded and restores PATH before returning
+        // SAFETY: This test runs single-threaded and restores env vars before returning
         unsafe {
             std::env::set_var("PATH", &new_path);
+            // Skip native GCS download — we only want to test the npm path.
+            // Without this, install_version downloads a real binary and overwrites
+            // the user's installed Claude Code version.
+            std::env::set_var("UNLEASH_SKIP_NATIVE_INSTALL", "1");
         }
 
         let vm = VersionManager::new();
         let result = vm.install_version("2.1.4");
 
-        // SAFETY: Restoring original PATH value
+        // SAFETY: Restoring original env vars
         unsafe {
             std::env::set_var("PATH", original_path);
+            std::env::remove_var("UNLEASH_SKIP_NATIVE_INSTALL");
         }
 
         assert!(result.is_ok(), "install_version should not return an error");

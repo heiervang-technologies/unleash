@@ -133,35 +133,65 @@ fn message_to_hub(val: &Value, msg_type: &str) -> Result<HubMessage, ConvertErro
 }
 
 fn build_claude_extensions(val: &Value, msg_type: &str) -> Value {
-    let mut ext = serde_json::Map::new();
+    // Stash ALL top-level fields that don't map to hub message schema
+    // into extensions for lossless round-trip
+    let hub_fields: &[&str] = &[
+        "type",      // → role / message type
+        "message",   // → content blocks
+        "uuid",      // → id
+        "timestamp", // → timestamp
+        "parentUuid", // → parent_id
+        "cwd",       // → metadata.cwd
+        "gitBranch", // → metadata.git_branch
+    ];
 
-    // Fields only Claude has
-    if let Some(v) = val.get("isSidechain") {
-        ext.insert("isSidechain".into(), v.clone());
+    let mut ext = serde_json::Map::new();
+    if let Some(obj) = val.as_object() {
+        for (k, v) in obj {
+            if !hub_fields.contains(&k.as_str()) {
+                ext.insert(k.clone(), v.clone());
+            }
+        }
     }
-    if let Some(v) = val.get("promptId") {
-        ext.insert("promptId".into(), v.clone());
-    }
-    if let Some(v) = val.get("userType") {
-        ext.insert("userType".into(), v.clone());
-    }
-    if let Some(v) = val.get("permissionMode") {
-        ext.insert("permissionMode".into(), v.clone());
-    }
-    if let Some(v) = val.get("version") {
-        ext.insert("version".into(), v.clone());
-    }
-    if let Some(v) = val.get("sessionId") {
-        ext.insert("sessionId".into(), v.clone());
-    }
-    if let Some(v) = val.get("slug") {
-        ext.insert("slug".into(), v.clone());
+
+    // Collect per-content-block extra fields not in hub schema
+    if let Some(content_arr) = val
+        .get("message")
+        .and_then(|m| m.get("content"))
+        .and_then(|c| c.as_array())
+    {
+        let mut block_extras = Vec::new();
+        for block in content_arr {
+            let block_type = block.get("type").and_then(|t| t.as_str()).unwrap_or("");
+            let hub_keys: &[&str] = match block_type {
+                "tool_use" => &["type", "id", "name", "input"],
+                "tool_result" => &["type", "tool_use_id", "content", "is_error"],
+                "text" => &["type", "text"],
+                "thinking" => &["type", "thinking", "signature"],
+                "image" => &["type", "source"],
+                _ => &["type"],
+            };
+            let mut extras = serde_json::Map::new();
+            if let Some(obj) = block.as_object() {
+                for (k, v) in obj {
+                    if !hub_keys.contains(&k.as_str()) {
+                        extras.insert(k.clone(), v.clone());
+                    }
+                }
+            }
+            if extras.is_empty() {
+                block_extras.push(Value::Null);
+            } else {
+                block_extras.push(Value::Object(extras));
+            }
+        }
+        // Only store if any block had extras
+        if block_extras.iter().any(|e| !e.is_null()) {
+            ext.insert("content_extras".into(), Value::Array(block_extras));
+        }
     }
 
     if msg_type == "assistant" {
-        if let Some(v) = val.get("requestId") {
-            ext.insert("requestId".into(), v.clone());
-        }
         // Usage details not in universal tokens (service_tier, inference_geo, speed, cache breakdown)
         if let Some(usage) = val.get("message").and_then(|m| m.get("usage")) {
             let mut usage_ext = serde_json::Map::new();
@@ -190,16 +220,6 @@ fn build_claude_extensions(val: &Value, msg_type: &str) -> Value {
         // message.type (always "message" but preserve)
         if let Some(v) = val.get("message").and_then(|m| m.get("type")) {
             ext.insert("message_type".into(), v.clone());
-        }
-    }
-
-    if msg_type == "user" {
-        // toolUseResult metadata on tool result messages
-        if let Some(v) = val.get("toolUseResult") {
-            ext.insert("toolUseResult".into(), v.clone());
-        }
-        if let Some(v) = val.get("sourceToolAssistantUUID") {
-            ext.insert("sourceToolAssistantUUID".into(), v.clone());
         }
     }
 
@@ -345,41 +365,14 @@ fn extract_metadata(val: &Value, msg_type: &str) -> MessageMetadata {
 }
 
 fn event_to_hub(val: &Value, msg_type: &str) -> Result<HubEvent, ConvertError> {
-    // Minimal extensions: only the Claude-specific event data
+    // Stash ALL fields except the hub event schema fields (type, timestamp, data)
+    // into extensions for lossless round-trip
+    let hub_fields: &[&str] = &["type", "timestamp", "data"];
     let mut ext = serde_json::Map::new();
-    // Preserve ALL event fields that aren't in the universal schema
-    for key in &[
-        "parentUuid",
-        "isSidechain",
-        "uuid",
-        "userType",
-        "cwd",
-        "sessionId",
-        "version",
-        "gitBranch",
-        "parentToolUseID",
-        "toolUseID",
-        "subtype",
-        "content",
-        "level",
-        "isMeta",
-        "customTitle",
-        "agentName",
-        "agentColor",
-        "lastPrompt",
-        "operation",
-        "prNumber",
-        "prUrl",
-        "prRepository",
-        "snapshot",
-        "messageId",
-        "isSnapshotUpdate",
-        "permissionMode",
-        "slug",
-    ] {
-        if let Some(v) = val.get(*key) {
-            if !v.is_null() {
-                ext.insert(key.to_string(), v.clone());
+    if let Some(obj) = val.as_object() {
+        for (k, v) in obj {
+            if !hub_fields.contains(&k.as_str()) && !v.is_null() {
+                ext.insert(k.clone(), v.clone());
             }
         }
     }
@@ -412,7 +405,18 @@ fn hub_message_to_claude(
         .unwrap_or(Value::Null);
 
     // Build content array
-    let content = hub_content_to_claude(&msg.content);
+    let mut content = hub_content_to_claude(&msg.content);
+
+    // Merge per-block extras back from extensions
+    if let Some(extras_arr) = cc.get("content_extras").and_then(|v| v.as_array()) {
+        for (i, extras) in extras_arr.iter().enumerate() {
+            if let (Some(block), Some(obj)) = (content.get_mut(i), extras.as_object()) {
+                for (k, v) in obj {
+                    block[k] = v.clone();
+                }
+            }
+        }
+    }
 
     let message = if msg.role == "assistant" {
         let mut m = serde_json::json!({
@@ -491,21 +495,18 @@ fn hub_message_to_claude(
         line["parentUuid"] = Value::Null;
     }
 
-    // Restore Claude-specific fields from extensions
-    for key in &[
-        "isSidechain",
-        "promptId",
-        "userType",
-        "permissionMode",
-        "sessionId",
-        "version",
-        "slug",
-        "requestId",
-        "toolUseResult",
-        "sourceToolAssistantUUID",
-    ] {
-        if let Some(v) = cc.get(*key) {
-            line[*key] = v.clone();
+    // Restore all Claude-specific fields from extensions
+    if let Some(obj) = cc.as_object() {
+        for (k, v) in obj {
+            // Skip internal fields that are handled specially
+            if k == "usage_extra"
+                || k == "stop_sequence"
+                || k == "message_type"
+                || k == "content_extras"
+            {
+                continue;
+            }
+            line[k] = v.clone();
         }
     }
 
@@ -624,8 +625,10 @@ fn hub_event_to_claude(
 
     let mut line = serde_json::json!({
         "type": evt.event_type,
-        "timestamp": evt.timestamp,
     });
+    if !evt.timestamp.is_empty() {
+        line["timestamp"] = Value::String(evt.timestamp.clone());
+    }
 
     if !evt.data.is_null() {
         line["data"] = evt.data.clone();
@@ -741,5 +744,163 @@ mod tests {
             assert!(cc.get("gitBranch").is_none());
             assert!(cc.get("timestamp").is_none());
         }
+    }
+
+    /// Foreign thinking blocks (no Claude signature) are converted to
+    /// `[Reasoning]: text` format. Claude's API requires a signature on
+    /// thinking blocks, so unsigned thinking must be preserved as text.
+    /// This test documents and locks that behavior.
+    #[test]
+    fn test_foreign_thinking_preserved_as_text_block_not_lost() {
+        let records = vec![
+            HubRecord::Session(SessionHeader {
+                ucf_version: UCF_VERSION.to_string(),
+                session_id: "foreign-think".into(),
+                created_at: "2026-01-01T00:00:00Z".into(),
+                updated_at: "2026-01-01T00:00:01Z".into(),
+                source_cli: "gemini".into(),
+                source_version: "1.0".into(),
+                project: None,
+                model: None,
+                title: None,
+                slug: None,
+                parent_session_id: None,
+                extensions: serde_json::json!({}),
+            }),
+            HubRecord::Message(HubMessage {
+                id: "m1".into(),
+                api_message_id: None,
+                parent_id: None,
+                timestamp: "2026-01-01T00:00:00Z".into(),
+                completed_at: None,
+                role: "assistant".into(),
+                content: vec![
+                    ContentBlock::Thinking {
+                        text: "Let me think about this...".into(),
+                        signature: None, // foreign thinking — no Claude signature
+                        subject: None,
+                        description: None,
+                        encrypted: false,
+                        encryption_format: None,
+                        encrypted_data: None,
+                        timestamp: None,
+                    },
+                    ContentBlock::Text {
+                        text: "Here is my answer.".into(),
+                    },
+                ],
+                metadata: MessageMetadata::default(),
+                extensions: serde_json::json!({}),
+            }),
+        ];
+        let claude_lines = from_hub(&records).unwrap();
+
+        // The thinking text should appear somewhere in the output as [Reasoning]: ...
+        let all_text: String = claude_lines
+            .iter()
+            .filter_map(|l| l.get("message").and_then(|m| m.get("content")))
+            .filter_map(|c| {
+                if let Some(s) = c.as_str() {
+                    Some(s.to_string())
+                } else if let Some(arr) = c.as_array() {
+                    Some(
+                        arr.iter()
+                            .filter_map(|b| b.get("text").and_then(|t| t.as_str()))
+                            .collect::<Vec<_>>()
+                            .join(" "),
+                    )
+                } else {
+                    None
+                }
+            })
+            .collect::<Vec<_>>()
+            .join(" ");
+        assert!(
+            all_text.contains("think about this"),
+            "foreign thinking content must not be lost: {all_text}"
+        );
+        assert!(
+            all_text.contains("[Reasoning]"),
+            "foreign thinking should be tagged as [Reasoning]: {all_text}"
+        );
+        // The original text answer should also survive
+        assert!(
+            all_text.contains("Here is my answer"),
+            "regular text content must survive: {all_text}"
+        );
+    }
+
+    /// Signed thinking blocks (from Claude itself) should be preserved
+    /// as proper thinking blocks, not converted to text.
+    #[test]
+    fn test_signed_thinking_preserved_as_thinking_block() {
+        let records = vec![
+            HubRecord::Session(SessionHeader {
+                ucf_version: UCF_VERSION.to_string(),
+                session_id: "signed-think".into(),
+                created_at: "2026-01-01T00:00:00Z".into(),
+                updated_at: "2026-01-01T00:00:01Z".into(),
+                source_cli: "claude-code".into(),
+                source_version: "2.1".into(),
+                project: None,
+                model: None,
+                title: None,
+                slug: None,
+                parent_session_id: None,
+                extensions: serde_json::json!({}),
+            }),
+            HubRecord::Message(HubMessage {
+                id: "m1".into(),
+                api_message_id: None,
+                parent_id: None,
+                timestamp: "2026-01-01T00:00:00Z".into(),
+                completed_at: None,
+                role: "assistant".into(),
+                content: vec![
+                    ContentBlock::Thinking {
+                        text: "I need to analyze this carefully.".into(),
+                        signature: Some("sig_abc123".into()),
+                        subject: None,
+                        description: None,
+                        encrypted: false,
+                        encryption_format: None,
+                        encrypted_data: None,
+                        timestamp: None,
+                    },
+                    ContentBlock::Text {
+                        text: "My analysis shows...".into(),
+                    },
+                ],
+                metadata: MessageMetadata::default(),
+                extensions: serde_json::json!({}),
+            }),
+        ];
+        let claude_lines = from_hub(&records).unwrap();
+
+        // Find the assistant message content
+        let content = claude_lines
+            .iter()
+            .find(|l| l.get("type").and_then(|t| t.as_str()) == Some("assistant"))
+            .and_then(|l| l.get("message"))
+            .and_then(|m| m.get("content"))
+            .and_then(|c| c.as_array())
+            .expect("assistant message should have content array");
+
+        // Should have a thinking block with the signature
+        let thinking = content
+            .iter()
+            .find(|b| b.get("type").and_then(|t| t.as_str()) == Some("thinking"));
+        assert!(
+            thinking.is_some(),
+            "signed thinking should be preserved as thinking block"
+        );
+        assert_eq!(
+            thinking
+                .unwrap()
+                .get("signature")
+                .and_then(|s| s.as_str()),
+            Some("sig_abc123"),
+            "signature should be preserved"
+        );
     }
 }

@@ -75,14 +75,16 @@ pub fn to_hub(data: &[u8]) -> Result<Vec<HubRecord>, ConvertError> {
         }
     }
 
-    // Patch session updated_at from last message timestamp
-    if let Some(last_ts) = messages
-        .last()
-        .and_then(|m| m.get("timestamp"))
-        .and_then(|t| t.as_str())
-    {
-        if let Some(HubRecord::Session(ref mut session)) = records.first_mut() {
-            session.updated_at = last_ts.to_string();
+    // Patch session updated_at from last message timestamp (only if not already set)
+    if let Some(HubRecord::Session(ref mut session)) = records.first_mut() {
+        if session.updated_at.is_empty() {
+            if let Some(last_ts) = messages
+                .last()
+                .and_then(|m| m.get("timestamp"))
+                .and_then(|t| t.as_str())
+            {
+                session.updated_at = last_ts.to_string();
+            }
         }
     }
 
@@ -99,73 +101,126 @@ pub fn to_hub(data: &[u8]) -> Result<Vec<HubRecord>, ConvertError> {
 /// - Gemini messages always have a "content" field (empty string when toolCalls present)
 pub fn from_hub(records: &[HubRecord]) -> Result<Value, ConvertError> {
     let mut session_id = String::new();
-    let mut project_hash: Option<String> = None;
+    let mut session_ext = Value::Null;
     let mut start_time = String::new();
     let mut last_updated = String::new();
     let mut messages = Vec::new();
 
-    let normalized_records = normalize_hub_records_for_gemini(records);
+    // Check if this is a native Gemini round-trip (has _original_message in extensions)
+    let is_native_roundtrip = records.iter().any(|r| match r {
+        HubRecord::Message(msg) => msg
+            .extensions
+            .get("gemini-cli")
+            .and_then(|g| g.get("_original_message"))
+            .is_some(),
+        HubRecord::Event(evt) => evt
+            .extensions
+            .get("gemini-cli")
+            .and_then(|g| g.get("_original_message"))
+            .is_some(),
+        _ => false,
+    });
 
-    for record in &normalized_records {
-        match record {
-            HubRecord::Session(s) => {
-                session_id = s.session_id.clone();
-                start_time = s.created_at.clone();
-                last_updated = s.updated_at.clone();
-                let gc = s.extensions.get("gemini-cli");
-                project_hash = gc
-                    .and_then(|g| g.get("projectHash"))
-                    .and_then(|v| v.as_str())
-                    .map(String::from);
-            }
-            HubRecord::Message(msg) => {
-                messages.push(hub_message_to_gemini(msg)?);
-            }
-            HubRecord::Event(evt) => {
-                messages.push(hub_event_to_gemini(evt)?);
-            }
-        }
-    }
-
-    // Ensure every message has id and timestamp; collect first valid timestamp
-    let mut first_valid_ts = String::new();
-    let mut last_valid_ts = String::new();
-    let msg_count = messages.len();
-    for (i, msg) in messages.iter_mut().enumerate().take(msg_count) {
-        if let Some(obj) = msg.as_object_mut() {
-            // Ensure id exists
-            if obj
-                .get("id")
-                .and_then(|v| v.as_str())
-                .is_none_or(|s| s.is_empty())
-            {
-                obj.insert("id".to_string(), Value::String(format!("msg-{i:04}")));
-            }
-            // Track timestamps
-            if let Some(ts) = obj.get("timestamp").and_then(|v| v.as_str()) {
-                if !ts.is_empty() {
-                    if first_valid_ts.is_empty() {
-                        first_valid_ts = ts.to_string();
+    if is_native_roundtrip {
+        // Native Gemini round-trip: use original messages directly
+        // Skip synthesized tool-result messages (those with _results suffix IDs)
+        for record in records {
+            match record {
+                HubRecord::Session(s) => {
+                    session_id = s.session_id.clone();
+                    start_time = s.created_at.clone();
+                    last_updated = s.updated_at.clone();
+                    session_ext = s
+                        .extensions
+                        .get("gemini-cli")
+                        .cloned()
+                        .unwrap_or(Value::Null);
+                }
+                HubRecord::Message(msg) => {
+                    // Skip synthesized tool-result messages (IDs ending with _results)
+                    if msg.id.ends_with("_results") {
+                        continue;
                     }
-                    last_valid_ts = ts.to_string();
+                    if let Some(orig) = msg
+                        .extensions
+                        .get("gemini-cli")
+                        .and_then(|g| g.get("_original_message"))
+                    {
+                        messages.push(orig.clone());
+                    }
+                }
+                HubRecord::Event(evt) => {
+                    if let Some(orig) = evt
+                        .extensions
+                        .get("gemini-cli")
+                        .and_then(|g| g.get("_original_message"))
+                    {
+                        messages.push(orig.clone());
+                    }
                 }
             }
         }
-    }
+    } else {
+        // Cross-CLI path: reconstruct from hub content
+        let normalized_records = normalize_hub_records_for_gemini(records);
+        for record in &normalized_records {
+            match record {
+                HubRecord::Session(s) => {
+                    session_id = s.session_id.clone();
+                    start_time = s.created_at.clone();
+                    last_updated = s.updated_at.clone();
+                    session_ext = s
+                        .extensions
+                        .get("gemini-cli")
+                        .cloned()
+                        .unwrap_or(Value::Null);
+                }
+                HubRecord::Message(msg) => {
+                    messages.push(hub_message_to_gemini(msg)?);
+                }
+                HubRecord::Event(evt) => {
+                    messages.push(hub_event_to_gemini(evt)?);
+                }
+            }
+        }
 
-    // Use first/last valid timestamps if session header didn't have them
-    if start_time.is_empty() {
-        start_time = first_valid_ts;
-    }
-    if start_time.is_empty() {
-        start_time = "1970-01-01T00:00:00.000Z".to_string(); // Fallback
-    }
-    if last_updated.is_empty() {
-        last_updated = if last_valid_ts.is_empty() {
-            start_time.clone()
-        } else {
-            last_valid_ts
-        };
+        // Ensure every message has id and timestamp
+        let mut first_valid_ts = String::new();
+        let mut last_valid_ts = String::new();
+        let msg_count = messages.len();
+        for (i, msg) in messages.iter_mut().enumerate().take(msg_count) {
+            if let Some(obj) = msg.as_object_mut() {
+                if obj
+                    .get("id")
+                    .and_then(|v| v.as_str())
+                    .is_none_or(|s| s.is_empty())
+                {
+                    obj.insert("id".to_string(), Value::String(format!("msg-{i:04}")));
+                }
+                if let Some(ts) = obj.get("timestamp").and_then(|v| v.as_str()) {
+                    if !ts.is_empty() {
+                        if first_valid_ts.is_empty() {
+                            first_valid_ts = ts.to_string();
+                        }
+                        last_valid_ts = ts.to_string();
+                    }
+                }
+            }
+        }
+
+        if start_time.is_empty() {
+            start_time = first_valid_ts;
+        }
+        if start_time.is_empty() {
+            start_time = "1970-01-01T00:00:00.000Z".to_string();
+        }
+        if last_updated.is_empty() {
+            last_updated = if last_valid_ts.is_empty() {
+                start_time.clone()
+            } else {
+                last_valid_ts
+            };
+        }
     }
 
     let mut root = serde_json::json!({
@@ -173,11 +228,18 @@ pub fn from_hub(records: &[HubRecord]) -> Result<Value, ConvertError> {
         "startTime": start_time,
         "lastUpdated": last_updated,
         "messages": messages,
-        "kind": "main",
     });
 
-    if let Some(ref hash) = project_hash {
-        root["projectHash"] = Value::String(hash.clone());
+    // Restore all session-level Gemini-specific fields from extensions
+    if let Some(obj) = session_ext.as_object() {
+        for (k, v) in obj {
+            root[k] = v.clone();
+        }
+    }
+
+    // Ensure "kind" is present (default if not in extensions)
+    if root.get("kind").is_none() {
+        root["kind"] = Value::String("main".into());
     }
 
     Ok(root)
@@ -344,23 +406,28 @@ use super::helpers::{opt_str, str_field};
 fn build_session_header(root: &Value) -> SessionHeader {
     let session_id = str_field(root, "sessionId");
 
-    // First message timestamp as created_at
-    let created_at = root
-        .get("messages")
-        .and_then(|m| m.as_array())
-        .and_then(|arr| arr.first())
-        .and_then(|m| m.get("timestamp"))
-        .and_then(|t| t.as_str())
-        .unwrap_or("")
-        .to_string();
+    // Use startTime if present, otherwise fall back to first message timestamp
+    let created_at = opt_str(root, "startTime").unwrap_or_else(|| {
+        root.get("messages")
+            .and_then(|m| m.as_array())
+            .and_then(|arr| arr.first())
+            .and_then(|m| m.get("timestamp"))
+            .and_then(|t| t.as_str())
+            .unwrap_or("")
+            .to_string()
+    });
 
-    // Gemini-specific session extensions
+    let updated_at = opt_str(root, "lastUpdated").unwrap_or_default();
+
+    // Stash ALL root-level fields (except messages/sessionId which are mapped)
+    let hub_fields: &[&str] = &["sessionId", "messages", "startTime", "lastUpdated"];
     let mut ext = serde_json::Map::new();
-    if let Some(hash) = opt_str(root, "projectHash") {
-        ext.insert("projectHash".into(), Value::String(hash));
-    }
-    if let Some(iid) = opt_str(root, "installationId") {
-        ext.insert("installationId".into(), Value::String(iid));
+    if let Some(obj) = root.as_object() {
+        for (k, v) in obj {
+            if !hub_fields.contains(&k.as_str()) {
+                ext.insert(k.clone(), v.clone());
+            }
+        }
     }
 
     let extensions = if ext.is_empty() {
@@ -373,9 +440,9 @@ fn build_session_header(root: &Value) -> SessionHeader {
         ucf_version: UCF_VERSION.to_string(),
         session_id,
         created_at,
-        updated_at: String::new(), // patched after iteration
+        updated_at,
         source_cli: "gemini-cli".to_string(),
-        source_version: String::new(), // Gemini doesn't store version in session
+        source_version: String::new(),
         project: None,
         model: None,
         title: None,
@@ -520,8 +587,10 @@ fn message_to_hub(msg: &Value) -> Result<HubMessage, ConvertError> {
 
     let metadata = extract_metadata(msg);
 
-    // Minimal Gemini-specific extensions
-    let ext = build_gemini_extensions(msg);
+    // Stash the ENTIRE original message for lossless round-trip
+    let ext = serde_json::json!({"gemini-cli": {
+        "_original_message": msg,
+    }});
 
     Ok(HubMessage {
         id: str_field(msg, "id"),
@@ -534,22 +603,6 @@ fn message_to_hub(msg: &Value) -> Result<HubMessage, ConvertError> {
         metadata,
         extensions: ext,
     })
-}
-
-fn build_gemini_extensions(msg: &Value) -> Value {
-    let mut ext = serde_json::Map::new();
-
-    if let Some(v) = msg.get("renderOutputAsMarkdown") {
-        ext.insert("renderOutputAsMarkdown".into(), v.clone());
-    }
-    if let Some(v) = msg.get("projectHash") {
-        ext.insert("projectHash".into(), v.clone());
-    }
-    if ext.is_empty() {
-        Value::Null
-    } else {
-        serde_json::json!({"gemini-cli": ext})
-    }
 }
 
 fn extract_metadata(msg: &Value) -> MessageMetadata {
@@ -571,24 +624,14 @@ fn extract_metadata(msg: &Value) -> MessageMetadata {
 }
 
 fn info_to_hub_event(msg: &Value) -> Result<HubEvent, ConvertError> {
-    let mut ext = serde_json::Map::new();
-    // Preserve all info-message fields (including id for round-trip)
-    if let Some(obj) = msg.as_object() {
-        for (k, v) in obj {
-            if !matches!(k.as_str(), "role" | "type" | "timestamp" | "text") {
-                ext.insert(k.clone(), v.clone());
-            }
-        }
-    }
+    // Stash the ENTIRE original message for lossless round-trip
     Ok(HubEvent {
         event_type: "info".to_string(),
         timestamp: str_field(msg, "timestamp"),
         data: serde_json::json!({"text": str_field(msg, "text")}),
-        extensions: if ext.is_empty() {
-            Value::Null
-        } else {
-            serde_json::json!({"gemini-cli": ext})
-        },
+        extensions: serde_json::json!({"gemini-cli": {
+            "_original_message": msg,
+        }}),
     })
 }
 
@@ -969,20 +1012,15 @@ mod tests {
         ]);
         let hub = to_hub(&data).unwrap();
 
-        // Verify tool call and result are in content
+        // Verify tool call is on the assistant message (hub[2])
+        // and tool result is split into a separate user message (hub[3])
         if let HubRecord::Message(ref hub_msg) = hub[2] {
             let tool_uses: Vec<_> = hub_msg
                 .content
                 .iter()
                 .filter(|b| matches!(b, ContentBlock::ToolUse { .. }))
                 .collect();
-            let tool_results: Vec<_> = hub_msg
-                .content
-                .iter()
-                .filter(|b| matches!(b, ContentBlock::ToolResult { .. }))
-                .collect();
             assert_eq!(tool_uses.len(), 1);
-            assert_eq!(tool_results.len(), 1);
 
             if let ContentBlock::ToolUse {
                 display_name,
@@ -993,6 +1031,16 @@ mod tests {
                 assert_eq!(display_name.as_deref(), Some("Shell Command"));
                 assert_eq!(description.as_deref(), Some("Execute a shell command"));
             }
+        }
+        // Tool results are extracted into a separate user message
+        if let HubRecord::Message(ref result_msg) = hub[3] {
+            assert_eq!(result_msg.role, "user");
+            let tool_results: Vec<_> = result_msg
+                .content
+                .iter()
+                .filter(|b| matches!(b, ContentBlock::ToolResult { .. }))
+                .collect();
+            assert_eq!(tool_results.len(), 1);
         }
 
         let back = from_hub(&hub).unwrap();
@@ -1107,7 +1155,7 @@ mod tests {
     }
 
     #[test]
-    fn test_gemini_extensions_are_minimal() {
+    fn test_gemini_extensions_store_original_message() {
         let msg = serde_json::json!({
             "id": "msg-5",
             "type": "gemini",
@@ -1118,18 +1166,19 @@ mod tests {
             "timestamp": "2026-03-29T12:00:00.000Z"
         });
 
-        let data = gemini_session_json(&[msg]);
+        let data = gemini_session_json(&[msg.clone()]);
         let hub = to_hub(&data).unwrap();
 
         if let HubRecord::Message(ref hub_msg) = hub[1] {
             let ext = &hub_msg.extensions;
             let gc = ext.get("gemini-cli").unwrap();
-            // Should have renderOutputAsMarkdown (Gemini-specific)
-            assert!(gc.get("renderOutputAsMarkdown").is_some());
-            // Should NOT have model, tokens, timestamp (universal)
-            assert!(gc.get("model").is_none());
-            assert!(gc.get("tokens").is_none());
-            assert!(gc.get("timestamp").is_none());
+            // Should have the original message stashed for lossless round-trip
+            let orig = gc.get("_original_message").unwrap();
+            assert_eq!(orig.get("id").unwrap().as_str().unwrap(), "msg-5");
+            assert_eq!(
+                orig.get("renderOutputAsMarkdown").unwrap().as_bool().unwrap(),
+                true
+            );
         }
     }
 }

@@ -1935,6 +1935,16 @@ impl App {
 
             let version_clone = version.clone();
             let handle = thread::spawn(move || {
+                // Skip real downloads in test mode to prevent overwriting real installations
+                if std::env::var("UNLEASH_SKIP_NATIVE_INSTALL").is_ok() {
+                    let _ = tx.send(InstallStepResult::InstallComplete(InstallResult {
+                        success: true,
+                        stdout: "skipped (test mode)".into(),
+                        stderr: String::new(),
+                        error: None,
+                    }));
+                    return;
+                }
                 let vm = VersionManager::new();
 
                 // Bridge channel: forward String log lines as InstallStepResult::LogLine
@@ -4811,6 +4821,8 @@ mod tests {
 
     #[test]
     fn test_codex_install_sets_install_state() {
+        // Prevent real downloads from overwriting installed binaries
+        unsafe { std::env::set_var("UNLEASH_SKIP_NATIVE_INSTALL", "1"); }
         let (mut app, _temp) = test_app();
         app.animations_enabled = false;
         app.screen = Screen::VersionManagement;
@@ -4957,6 +4969,8 @@ mod tests {
 
     #[test]
     fn test_gemini_install_sets_install_state() {
+        // Prevent real downloads from overwriting installed binaries
+        unsafe { std::env::set_var("UNLEASH_SKIP_NATIVE_INSTALL", "1"); }
         let (mut app, _temp) = test_app();
         app.animations_enabled = false;
         app.screen = Screen::VersionManagement;
@@ -4980,6 +4994,8 @@ mod tests {
 
     #[test]
     fn test_opencode_install_sets_install_state() {
+        // Prevent real downloads from overwriting installed binaries
+        unsafe { std::env::set_var("UNLEASH_SKIP_NATIVE_INSTALL", "1"); }
         let (mut app, _temp) = test_app();
         app.animations_enabled = false;
         app.screen = Screen::VersionManagement;

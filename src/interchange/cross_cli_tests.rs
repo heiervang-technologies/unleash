@@ -62,6 +62,7 @@ mod tests {
         tool_use_count: usize,
         tool_result_count: usize,
         thinking_count: usize,
+        image_count: usize,
         has_tokens: bool,
     }
 
@@ -107,16 +108,22 @@ mod tests {
                             .iter()
                             .filter(|b| matches!(b, ContentBlock::Thinking { .. }))
                             .count(),
+                        image_count: msg
+                            .content
+                            .iter()
+                            .filter(|b| matches!(b, ContentBlock::Image { .. }))
+                            .count(),
                         has_tokens: msg.metadata.tokens.is_some(),
                     });
 
-                    // Filter out completely empty messages (no text, tools, or thinking)
+                    // Filter out completely empty messages (no text, tools, thinking, or images)
                     // This accounts for CLIs that drop empty messages during conversion.
                     if let Some(p) = &portable {
                         if !p.has_text
                             && p.tool_use_count == 0
                             && p.tool_result_count == 0
                             && p.thinking_count == 0
+                            && p.image_count == 0
                         {
                             return None;
                         }
@@ -384,6 +391,119 @@ mod tests {
         let via_gemini = round_trip_via_gemini(&hub);
         let converted = extract_portable(&via_gemini);
         assert_portable_preserved("opencode", "gemini", &original, &converted);
+    }
+
+    // ======================================================================
+    // Synthetic fixture with all content types
+    // ======================================================================
+
+    #[test]
+    fn test_all_content_types_fixture_loads() {
+        let data = fixture("synthetic/all-content-types.ucf.jsonl");
+        let text = String::from_utf8(data).unwrap();
+        let mut records = Vec::new();
+        for line in text.lines() {
+            if line.trim().is_empty() {
+                continue;
+            }
+            let record: HubRecord = serde_json::from_str(line).unwrap();
+            records.push(record);
+        }
+        // 1 session + 5 messages
+        assert_eq!(records.len(), 6);
+
+        // Verify all content types present
+        let all_blocks: Vec<&ContentBlock> = records
+            .iter()
+            .filter_map(|r| {
+                if let HubRecord::Message(m) = r {
+                    Some(&m.content)
+                } else {
+                    None
+                }
+            })
+            .flatten()
+            .collect();
+
+        assert!(
+            all_blocks
+                .iter()
+                .any(|b| matches!(b, ContentBlock::Text { .. })),
+            "missing Text block"
+        );
+        assert!(
+            all_blocks
+                .iter()
+                .any(|b| matches!(b, ContentBlock::ToolUse { .. })),
+            "missing ToolUse block"
+        );
+        assert!(
+            all_blocks
+                .iter()
+                .any(|b| matches!(b, ContentBlock::ToolResult { .. })),
+            "missing ToolResult block"
+        );
+        assert!(
+            all_blocks
+                .iter()
+                .any(|b| matches!(b, ContentBlock::Thinking { .. })),
+            "missing Thinking block"
+        );
+        assert!(
+            all_blocks
+                .iter()
+                .any(|b| matches!(b, ContentBlock::Image { .. })),
+            "missing Image block"
+        );
+    }
+
+    // ======================================================================
+    // All-content-types cross-CLI round-trip tests
+    // ======================================================================
+
+    fn all_content_types_hub() -> Vec<HubRecord> {
+        let data = fixture("synthetic/all-content-types.ucf.jsonl");
+        let text = String::from_utf8(data).unwrap();
+        text.lines()
+            .filter(|l| !l.trim().is_empty())
+            .map(|l| serde_json::from_str(l).unwrap())
+            .collect()
+    }
+
+    #[test]
+    fn test_all_types_via_claude() {
+        let hub = all_content_types_hub();
+        let via = round_trip_via_claude(&hub);
+        let orig = extract_portable(&hub);
+        let conv = extract_portable(&via);
+        assert_portable_preserved("all-types", "claude", &orig, &conv);
+    }
+
+    #[test]
+    fn test_all_types_via_codex() {
+        let hub = all_content_types_hub();
+        let via = round_trip_via_codex(&hub);
+        let orig = extract_portable(&hub);
+        let conv = extract_portable(&via);
+        assert_portable_preserved("all-types", "codex", &orig, &conv);
+    }
+
+    #[test]
+    fn test_all_types_via_gemini() {
+        let hub = all_content_types_hub();
+        let via = round_trip_via_gemini(&hub);
+        let orig = extract_portable(&hub);
+        let conv = extract_portable(&via);
+        assert_portable_preserved("all-types", "gemini", &orig, &conv);
+    }
+
+    #[test]
+    fn test_all_types_via_opencode() {
+        let hub = all_content_types_hub();
+        let via = round_trip_via_opencode(&hub);
+        let orig = extract_portable(&hub);
+        let conv = extract_portable(&via);
+        assert_portable_preserved("all-types", "opencode", &orig, &conv);
     }
 
     // ======================================================================
