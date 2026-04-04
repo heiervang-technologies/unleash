@@ -38,9 +38,6 @@ pub fn to_hub(input: &OpenCodeInput) -> Result<Vec<HubRecord>, ConvertError> {
     for (msg_i, msg) in input.messages.iter().enumerate() {
         let role = msg.get("role").and_then(|v| v.as_str()).unwrap_or("user");
 
-        // Collect parts for this message: parts belong to messages in order.
-        // For user messages: typically 1 text part (the prompt).
-        // For assistant messages: multiple parts (step-start, reasoning, text, tool, step-finish).
         let msg_parts = collect_message_parts(
             &input.parts,
             &mut part_idx,
@@ -52,7 +49,22 @@ pub fn to_hub(input: &OpenCodeInput) -> Result<Vec<HubRecord>, ConvertError> {
 
         let content = parts_to_content_blocks(&msg_parts)?;
         let metadata = extract_metadata(msg);
-        let extensions = build_opencode_extensions(msg);
+
+        // Stash original message AND its parts for lossless round-trip
+        let mut ext_map = serde_json::Map::new();
+        // Preserve original message
+        ext_map.insert("_original_message".into(), msg.clone());
+        // Preserve original parts for this message
+        ext_map.insert("_original_parts".into(), Value::Array(msg_parts.clone()));
+        // Also preserve the fields from build_opencode_extensions for cross-CLI use
+        if let Value::Object(extra) = build_opencode_extensions(msg) {
+            if let Some(Value::Object(oc)) = extra.get("opencode") {
+                for (k, v) in oc {
+                    ext_map.insert(k.clone(), v.clone());
+                }
+            }
+        }
+        let extensions = serde_json::json!({"opencode": ext_map});
 
         let timestamp = unix_ms_to_iso(
             msg.get("time")
@@ -100,25 +112,53 @@ pub fn from_hub(records: &[HubRecord]) -> Result<OpenCodeOutput, ConvertError> {
     let mut messages = Vec::new();
     let mut parts = Vec::new();
 
-    let mut msg_idx = 0;
-    for record in records {
-        match record {
-            HubRecord::Session(_) => {
-                // Session header is metadata, not a message
-            }
-            HubRecord::Message(msg) => {
-                let (oc_msg, mut oc_parts) = hub_message_to_opencode(msg)?;
-                for part in &mut oc_parts {
-                    if let Some(obj) = part.as_object_mut() {
-                        obj.insert("_msg_idx".to_string(), serde_json::json!(msg_idx));
-                    }
+    // Check if this is a native OpenCode round-trip (has _original_message in extensions)
+    let is_native_roundtrip = records.iter().any(|r| {
+        if let HubRecord::Message(msg) = r {
+            msg.extensions
+                .get("opencode")
+                .and_then(|g| g.get("_original_message"))
+                .is_some()
+        } else {
+            false
+        }
+    });
+
+    if is_native_roundtrip {
+        // Native round-trip: use original messages and parts directly
+        for record in records {
+            if let HubRecord::Message(msg) = record {
+                let oc = msg
+                    .extensions
+                    .get("opencode")
+                    .cloned()
+                    .unwrap_or(Value::Null);
+                if let Some(orig_msg) = oc.get("_original_message") {
+                    messages.push(orig_msg.clone());
                 }
-                messages.push(oc_msg);
-                parts.extend(oc_parts);
-                msg_idx += 1;
+                if let Some(orig_parts) = oc.get("_original_parts").and_then(|v| v.as_array()) {
+                    parts.extend(orig_parts.iter().cloned());
+                }
             }
-            HubRecord::Event(_) => {
-                // OpenCode doesn't have standalone events
+        }
+    } else {
+        // Cross-CLI path: reconstruct from hub content
+        let mut msg_idx = 0;
+        for record in records {
+            match record {
+                HubRecord::Session(_) => {}
+                HubRecord::Message(msg) => {
+                    let (oc_msg, mut oc_parts) = hub_message_to_opencode(msg)?;
+                    for part in &mut oc_parts {
+                        if let Some(obj) = part.as_object_mut() {
+                            obj.insert("_msg_idx".to_string(), serde_json::json!(msg_idx));
+                        }
+                    }
+                    messages.push(oc_msg);
+                    parts.extend(oc_parts);
+                    msg_idx += 1;
+                }
+                HubRecord::Event(_) => {}
             }
         }
     }
