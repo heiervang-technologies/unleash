@@ -400,6 +400,32 @@ fn parts_to_content_blocks(parts: &[Value]) -> Result<Vec<ContentBlock>, Convert
                 if !text.is_empty() {
                     blocks.push(ContentBlock::Text { text });
                 }
+                // Recover images stored in _hub_images extension
+                if let Some(images) = part.get("_hub_images").and_then(|v| v.as_array()) {
+                    for img in images {
+                        blocks.push(ContentBlock::Image {
+                            media_type: img
+                                .get("media_type")
+                                .and_then(|v| v.as_str())
+                                .unwrap_or("image/png")
+                                .to_string(),
+                            encoding: img
+                                .get("encoding")
+                                .and_then(|v| v.as_str())
+                                .unwrap_or("base64")
+                                .to_string(),
+                            data: img
+                                .get("data")
+                                .and_then(|v| v.as_str())
+                                .unwrap_or("")
+                                .to_string(),
+                            source_url: img
+                                .get("source_url")
+                                .and_then(|v| v.as_str())
+                                .map(String::from),
+                        });
+                    }
+                }
             }
             "step-start" => {
                 blocks.push(ContentBlock::StepBoundary {
@@ -988,8 +1014,42 @@ fn hub_content_to_opencode_parts(blocks: &[ContentBlock]) -> Vec<Value> {
                 }
                 parts.push(part);
             }
-            ContentBlock::Image { .. } => {
-                // OpenCode doesn't have native image part support yet
+            ContentBlock::Image {
+                media_type,
+                encoding,
+                data,
+                source_url,
+            } => {
+                // OpenCode doesn't have native image part support.
+                // Store images in _hub_images on the preceding text part for round-trip recovery.
+                let img = serde_json::json!({
+                    "media_type": media_type,
+                    "encoding": encoding,
+                    "data": data,
+                    "source_url": source_url,
+                });
+                // Find the last text part and attach the image to it
+                let mut attached = false;
+                for existing in parts.iter_mut().rev() {
+                    if existing.get("type").and_then(|v| v.as_str()) == Some("text") {
+                        let images = existing
+                            .as_object_mut()
+                            .unwrap()
+                            .entry("_hub_images")
+                            .or_insert_with(|| serde_json::json!([]));
+                        images.as_array_mut().unwrap().push(img.clone());
+                        attached = true;
+                        break;
+                    }
+                }
+                if !attached {
+                    // No preceding text part — create a placeholder text part with the image
+                    parts.push(serde_json::json!({
+                        "type": "text",
+                        "text": "[image]",
+                        "_hub_images": [img],
+                    }));
+                }
             }
         }
     }
@@ -1394,5 +1454,125 @@ mod tests {
             .and_then(|v| v.as_f64())
             .unwrap();
         assert!((cost - 0.003456).abs() < 0.000001);
+    }
+
+    #[test]
+    fn test_image_preserved_in_extensions() {
+        let records = vec![
+            HubRecord::Session(SessionHeader {
+                ucf_version: UCF_VERSION.to_string(),
+                session_id: "img-test".into(),
+                created_at: "2026-01-01T00:00:00Z".into(),
+                updated_at: "2026-01-01T00:00:01Z".into(),
+                source_cli: "claude".into(),
+                source_version: "1.0".into(),
+                project: None,
+                model: None,
+                title: None,
+                slug: None,
+                parent_session_id: None,
+                extensions: serde_json::json!({}),
+            }),
+            HubRecord::Message(HubMessage {
+                id: "m1".into(),
+                api_message_id: None,
+                parent_id: None,
+                timestamp: "2026-01-01T00:00:00Z".into(),
+                completed_at: None,
+                role: "assistant".into(),
+                content: vec![
+                    ContentBlock::Text {
+                        text: "Here's the image:".into(),
+                    },
+                    ContentBlock::Image {
+                        media_type: "image/png".into(),
+                        encoding: "base64".into(),
+                        data: "iVBORw0KGgoAAAANSUhEUg==".into(),
+                        source_url: None,
+                    },
+                ],
+                metadata: MessageMetadata::default(),
+                extensions: serde_json::json!({}),
+            }),
+        ];
+
+        let output = from_hub(&records).unwrap();
+        // Text should still be there (OpenCode parts use "text" not "content")
+        let has_text = output.parts.iter().any(|p| {
+            p.get("type").and_then(|t| t.as_str()) == Some("text")
+                && p.get("text")
+                    .and_then(|c| c.as_str())
+                    .is_some_and(|s| s.contains("image"))
+        });
+        assert!(has_text, "text content should be preserved");
+
+        // Image should be stored in _hub_images on the nearest text part
+        let has_image = output.parts.iter().any(|p| p.get("_hub_images").is_some());
+        assert!(
+            has_image,
+            "image should be preserved in _hub_images, not silently dropped"
+        );
+    }
+
+    #[test]
+    fn test_image_round_trip_via_opencode() {
+        // hub -> opencode -> hub: images should survive via _hub_images extensions
+        let records = vec![
+            HubRecord::Session(SessionHeader {
+                ucf_version: UCF_VERSION.to_string(),
+                session_id: "img-rt".into(),
+                created_at: "2026-01-01T00:00:00Z".into(),
+                updated_at: "2026-01-01T00:00:01Z".into(),
+                source_cli: "claude".into(),
+                source_version: "1.0".into(),
+                project: None,
+                model: None,
+                title: None,
+                slug: None,
+                parent_session_id: None,
+                extensions: serde_json::json!({}),
+            }),
+            HubRecord::Message(HubMessage {
+                id: "m1".into(),
+                api_message_id: None,
+                parent_id: None,
+                timestamp: "2026-01-01T00:00:00Z".into(),
+                completed_at: None,
+                role: "assistant".into(),
+                content: vec![
+                    ContentBlock::Text {
+                        text: "Here's the logo:".into(),
+                    },
+                    ContentBlock::Image {
+                        media_type: "image/png".into(),
+                        encoding: "base64".into(),
+                        data: "iVBORw0KGgoAAAANSUhEUg==".into(),
+                        source_url: None,
+                    },
+                ],
+                metadata: MessageMetadata::default(),
+                extensions: serde_json::json!({}),
+            }),
+        ];
+        let oc = from_hub(&records).unwrap();
+        let input = OpenCodeInput {
+            session_id: "img-rt".into(),
+            messages: oc.messages,
+            parts: oc.parts,
+        };
+        let back = to_hub(&input).unwrap();
+        let has_image = back.iter().any(|r| {
+            if let HubRecord::Message(m) = r {
+                m.content
+                    .iter()
+                    .any(|b| matches!(b, ContentBlock::Image { .. }))
+            } else {
+                false
+            }
+        });
+        assert!(
+            has_image,
+            "image should survive opencode round-trip via _hub_images"
+        );
     }
 }
