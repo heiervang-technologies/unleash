@@ -38,9 +38,6 @@ pub fn to_hub(input: &OpenCodeInput) -> Result<Vec<HubRecord>, ConvertError> {
     for (msg_i, msg) in input.messages.iter().enumerate() {
         let role = msg.get("role").and_then(|v| v.as_str()).unwrap_or("user");
 
-        // Collect parts for this message: parts belong to messages in order.
-        // For user messages: typically 1 text part (the prompt).
-        // For assistant messages: multiple parts (step-start, reasoning, text, tool, step-finish).
         let msg_parts = collect_message_parts(
             &input.parts,
             &mut part_idx,
@@ -52,7 +49,22 @@ pub fn to_hub(input: &OpenCodeInput) -> Result<Vec<HubRecord>, ConvertError> {
 
         let content = parts_to_content_blocks(&msg_parts)?;
         let metadata = extract_metadata(msg);
-        let extensions = build_opencode_extensions(msg);
+
+        // Stash original message AND its parts for lossless round-trip
+        let mut ext_map = serde_json::Map::new();
+        // Preserve original message
+        ext_map.insert("_original_message".into(), msg.clone());
+        // Preserve original parts for this message
+        ext_map.insert("_original_parts".into(), Value::Array(msg_parts.clone()));
+        // Also preserve the fields from build_opencode_extensions for cross-CLI use
+        if let Value::Object(extra) = build_opencode_extensions(msg) {
+            if let Some(Value::Object(oc)) = extra.get("opencode") {
+                for (k, v) in oc {
+                    ext_map.insert(k.clone(), v.clone());
+                }
+            }
+        }
+        let extensions = serde_json::json!({"opencode": ext_map});
 
         let timestamp = unix_ms_to_iso(
             msg.get("time")
@@ -100,25 +112,53 @@ pub fn from_hub(records: &[HubRecord]) -> Result<OpenCodeOutput, ConvertError> {
     let mut messages = Vec::new();
     let mut parts = Vec::new();
 
-    let mut msg_idx = 0;
-    for record in records {
-        match record {
-            HubRecord::Session(_) => {
-                // Session header is metadata, not a message
-            }
-            HubRecord::Message(msg) => {
-                let (oc_msg, mut oc_parts) = hub_message_to_opencode(msg)?;
-                for part in &mut oc_parts {
-                    if let Some(obj) = part.as_object_mut() {
-                        obj.insert("_msg_idx".to_string(), serde_json::json!(msg_idx));
-                    }
+    // Check if this is a native OpenCode round-trip (has _original_message in extensions)
+    let is_native_roundtrip = records.iter().any(|r| {
+        if let HubRecord::Message(msg) = r {
+            msg.extensions
+                .get("opencode")
+                .and_then(|g| g.get("_original_message"))
+                .is_some()
+        } else {
+            false
+        }
+    });
+
+    if is_native_roundtrip {
+        // Native round-trip: use original messages and parts directly
+        for record in records {
+            if let HubRecord::Message(msg) = record {
+                let oc = msg
+                    .extensions
+                    .get("opencode")
+                    .cloned()
+                    .unwrap_or(Value::Null);
+                if let Some(orig_msg) = oc.get("_original_message") {
+                    messages.push(orig_msg.clone());
                 }
-                messages.push(oc_msg);
-                parts.extend(oc_parts);
-                msg_idx += 1;
+                if let Some(orig_parts) = oc.get("_original_parts").and_then(|v| v.as_array()) {
+                    parts.extend(orig_parts.iter().cloned());
+                }
             }
-            HubRecord::Event(_) => {
-                // OpenCode doesn't have standalone events
+        }
+    } else {
+        // Cross-CLI path: reconstruct from hub content
+        let mut msg_idx = 0;
+        for record in records {
+            match record {
+                HubRecord::Session(_) => {}
+                HubRecord::Message(msg) => {
+                    let (oc_msg, mut oc_parts) = hub_message_to_opencode(msg)?;
+                    for part in &mut oc_parts {
+                        if let Some(obj) = part.as_object_mut() {
+                            obj.insert("_msg_idx".to_string(), serde_json::json!(msg_idx));
+                        }
+                    }
+                    messages.push(oc_msg);
+                    parts.extend(oc_parts);
+                    msg_idx += 1;
+                }
+                HubRecord::Event(_) => {}
             }
         }
     }
@@ -399,6 +439,32 @@ fn parts_to_content_blocks(parts: &[Value]) -> Result<Vec<ContentBlock>, Convert
                     .to_string();
                 if !text.is_empty() {
                     blocks.push(ContentBlock::Text { text });
+                }
+                // Recover images stored in _hub_images extension
+                if let Some(images) = part.get("_hub_images").and_then(|v| v.as_array()) {
+                    for img in images {
+                        blocks.push(ContentBlock::Image {
+                            media_type: img
+                                .get("media_type")
+                                .and_then(|v| v.as_str())
+                                .unwrap_or("image/png")
+                                .to_string(),
+                            encoding: img
+                                .get("encoding")
+                                .and_then(|v| v.as_str())
+                                .unwrap_or("base64")
+                                .to_string(),
+                            data: img
+                                .get("data")
+                                .and_then(|v| v.as_str())
+                                .unwrap_or("")
+                                .to_string(),
+                            source_url: img
+                                .get("source_url")
+                                .and_then(|v| v.as_str())
+                                .map(String::from),
+                        });
+                    }
                 }
             }
             "step-start" => {
@@ -988,8 +1054,42 @@ fn hub_content_to_opencode_parts(blocks: &[ContentBlock]) -> Vec<Value> {
                 }
                 parts.push(part);
             }
-            ContentBlock::Image { .. } => {
-                // OpenCode doesn't have native image part support yet
+            ContentBlock::Image {
+                media_type,
+                encoding,
+                data,
+                source_url,
+            } => {
+                // OpenCode doesn't have native image part support.
+                // Store images in _hub_images on the preceding text part for round-trip recovery.
+                let img = serde_json::json!({
+                    "media_type": media_type,
+                    "encoding": encoding,
+                    "data": data,
+                    "source_url": source_url,
+                });
+                // Find the last text part and attach the image to it
+                let mut attached = false;
+                for existing in parts.iter_mut().rev() {
+                    if existing.get("type").and_then(|v| v.as_str()) == Some("text") {
+                        let images = existing
+                            .as_object_mut()
+                            .unwrap()
+                            .entry("_hub_images")
+                            .or_insert_with(|| serde_json::json!([]));
+                        images.as_array_mut().unwrap().push(img.clone());
+                        attached = true;
+                        break;
+                    }
+                }
+                if !attached {
+                    // No preceding text part — create a placeholder text part with the image
+                    parts.push(serde_json::json!({
+                        "type": "text",
+                        "text": "[image]",
+                        "_hub_images": [img],
+                    }));
+                }
             }
         }
     }
@@ -1394,5 +1494,125 @@ mod tests {
             .and_then(|v| v.as_f64())
             .unwrap();
         assert!((cost - 0.003456).abs() < 0.000001);
+    }
+
+    #[test]
+    fn test_image_preserved_in_extensions() {
+        let records = vec![
+            HubRecord::Session(SessionHeader {
+                ucf_version: UCF_VERSION.to_string(),
+                session_id: "img-test".into(),
+                created_at: "2026-01-01T00:00:00Z".into(),
+                updated_at: "2026-01-01T00:00:01Z".into(),
+                source_cli: "claude".into(),
+                source_version: "1.0".into(),
+                project: None,
+                model: None,
+                title: None,
+                slug: None,
+                parent_session_id: None,
+                extensions: serde_json::json!({}),
+            }),
+            HubRecord::Message(HubMessage {
+                id: "m1".into(),
+                api_message_id: None,
+                parent_id: None,
+                timestamp: "2026-01-01T00:00:00Z".into(),
+                completed_at: None,
+                role: "assistant".into(),
+                content: vec![
+                    ContentBlock::Text {
+                        text: "Here's the image:".into(),
+                    },
+                    ContentBlock::Image {
+                        media_type: "image/png".into(),
+                        encoding: "base64".into(),
+                        data: "iVBORw0KGgoAAAANSUhEUg==".into(),
+                        source_url: None,
+                    },
+                ],
+                metadata: MessageMetadata::default(),
+                extensions: serde_json::json!({}),
+            }),
+        ];
+
+        let output = from_hub(&records).unwrap();
+        // Text should still be there (OpenCode parts use "text" not "content")
+        let has_text = output.parts.iter().any(|p| {
+            p.get("type").and_then(|t| t.as_str()) == Some("text")
+                && p.get("text")
+                    .and_then(|c| c.as_str())
+                    .is_some_and(|s| s.contains("image"))
+        });
+        assert!(has_text, "text content should be preserved");
+
+        // Image should be stored in _hub_images on the nearest text part
+        let has_image = output.parts.iter().any(|p| p.get("_hub_images").is_some());
+        assert!(
+            has_image,
+            "image should be preserved in _hub_images, not silently dropped"
+        );
+    }
+
+    #[test]
+    fn test_image_round_trip_via_opencode() {
+        // hub -> opencode -> hub: images should survive via _hub_images extensions
+        let records = vec![
+            HubRecord::Session(SessionHeader {
+                ucf_version: UCF_VERSION.to_string(),
+                session_id: "img-rt".into(),
+                created_at: "2026-01-01T00:00:00Z".into(),
+                updated_at: "2026-01-01T00:00:01Z".into(),
+                source_cli: "claude".into(),
+                source_version: "1.0".into(),
+                project: None,
+                model: None,
+                title: None,
+                slug: None,
+                parent_session_id: None,
+                extensions: serde_json::json!({}),
+            }),
+            HubRecord::Message(HubMessage {
+                id: "m1".into(),
+                api_message_id: None,
+                parent_id: None,
+                timestamp: "2026-01-01T00:00:00Z".into(),
+                completed_at: None,
+                role: "assistant".into(),
+                content: vec![
+                    ContentBlock::Text {
+                        text: "Here's the logo:".into(),
+                    },
+                    ContentBlock::Image {
+                        media_type: "image/png".into(),
+                        encoding: "base64".into(),
+                        data: "iVBORw0KGgoAAAANSUhEUg==".into(),
+                        source_url: None,
+                    },
+                ],
+                metadata: MessageMetadata::default(),
+                extensions: serde_json::json!({}),
+            }),
+        ];
+        let oc = from_hub(&records).unwrap();
+        let input = OpenCodeInput {
+            session_id: "img-rt".into(),
+            messages: oc.messages,
+            parts: oc.parts,
+        };
+        let back = to_hub(&input).unwrap();
+        let has_image = back.iter().any(|r| {
+            if let HubRecord::Message(m) = r {
+                m.content
+                    .iter()
+                    .any(|b| matches!(b, ContentBlock::Image { .. }))
+            } else {
+                false
+            }
+        });
+        assert!(
+            has_image,
+            "image should survive opencode round-trip via _hub_images"
+        );
     }
 }
