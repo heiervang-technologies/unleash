@@ -2375,6 +2375,12 @@ impl App {
 
                     let _ = self.profile_manager.save_app_config(&self.app_config);
                     self.status_message = Some(format!("Toggled: {}", plugin_name));
+
+                    // Immediately sync hooks to ensure any statically injected hooks (from ~/.claude/settings.json)
+                    // accurately reflect the enabled/disabled state.
+                    if let Ok(manager) = crate::hooks::HookManager::new() {
+                        let _ = manager.sync_plugin_hooks(&crate::launcher::find_plugin_dirs());
+                    }
                 }
             }
             NavAction::Back | NavAction::Quit => {
