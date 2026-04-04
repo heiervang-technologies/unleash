@@ -101,6 +101,10 @@ pub struct PolyfillArgs {
     #[arg(short = 'v', long)]
     pub verbose: bool,
 
+    /// Output format (e.g., json, text, stream-json)
+    #[arg(long)]
+    pub output_format: Option<String>,
+
     /// Show the resolved command without executing it
     #[arg(long)]
     pub dry_run: bool,
@@ -124,6 +128,7 @@ impl PolyfillArgs {
             effort: None,
             crossload: None,
             verbose: false,
+            output_format: None,
             dry_run: false,
         };
         let mut passthrough = Vec::new();
@@ -182,6 +187,15 @@ impl PolyfillArgs {
                         last_value_flag = Some(arg.clone());
                     }
                 }
+                "--output-format" => {
+                    if let Some(val) = args.get(i + 1).filter(|v| !v.starts_with('-')) {
+                        polyfill.output_format = Some(val.clone());
+                        i += 1;
+                        last_value_flag = None;
+                    } else {
+                        last_value_flag = Some(arg.clone());
+                    }
+                }
                 "-x" | "--crossload" => {
                     if let Some(val) = args.get(i + 1) {
                         if !val.starts_with('-') {
@@ -221,6 +235,8 @@ impl PolyfillArgs {
                         polyfill.ucf = Some(val.to_string());
                     } else if let Some(val) = arg.strip_prefix("--crossload=") {
                         polyfill.crossload = Some(val.to_string());
+                    } else if let Some(val) = arg.strip_prefix("--output-format=") {
+                        polyfill.output_format = Some(val.to_string());
                     } else {
                         // Unrecognized — pass through to agent
                         passthrough.push(arg.clone());
@@ -310,6 +326,7 @@ impl PolyfillArgs {
             effort,
             auto: self.auto,
             verbose: self.verbose,
+            output_format: self.output_format.clone(),
         }
     }
 }

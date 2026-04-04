@@ -36,6 +36,8 @@ pub struct PolyfillFlags {
     pub auto: bool,
     /// Enable verbose/debug output.
     pub verbose: bool,
+    /// Output format (e.g., "json", "text", "stream-json").
+    pub output_format: Option<String>,
 }
 
 impl Default for PolyfillFlags {
@@ -51,6 +53,7 @@ impl Default for PolyfillFlags {
             effort: None,
             auto: false,
             verbose: false,
+            output_format: None,
         }
     }
 }
@@ -137,6 +140,16 @@ pub fn resolve(
         if let Some(ref verbose_flag) = config.verbose_flag {
             if !is_dup(verbose_flag) {
                 args.push(verbose_flag.clone());
+            }
+        }
+    }
+
+    // --- Output Format ---
+    if let Some(ref format) = flags.output_format {
+        if let Some(ref output_format_flag) = config.output_format_flag {
+            if !is_dup(output_format_flag) {
+                args.push(output_format_flag.clone());
+                args.push(format.clone());
             }
         }
     }
@@ -646,5 +659,42 @@ mod tests {
         };
         let inv = resolve(&config, &flags, &[]);
         assert!(!inv.args.iter().any(|a| a.contains("verbose") || a.contains("debug") || a.contains("print-logs")));
+    }
+
+    // ── Output Format ────────────────��──────────────────────
+
+    #[test]
+    fn test_claude_output_format_json() {
+        let config = AgentDefinition::claude().polyfill;
+        let flags = PolyfillFlags {
+            output_format: Some("json".into()),
+            ..default_flags()
+        };
+        let inv = resolve(&config, &flags, &[]);
+        assert!(inv.args.contains(&"--output-format".to_string()));
+        assert!(inv.args.contains(&"json".to_string()));
+    }
+
+    #[test]
+    fn test_gemini_output_format() {
+        let config = AgentDefinition::gemini().polyfill;
+        let flags = PolyfillFlags {
+            output_format: Some("json".into()),
+            ..default_flags()
+        };
+        let inv = resolve(&config, &flags, &[]);
+        assert!(inv.args.contains(&"-o".to_string()));
+        assert!(inv.args.contains(&"json".to_string()));
+    }
+
+    #[test]
+    fn test_codex_no_output_format_support() {
+        let config = AgentDefinition::codex().polyfill;
+        let flags = PolyfillFlags {
+            output_format: Some("json".into()),
+            ..default_flags()
+        };
+        let inv = resolve(&config, &flags, &[]);
+        assert!(!inv.args.contains(&"json".to_string()));
     }
 }
