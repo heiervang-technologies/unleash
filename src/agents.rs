@@ -100,6 +100,9 @@ pub struct AgentPolyfillConfig {
     /// Flag name for reasoning effort, if supported
     #[serde(default)]
     pub effort_flag: Option<String>,
+    /// Flag name for auto/full-auto mode, if supported as a CLI flag
+    #[serde(default)]
+    pub auto_flag: Option<String>,
 }
 
 impl AgentPolyfillConfig {
@@ -215,6 +218,7 @@ impl AgentDefinition {
                 yolo_flag: Some("--dangerously-skip-permissions".to_string()),
                 model_flag: "--model".to_string(),
                 effort_flag: Some("--effort".to_string()),
+                auto_flag: None,
             },
             github_repo: Some("anthropics/claude-code".to_string()),
             npm_package: Some("@anthropic-ai/claude-code".to_string()),
@@ -239,6 +243,7 @@ impl AgentDefinition {
                 yolo_flag: Some("--dangerously-bypass-approvals-and-sandbox".to_string()),
                 model_flag: "-m".to_string(),
                 effort_flag: None,
+                auto_flag: Some("--full-auto".to_string()),
             },
             github_repo: Some("openai/codex".to_string()),
             npm_package: None,
@@ -263,6 +268,7 @@ impl AgentDefinition {
                 yolo_flag: Some("--yolo".to_string()),
                 model_flag: "-m".to_string(),
                 effort_flag: None,
+                auto_flag: None,
             },
             github_repo: Some("google-gemini/gemini-cli".to_string()),
             npm_package: Some("@google/gemini-cli".to_string()),
@@ -287,6 +293,7 @@ impl AgentDefinition {
                 yolo_flag: None,
                 model_flag: "-m".to_string(),
                 effort_flag: None,
+                auto_flag: None,
             },
             github_repo: Some("anomalyco/opencode".to_string()),
             npm_package: Some("opencode-ai".to_string()),

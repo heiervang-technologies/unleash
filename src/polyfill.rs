@@ -32,6 +32,8 @@ pub struct PolyfillFlags {
     pub fork: bool,
     /// Reasoning effort level (e.g., "high", "low").
     pub effort: Option<String>,
+    /// Enable auto-mode (autonomous operation).
+    pub auto: bool,
 }
 
 impl Default for PolyfillFlags {
@@ -45,6 +47,7 @@ impl Default for PolyfillFlags {
             resume: None,
             fork: false,
             effort: None,
+            auto: false,
         }
     }
 }
@@ -114,6 +117,15 @@ pub fn resolve(
             }
         } else {
             eprintln!("Warning: Agent does not support reasoning effort flag");
+        }
+    }
+
+    // --- Auto ---
+    if flags.auto {
+        if let Some(ref auto_flag) = config.auto_flag {
+            if !is_dup(auto_flag) {
+                args.push(auto_flag.clone());
+            }
         }
     }
 
@@ -539,5 +551,42 @@ mod tests {
         assert_eq!(inv.args, vec!["--dangerously-skip-permissions".to_string()]);
         assert!(inv.subcommand_prefix.is_empty());
         assert!(inv.env.is_empty());
+    }
+
+    // ── Auto ────────────────────────────────────────────────
+
+    #[test]
+    fn test_codex_auto_flag() {
+        let config = AgentDefinition::codex().polyfill;
+        let flags = PolyfillFlags {
+            auto: true,
+            ..default_flags()
+        };
+        let inv = resolve(&config, &flags, &[]);
+        assert!(inv.args.contains(&"--full-auto".to_string()));
+    }
+
+    #[test]
+    fn test_claude_auto_is_env_only() {
+        // Claude auto-mode is via AGENT_AUTO_MODE env var + Stop hook, not a CLI flag.
+        // The polyfill resolver must NOT add any auto flag — lib.rs handles it.
+        let config = AgentDefinition::claude().polyfill;
+        let flags = PolyfillFlags {
+            auto: true,
+            ..default_flags()
+        };
+        let inv = resolve(&config, &flags, &[]);
+        assert!(!inv.args.iter().any(|a| a.contains("auto")));
+    }
+
+    #[test]
+    fn test_gemini_no_auto_support() {
+        let config = AgentDefinition::gemini().polyfill;
+        let flags = PolyfillFlags {
+            auto: true,
+            ..default_flags()
+        };
+        let inv = resolve(&config, &flags, &[]);
+        assert!(!inv.args.iter().any(|a| a.contains("auto")));
     }
 }

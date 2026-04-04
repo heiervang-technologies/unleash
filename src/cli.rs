@@ -302,6 +302,7 @@ impl PolyfillArgs {
             resume,
             fork: self.fork,
             effort,
+            auto: self.auto,
         }
     }
 }
