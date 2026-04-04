@@ -387,6 +387,70 @@ mod tests {
     }
 
     // ======================================================================
+    // Synthetic fixture with all content types
+    // ======================================================================
+
+    #[test]
+    fn test_all_content_types_fixture_loads() {
+        let data = fixture("synthetic/all-content-types.ucf.jsonl");
+        let text = String::from_utf8(data).unwrap();
+        let mut records = Vec::new();
+        for line in text.lines() {
+            if line.trim().is_empty() {
+                continue;
+            }
+            let record: HubRecord = serde_json::from_str(line).unwrap();
+            records.push(record);
+        }
+        // 1 session + 5 messages
+        assert_eq!(records.len(), 6);
+
+        // Verify all content types present
+        let all_blocks: Vec<&ContentBlock> = records
+            .iter()
+            .filter_map(|r| {
+                if let HubRecord::Message(m) = r {
+                    Some(&m.content)
+                } else {
+                    None
+                }
+            })
+            .flatten()
+            .collect();
+
+        assert!(
+            all_blocks
+                .iter()
+                .any(|b| matches!(b, ContentBlock::Text { .. })),
+            "missing Text block"
+        );
+        assert!(
+            all_blocks
+                .iter()
+                .any(|b| matches!(b, ContentBlock::ToolUse { .. })),
+            "missing ToolUse block"
+        );
+        assert!(
+            all_blocks
+                .iter()
+                .any(|b| matches!(b, ContentBlock::ToolResult { .. })),
+            "missing ToolResult block"
+        );
+        assert!(
+            all_blocks
+                .iter()
+                .any(|b| matches!(b, ContentBlock::Thinking { .. })),
+            "missing Thinking block"
+        );
+        assert!(
+            all_blocks
+                .iter()
+                .any(|b| matches!(b, ContentBlock::Image { .. })),
+            "missing Image block"
+        );
+    }
+
+    // ======================================================================
     // Cross-CLI round-trip via Claude with real fixtures
     // ======================================================================
 
