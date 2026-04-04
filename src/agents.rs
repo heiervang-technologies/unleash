@@ -75,6 +75,18 @@ pub enum ForkStrategy {
     Unsupported,
 }
 
+/// Sandbox mode strategy
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum SandboxStrategy {
+    /// Boolean flag (e.g., Gemini: --sandbox)
+    BoolFlag(String),
+    /// Flag with a fixed value (e.g., Codex: --sandbox workspace-write)
+    ValueFlag(String, String),
+    /// Not supported by this agent
+    Unsupported,
+}
+
 /// Session management strategy
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SessionStrategy {
@@ -100,6 +112,40 @@ pub struct AgentPolyfillConfig {
     /// Flag name for reasoning effort, if supported
     #[serde(default)]
     pub effort_flag: Option<String>,
+    /// Flag name for auto/full-auto mode, if supported as a CLI flag
+    #[serde(default)]
+    pub auto_flag: Option<String>,
+    /// Flag name for verbose/debug output, if supported
+    #[serde(default)]
+    pub verbose_flag: Option<String>,
+    /// Flag name for output format selection, if supported
+    #[serde(default)]
+    pub output_format_flag: Option<String>,
+    /// Flag name for system prompt injection, if supported
+    #[serde(default)]
+    pub system_prompt_flag: Option<String>,
+    /// Flag name for allowed tools filter, if supported
+    #[serde(default)]
+    pub allowed_tools_flag: Option<String>,
+    /// Strategy for sandbox mode
+    #[serde(default = "default_sandbox_unsupported")]
+    pub sandbox: SandboxStrategy,
+    /// Flag name for session naming, if supported
+    #[serde(default)]
+    pub name_flag: Option<String>,
+    /// Flag name for adding extra directories, if supported
+    #[serde(default)]
+    pub add_dir_flag: Option<String>,
+    /// Flag name for approval/permission mode, if supported
+    #[serde(default)]
+    pub approval_mode_flag: Option<String>,
+    /// Flag name for git worktree mode, if supported
+    #[serde(default)]
+    pub worktree_flag: Option<String>,
+}
+
+fn default_sandbox_unsupported() -> SandboxStrategy {
+    SandboxStrategy::Unsupported
 }
 
 impl AgentPolyfillConfig {
@@ -215,6 +261,16 @@ impl AgentDefinition {
                 yolo_flag: Some("--dangerously-skip-permissions".to_string()),
                 model_flag: "--model".to_string(),
                 effort_flag: Some("--effort".to_string()),
+                auto_flag: None,
+                verbose_flag: Some("--verbose".to_string()),
+                output_format_flag: Some("--output-format".to_string()),
+                system_prompt_flag: Some("--system-prompt".to_string()),
+                allowed_tools_flag: Some("--allowedTools".to_string()),
+                sandbox: SandboxStrategy::Unsupported,
+                name_flag: Some("--name".to_string()),
+                add_dir_flag: Some("--add-dir".to_string()),
+                approval_mode_flag: Some("--permission-mode".to_string()),
+                worktree_flag: Some("--worktree".to_string()),
             },
             github_repo: Some("anthropics/claude-code".to_string()),
             npm_package: Some("@anthropic-ai/claude-code".to_string()),
@@ -239,6 +295,16 @@ impl AgentDefinition {
                 yolo_flag: Some("--dangerously-bypass-approvals-and-sandbox".to_string()),
                 model_flag: "-m".to_string(),
                 effort_flag: None,
+                auto_flag: Some("--full-auto".to_string()),
+                verbose_flag: None,
+                output_format_flag: None,
+                system_prompt_flag: None,
+                allowed_tools_flag: None,
+                sandbox: SandboxStrategy::ValueFlag("--sandbox".to_string(), "workspace-write".to_string()),
+                name_flag: None,
+                add_dir_flag: Some("--add-dir".to_string()),
+                approval_mode_flag: Some("-a".to_string()),
+                worktree_flag: None,
             },
             github_repo: Some("openai/codex".to_string()),
             npm_package: None,
@@ -263,6 +329,16 @@ impl AgentDefinition {
                 yolo_flag: Some("--yolo".to_string()),
                 model_flag: "-m".to_string(),
                 effort_flag: None,
+                auto_flag: None,
+                verbose_flag: Some("--debug".to_string()),
+                output_format_flag: Some("-o".to_string()),
+                system_prompt_flag: None,
+                allowed_tools_flag: Some("--allowed-tools".to_string()),
+                sandbox: SandboxStrategy::BoolFlag("--sandbox".to_string()),
+                name_flag: None,
+                add_dir_flag: Some("--include-directories".to_string()),
+                approval_mode_flag: Some("--approval-mode".to_string()),
+                worktree_flag: Some("--worktree".to_string()),
             },
             github_repo: Some("google-gemini/gemini-cli".to_string()),
             npm_package: Some("@google/gemini-cli".to_string()),
@@ -287,6 +363,16 @@ impl AgentDefinition {
                 yolo_flag: None,
                 model_flag: "-m".to_string(),
                 effort_flag: None,
+                auto_flag: None,
+                verbose_flag: Some("--print-logs".to_string()),
+                output_format_flag: None,
+                system_prompt_flag: None,
+                allowed_tools_flag: None,
+                sandbox: SandboxStrategy::Unsupported,
+                name_flag: None,
+                add_dir_flag: None,
+                approval_mode_flag: None,
+                worktree_flag: None,
             },
             github_repo: Some("anomalyco/opencode".to_string()),
             npm_package: Some("opencode-ai".to_string()),

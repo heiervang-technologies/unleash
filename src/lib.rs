@@ -162,17 +162,62 @@ fn print_profile_help(profile_name: &str) {
     println!("Usage: unleash {} [FLAGS] [-- PASSTHROUGH]\n", profile_name);
     println!("Unified flags (translated to agent-specific syntax):");
     println!(
-        "      --safe               Restore approval prompts (permissions bypassed by default)"
+        "      --safe                       Restore approval prompts (permissions bypassed by default)"
     );
-    println!("  -p, --prompt <PROMPT>    Run non-interactively with the given prompt");
-    println!("  -m, --model <MODEL>      Model to use for the session");
-    println!("  -c, --continue           Continue the most recent session");
-    println!("  -r, --resume [ID]        Resume a session by ID, or open picker");
-    println!("      --fork               Fork the session (use with --continue or --resume)");
-    println!("  -a, --auto               Enable auto-mode (autonomous operation)");
-    println!("  -e, --effort <LEVEL>     Reasoning effort level (e.g., high, low)");
-    println!("      --dry-run            Show the resolved command without executing it");
-    println!("  -h, --help               Print this help message");
+    println!(
+        "  -p, --prompt <PROMPT>            Run non-interactively with the given prompt"
+    );
+    println!(
+        "  -m, --model <MODEL>              Model to use for the session"
+    );
+    println!(
+        "  -c, --continue                   Continue the most recent session"
+    );
+    println!(
+        "  -r, --resume [ID]                Resume a session by ID, or open picker"
+    );
+    println!(
+        "      --fork                       Fork the session (use with --continue or --resume)"
+    );
+    println!(
+        "  -a, --auto                       Enable auto-mode (autonomous operation)"
+    );
+    println!(
+        "  -e, --effort <LEVEL>             Reasoning effort level (e.g., high, low)"
+    );
+    println!(
+        "  -v, --verbose                    Enable verbose/debug output"
+    );
+    println!(
+        "      --output-format <FORMAT>     Output format (json, text, stream-json)"
+    );
+    println!(
+        "      --system-prompt <TEXT>        System prompt text to inject"
+    );
+    println!(
+        "      --allowed-tools <TOOLS>      Allowed tools filter (comma-separated)"
+    );
+    println!(
+        "      --sandbox                    Enable sandbox mode"
+    );
+    println!(
+        "      --name <NAME>                Session name"
+    );
+    println!(
+        "      --add-dir <DIR>              Additional directory to include"
+    );
+    println!(
+        "      --approval-mode <MODE>       Approval/permission mode"
+    );
+    println!(
+        "      --worktree [NAME]            Git worktree mode (optional name)"
+    );
+    println!(
+        "      --dry-run                    Show the resolved command without executing it"
+    );
+    println!(
+        "  -h, --help                       Print this help message"
+    );
     println!();
     println!("Passthrough (after --):");
     println!("  Any arguments after '--' are passed directly to the agent CLI unchanged.");
@@ -180,15 +225,19 @@ fn print_profile_help(profile_name: &str) {
     println!();
     println!("Examples:");
     println!(
-        "  unleash {} -m opus -c              Continue with model override",
+        "  unleash {} -m opus -c                Continue with model override",
         profile_name
     );
     println!(
-        "  unleash {} -p \"fix the tests\"       Run headless",
+        "  unleash {} -p \"fix the tests\"         Run headless",
         profile_name
     );
     println!(
-        "  unleash {} --safe -- --verbose      Safe mode + agent-specific flag",
+        "  unleash {} --verbose --sandbox        Verbose + sandbox mode",
+        profile_name
+    );
+    println!(
+        "  unleash {} --safe -- --extra-flag     Safe mode + agent-specific flag",
         profile_name
     );
 }

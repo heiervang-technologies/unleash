@@ -97,6 +97,42 @@ pub struct PolyfillArgs {
     #[arg(short = 'x', long, num_args = 0..=1, default_missing_value = "")]
     pub crossload: Option<String>,
 
+    /// Enable verbose/debug output
+    #[arg(short = 'v', long)]
+    pub verbose: bool,
+
+    /// Output format (e.g., json, text, stream-json)
+    #[arg(long)]
+    pub output_format: Option<String>,
+
+    /// System prompt text to inject
+    #[arg(long)]
+    pub system_prompt: Option<String>,
+
+    /// Allowed tools filter (comma-separated list)
+    #[arg(long)]
+    pub allowed_tools: Option<String>,
+
+    /// Enable sandbox mode
+    #[arg(long)]
+    pub sandbox: bool,
+
+    /// Session name
+    #[arg(long)]
+    pub name: Option<String>,
+
+    /// Additional directory to include
+    #[arg(long)]
+    pub add_dir: Option<String>,
+
+    /// Approval/permission mode
+    #[arg(long)]
+    pub approval_mode: Option<String>,
+
+    /// Git worktree mode (optional name)
+    #[arg(long, num_args = 0..=1, default_missing_value = "")]
+    pub worktree: Option<String>,
+
     /// Show the resolved command without executing it
     #[arg(long)]
     pub dry_run: bool,
@@ -119,6 +155,15 @@ impl PolyfillArgs {
             ucf: None,
             effort: None,
             crossload: None,
+            verbose: false,
+            output_format: None,
+            system_prompt: None,
+            allowed_tools: None,
+            sandbox: false,
+            name: None,
+            add_dir: None,
+            approval_mode: None,
+            worktree: None,
             dry_run: false,
         };
         let mut passthrough = Vec::new();
@@ -148,6 +193,8 @@ impl PolyfillArgs {
                 "--fork" => polyfill.fork = true,
                 "-c" | "--continue" => polyfill.continue_session = true,
                 "-a" | "--auto" => polyfill.auto = true,
+                "-v" | "--verbose" => polyfill.verbose = true,
+                "--sandbox" => polyfill.sandbox = true,
                 "--dry-run" => polyfill.dry_run = true,
                 "-p" | "--prompt" => {
                     if let Some(val) = args.get(i + 1).filter(|v| !v.starts_with('-')) {
@@ -174,6 +221,73 @@ impl PolyfillArgs {
                         last_value_flag = None;
                     } else {
                         last_value_flag = Some(arg.clone());
+                    }
+                }
+                "--output-format" => {
+                    if let Some(val) = args.get(i + 1).filter(|v| !v.starts_with('-')) {
+                        polyfill.output_format = Some(val.clone());
+                        i += 1;
+                        last_value_flag = None;
+                    } else {
+                        last_value_flag = Some(arg.clone());
+                    }
+                }
+                "--system-prompt" => {
+                    if let Some(val) = args.get(i + 1).filter(|v| !v.starts_with('-')) {
+                        polyfill.system_prompt = Some(val.clone());
+                        i += 1;
+                        last_value_flag = None;
+                    } else {
+                        last_value_flag = Some(arg.clone());
+                    }
+                }
+                "--allowed-tools" => {
+                    if let Some(val) = args.get(i + 1).filter(|v| !v.starts_with('-')) {
+                        polyfill.allowed_tools = Some(val.clone());
+                        i += 1;
+                        last_value_flag = None;
+                    } else {
+                        last_value_flag = Some(arg.clone());
+                    }
+                }
+                "--name" => {
+                    if let Some(val) = args.get(i + 1).filter(|v| !v.starts_with('-')) {
+                        polyfill.name = Some(val.clone());
+                        i += 1;
+                        last_value_flag = None;
+                    } else {
+                        last_value_flag = Some(arg.clone());
+                    }
+                }
+                "--add-dir" => {
+                    if let Some(val) = args.get(i + 1).filter(|v| !v.starts_with('-')) {
+                        polyfill.add_dir = Some(val.clone());
+                        i += 1;
+                        last_value_flag = None;
+                    } else {
+                        last_value_flag = Some(arg.clone());
+                    }
+                }
+                "--approval-mode" => {
+                    if let Some(val) = args.get(i + 1).filter(|v| !v.starts_with('-')) {
+                        polyfill.approval_mode = Some(val.clone());
+                        i += 1;
+                        last_value_flag = None;
+                    } else {
+                        last_value_flag = Some(arg.clone());
+                    }
+                }
+                "--worktree" => {
+                    // Optional value: --worktree [name]
+                    if let Some(val) = args.get(i + 1) {
+                        if !val.starts_with('-') {
+                            polyfill.worktree = Some(val.clone());
+                            i += 1;
+                        } else {
+                            polyfill.worktree = Some(String::new()); // no name
+                        }
+                    } else {
+                        polyfill.worktree = Some(String::new()); // no name
                     }
                 }
                 "-x" | "--crossload" => {
@@ -215,6 +329,20 @@ impl PolyfillArgs {
                         polyfill.ucf = Some(val.to_string());
                     } else if let Some(val) = arg.strip_prefix("--crossload=") {
                         polyfill.crossload = Some(val.to_string());
+                    } else if let Some(val) = arg.strip_prefix("--output-format=") {
+                        polyfill.output_format = Some(val.to_string());
+                    } else if let Some(val) = arg.strip_prefix("--system-prompt=") {
+                        polyfill.system_prompt = Some(val.to_string());
+                    } else if let Some(val) = arg.strip_prefix("--allowed-tools=") {
+                        polyfill.allowed_tools = Some(val.to_string());
+                    } else if let Some(val) = arg.strip_prefix("--name=") {
+                        polyfill.name = Some(val.to_string());
+                    } else if let Some(val) = arg.strip_prefix("--add-dir=") {
+                        polyfill.add_dir = Some(val.to_string());
+                    } else if let Some(val) = arg.strip_prefix("--approval-mode=") {
+                        polyfill.approval_mode = Some(val.to_string());
+                    } else if let Some(val) = arg.strip_prefix("--worktree=") {
+                        polyfill.worktree = Some(val.to_string());
                     } else {
                         // Unrecognized — pass through to agent
                         passthrough.push(arg.clone());
@@ -248,6 +376,16 @@ impl PolyfillArgs {
                 Some(None) // picker mode
             } else {
                 Some(Some(id.clone())) // specific session
+            }
+        } else {
+            None
+        };
+
+        let worktree = if let Some(ref name) = self.worktree {
+            if name.is_empty() {
+                Some(None) // auto-generated name
+            } else {
+                Some(Some(name.clone())) // specific name
             }
         } else {
             None
@@ -302,6 +440,16 @@ impl PolyfillArgs {
             resume,
             fork: self.fork,
             effort,
+            auto: self.auto,
+            verbose: self.verbose,
+            output_format: self.output_format.clone(),
+            system_prompt: self.system_prompt.clone(),
+            allowed_tools: self.allowed_tools.clone(),
+            sandbox: self.sandbox,
+            name: self.name.clone(),
+            add_dir: self.add_dir.clone(),
+            approval_mode: self.approval_mode.clone(),
+            worktree,
         }
     }
 }
@@ -336,14 +484,23 @@ USAGE:
   unleash <profile>    Run a profile (claude, codex, gemini, opencode, or custom)
 
 UNIFIED FLAGS (before --):
-  --safe               Restore approval prompts (permissions bypassed by default)
-  -p, --prompt       Run non-interactively with a given prompt
-  -m, --model          Model selection
-  -c, --continue       Continue most recent session
-  -r, --resume [id]    Resume session by ID or open picker
-  --fork               Fork the session
-  -a, --auto           Enable auto-mode
-  -e, --effort <LEVEL> Reasoning effort level (e.g., high, low)"#)]
+  --safe                       Restore approval prompts (permissions bypassed by default)
+  -p, --prompt <PROMPT>        Run non-interactively with a given prompt
+  -m, --model <MODEL>          Model selection
+  -c, --continue               Continue most recent session
+  -r, --resume [ID]            Resume session by ID or open picker
+  --fork                       Fork the session
+  -a, --auto                   Enable auto-mode
+  -e, --effort <LEVEL>         Reasoning effort level (e.g., high, low)
+  -v, --verbose                Enable verbose/debug output
+  --output-format <FORMAT>     Output format (json, text, stream-json)
+  --system-prompt <TEXT>       System prompt text to inject
+  --allowed-tools <TOOLS>      Allowed tools filter (comma-separated)
+  --sandbox                    Enable sandbox mode
+  --name <NAME>                Session name
+  --add-dir <DIR>              Additional directory to include
+  --approval-mode <MODE>       Approval/permission mode
+  --worktree [NAME]            Git worktree mode (optional name)"#)]
 pub struct Cli {
     /// Output results as JSON (supported by: auth, version, sessions, agents info, agents list)
     #[arg(long, global = true)]
@@ -680,10 +837,8 @@ mod tests {
         ];
         let (polyfill, passthrough) = PolyfillArgs::parse_from_raw(&args);
         assert_eq!(polyfill.model, Some("opus".to_string()));
-        assert_eq!(
-            passthrough,
-            vec!["--verbose".to_string(), "--debug".to_string()]
-        );
+        assert!(polyfill.verbose);
+        assert_eq!(passthrough, vec!["--debug".to_string()]);
     }
 
     #[test]
