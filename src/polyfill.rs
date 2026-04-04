@@ -50,6 +50,11 @@ pub struct PolyfillFlags {
     pub add_dir: Option<String>,
     /// Approval/permission mode.
     pub approval_mode: Option<String>,
+    /// Git worktree mode.
+    /// - `None` — flag not set
+    /// - `Some(None)` — use auto-generated worktree name
+    /// - `Some(Some(name))` — use specific worktree name
+    pub worktree: Option<Option<String>>,
 }
 
 impl Default for PolyfillFlags {
@@ -72,6 +77,7 @@ impl Default for PolyfillFlags {
             name: None,
             add_dir: None,
             approval_mode: None,
+            worktree: None,
         }
     }
 }
@@ -236,6 +242,18 @@ pub fn resolve(
             if !is_dup(approval_mode_flag) {
                 args.push(approval_mode_flag.clone());
                 args.push(mode.clone());
+            }
+        }
+    }
+
+    // --- Worktree ---
+    if let Some(ref worktree_name) = flags.worktree {
+        if let Some(ref worktree_flag) = config.worktree_flag {
+            if !is_dup(worktree_flag) {
+                args.push(worktree_flag.clone());
+                if let Some(ref name) = worktree_name {
+                    args.push(name.clone());
+                }
             }
         }
     }
@@ -992,5 +1010,53 @@ mod tests {
         };
         let inv = resolve(&config, &flags, &[]);
         assert!(!inv.args.contains(&"auto".to_string()));
+    }
+
+    // ── Worktree ────────────────────────────────────────────
+
+    #[test]
+    fn test_claude_worktree_no_name() {
+        let config = AgentDefinition::claude().polyfill;
+        let flags = PolyfillFlags {
+            worktree: Some(None),
+            ..default_flags()
+        };
+        let inv = resolve(&config, &flags, &[]);
+        assert!(inv.args.contains(&"--worktree".to_string()));
+    }
+
+    #[test]
+    fn test_claude_worktree_with_name() {
+        let config = AgentDefinition::claude().polyfill;
+        let flags = PolyfillFlags {
+            worktree: Some(Some("feature-x".into())),
+            ..default_flags()
+        };
+        let inv = resolve(&config, &flags, &[]);
+        assert!(inv.args.contains(&"--worktree".to_string()));
+        assert!(inv.args.contains(&"feature-x".to_string()));
+    }
+
+    #[test]
+    fn test_gemini_worktree() {
+        let config = AgentDefinition::gemini().polyfill;
+        let flags = PolyfillFlags {
+            worktree: Some(Some("feature-x".into())),
+            ..default_flags()
+        };
+        let inv = resolve(&config, &flags, &[]);
+        assert!(inv.args.contains(&"--worktree".to_string()));
+        assert!(inv.args.contains(&"feature-x".to_string()));
+    }
+
+    #[test]
+    fn test_codex_no_worktree_support() {
+        let config = AgentDefinition::codex().polyfill;
+        let flags = PolyfillFlags {
+            worktree: Some(Some("feature-x".into())),
+            ..default_flags()
+        };
+        let inv = resolve(&config, &flags, &[]);
+        assert!(!inv.args.iter().any(|a| a.contains("worktree")));
     }
 }

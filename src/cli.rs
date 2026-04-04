@@ -129,6 +129,10 @@ pub struct PolyfillArgs {
     #[arg(long)]
     pub approval_mode: Option<String>,
 
+    /// Git worktree mode (optional name)
+    #[arg(long, num_args = 0..=1, default_missing_value = "")]
+    pub worktree: Option<String>,
+
     /// Show the resolved command without executing it
     #[arg(long)]
     pub dry_run: bool,
@@ -159,6 +163,7 @@ impl PolyfillArgs {
             name: None,
             add_dir: None,
             approval_mode: None,
+            worktree: None,
             dry_run: false,
         };
         let mut passthrough = Vec::new();
@@ -272,6 +277,19 @@ impl PolyfillArgs {
                         last_value_flag = Some(arg.clone());
                     }
                 }
+                "--worktree" => {
+                    // Optional value: --worktree [name]
+                    if let Some(val) = args.get(i + 1) {
+                        if !val.starts_with('-') {
+                            polyfill.worktree = Some(val.clone());
+                            i += 1;
+                        } else {
+                            polyfill.worktree = Some(String::new()); // no name
+                        }
+                    } else {
+                        polyfill.worktree = Some(String::new()); // no name
+                    }
+                }
                 "-x" | "--crossload" => {
                     if let Some(val) = args.get(i + 1) {
                         if !val.starts_with('-') {
@@ -323,6 +341,8 @@ impl PolyfillArgs {
                         polyfill.add_dir = Some(val.to_string());
                     } else if let Some(val) = arg.strip_prefix("--approval-mode=") {
                         polyfill.approval_mode = Some(val.to_string());
+                    } else if let Some(val) = arg.strip_prefix("--worktree=") {
+                        polyfill.worktree = Some(val.to_string());
                     } else {
                         // Unrecognized — pass through to agent
                         passthrough.push(arg.clone());
@@ -356,6 +376,16 @@ impl PolyfillArgs {
                 Some(None) // picker mode
             } else {
                 Some(Some(id.clone())) // specific session
+            }
+        } else {
+            None
+        };
+
+        let worktree = if let Some(ref name) = self.worktree {
+            if name.is_empty() {
+                Some(None) // auto-generated name
+            } else {
+                Some(Some(name.clone())) // specific name
             }
         } else {
             None
@@ -419,6 +449,7 @@ impl PolyfillArgs {
             name: self.name.clone(),
             add_dir: self.add_dir.clone(),
             approval_mode: self.approval_mode.clone(),
+            worktree,
         }
     }
 }

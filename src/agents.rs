@@ -139,6 +139,9 @@ pub struct AgentPolyfillConfig {
     /// Flag name for approval/permission mode, if supported
     #[serde(default)]
     pub approval_mode_flag: Option<String>,
+    /// Flag name for git worktree mode, if supported
+    #[serde(default)]
+    pub worktree_flag: Option<String>,
 }
 
 fn default_sandbox_unsupported() -> SandboxStrategy {
@@ -267,6 +270,7 @@ impl AgentDefinition {
                 name_flag: Some("--name".to_string()),
                 add_dir_flag: Some("--add-dir".to_string()),
                 approval_mode_flag: Some("--permission-mode".to_string()),
+                worktree_flag: Some("--worktree".to_string()),
             },
             github_repo: Some("anthropics/claude-code".to_string()),
             npm_package: Some("@anthropic-ai/claude-code".to_string()),
@@ -300,6 +304,7 @@ impl AgentDefinition {
                 name_flag: None,
                 add_dir_flag: Some("--add-dir".to_string()),
                 approval_mode_flag: Some("-a".to_string()),
+                worktree_flag: None,
             },
             github_repo: Some("openai/codex".to_string()),
             npm_package: None,
@@ -333,6 +338,7 @@ impl AgentDefinition {
                 name_flag: None,
                 add_dir_flag: Some("--include-directories".to_string()),
                 approval_mode_flag: Some("--approval-mode".to_string()),
+                worktree_flag: Some("--worktree".to_string()),
             },
             github_repo: Some("google-gemini/gemini-cli".to_string()),
             npm_package: Some("@google/gemini-cli".to_string()),
@@ -366,6 +372,7 @@ impl AgentDefinition {
                 name_flag: None,
                 add_dir_flag: None,
                 approval_mode_flag: None,
+                worktree_flag: None,
             },
             github_repo: Some("anomalyco/opencode".to_string()),
             npm_package: Some("opencode-ai".to_string()),
