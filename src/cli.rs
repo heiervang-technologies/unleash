@@ -97,6 +97,10 @@ pub struct PolyfillArgs {
     #[arg(short = 'x', long, num_args = 0..=1, default_missing_value = "")]
     pub crossload: Option<String>,
 
+    /// Enable verbose/debug output
+    #[arg(short = 'v', long)]
+    pub verbose: bool,
+
     /// Show the resolved command without executing it
     #[arg(long)]
     pub dry_run: bool,
@@ -119,6 +123,7 @@ impl PolyfillArgs {
             ucf: None,
             effort: None,
             crossload: None,
+            verbose: false,
             dry_run: false,
         };
         let mut passthrough = Vec::new();
@@ -148,6 +153,7 @@ impl PolyfillArgs {
                 "--fork" => polyfill.fork = true,
                 "-c" | "--continue" => polyfill.continue_session = true,
                 "-a" | "--auto" => polyfill.auto = true,
+                "-v" | "--verbose" => polyfill.verbose = true,
                 "--dry-run" => polyfill.dry_run = true,
                 "-p" | "--prompt" => {
                     if let Some(val) = args.get(i + 1).filter(|v| !v.starts_with('-')) {
@@ -303,6 +309,7 @@ impl PolyfillArgs {
             fork: self.fork,
             effort,
             auto: self.auto,
+            verbose: self.verbose,
         }
     }
 }
@@ -681,10 +688,8 @@ mod tests {
         ];
         let (polyfill, passthrough) = PolyfillArgs::parse_from_raw(&args);
         assert_eq!(polyfill.model, Some("opus".to_string()));
-        assert_eq!(
-            passthrough,
-            vec!["--verbose".to_string(), "--debug".to_string()]
-        );
+        assert!(polyfill.verbose);
+        assert_eq!(passthrough, vec!["--debug".to_string()]);
     }
 
     #[test]

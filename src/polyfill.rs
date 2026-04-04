@@ -34,6 +34,8 @@ pub struct PolyfillFlags {
     pub effort: Option<String>,
     /// Enable auto-mode (autonomous operation).
     pub auto: bool,
+    /// Enable verbose/debug output.
+    pub verbose: bool,
 }
 
 impl Default for PolyfillFlags {
@@ -48,6 +50,7 @@ impl Default for PolyfillFlags {
             fork: false,
             effort: None,
             auto: false,
+            verbose: false,
         }
     }
 }
@@ -125,6 +128,15 @@ pub fn resolve(
         if let Some(ref auto_flag) = config.auto_flag {
             if !is_dup(auto_flag) {
                 args.push(auto_flag.clone());
+            }
+        }
+    }
+
+    // --- Verbose ---
+    if flags.verbose {
+        if let Some(ref verbose_flag) = config.verbose_flag {
+            if !is_dup(verbose_flag) {
+                args.push(verbose_flag.clone());
             }
         }
     }
@@ -588,5 +600,51 @@ mod tests {
         };
         let inv = resolve(&config, &flags, &[]);
         assert!(!inv.args.iter().any(|a| a.contains("auto")));
+    }
+
+    // ── Verbose ─────────────────────────────────────────────
+
+    #[test]
+    fn test_claude_verbose() {
+        let config = AgentDefinition::claude().polyfill;
+        let flags = PolyfillFlags {
+            verbose: true,
+            ..default_flags()
+        };
+        let inv = resolve(&config, &flags, &[]);
+        assert!(inv.args.contains(&"--verbose".to_string()));
+    }
+
+    #[test]
+    fn test_gemini_verbose_is_debug() {
+        let config = AgentDefinition::gemini().polyfill;
+        let flags = PolyfillFlags {
+            verbose: true,
+            ..default_flags()
+        };
+        let inv = resolve(&config, &flags, &[]);
+        assert!(inv.args.contains(&"--debug".to_string()));
+    }
+
+    #[test]
+    fn test_opencode_verbose_is_print_logs() {
+        let config = AgentDefinition::opencode().polyfill;
+        let flags = PolyfillFlags {
+            verbose: true,
+            ..default_flags()
+        };
+        let inv = resolve(&config, &flags, &[]);
+        assert!(inv.args.contains(&"--print-logs".to_string()));
+    }
+
+    #[test]
+    fn test_codex_no_verbose_support() {
+        let config = AgentDefinition::codex().polyfill;
+        let flags = PolyfillFlags {
+            verbose: true,
+            ..default_flags()
+        };
+        let inv = resolve(&config, &flags, &[]);
+        assert!(!inv.args.iter().any(|a| a.contains("verbose") || a.contains("debug") || a.contains("print-logs")));
     }
 }
