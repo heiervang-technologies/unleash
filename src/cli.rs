@@ -113,6 +113,10 @@ pub struct PolyfillArgs {
     #[arg(long)]
     pub allowed_tools: Option<String>,
 
+    /// Enable sandbox mode
+    #[arg(long)]
+    pub sandbox: bool,
+
     /// Show the resolved command without executing it
     #[arg(long)]
     pub dry_run: bool,
@@ -139,6 +143,7 @@ impl PolyfillArgs {
             output_format: None,
             system_prompt: None,
             allowed_tools: None,
+            sandbox: false,
             dry_run: false,
         };
         let mut passthrough = Vec::new();
@@ -169,6 +174,7 @@ impl PolyfillArgs {
                 "-c" | "--continue" => polyfill.continue_session = true,
                 "-a" | "--auto" => polyfill.auto = true,
                 "-v" | "--verbose" => polyfill.verbose = true,
+                "--sandbox" => polyfill.sandbox = true,
                 "--dry-run" => polyfill.dry_run = true,
                 "-p" | "--prompt" => {
                     if let Some(val) = args.get(i + 1).filter(|v| !v.starts_with('-')) {
@@ -361,6 +367,7 @@ impl PolyfillArgs {
             output_format: self.output_format.clone(),
             system_prompt: self.system_prompt.clone(),
             allowed_tools: self.allowed_tools.clone(),
+            sandbox: self.sandbox,
         }
     }
 }

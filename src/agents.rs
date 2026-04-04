@@ -75,6 +75,18 @@ pub enum ForkStrategy {
     Unsupported,
 }
 
+/// Sandbox mode strategy
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum SandboxStrategy {
+    /// Boolean flag (e.g., Gemini: --sandbox)
+    BoolFlag(String),
+    /// Flag with a fixed value (e.g., Codex: --sandbox workspace-write)
+    ValueFlag(String, String),
+    /// Not supported by this agent
+    Unsupported,
+}
+
 /// Session management strategy
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SessionStrategy {
@@ -115,6 +127,13 @@ pub struct AgentPolyfillConfig {
     /// Flag name for allowed tools filter, if supported
     #[serde(default)]
     pub allowed_tools_flag: Option<String>,
+    /// Strategy for sandbox mode
+    #[serde(default = "default_sandbox_unsupported")]
+    pub sandbox: SandboxStrategy,
+}
+
+fn default_sandbox_unsupported() -> SandboxStrategy {
+    SandboxStrategy::Unsupported
 }
 
 impl AgentPolyfillConfig {
@@ -235,6 +254,7 @@ impl AgentDefinition {
                 output_format_flag: Some("--output-format".to_string()),
                 system_prompt_flag: Some("--system-prompt".to_string()),
                 allowed_tools_flag: Some("--allowedTools".to_string()),
+                sandbox: SandboxStrategy::Unsupported,
             },
             github_repo: Some("anthropics/claude-code".to_string()),
             npm_package: Some("@anthropic-ai/claude-code".to_string()),
@@ -264,6 +284,7 @@ impl AgentDefinition {
                 output_format_flag: None,
                 system_prompt_flag: None,
                 allowed_tools_flag: None,
+                sandbox: SandboxStrategy::ValueFlag("--sandbox".to_string(), "workspace-write".to_string()),
             },
             github_repo: Some("openai/codex".to_string()),
             npm_package: None,
@@ -293,6 +314,7 @@ impl AgentDefinition {
                 output_format_flag: Some("-o".to_string()),
                 system_prompt_flag: None,
                 allowed_tools_flag: Some("--allowed-tools".to_string()),
+                sandbox: SandboxStrategy::BoolFlag("--sandbox".to_string()),
             },
             github_repo: Some("google-gemini/gemini-cli".to_string()),
             npm_package: Some("@google/gemini-cli".to_string()),
@@ -322,6 +344,7 @@ impl AgentDefinition {
                 output_format_flag: None,
                 system_prompt_flag: None,
                 allowed_tools_flag: None,
+                sandbox: SandboxStrategy::Unsupported,
             },
             github_repo: Some("anomalyco/opencode".to_string()),
             npm_package: Some("opencode-ai".to_string()),

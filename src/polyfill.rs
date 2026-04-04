@@ -1,4 +1,4 @@
-use crate::agents::AgentPolyfillConfig;
+use crate::agents::{AgentPolyfillConfig, SandboxStrategy};
 use std::collections::HashMap;
 
 /// The resolved invocation details for a specific agent CLI.
@@ -42,6 +42,8 @@ pub struct PolyfillFlags {
     pub system_prompt: Option<String>,
     /// Allowed tools filter (comma-separated list).
     pub allowed_tools: Option<String>,
+    /// Enable sandbox mode.
+    pub sandbox: bool,
 }
 
 impl Default for PolyfillFlags {
@@ -60,6 +62,7 @@ impl Default for PolyfillFlags {
             output_format: None,
             system_prompt: None,
             allowed_tools: None,
+            sandbox: false,
         }
     }
 }
@@ -177,6 +180,24 @@ pub fn resolve(
                 args.push(allowed_tools_flag.clone());
                 args.push(tools.clone());
             }
+        }
+    }
+
+    // --- Sandbox ---
+    if flags.sandbox {
+        match &config.sandbox {
+            SandboxStrategy::BoolFlag(flag) => {
+                if !is_dup(flag) {
+                    args.push(flag.clone());
+                }
+            }
+            SandboxStrategy::ValueFlag(flag, value) => {
+                if !is_dup(flag) {
+                    args.push(flag.clone());
+                    args.push(value.clone());
+                }
+            }
+            SandboxStrategy::Unsupported => {}
         }
     }
 
@@ -784,5 +805,41 @@ mod tests {
         };
         let inv = resolve(&config, &flags, &[]);
         assert!(!inv.args.contains(&"Bash".to_string()));
+    }
+
+    // ── Sandbox ─────────────────────────────────────────────
+
+    #[test]
+    fn test_gemini_sandbox() {
+        let config = AgentDefinition::gemini().polyfill;
+        let flags = PolyfillFlags {
+            sandbox: true,
+            ..default_flags()
+        };
+        let inv = resolve(&config, &flags, &[]);
+        assert!(inv.args.contains(&"--sandbox".to_string()));
+    }
+
+    #[test]
+    fn test_codex_sandbox_workspace() {
+        let config = AgentDefinition::codex().polyfill;
+        let flags = PolyfillFlags {
+            sandbox: true,
+            ..default_flags()
+        };
+        let inv = resolve(&config, &flags, &[]);
+        assert!(inv.args.contains(&"--sandbox".to_string()));
+        assert!(inv.args.contains(&"workspace-write".to_string()));
+    }
+
+    #[test]
+    fn test_claude_no_sandbox_support() {
+        let config = AgentDefinition::claude().polyfill;
+        let flags = PolyfillFlags {
+            sandbox: true,
+            ..default_flags()
+        };
+        let inv = resolve(&config, &flags, &[]);
+        assert!(!inv.args.iter().any(|a| a.contains("sandbox")));
     }
 }
