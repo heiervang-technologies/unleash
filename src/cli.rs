@@ -484,14 +484,23 @@ USAGE:
   unleash <profile>    Run a profile (claude, codex, gemini, opencode, or custom)
 
 UNIFIED FLAGS (before --):
-  --safe               Restore approval prompts (permissions bypassed by default)
-  -p, --prompt       Run non-interactively with a given prompt
-  -m, --model          Model selection
-  -c, --continue       Continue most recent session
-  -r, --resume [id]    Resume session by ID or open picker
-  --fork               Fork the session
-  -a, --auto           Enable auto-mode
-  -e, --effort <LEVEL> Reasoning effort level (e.g., high, low)"#)]
+  --safe                       Restore approval prompts (permissions bypassed by default)
+  -p, --prompt <PROMPT>        Run non-interactively with a given prompt
+  -m, --model <MODEL>          Model selection
+  -c, --continue               Continue most recent session
+  -r, --resume [ID]            Resume session by ID or open picker
+  --fork                       Fork the session
+  -a, --auto                   Enable auto-mode
+  -e, --effort <LEVEL>         Reasoning effort level (e.g., high, low)
+  -v, --verbose                Enable verbose/debug output
+  --output-format <FORMAT>     Output format (json, text, stream-json)
+  --system-prompt <TEXT>       System prompt text to inject
+  --allowed-tools <TOOLS>      Allowed tools filter (comma-separated)
+  --sandbox                    Enable sandbox mode
+  --name <NAME>                Session name
+  --add-dir <DIR>              Additional directory to include
+  --approval-mode <MODE>       Approval/permission mode
+  --worktree [NAME]            Git worktree mode (optional name)"#)]
 pub struct Cli {
     /// Output results as JSON (supported by: auth, version, sessions, agents info, agents list)
     #[arg(long, global = true)]
