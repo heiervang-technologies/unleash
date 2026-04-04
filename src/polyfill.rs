@@ -44,6 +44,10 @@ pub struct PolyfillFlags {
     pub allowed_tools: Option<String>,
     /// Enable sandbox mode.
     pub sandbox: bool,
+    /// Session name.
+    pub name: Option<String>,
+    /// Additional directory to include.
+    pub add_dir: Option<String>,
 }
 
 impl Default for PolyfillFlags {
@@ -63,6 +67,8 @@ impl Default for PolyfillFlags {
             system_prompt: None,
             allowed_tools: None,
             sandbox: false,
+            name: None,
+            add_dir: None,
         }
     }
 }
@@ -198,6 +204,26 @@ pub fn resolve(
                 }
             }
             SandboxStrategy::Unsupported => {}
+        }
+    }
+
+    // --- Name ---
+    if let Some(ref name) = flags.name {
+        if let Some(ref name_flag) = config.name_flag {
+            if !is_dup(name_flag) {
+                args.push(name_flag.clone());
+                args.push(name.clone());
+            }
+        }
+    }
+
+    // --- Add Dir ---
+    if let Some(ref dir) = flags.add_dir {
+        if let Some(ref add_dir_flag) = config.add_dir_flag {
+            if !is_dup(add_dir_flag) {
+                args.push(add_dir_flag.clone());
+                args.push(dir.clone());
+            }
         }
     }
 
@@ -841,5 +867,68 @@ mod tests {
         };
         let inv = resolve(&config, &flags, &[]);
         assert!(!inv.args.iter().any(|a| a.contains("sandbox")));
+    }
+
+    // ── Name ────────────────────────────────────────────────
+
+    #[test]
+    fn test_claude_session_name() {
+        let config = AgentDefinition::claude().polyfill;
+        let flags = PolyfillFlags {
+            name: Some("my-session".into()),
+            ..default_flags()
+        };
+        let inv = resolve(&config, &flags, &[]);
+        assert!(inv.args.contains(&"--name".to_string()));
+        assert!(inv.args.contains(&"my-session".to_string()));
+    }
+
+    #[test]
+    fn test_codex_no_name_support() {
+        let config = AgentDefinition::codex().polyfill;
+        let flags = PolyfillFlags {
+            name: Some("test".into()),
+            ..default_flags()
+        };
+        let inv = resolve(&config, &flags, &[]);
+        assert!(!inv.args.contains(&"--name".to_string()));
+    }
+
+    // ── Add Dir ─────────────────────────────────────────────
+
+    #[test]
+    fn test_claude_add_dir() {
+        let config = AgentDefinition::claude().polyfill;
+        let flags = PolyfillFlags {
+            add_dir: Some("/tmp/extra".into()),
+            ..default_flags()
+        };
+        let inv = resolve(&config, &flags, &[]);
+        assert!(inv.args.contains(&"--add-dir".to_string()));
+        assert!(inv.args.contains(&"/tmp/extra".to_string()));
+    }
+
+    #[test]
+    fn test_codex_add_dir() {
+        let config = AgentDefinition::codex().polyfill;
+        let flags = PolyfillFlags {
+            add_dir: Some("/tmp/extra".into()),
+            ..default_flags()
+        };
+        let inv = resolve(&config, &flags, &[]);
+        assert!(inv.args.contains(&"--add-dir".to_string()));
+        assert!(inv.args.contains(&"/tmp/extra".to_string()));
+    }
+
+    #[test]
+    fn test_gemini_add_dir_is_include_directories() {
+        let config = AgentDefinition::gemini().polyfill;
+        let flags = PolyfillFlags {
+            add_dir: Some("/tmp/extra".into()),
+            ..default_flags()
+        };
+        let inv = resolve(&config, &flags, &[]);
+        assert!(inv.args.contains(&"--include-directories".to_string()));
+        assert!(inv.args.contains(&"/tmp/extra".to_string()));
     }
 }

@@ -117,6 +117,14 @@ pub struct PolyfillArgs {
     #[arg(long)]
     pub sandbox: bool,
 
+    /// Session name
+    #[arg(long)]
+    pub name: Option<String>,
+
+    /// Additional directory to include
+    #[arg(long)]
+    pub add_dir: Option<String>,
+
     /// Show the resolved command without executing it
     #[arg(long)]
     pub dry_run: bool,
@@ -144,6 +152,8 @@ impl PolyfillArgs {
             system_prompt: None,
             allowed_tools: None,
             sandbox: false,
+            name: None,
+            add_dir: None,
             dry_run: false,
         };
         let mut passthrough = Vec::new();
@@ -230,6 +240,24 @@ impl PolyfillArgs {
                         last_value_flag = Some(arg.clone());
                     }
                 }
+                "--name" => {
+                    if let Some(val) = args.get(i + 1).filter(|v| !v.starts_with('-')) {
+                        polyfill.name = Some(val.clone());
+                        i += 1;
+                        last_value_flag = None;
+                    } else {
+                        last_value_flag = Some(arg.clone());
+                    }
+                }
+                "--add-dir" => {
+                    if let Some(val) = args.get(i + 1).filter(|v| !v.starts_with('-')) {
+                        polyfill.add_dir = Some(val.clone());
+                        i += 1;
+                        last_value_flag = None;
+                    } else {
+                        last_value_flag = Some(arg.clone());
+                    }
+                }
                 "-x" | "--crossload" => {
                     if let Some(val) = args.get(i + 1) {
                         if !val.starts_with('-') {
@@ -275,6 +303,10 @@ impl PolyfillArgs {
                         polyfill.system_prompt = Some(val.to_string());
                     } else if let Some(val) = arg.strip_prefix("--allowed-tools=") {
                         polyfill.allowed_tools = Some(val.to_string());
+                    } else if let Some(val) = arg.strip_prefix("--name=") {
+                        polyfill.name = Some(val.to_string());
+                    } else if let Some(val) = arg.strip_prefix("--add-dir=") {
+                        polyfill.add_dir = Some(val.to_string());
                     } else {
                         // Unrecognized — pass through to agent
                         passthrough.push(arg.clone());
@@ -368,6 +400,8 @@ impl PolyfillArgs {
             system_prompt: self.system_prompt.clone(),
             allowed_tools: self.allowed_tools.clone(),
             sandbox: self.sandbox,
+            name: self.name.clone(),
+            add_dir: self.add_dir.clone(),
         }
     }
 }

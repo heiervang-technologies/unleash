@@ -130,6 +130,12 @@ pub struct AgentPolyfillConfig {
     /// Strategy for sandbox mode
     #[serde(default = "default_sandbox_unsupported")]
     pub sandbox: SandboxStrategy,
+    /// Flag name for session naming, if supported
+    #[serde(default)]
+    pub name_flag: Option<String>,
+    /// Flag name for adding extra directories, if supported
+    #[serde(default)]
+    pub add_dir_flag: Option<String>,
 }
 
 fn default_sandbox_unsupported() -> SandboxStrategy {
@@ -255,6 +261,8 @@ impl AgentDefinition {
                 system_prompt_flag: Some("--system-prompt".to_string()),
                 allowed_tools_flag: Some("--allowedTools".to_string()),
                 sandbox: SandboxStrategy::Unsupported,
+                name_flag: Some("--name".to_string()),
+                add_dir_flag: Some("--add-dir".to_string()),
             },
             github_repo: Some("anthropics/claude-code".to_string()),
             npm_package: Some("@anthropic-ai/claude-code".to_string()),
@@ -285,6 +293,8 @@ impl AgentDefinition {
                 system_prompt_flag: None,
                 allowed_tools_flag: None,
                 sandbox: SandboxStrategy::ValueFlag("--sandbox".to_string(), "workspace-write".to_string()),
+                name_flag: None,
+                add_dir_flag: Some("--add-dir".to_string()),
             },
             github_repo: Some("openai/codex".to_string()),
             npm_package: None,
@@ -315,6 +325,8 @@ impl AgentDefinition {
                 system_prompt_flag: None,
                 allowed_tools_flag: Some("--allowed-tools".to_string()),
                 sandbox: SandboxStrategy::BoolFlag("--sandbox".to_string()),
+                name_flag: None,
+                add_dir_flag: Some("--include-directories".to_string()),
             },
             github_repo: Some("google-gemini/gemini-cli".to_string()),
             npm_package: Some("@google/gemini-cli".to_string()),
@@ -345,6 +357,8 @@ impl AgentDefinition {
                 system_prompt_flag: None,
                 allowed_tools_flag: None,
                 sandbox: SandboxStrategy::Unsupported,
+                name_flag: None,
+                add_dir_flag: None,
             },
             github_repo: Some("anomalyco/opencode".to_string()),
             npm_package: Some("opencode-ai".to_string()),
