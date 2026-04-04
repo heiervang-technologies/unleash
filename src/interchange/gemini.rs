@@ -969,20 +969,22 @@ mod tests {
         ]);
         let hub = to_hub(&data).unwrap();
 
-        // Verify tool call and result are in content
+        // Verify tool call is in assistant message (hub[2]) and
+        // tool result is extracted to a separate user message (hub[3])
         if let HubRecord::Message(ref hub_msg) = hub[2] {
             let tool_uses: Vec<_> = hub_msg
                 .content
                 .iter()
                 .filter(|b| matches!(b, ContentBlock::ToolUse { .. }))
                 .collect();
+            assert_eq!(tool_uses.len(), 1);
+            // ToolResults are extracted to a subsequent user message
             let tool_results: Vec<_> = hub_msg
                 .content
                 .iter()
                 .filter(|b| matches!(b, ContentBlock::ToolResult { .. }))
                 .collect();
-            assert_eq!(tool_uses.len(), 1);
-            assert_eq!(tool_results.len(), 1);
+            assert_eq!(tool_results.len(), 0);
 
             if let ContentBlock::ToolUse {
                 display_name,
@@ -993,6 +995,19 @@ mod tests {
                 assert_eq!(display_name.as_deref(), Some("Shell Command"));
                 assert_eq!(description.as_deref(), Some("Execute a shell command"));
             }
+        }
+
+        // Verify the extracted tool result is in the subsequent user message
+        if let HubRecord::Message(ref result_msg) = hub[3] {
+            assert_eq!(result_msg.role, "user");
+            let tool_results: Vec<_> = result_msg
+                .content
+                .iter()
+                .filter(|b| matches!(b, ContentBlock::ToolResult { .. }))
+                .collect();
+            assert_eq!(tool_results.len(), 1);
+        } else {
+            panic!("Expected hub[3] to be a Message with extracted ToolResult");
         }
 
         let back = from_hub(&hub).unwrap();
