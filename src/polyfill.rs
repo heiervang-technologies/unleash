@@ -48,6 +48,8 @@ pub struct PolyfillFlags {
     pub name: Option<String>,
     /// Additional directory to include.
     pub add_dir: Option<String>,
+    /// Approval/permission mode.
+    pub approval_mode: Option<String>,
 }
 
 impl Default for PolyfillFlags {
@@ -69,6 +71,7 @@ impl Default for PolyfillFlags {
             sandbox: false,
             name: None,
             add_dir: None,
+            approval_mode: None,
         }
     }
 }
@@ -223,6 +226,16 @@ pub fn resolve(
             if !is_dup(add_dir_flag) {
                 args.push(add_dir_flag.clone());
                 args.push(dir.clone());
+            }
+        }
+    }
+
+    // --- Approval Mode ---
+    if let Some(ref mode) = flags.approval_mode {
+        if let Some(ref approval_mode_flag) = config.approval_mode_flag {
+            if !is_dup(approval_mode_flag) {
+                args.push(approval_mode_flag.clone());
+                args.push(mode.clone());
             }
         }
     }
@@ -930,5 +943,54 @@ mod tests {
         let inv = resolve(&config, &flags, &[]);
         assert!(inv.args.contains(&"--include-directories".to_string()));
         assert!(inv.args.contains(&"/tmp/extra".to_string()));
+    }
+
+    // ── Approval Mode ───────────────────────────────────────
+
+    #[test]
+    fn test_claude_permission_mode() {
+        let config = AgentDefinition::claude().polyfill;
+        let flags = PolyfillFlags {
+            approval_mode: Some("plan".into()),
+            ..default_flags()
+        };
+        let inv = resolve(&config, &flags, &[]);
+        assert!(inv.args.contains(&"--permission-mode".to_string()));
+        assert!(inv.args.contains(&"plan".to_string()));
+    }
+
+    #[test]
+    fn test_gemini_approval_mode() {
+        let config = AgentDefinition::gemini().polyfill;
+        let flags = PolyfillFlags {
+            approval_mode: Some("yolo".into()),
+            ..default_flags()
+        };
+        let inv = resolve(&config, &flags, &[]);
+        assert!(inv.args.contains(&"--approval-mode".to_string()));
+        assert!(inv.args.contains(&"yolo".to_string()));
+    }
+
+    #[test]
+    fn test_codex_approval_mode() {
+        let config = AgentDefinition::codex().polyfill;
+        let flags = PolyfillFlags {
+            approval_mode: Some("never".into()),
+            ..default_flags()
+        };
+        let inv = resolve(&config, &flags, &[]);
+        assert!(inv.args.contains(&"-a".to_string()));
+        assert!(inv.args.contains(&"never".to_string()));
+    }
+
+    #[test]
+    fn test_opencode_no_approval_mode() {
+        let config = AgentDefinition::opencode().polyfill;
+        let flags = PolyfillFlags {
+            approval_mode: Some("auto".into()),
+            ..default_flags()
+        };
+        let inv = resolve(&config, &flags, &[]);
+        assert!(!inv.args.contains(&"auto".to_string()));
     }
 }

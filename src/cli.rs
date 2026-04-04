@@ -125,6 +125,10 @@ pub struct PolyfillArgs {
     #[arg(long)]
     pub add_dir: Option<String>,
 
+    /// Approval/permission mode
+    #[arg(long)]
+    pub approval_mode: Option<String>,
+
     /// Show the resolved command without executing it
     #[arg(long)]
     pub dry_run: bool,
@@ -154,6 +158,7 @@ impl PolyfillArgs {
             sandbox: false,
             name: None,
             add_dir: None,
+            approval_mode: None,
             dry_run: false,
         };
         let mut passthrough = Vec::new();
@@ -258,6 +263,15 @@ impl PolyfillArgs {
                         last_value_flag = Some(arg.clone());
                     }
                 }
+                "--approval-mode" => {
+                    if let Some(val) = args.get(i + 1).filter(|v| !v.starts_with('-')) {
+                        polyfill.approval_mode = Some(val.clone());
+                        i += 1;
+                        last_value_flag = None;
+                    } else {
+                        last_value_flag = Some(arg.clone());
+                    }
+                }
                 "-x" | "--crossload" => {
                     if let Some(val) = args.get(i + 1) {
                         if !val.starts_with('-') {
@@ -307,6 +321,8 @@ impl PolyfillArgs {
                         polyfill.name = Some(val.to_string());
                     } else if let Some(val) = arg.strip_prefix("--add-dir=") {
                         polyfill.add_dir = Some(val.to_string());
+                    } else if let Some(val) = arg.strip_prefix("--approval-mode=") {
+                        polyfill.approval_mode = Some(val.to_string());
                     } else {
                         // Unrecognized — pass through to agent
                         passthrough.push(arg.clone());
@@ -402,6 +418,7 @@ impl PolyfillArgs {
             sandbox: self.sandbox,
             name: self.name.clone(),
             add_dir: self.add_dir.clone(),
+            approval_mode: self.approval_mode.clone(),
         }
     }
 }
