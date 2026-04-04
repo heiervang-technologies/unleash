@@ -176,6 +176,15 @@ impl PolyfillArgs {
                         last_value_flag = Some(arg.clone());
                     }
                 }
+                "-u" | "--ucf" => {
+                    if let Some(val) = args.get(i + 1).filter(|v| !v.starts_with('-')) {
+                        polyfill.ucf = Some(val.clone());
+                        i += 1;
+                        last_value_flag = None;
+                    } else {
+                        last_value_flag = Some(arg.clone());
+                    }
+                }
                 "-x" | "--crossload" => {
                     if let Some(val) = args.get(i + 1) {
                         if !val.starts_with('-') {
