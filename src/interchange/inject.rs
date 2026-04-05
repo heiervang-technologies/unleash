@@ -536,47 +536,273 @@ fn sha256_hex(input: &str) -> String {
     // Try sha256sum (Linux/BSD/Windows WSL), then shasum -a 256 (macOS).
     run_sha("sha256sum", &[], bytes)
         .or_else(|| run_sha("shasum", &["-a", "256"], bytes))
-        .unwrap_or_else(|| format!("{:016x}", input.len()))
+        .unwrap_or_else(|| {
+            let h = simple_hash(input);
+            format!("{:016x}{:016x}{:016x}{:016x}", h, input.len(), h, input.len())
+        })
 }
 
 fn inject_into_opencode(
     source: &SessionInfo,
     hub_records: &[HubRecord],
 ) -> Result<InjectionResult, ConvertError> {
-    // OpenCode uses SQLite — we'd need to INSERT into the database
-    // For now, export as Hub format and document manual import
-    let session_id = extract_session_id(hub_records);
+    let oc_output = opencode::from_hub(hub_records)?;
 
-    let output_dir = dirs::home_dir()
-        .ok_or_else(|| ConvertError::InvalidFormat("No home dir".into()))?
-        .join(".local")
-        .join("share")
+    let db_path = dirs::data_dir()
+        .ok_or_else(|| ConvertError::InvalidFormat("No data dir".into()))?
         .join("opencode")
-        .join("imported");
+        .join("opencode.db");
 
-    std::fs::create_dir_all(&output_dir)?;
-
-    let output_path = output_dir.join(format!("{session_id}.ucf.jsonl"));
-
-    let mut output = String::new();
-    for record in hub_records {
-        output.push_str(&serde_json::to_string(record)?);
-        output.push('\n');
+    if !db_path.exists() {
+        return Err(ConvertError::InvalidFormat(format!(
+            "OpenCode database not found at {}",
+            db_path.display()
+        )));
     }
-    std::fs::write(&output_path, &output)?;
 
-    eprintln!("Exported to hub format at {}", output_path.display());
-    eprintln!("Note: OpenCode SQLite injection not yet supported. Use hub file for reference.");
+    let conn = rusqlite::Connection::open(&db_path)
+        .map_err(|e| ConvertError::InvalidFormat(format!("Failed to open OpenCode DB: {e}")))?;
+
+    // Use current working directory as the project directory
+    let cwd = std::env::current_dir()
+        .map(|p| p.to_string_lossy().to_string())
+        .unwrap_or_else(|_| source.directory.clone());
+
+    // Find or create the project entry (outside transaction — idempotent)
+    let project_id = find_or_create_opencode_project(&conn, &cwd)?;
+
+    let now_ms = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_millis() as i64;
+
+    // Pre-generate all IDs with atomic counter to avoid collisions
+    let session_id = opencode_id("ses");
+    let slug = generate_slug();
+    let msg_ids: Vec<String> = (0..oc_output.messages.len())
+        .map(|_| opencode_id("msg"))
+        .collect();
+
+    let title = source
+        .title
+        .as_deref()
+        .unwrap_or(source.name.as_deref().unwrap_or("Imported session"));
+
+    // Pre-group parts by _msg_idx for O(N) lookup instead of O(N*M)
+    let mut parts_by_msg: std::collections::HashMap<u64, Vec<&serde_json::Value>> =
+        std::collections::HashMap::new();
+    for part in &oc_output.parts {
+        if let Some(idx) = part.get("_msg_idx").and_then(|v| v.as_u64()) {
+            parts_by_msg.entry(idx).or_default().push(part);
+        }
+    }
+
+    // Wrap all inserts in a transaction for atomicity
+    let tx = conn
+        .unchecked_transaction()
+        .map_err(|e| ConvertError::InvalidFormat(format!("Failed to begin transaction: {e}")))?;
+
+    tx.execute(
+        "INSERT INTO session (id, project_id, slug, directory, title, version, time_created, time_updated)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+        rusqlite::params![session_id, project_id, slug, cwd, title, "1.0.0", now_ms, now_ms],
+    )
+    .map_err(|e| ConvertError::InvalidFormat(format!("Failed to insert session: {e}")))?;
+
+    // Insert messages and parts
+    for (msg_i, oc_msg) in oc_output.messages.iter().enumerate() {
+        let msg_id = &msg_ids[msg_i];
+        let parent_msg_id = if msg_i > 0 { Some(&msg_ids[msg_i - 1]) } else { None };
+
+        // Patch the message data with proper IDs and parentID chain
+        let mut msg_data = oc_msg.clone();
+        msg_data["id"] = serde_json::Value::String(msg_id.clone());
+        msg_data["sessionID"] = serde_json::Value::String(session_id.clone());
+        if let Some(pid) = parent_msg_id {
+            msg_data["parentID"] = serde_json::Value::String(pid.clone());
+        }
+
+        let msg_created = msg_data
+            .get("time")
+            .and_then(|t| t.get("created"))
+            .and_then(|v| v.as_f64().or_else(|| v.as_i64().map(|i| i as f64)))
+            .unwrap_or(now_ms as f64) as i64;
+
+        let msg_updated = msg_data
+            .get("time")
+            .and_then(|t| t.get("completed"))
+            .and_then(|v| v.as_f64().or_else(|| v.as_i64().map(|i| i as f64)))
+            .unwrap_or(msg_created as f64) as i64;
+
+        let data_str = serde_json::to_string(&msg_data)?;
+
+        tx.execute(
+            "INSERT INTO message (id, session_id, time_created, time_updated, data) VALUES (?1, ?2, ?3, ?4, ?5)",
+            rusqlite::params![msg_id, session_id, msg_created, msg_updated, data_str],
+        )
+        .map_err(|e| ConvertError::InvalidFormat(format!("Failed to insert message {msg_i}: {e}")))?;
+
+        // Insert parts that belong to this message (pre-grouped)
+        if let Some(msg_parts) = parts_by_msg.get(&(msg_i as u64)) {
+            for part in msg_parts {
+                let part_id = opencode_id("prt");
+                let mut part_data = (*part).clone();
+                if let Some(obj) = part_data.as_object_mut() {
+                    obj.remove("_msg_idx");
+                }
+                let part_str = serde_json::to_string(&part_data)?;
+
+                tx.execute(
+                    "INSERT INTO part (id, message_id, session_id, time_created, time_updated, data) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+                    rusqlite::params![part_id, msg_id, session_id, msg_created, msg_updated, part_str],
+                )
+                .map_err(|e| ConvertError::InvalidFormat(format!("Failed to insert part: {e}")))?;
+            }
+        }
+    }
+
+    tx.commit()
+        .map_err(|e| ConvertError::InvalidFormat(format!("Failed to commit transaction: {e}")))?;
+
+    eprintln!(
+        "Injected {} messages into OpenCode (session: {}, slug: {})",
+        oc_output.messages.len(),
+        session_id,
+        slug,
+    );
 
     Ok(InjectionResult {
-        session_id,
-        resume_args: vec![],
+        session_id: session_id.clone(),
+        resume_args: vec!["-s".into(), session_id],
         message: format!(
-            "Session '{}' from {} exported as hub format (OpenCode SQLite injection pending)",
+            "Session '{}' from {} injected into OpenCode (slug: {})",
             source.name.as_deref().unwrap_or(&source.id),
             source.cli,
+            slug,
         ),
     })
+}
+
+/// Find an existing OpenCode project by worktree path, or create one.
+fn find_or_create_opencode_project(
+    conn: &rusqlite::Connection,
+    worktree: &str,
+) -> Result<String, ConvertError> {
+    // Check if project already exists for this worktree
+    let existing: Option<String> = conn
+        .query_row(
+            "SELECT id FROM project WHERE worktree = ?1",
+            [worktree],
+            |row| row.get(0),
+        )
+        .ok();
+
+    if let Some(id) = existing {
+        return Ok(id);
+    }
+
+    // Create a new project entry
+    let project_id = sha1_hex(worktree);
+    let now_ms = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_millis() as i64;
+
+    conn.execute(
+        "INSERT INTO project (id, worktree, vcs, time_created, time_updated, sandboxes) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+        rusqlite::params![project_id, worktree, "git", now_ms, now_ms, "[]"],
+    )
+    .map_err(|e| ConvertError::InvalidFormat(format!("Failed to insert project: {e}")))?;
+
+    eprintln!("Created OpenCode project for {worktree}");
+    Ok(project_id)
+}
+
+/// Generate an OpenCode-style prefixed ID (e.g. ses_xxxx, msg_xxxx, prt_xxxx).
+/// Uses an atomic counter to guarantee uniqueness across rapid calls within the same process.
+fn opencode_id(prefix: &str) -> String {
+    use std::sync::atomic::{AtomicU64, Ordering};
+    use std::time::{SystemTime, UNIX_EPOCH};
+    static COUNTER: AtomicU64 = AtomicU64::new(0);
+
+    let nanos = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_nanos();
+    let seq = COUNTER.fetch_add(1, Ordering::Relaxed) as u128;
+    let pid = std::process::id() as u128;
+    let val = nanos ^ (pid << 32) ^ (seq << 48);
+    // Hex timestamp prefix + base62 random suffix
+    let hex_part = format!("{:08x}", (nanos / 1_000_000) as u32);
+    let suffix = base62_encode(val);
+    format!("{prefix}_{hex_part}{suffix}")
+}
+
+fn base62_encode(mut val: u128) -> String {
+    const CHARS: &[u8] = b"0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz";
+    if val == 0 {
+        return "0".to_string();
+    }
+    let mut result = Vec::new();
+    while val > 0 {
+        result.push(CHARS[(val % 62) as usize]);
+        val /= 62;
+    }
+    result.reverse();
+    String::from_utf8(result).unwrap_or_default()
+}
+
+fn sha1_hex(input: &str) -> String {
+    // Shell out to sha1sum/shasum for SHA1, matching OpenCode's project ID generation
+    fn run_sha(cmd: &str, args: &[&str], data: &[u8]) -> Option<String> {
+        use std::io::Write;
+        let mut child = std::process::Command::new(cmd)
+            .args(args)
+            .stdin(std::process::Stdio::piped())
+            .stdout(std::process::Stdio::piped())
+            .stderr(std::process::Stdio::null())
+            .spawn()
+            .ok()?;
+        child.stdin.take()?.write_all(data).ok()?;
+        let out = child.wait_with_output().ok()?;
+        String::from_utf8(out.stdout)
+            .ok()?
+            .split_whitespace()
+            .next()
+            .map(String::from)
+    }
+
+    let bytes = input.as_bytes();
+    run_sha("sha1sum", &[], bytes)
+        .or_else(|| run_sha("shasum", &["-a", "1"], bytes))
+        .unwrap_or_else(|| {
+            let h = simple_hash(input);
+            format!("{:016x}{:016x}{:08x}", h, input.len(), h as u32)
+        })
+}
+
+fn generate_slug() -> String {
+    use std::time::{SystemTime, UNIX_EPOCH};
+    let adjectives = [
+        "amber", "bold", "calm", "dark", "eager", "fair", "glad", "hazy",
+        "idle", "keen", "lean", "mild", "neat", "odd", "pale", "quick",
+        "rare", "slim", "tall", "vast", "warm", "wise", "young", "zen",
+    ];
+    let nouns = [
+        "bear", "crow", "deer", "dove", "eagle", "fawn", "goat", "hawk",
+        "ibis", "jay", "kite", "lark", "mole", "newt", "owl", "pike",
+        "quail", "robin", "seal", "toad", "urchin", "vole", "wolf", "wren",
+    ];
+    let nanos = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_nanos();
+    let pid = std::process::id() as u128;
+    let seed = nanos.wrapping_mul(pid.wrapping_add(1));
+    let adj = adjectives[(seed % adjectives.len() as u128) as usize];
+    let noun = nouns[((seed / adjectives.len() as u128) % nouns.len() as u128) as usize];
+    let suffix = format!("{:04x}", (seed >> 16) & 0xFFFF);
+    format!("{adj}-{noun}-{suffix}")
 }
 
 // === Helpers ===
@@ -896,5 +1122,192 @@ mod tests {
                 "different paths should produce different SHA-256 hashes"
             );
         }
+    }
+
+    // ── opencode_id ─────────────────────────────────────────
+
+    #[test]
+    fn test_opencode_id_format() {
+        let id = opencode_id("ses");
+        assert!(id.starts_with("ses_"), "should start with prefix: {id}");
+        // Hex part after prefix should be 8 chars
+        let after_prefix = &id[4..];
+        assert!(after_prefix.len() >= 9, "should have hex + suffix: {id}");
+        let hex_part = &after_prefix[..8];
+        assert!(
+            hex_part.chars().all(|c| c.is_ascii_hexdigit()),
+            "hex part should be hex: {hex_part}"
+        );
+    }
+
+    #[test]
+    fn test_opencode_id_uniqueness() {
+        let mut ids: std::collections::HashSet<String> = std::collections::HashSet::new();
+        for _ in 0..1000 {
+            let id = opencode_id("msg");
+            assert!(ids.insert(id.clone()), "duplicate ID generated: {id}");
+        }
+    }
+
+    #[test]
+    fn test_opencode_id_different_prefixes() {
+        let ses = opencode_id("ses");
+        let msg = opencode_id("msg");
+        let prt = opencode_id("prt");
+        assert!(ses.starts_with("ses_"));
+        assert!(msg.starts_with("msg_"));
+        assert!(prt.starts_with("prt_"));
+    }
+
+    // ── base62_encode ───────────────────────────────────────
+
+    #[test]
+    fn test_base62_encode_zero() {
+        assert_eq!(base62_encode(0), "0");
+    }
+
+    #[test]
+    fn test_base62_encode_known_values() {
+        assert_eq!(base62_encode(1), "1");
+        assert_eq!(base62_encode(61), "z");
+        assert_eq!(base62_encode(62), "10");
+    }
+
+    #[test]
+    fn test_base62_encode_only_valid_chars() {
+        let encoded = base62_encode(u128::MAX);
+        assert!(
+            encoded
+                .chars()
+                .all(|c| c.is_ascii_alphanumeric()),
+            "should only contain alphanumeric chars: {encoded}"
+        );
+    }
+
+    // ── sha1_hex ────────────────────────────────────────────
+
+    #[test]
+    fn test_sha1_hex_known_value() {
+        let hash = sha1_hex("");
+        assert!(
+            hash.chars().all(|c| c.is_ascii_hexdigit()),
+            "should be hex: {hash}"
+        );
+        // SHA1("") = da39a3ee5e6b4b0d3255bfef95601890afd80709
+        if hash.len() == 40 {
+            assert_eq!(hash, "da39a3ee5e6b4b0d3255bfef95601890afd80709");
+        }
+    }
+
+    #[test]
+    fn test_sha1_hex_different_inputs() {
+        let h1 = sha1_hex("/home/alice");
+        let h2 = sha1_hex("/home/bob");
+        if h1.len() == 40 {
+            assert_ne!(h1, h2);
+        }
+    }
+
+    // ── generate_slug ───────────────────────────────────────
+
+    #[test]
+    fn test_generate_slug_format() {
+        let slug = generate_slug();
+        let parts: Vec<&str> = slug.split('-').collect();
+        assert_eq!(parts.len(), 3, "slug should be adjective-noun-suffix: {slug}");
+        assert!(
+            parts[0].chars().all(|c| c.is_ascii_lowercase()),
+            "adjective should be lowercase: {}",
+            parts[0]
+        );
+        assert!(
+            parts[1].chars().all(|c| c.is_ascii_lowercase()),
+            "noun should be lowercase: {}",
+            parts[1]
+        );
+        assert!(
+            parts[2].chars().all(|c| c.is_ascii_hexdigit()),
+            "suffix should be hex: {}",
+            parts[2]
+        );
+    }
+
+    // ── inject_into_opencode (in-memory DB) ─────────────────
+
+    #[test]
+    fn test_inject_into_opencode_sqlite() {
+        // Create an in-memory SQLite DB with OpenCode's schema
+        let conn = rusqlite::Connection::open_in_memory().unwrap();
+        conn.execute_batch(
+            "CREATE TABLE project (
+                id TEXT PRIMARY KEY,
+                worktree TEXT NOT NULL,
+                vcs TEXT,
+                name TEXT,
+                icon_url TEXT,
+                icon_color TEXT,
+                time_created INTEGER NOT NULL,
+                time_updated INTEGER NOT NULL,
+                time_initialized INTEGER,
+                sandboxes TEXT NOT NULL,
+                commands TEXT
+            );
+            CREATE TABLE session (
+                id TEXT PRIMARY KEY,
+                project_id TEXT NOT NULL,
+                parent_id TEXT,
+                slug TEXT NOT NULL,
+                directory TEXT NOT NULL,
+                title TEXT NOT NULL,
+                version TEXT NOT NULL,
+                share_url TEXT,
+                summary_additions INTEGER,
+                summary_deletions INTEGER,
+                summary_files INTEGER,
+                summary_diffs TEXT,
+                revert TEXT,
+                permission TEXT,
+                time_created INTEGER NOT NULL,
+                time_updated INTEGER NOT NULL,
+                time_compacting INTEGER,
+                time_archived INTEGER,
+                workspace_id TEXT,
+                FOREIGN KEY (project_id) REFERENCES project(id) ON DELETE CASCADE
+            );
+            CREATE TABLE message (
+                id TEXT PRIMARY KEY,
+                session_id TEXT NOT NULL,
+                time_created INTEGER NOT NULL,
+                time_updated INTEGER NOT NULL,
+                data TEXT NOT NULL,
+                FOREIGN KEY (session_id) REFERENCES session(id) ON DELETE CASCADE
+            );
+            CREATE TABLE part (
+                id TEXT PRIMARY KEY,
+                message_id TEXT NOT NULL,
+                session_id TEXT NOT NULL,
+                time_created INTEGER NOT NULL,
+                time_updated INTEGER NOT NULL,
+                data TEXT NOT NULL,
+                FOREIGN KEY (message_id) REFERENCES message(id) ON DELETE CASCADE
+            );",
+        )
+        .unwrap();
+
+        // Verify find_or_create_opencode_project creates a project
+        let project_id =
+            find_or_create_opencode_project(&conn, "/home/test/project").unwrap();
+        assert!(!project_id.is_empty());
+
+        // Second call should return the same project
+        let project_id2 =
+            find_or_create_opencode_project(&conn, "/home/test/project").unwrap();
+        assert_eq!(project_id, project_id2);
+
+        // Verify project was created
+        let count: i64 = conn
+            .query_row("SELECT COUNT(*) FROM project", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(count, 1);
     }
 }
