@@ -543,40 +543,241 @@ fn inject_into_opencode(
     source: &SessionInfo,
     hub_records: &[HubRecord],
 ) -> Result<InjectionResult, ConvertError> {
-    // OpenCode uses SQLite — we'd need to INSERT into the database
-    // For now, export as Hub format and document manual import
-    let session_id = extract_session_id(hub_records);
+    let oc_output = opencode::from_hub(hub_records)?;
 
-    let output_dir = dirs::home_dir()
-        .ok_or_else(|| ConvertError::InvalidFormat("No home dir".into()))?
-        .join(".local")
-        .join("share")
+    let db_path = dirs::data_dir()
+        .ok_or_else(|| ConvertError::InvalidFormat("No data dir".into()))?
         .join("opencode")
-        .join("imported");
+        .join("opencode.db");
 
-    std::fs::create_dir_all(&output_dir)?;
-
-    let output_path = output_dir.join(format!("{session_id}.ucf.jsonl"));
-
-    let mut output = String::new();
-    for record in hub_records {
-        output.push_str(&serde_json::to_string(record)?);
-        output.push('\n');
+    if !db_path.exists() {
+        return Err(ConvertError::InvalidFormat(format!(
+            "OpenCode database not found at {}",
+            db_path.display()
+        )));
     }
-    std::fs::write(&output_path, &output)?;
 
-    eprintln!("Exported to hub format at {}", output_path.display());
-    eprintln!("Note: OpenCode SQLite injection not yet supported. Use hub file for reference.");
+    let conn = rusqlite::Connection::open(&db_path)
+        .map_err(|e| ConvertError::InvalidFormat(format!("Failed to open OpenCode DB: {e}")))?;
+
+    // Use current working directory as the project directory
+    let cwd = std::env::current_dir()
+        .map(|p| p.to_string_lossy().to_string())
+        .unwrap_or_else(|_| source.directory.clone());
+
+    // Find or create the project entry
+    let project_id = find_or_create_opencode_project(&conn, &cwd)?;
+
+    let now_ms = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_millis() as i64;
+
+    // Generate OpenCode-style IDs
+    let session_id = opencode_id("ses");
+    let slug = generate_slug();
+
+    let title = source
+        .title
+        .as_deref()
+        .unwrap_or(source.name.as_deref().unwrap_or("Imported session"));
+
+    // Insert session
+    conn.execute(
+        "INSERT INTO session (id, project_id, slug, directory, title, version, time_created, time_updated)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+        rusqlite::params![session_id, project_id, slug, cwd, title, "1.0.0", now_ms, now_ms],
+    )
+    .map_err(|e| ConvertError::InvalidFormat(format!("Failed to insert session: {e}")))?;
+
+    // Insert messages and parts
+    let mut parent_msg_id: Option<String> = None;
+    for (msg_i, oc_msg) in oc_output.messages.iter().enumerate() {
+        let msg_id = opencode_id("msg");
+
+        // Patch the message data with proper IDs and parentID chain
+        let mut msg_data = oc_msg.clone();
+        msg_data["id"] = serde_json::Value::String(msg_id.clone());
+        msg_data["sessionID"] = serde_json::Value::String(session_id.clone());
+        if let Some(ref pid) = parent_msg_id {
+            msg_data["parentID"] = serde_json::Value::String(pid.clone());
+        }
+
+        let msg_created = msg_data
+            .get("time")
+            .and_then(|t| t.get("created"))
+            .and_then(|v| v.as_f64().or_else(|| v.as_i64().map(|i| i as f64)))
+            .unwrap_or(now_ms as f64) as i64;
+
+        let msg_updated = msg_data
+            .get("time")
+            .and_then(|t| t.get("completed"))
+            .and_then(|v| v.as_f64().or_else(|| v.as_i64().map(|i| i as f64)))
+            .unwrap_or(msg_created as f64) as i64;
+
+        let data_str = serde_json::to_string(&msg_data)?;
+
+        conn.execute(
+            "INSERT INTO message (id, session_id, time_created, time_updated, data) VALUES (?1, ?2, ?3, ?4, ?5)",
+            rusqlite::params![msg_id, session_id, msg_created, msg_updated, data_str],
+        )
+        .map_err(|e| ConvertError::InvalidFormat(format!("Failed to insert message {msg_i}: {e}")))?;
+
+        // Insert parts that belong to this message
+        // Parts from from_hub have _msg_idx tags to associate them
+        for part in &oc_output.parts {
+            let part_msg_idx = part.get("_msg_idx").and_then(|v| v.as_u64());
+            if part_msg_idx != Some(msg_i as u64) {
+                continue;
+            }
+
+            let part_id = opencode_id("prt");
+            let mut part_data = part.clone();
+            if let Some(obj) = part_data.as_object_mut() {
+                obj.remove("_msg_idx");
+            }
+            let part_str = serde_json::to_string(&part_data)?;
+
+            conn.execute(
+                "INSERT INTO part (id, message_id, session_id, time_created, time_updated, data) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+                rusqlite::params![part_id, msg_id, session_id, msg_created, msg_updated, part_str],
+            )
+            .map_err(|e| ConvertError::InvalidFormat(format!("Failed to insert part: {e}")))?;
+        }
+
+        parent_msg_id = Some(msg_id);
+    }
+
+    eprintln!(
+        "Injected {} messages into OpenCode (session: {}, slug: {})",
+        oc_output.messages.len(),
+        session_id,
+        slug,
+    );
 
     Ok(InjectionResult {
-        session_id,
-        resume_args: vec![],
+        session_id: session_id.clone(),
+        resume_args: vec!["-s".into(), session_id],
         message: format!(
-            "Session '{}' from {} exported as hub format (OpenCode SQLite injection pending)",
+            "Session '{}' from {} injected into OpenCode (slug: {})",
             source.name.as_deref().unwrap_or(&source.id),
             source.cli,
+            slug,
         ),
     })
+}
+
+/// Find an existing OpenCode project by worktree path, or create one.
+fn find_or_create_opencode_project(
+    conn: &rusqlite::Connection,
+    worktree: &str,
+) -> Result<String, ConvertError> {
+    // Check if project already exists for this worktree
+    let existing: Option<String> = conn
+        .query_row(
+            "SELECT id FROM project WHERE worktree = ?1",
+            [worktree],
+            |row| row.get(0),
+        )
+        .ok();
+
+    if let Some(id) = existing {
+        return Ok(id);
+    }
+
+    // Create a new project entry
+    let project_id = sha1_hex(worktree);
+    let now_ms = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_millis() as i64;
+
+    conn.execute(
+        "INSERT INTO project (id, worktree, vcs, time_created, time_updated, sandboxes) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+        rusqlite::params![project_id, worktree, "git", now_ms, now_ms, "[]"],
+    )
+    .map_err(|e| ConvertError::InvalidFormat(format!("Failed to insert project: {e}")))?;
+
+    eprintln!("Created OpenCode project for {worktree}");
+    Ok(project_id)
+}
+
+/// Generate an OpenCode-style prefixed ID (e.g. ses_xxxx, msg_xxxx, prt_xxxx).
+fn opencode_id(prefix: &str) -> String {
+    use std::time::{SystemTime, UNIX_EPOCH};
+    let nanos = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_nanos();
+    let pid = std::process::id() as u128;
+    let val = nanos ^ (pid << 32);
+    // Hex timestamp prefix + base62 random suffix
+    let hex_part = format!("{:08x}", (nanos / 1_000_000) as u32);
+    let suffix = base62_encode(val);
+    format!("{prefix}_{hex_part}{suffix}")
+}
+
+fn base62_encode(mut val: u128) -> String {
+    const CHARS: &[u8] = b"0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz";
+    if val == 0 {
+        return "0".to_string();
+    }
+    let mut result = Vec::new();
+    while val > 0 {
+        result.push(CHARS[(val % 62) as usize]);
+        val /= 62;
+    }
+    result.reverse();
+    String::from_utf8(result).unwrap_or_default()
+}
+
+fn sha1_hex(input: &str) -> String {
+    // Shell out to sha1sum/shasum for SHA1, matching OpenCode's project ID generation
+    fn run_sha(cmd: &str, args: &[&str], data: &[u8]) -> Option<String> {
+        use std::io::Write;
+        let mut child = std::process::Command::new(cmd)
+            .args(args)
+            .stdin(std::process::Stdio::piped())
+            .stdout(std::process::Stdio::piped())
+            .stderr(std::process::Stdio::null())
+            .spawn()
+            .ok()?;
+        child.stdin.take()?.write_all(data).ok()?;
+        let out = child.wait_with_output().ok()?;
+        String::from_utf8(out.stdout)
+            .ok()?
+            .split_whitespace()
+            .next()
+            .map(String::from)
+    }
+
+    let bytes = input.as_bytes();
+    run_sha("sha1sum", &[], bytes)
+        .or_else(|| run_sha("shasum", &["-a", "1"], bytes))
+        .unwrap_or_else(|| format!("{:040x}", input.len()))
+}
+
+fn generate_slug() -> String {
+    use std::time::{SystemTime, UNIX_EPOCH};
+    let adjectives = [
+        "amber", "bold", "calm", "dark", "eager", "fair", "glad", "hazy",
+        "idle", "keen", "lean", "mild", "neat", "odd", "pale", "quick",
+        "rare", "slim", "tall", "vast", "warm", "wise", "young", "zen",
+    ];
+    let nouns = [
+        "bear", "crow", "deer", "dove", "eagle", "fawn", "goat", "hawk",
+        "ibis", "jay", "kite", "lark", "mole", "newt", "owl", "pike",
+        "quail", "robin", "seal", "toad", "urchin", "vole", "wolf", "wren",
+    ];
+    let nanos = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_nanos();
+    let pid = std::process::id() as u128;
+    let seed = nanos.wrapping_mul(pid.wrapping_add(1));
+    let adj = adjectives[(seed % adjectives.len() as u128) as usize];
+    let noun = nouns[((seed / adjectives.len() as u128) % nouns.len() as u128) as usize];
+    format!("{adj}-{noun}")
 }
 
 // === Helpers ===

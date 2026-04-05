@@ -2,7 +2,7 @@
 
 Status of conversation history loading between all supported agent CLIs.
 
-**Last updated:** 2026-03-30
+**Last updated:** 2026-04-05
 
 ## Usage
 
@@ -34,9 +34,9 @@ unleash convert --from codex session.jsonl --to claude -o output.jsonl
 | Codex → Gemini | :white_circle: Untested | |
 | Gemini → Codex | :white_circle: Untested | |
 | OpenCode → Gemini | :white_circle: Untested | |
-| Codex → OpenCode | :white_circle: Untested | SQLite injection pending |
-| Claude → OpenCode | :white_circle: Untested | SQLite injection pending |
-| Gemini → OpenCode | :white_circle: Untested | SQLite injection pending |
+| Claude → OpenCode | :yellow_circle: Partial | SQLite injection implemented, thinking blocks as text |
+| Codex → OpenCode | :white_circle: Untested | SQLite injection implemented |
+| Gemini → OpenCode | :white_circle: Untested | SQLite injection implemented |
 
 **Legend:** :green_circle: Lossless (verified end-to-end) · :yellow_circle: Partial (works with known limitations) · :red_circle: Not working · :white_circle: Untested
 
@@ -61,7 +61,7 @@ Hub-and-spoke model: O(N) converters, not O(N^2) direct pairs.
 
 - **Claude injection**: non-message events (progress, hooks, token counts) are filtered out. Only user/assistant messages with real content are injected. System preamble (`<environment_context>`, `<permissions>`) is stripped.
 - **Gemini injection**: requires valid `startTime`, `lastUpdated`, `sessionId`, and at least one user/gemini message. Sessions with only system messages are deleted by Gemini CLI.
-- **OpenCode injection**: SQLite writes not yet implemented. Currently exports to hub format only.
+- **OpenCode injection**: writes directly to SQLite database. Session, message, and part rows are created with proper ID chains. Project is auto-created if not found.
 - **Thinking blocks**: Claude requires signed thinking blocks. Foreign thinking/reasoning blocks are converted to `[Reasoning]: ...` text blocks.
 - **Tool calls**: preserved structurally where formats align. Codex function_call maps to tool_use, function_call_output maps to tool_result.
 
@@ -73,7 +73,7 @@ On crossload, automatically update the target CLI's session index:
 - **Claude**: append to `~/.claude/history.jsonl`
 - **Codex**: append to `~/.codex/session_index.jsonl`
 - **Gemini**: write `logs.json` entries (already implemented)
-- **OpenCode**: INSERT into SQLite (pending)
+- **OpenCode**: INSERT into SQLite (implemented)
 
 ### Session List UX (#303)
 
