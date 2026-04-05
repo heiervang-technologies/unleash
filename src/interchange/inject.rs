@@ -536,7 +536,10 @@ fn sha256_hex(input: &str) -> String {
     // Try sha256sum (Linux/BSD/Windows WSL), then shasum -a 256 (macOS).
     run_sha("sha256sum", &[], bytes)
         .or_else(|| run_sha("shasum", &["-a", "256"], bytes))
-        .unwrap_or_else(|| format!("{:016x}", input.len()))
+        .unwrap_or_else(|| {
+            let h = simple_hash(input);
+            format!("{:016x}{:016x}{:016x}{:016x}", h, input.len(), h, input.len())
+        })
 }
 
 fn inject_into_opencode(
@@ -772,7 +775,10 @@ fn sha1_hex(input: &str) -> String {
     let bytes = input.as_bytes();
     run_sha("sha1sum", &[], bytes)
         .or_else(|| run_sha("shasum", &["-a", "1"], bytes))
-        .unwrap_or_else(|| format!("{:040x}", input.len()))
+        .unwrap_or_else(|| {
+            let h = simple_hash(input);
+            format!("{:016x}{:016x}{:08x}", h, input.len(), h as u32)
+        })
 }
 
 fn generate_slug() -> String {
@@ -795,7 +801,8 @@ fn generate_slug() -> String {
     let seed = nanos.wrapping_mul(pid.wrapping_add(1));
     let adj = adjectives[(seed % adjectives.len() as u128) as usize];
     let noun = nouns[((seed / adjectives.len() as u128) % nouns.len() as u128) as usize];
-    format!("{adj}-{noun}")
+    let suffix = format!("{:04x}", (seed >> 16) & 0xFFFF);
+    format!("{adj}-{noun}-{suffix}")
 }
 
 // === Helpers ===
@@ -1207,7 +1214,7 @@ mod tests {
     fn test_generate_slug_format() {
         let slug = generate_slug();
         let parts: Vec<&str> = slug.split('-').collect();
-        assert_eq!(parts.len(), 2, "slug should be adjective-noun: {slug}");
+        assert_eq!(parts.len(), 3, "slug should be adjective-noun-suffix: {slug}");
         assert!(
             parts[0].chars().all(|c| c.is_ascii_lowercase()),
             "adjective should be lowercase: {}",
@@ -1217,6 +1224,11 @@ mod tests {
             parts[1].chars().all(|c| c.is_ascii_lowercase()),
             "noun should be lowercase: {}",
             parts[1]
+        );
+        assert!(
+            parts[2].chars().all(|c| c.is_ascii_hexdigit()),
+            "suffix should be hex: {}",
+            parts[2]
         );
     }
 
