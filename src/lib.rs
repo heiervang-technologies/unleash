@@ -1254,8 +1254,9 @@ fn setup_ucf_session(ucf_name: &str, target_cli: &str) -> io::Result<(String, Ve
             ucf_version: interchange::hub::UCF_VERSION.to_string(),
             session_id: ucf_name.to_string(),
             created_at: now_iso.clone(),
-            updated_at: now_iso,
-            source_cli: "ucf".to_string(),            source_version: "1.0.0".to_string(),
+            updated_at: now_iso.clone(),
+            source_cli: "ucf".to_string(),
+            source_version: "1.0.0".to_string(),
             project: None,
             model: None,
             title: Some(ucf_name.to_string()),
@@ -1263,8 +1264,26 @@ fn setup_ucf_session(ucf_name: &str, target_cli: &str) -> io::Result<(String, Ve
             parent_session_id: None,
             extensions: serde_json::json!({}),
         };
-        let record = interchange::hub::HubRecord::Session(header);
-        let data = serde_json::to_string(&record).unwrap() + "\n";
+        let msg = interchange::hub::HubMessage {
+            id: format!("init-{ucf_name}"),
+            api_message_id: None,
+            parent_id: None,
+            timestamp: now_iso.clone(),
+            completed_at: Some(now_iso),
+            role: "user".to_string(),
+            content: vec![interchange::hub::ContentBlock::Text {
+                text: "[UCF Session Initialized]".to_string(),
+            }],
+            metadata: Default::default(),
+            extensions: serde_json::json!({}),
+        };
+
+        let record_session = interchange::hub::HubRecord::Session(header);
+        let record_msg = interchange::hub::HubRecord::Message(msg);
+        let data = serde_json::to_string(&record_session).unwrap()
+            + "\n"
+            + &serde_json::to_string(&record_msg).unwrap()
+            + "\n";
         std::fs::write(&ucf_path, data)?;
     } else {
         eprintln!("\x1b[34minfo:\x1b[0m Loading native UCF session: {ucf_name} into {target_cli}");
