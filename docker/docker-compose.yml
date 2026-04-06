@@ -46,6 +46,9 @@ services:
     working_dir: /workspace
     volumes:
       - ${WORKSPACE_DIR:-.}:/workspace
+    env_file:
+      - path: .env
+        required: false
     environment:
       - ANTHROPIC_API_KEY
       - OPENAI_API_KEY

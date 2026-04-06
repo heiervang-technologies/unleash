@@ -116,12 +116,64 @@ status() {
     fi
 }
 
+allow_ip() {
+    local ip="${1:-}"
+    if [[ -z "$ip" ]]; then
+        echo "Usage: $0 allow-ip <IP_ADDRESS>"
+        echo ""
+        echo "Opens a single LAN IP through the sandbox firewall so containers"
+        echo "can reach a local service (e.g., a local OpenAI-compatible API)."
+        echo ""
+        echo "Example: $0 allow-ip 192.168.1.100"
+        echo ""
+        echo "WARNING: This increases the attack surface. See docker/README.md"
+        echo "for security guidance."
+        exit 1
+    fi
+
+    # Validate it's actually a private IP
+    if ! echo "$ip" | grep -qE '^(10\.|172\.(1[6-9]|2[0-9]|3[01])\.|192\.168\.)'; then
+        echo "ERROR: $ip does not look like a private (RFC 1918) address."
+        echo "Only private IPs need firewall exceptions — public IPs are already reachable."
+        exit 1
+    fi
+
+    # Insert ACCEPT rule BEFORE the DROP rules in DOCKER-USER
+    if iptables -C DOCKER-USER -s "${SUBNET}" -d "${ip}/32" -j ACCEPT 2>/dev/null; then
+        echo "Rule already exists: ACCEPT ${SUBNET} -> ${ip}"
+    else
+        iptables -I DOCKER-USER -s "${SUBNET}" -d "${ip}/32" -j ACCEPT
+        echo "Added firewall exception: containers can now reach ${ip}"
+        echo ""
+        echo "To revoke: sudo $0 revoke-ip ${ip}"
+        echo ""
+        echo "NOTE: This rule does NOT survive reboots. Re-run after restart."
+    fi
+}
+
+revoke_ip() {
+    local ip="${1:-}"
+    if [[ -z "$ip" ]]; then
+        echo "Usage: $0 revoke-ip <IP_ADDRESS>"
+        exit 1
+    fi
+
+    if iptables -C DOCKER-USER -s "${SUBNET}" -d "${ip}/32" -j ACCEPT 2>/dev/null; then
+        iptables -D DOCKER-USER -s "${SUBNET}" -d "${ip}/32" -j ACCEPT
+        echo "Revoked firewall exception for ${ip}"
+    else
+        echo "No exception found for ${ip}"
+    fi
+}
+
 case "${1:-status}" in
-    setup)    setup ;;
-    teardown) teardown ;;
-    status)   status ;;
+    setup)      setup ;;
+    teardown)   teardown ;;
+    status)     status ;;
+    allow-ip)   allow_ip "${2:-}" ;;
+    revoke-ip)  revoke_ip "${2:-}" ;;
     *)
-        echo "Usage: $0 {setup|teardown|status}"
+        echo "Usage: $0 {setup|teardown|status|allow-ip <IP>|revoke-ip <IP>}"
         exit 1
         ;;
 esac
