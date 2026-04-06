@@ -49,6 +49,21 @@ setup() {
         fi
     done
 
+    # Allow DNS queries to LAN DNS servers (which might be in the blocked ranges)
+    local dns_rules=(
+        "-s ${SUBNET} -p udp --dport 53 -j RETURN"
+        "-s ${SUBNET} -p tcp --dport 53 -j RETURN"
+    )
+
+    for rule in "${dns_rules[@]}"; do
+        if ! iptables -C DOCKER-USER ${rule} 2>/dev/null; then
+            iptables -I DOCKER-USER ${rule}
+            echo "  Added firewall rule: RETURN ${rule}"
+        else
+            echo "  Firewall rule already exists: ${rule}"
+        fi
+    done
+
     echo ""
     echo "Sandbox ready. Containers on '${NETWORK_NAME}' have:"
     echo "  - Full internet access (APIs, npm, git, etc.)"
@@ -62,6 +77,8 @@ teardown() {
 
     # Remove firewall rules
     local rules=(
+        "-s ${SUBNET} -p udp --dport 53 -j RETURN"
+        "-s ${SUBNET} -p tcp --dport 53 -j RETURN"
         "-s ${SUBNET} -d 10.0.0.0/8 -j DROP"
         "-s ${SUBNET} -d 172.16.0.0/12 -j DROP"
         "-s ${SUBNET} -d 192.168.0.0/16 -j DROP"
