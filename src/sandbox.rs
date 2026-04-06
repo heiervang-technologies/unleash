@@ -12,6 +12,9 @@ use std::io;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 
+const DOCKER_IMAGE: &str = "marksverdhei/unleash";
+const DOCKER_TAG: &str = "latest";
+
 /// Find the docker/ directory relative to the unleash binary or repo root.
 fn find_docker_dir() -> Option<PathBuf> {
     // Try relative to current exe
@@ -137,15 +140,40 @@ fn iptables_rules_active() -> bool {
     }
 }
 
-/// Check if the unleash Docker image exists
+/// Check if the unleash Docker image exists (either local or pulled)
 fn image_exists() -> bool {
-    Command::new("docker")
-        .args(["image", "inspect", "unleash:latest"])
+    let full_image = format!("{}:{}", DOCKER_IMAGE, DOCKER_TAG);
+    // Check for both the pulled name and a local "unleash:latest" alias
+    for name in &[full_image.as_str(), "unleash:latest"] {
+        if Command::new("docker")
+            .args(["image", "inspect", name])
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .status()
+            .map(|s| s.success())
+            .unwrap_or(false)
+        {
+            return true;
+        }
+    }
+    false
+}
+
+/// Get the image name to use (prefer pulled image, fall back to local)
+fn image_name() -> String {
+    let full_image = format!("{}:{}", DOCKER_IMAGE, DOCKER_TAG);
+    if Command::new("docker")
+        .args(["image", "inspect", &full_image])
         .stdout(Stdio::null())
         .stderr(Stdio::null())
         .status()
         .map(|s| s.success())
         .unwrap_or(false)
+    {
+        full_image
+    } else {
+        "unleash:latest".to_string()
+    }
 }
 
 /// Check if the .env file exists in the docker directory
@@ -221,34 +249,45 @@ pub fn run_setup(docker_dir: &Path) -> io::Result<()> {
         return Err(io::Error::other("script not found"));
     }
 
-    // Step 4: Build Docker image
+    // Step 4: Pull Docker image (or build if --build flag)
     print!("  Docker image... ");
     if image_exists() {
-        println!("\x1b[32m✓\x1b[0m unleash:latest exists");
-        println!("    (to rebuild: docker build -f {}/Dockerfile -t unleash {})",
-            docker_dir.display(),
-            docker_dir.parent().map(|p| p.display().to_string()).unwrap_or_else(|| ".".to_string()),
-        );
+        let name = image_name();
+        println!("\x1b[32m✓\x1b[0m {} exists", name);
+        println!("    (to update: docker pull {}:{})", DOCKER_IMAGE, DOCKER_TAG);
     } else {
-        println!("\x1b[33m!\x1b[0m not found — building...");
-        let context = docker_dir
-            .parent()
-            .map(|p| p.to_string_lossy().to_string())
-            .unwrap_or_else(|| ".".to_string());
-        let dockerfile = docker_dir.join("Dockerfile");
-        let ok = run_command("docker", &[
-            "build",
-            "-f",
-            dockerfile.to_str().unwrap(),
-            "-t",
-            "unleash:latest",
-            &context,
-        ])?;
+        let full_image = format!("{}:{}", DOCKER_IMAGE, DOCKER_TAG);
+        println!("\x1b[33m!\x1b[0m not found — pulling from Docker Hub...");
+        let ok = run_command("docker", &["pull", &full_image])?;
         if ok {
-            println!("  \x1b[32m✓\x1b[0m Image built");
+            println!("  \x1b[32m✓\x1b[0m Image pulled");
         } else {
-            eprintln!("  \x1b[31m✗\x1b[0m Image build failed");
-            return Err(io::Error::other("docker build failed"));
+            // Fall back to local build if pull fails and we have the Dockerfile
+            let dockerfile = docker_dir.join("Dockerfile");
+            if dockerfile.exists() {
+                println!("  \x1b[33m!\x1b[0m Pull failed — building locally...");
+                let context = docker_dir
+                    .parent()
+                    .map(|p| p.to_string_lossy().to_string())
+                    .unwrap_or_else(|| ".".to_string());
+                let ok = run_command("docker", &[
+                    "build",
+                    "-f",
+                    dockerfile.to_str().unwrap(),
+                    "-t",
+                    &full_image,
+                    &context,
+                ])?;
+                if ok {
+                    println!("  \x1b[32m✓\x1b[0m Image built locally");
+                } else {
+                    eprintln!("  \x1b[31m✗\x1b[0m Image build failed");
+                    return Err(io::Error::other("docker build failed"));
+                }
+            } else {
+                eprintln!("  \x1b[31m✗\x1b[0m Pull failed and no Dockerfile found for local build");
+                return Err(io::Error::other("image pull failed"));
+            }
         }
     }
 
@@ -317,16 +356,17 @@ pub fn run_status(docker_dir: &Path) -> io::Result<()> {
     // Image
     print!("  Container image:  ");
     if image_exists() {
+        let name = image_name();
         let age = run_command_output("docker", &[
-            "image", "inspect", "unleash:latest",
+            "image", "inspect", &name,
             "--format", "{{.Created}}",
         ])
         .ok()
         .map(|s| s.trim().to_string())
         .unwrap_or_default();
-        println!("\x1b[32m✓\x1b[0m unleash:latest ({})", if age.is_empty() { "unknown age" } else { &age });
+        println!("\x1b[32m✓\x1b[0m {} ({})", name, if age.is_empty() { "unknown age" } else { &age });
     } else {
-        println!("\x1b[31m✗\x1b[0m not built");
+        println!("\x1b[31m✗\x1b[0m not found (run: unleash sandbox setup)");
     }
 
     // .env
@@ -411,24 +451,55 @@ pub fn run_agent(docker_dir: &Path, agent: &str, extra_args: &[String]) -> io::R
         eprintln!("  Fix: cp docker/example.env docker/.env && edit docker/.env");
     }
 
-    // Build the docker compose command
+    let img = image_name();
+
+    // Try compose first (has env_file, service definitions, etc.)
     let compose_file = docker_dir.join("docker-compose.yml");
+    let use_compose = compose_file.exists();
 
     let mut cmd = Command::new("docker");
-    cmd.args(["compose", "-f", compose_file.to_str().unwrap()]);
 
-    // Check for local-api overlay
-    let local_api_compose = docker_dir.join("docker-compose.local-api.yml");
-    if std::env::var("LOCAL_API_BASE").is_ok() && local_api_compose.exists() {
-        cmd.args(["-f", local_api_compose.to_str().unwrap()]);
+    if use_compose {
+        cmd.args(["compose", "-f", compose_file.to_str().unwrap()]);
+
+        // Check for local-api overlay
+        let local_api_compose = docker_dir.join("docker-compose.local-api.yml");
+        if std::env::var("LOCAL_API_BASE").is_ok() && local_api_compose.exists() {
+            cmd.args(["-f", local_api_compose.to_str().unwrap()]);
+        }
+
+        cmd.args(["run", "--rm", agent]);
+    } else {
+        // Direct docker run (no compose files available — e.g., installed via binary only)
+        cmd.args([
+            "run", "--rm", "-it",
+            "--runtime", "runsc",
+            "--network", "unleash-sandbox",
+            "-v", &format!("{}:/workspace", std::env::current_dir()
+                .map(|p| p.to_string_lossy().to_string())
+                .unwrap_or_else(|_| ".".to_string())),
+            "-w", "/workspace",
+        ]);
+
+        // Pass through API keys from environment
+        for key in &[
+            "ANTHROPIC_API_KEY", "CLAUDE_CODE_OAUTH_TOKEN",
+            "OPENAI_API_KEY", "GEMINI_API_KEY", "LOCAL_API_BASE",
+            "OPENAI_BASE_URL",
+        ] {
+            if std::env::var(key).is_ok() {
+                cmd.args(["-e", key]);
+            }
+        }
+
+        // Pass through .env file if present
+        let dotenv = docker_dir.join(".env");
+        if dotenv.exists() {
+            cmd.args(["--env-file", dotenv.to_str().unwrap()]);
+        }
+
+        cmd.args([&img, agent]);
     }
-
-    cmd.args(["run", "--rm"]);
-
-    // Pass through extra args (e.g., -p "prompt")
-    // These go BEFORE the service name for docker compose run
-    // Actually, agent-specific args should go after the service name
-    cmd.arg(agent);
 
     // Pass extra args to the container entrypoint
     for arg in extra_args {
