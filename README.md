@@ -249,13 +249,23 @@ For non-interactive installs (CI, scripts):
 curl -fsSL unleash.software/install | bash -s -- --boring
 ```
 
-### Docker
+### Docker (Sandboxed)
+
+```bash
+# One-time setup (installs gVisor, network isolation, pulls image)
+sudo unleash sandbox setup
+
+# Run an agent
+unleash sandbox run claude
+```
+
+Or run the image directly:
 
 ```bash
 docker run -it --rm -e ANTHROPIC_API_KEY marksverdhei/unleash
 ```
 
-All 4 agent CLIs are pre-installed. Pass API keys as environment variables. See the [Docker + gVisor sandbox guide](docs/docker.md) for hardened setups with LAN isolation.
+All 4 agent CLIs are pre-installed. See the [Docker + gVisor sandbox guide](docs/docker.md) for hardened setups with LAN isolation and named sandboxes.
 
 ### Build from source
 

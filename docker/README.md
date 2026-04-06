@@ -14,18 +14,28 @@ One image, all agents ready to go.
 The recommended setup uses [gVisor](https://gvisor.dev/) for syscall-level isolation and a firewall that blocks LAN access while allowing internet.
 
 ```bash
-# 1. Build the image
-docker build -f docker/Dockerfile -t unleash .
+# 1. One-time setup: installs gVisor, creates network, pulls image, sets up .env
+sudo unleash sandbox setup
 
-# 2. One-time: install gVisor and create sandbox network
-sudo runsc install && sudo systemctl restart docker
-sudo ./docker/sandbox-network.sh setup
+# 2. Run Claude Code (sandboxed, internet-only, no LAN access)
+unleash sandbox run claude
 
-# 3. Run Claude Code (sandboxed, internet-only, no LAN access)
-docker compose -f docker/docker-compose.yml run --rm claude
+# Or open a bash shell
+unleash sandbox run
 ```
 
 That's it. The container has full internet access (API calls, npm, git) but cannot reach your local network.
+
+### Named Sandboxes
+
+Run multiple independent sandboxes with `--name`:
+
+```bash
+unleash sandbox run --name research claude
+unleash sandbox run --name testing bash
+```
+
+Each named sandbox gets its own hostname and starship prompt showing the sandbox name.
 
 ### Without gVisor
 
@@ -124,11 +134,14 @@ If you run a local inference server (vLLM, Ollama, llama.cpp, TGI, etc.) and wan
 ### Step 1: Open the IP (port-restricted)
 
 ```bash
-# Allow containers to reach your local API server on a specific port only (recommended)
-sudo ./docker/sandbox-network.sh allow-ip 192.168.1.100:8080
+# Via unleash sandbox subcommand (recommended)
+sudo unleash sandbox allow-ip 192.168.1.100:8080
 
 # Or open all ports on that IP (less secure)
-sudo ./docker/sandbox-network.sh allow-ip 192.168.1.100
+sudo unleash sandbox allow-ip 192.168.1.100
+
+# Or directly via the script
+sudo ./docker/sandbox-network.sh allow-ip 192.168.1.100:8080
 ```
 
 This inserts an ACCEPT rule *before* the DROP rules. When a port is specified, only TCP traffic to that port is allowed. All other LAN addresses remain blocked.
@@ -152,7 +165,7 @@ docker compose -f docker/docker-compose.yml \
 ### Step 4: Revoke when done
 
 ```bash
-sudo ./docker/sandbox-network.sh revoke-ip 192.168.1.100:8080
+sudo unleash sandbox revoke-ip 192.168.1.100:8080
 ```
 
 > **Security warning:** Opening a LAN IP increases the attack surface. A compromised agent could send arbitrary requests to that endpoint or probe other services on the same host. Mitigations:
