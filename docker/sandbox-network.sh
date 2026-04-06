@@ -57,6 +57,20 @@ setup() {
         fi
     done
 
+    # Allow DNS queries to LAN DNS servers before the RFC-1918 DROP rules hit.
+    local dns_rules=(
+        "-s ${SUBNET} -p udp --dport 53 -j RETURN"
+        "-s ${SUBNET} -p tcp --dport 53 -j RETURN"
+    )
+    for rule in "${dns_rules[@]}"; do
+        if ! iptables -C DOCKER-USER ${rule} 2>/dev/null; then
+            iptables -I DOCKER-USER ${rule}
+            echo "  Added DOCKER-USER rule: RETURN ${rule}"
+        else
+            echo "  DOCKER-USER rule already exists: RETURN ${rule}"
+        fi
+    done
+
     # Belt-and-suspenders: keep the legacy DOCKER-USER rules too (for any packet
     # path that skips raw PREROUTING, e.g. locally generated traffic).
     local docker_rules=(
@@ -111,6 +125,8 @@ teardown() {
 
     # Remove DOCKER-USER (FORWARD) rules
     local rules=(
+        "-s ${SUBNET} -p udp --dport 53 -j RETURN"
+        "-s ${SUBNET} -p tcp --dport 53 -j RETURN"
         "-s ${SUBNET} -d 10.0.0.0/8 -j DROP"
         "-s ${SUBNET} -d 172.16.0.0/12 -j DROP"
         "-s ${SUBNET} -d 192.168.0.0/16 -j DROP"
