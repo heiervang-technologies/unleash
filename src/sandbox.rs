@@ -413,7 +413,7 @@ pub fn run_status(docker_dir: &Path) -> io::Result<()> {
     Ok(())
 }
 
-pub fn run_agent(docker_dir: &Path, agent: &str, extra_args: &[String]) -> io::Result<()> {
+pub fn run_agent(docker_dir: &Path, agent: &str, name: &str, extra_args: &[String]) -> io::Result<()> {
     // Validate agent name
     let valid_agents = ["claude", "codex", "gemini", "opencode", "bash", "unleash"];
     if !valid_agents.contains(&agent) {
@@ -468,13 +468,15 @@ pub fn run_agent(docker_dir: &Path, agent: &str, extra_args: &[String]) -> io::R
             cmd.args(["-f", local_api_compose.to_str().unwrap()]);
         }
 
-        cmd.args(["run", "--rm", agent]);
+        cmd.args(["run", "--rm", "-e", &format!("SANDBOX_NAME={}", name), "--hostname", name, agent]);
     } else {
         // Direct docker run (no compose files available — e.g., installed via binary only)
         cmd.args([
             "run", "--rm", "-it",
             "--runtime", "runsc",
             "--network", "unleash-sandbox",
+            "--hostname", name,
+            "-e", &format!("SANDBOX_NAME={}", name),
             "-v", &format!("{}:/workspace", std::env::current_dir()
                 .map(|p| p.to_string_lossy().to_string())
                 .unwrap_or_else(|_| ".".to_string())),
@@ -581,11 +583,8 @@ pub fn handle_sandbox(action: &SandboxAction) -> io::Result<()> {
         SandboxAction::Teardown => run_teardown(&docker_dir),
         SandboxAction::AllowIp { ip } => run_allow_ip(&docker_dir, ip),
         SandboxAction::RevokeIp { ip } => run_revoke_ip(&docker_dir, ip),
-        SandboxAction::Run(args) => {
-            let agent = args.first().ok_or_else(|| {
-                io::Error::other("Usage: unleash sandbox <agent> [args...]\n  Agents: claude, codex, gemini, opencode, bash")
-            })?;
-            run_agent(&docker_dir, agent, &args[1..])
+        SandboxAction::Run { name, agent, args } => {
+            run_agent(&docker_dir, agent, name, args.as_slice())
         }
     }
 }
@@ -620,7 +619,21 @@ pub enum SandboxAction {
         ip: String,
     },
 
-    /// Run an agent in the sandbox (e.g., `unleash sandbox claude`)
-    #[command(external_subcommand)]
-    Run(Vec<String>),
+    /// Run an agent in the sandbox (e.g., `unleash sandbox run claude`)
+    ///
+    /// Without an agent argument, opens a bash shell.
+    Run {
+        /// Sandbox name (used as hostname; allows multiple sandboxes)
+        #[arg(long, default_value = "sandbox")]
+        name: String,
+
+        /// Agent to run: claude, codex, gemini, opencode, bash, unleash
+        /// Defaults to bash if omitted.
+        #[arg(default_value = "bash")]
+        agent: String,
+
+        /// Extra arguments passed to the agent
+        #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
+        args: Vec<String>,
+    },
 }

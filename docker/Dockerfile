@@ -128,6 +128,16 @@ ENV AGENT_UNLEASH=1
 ENV HOME=/home/unleash
 ENV PATH="/home/unleash/.local/bin:/home/unleash/.npm-global/bin:${PATH}"
 ENV NPM_CONFIG_PREFIX=/home/unleash/.npm-global
+ENV SANDBOX_NAME=sandbox
+ENV STARSHIP_CONFIG=/home/unleash/.config/starship.toml
+
+# -- Install starship prompt --
+RUN curl -fsSL https://starship.rs/install.sh | sh -s -- --yes
+
+# -- Configure starship for sandbox shell --
+COPY docker/starship.toml /home/unleash/.config/starship.toml
+RUN chown unleash:unleash /home/unleash/.config/starship.toml \
+    && echo 'eval "$(starship init bash)"' >> /home/unleash/.bashrc
 
 # Switch to non-root user
 USER unleash
