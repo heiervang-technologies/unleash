@@ -417,8 +417,29 @@ fn inject_into_gemini(
     source: &SessionInfo,
     hub_records: &[HubRecord],
 ) -> Result<InjectionResult, ConvertError> {
-    let gemini_val = gemini::from_hub(hub_records)?;
-    let session_id = extract_session_id(hub_records);
+    let mut session_id = extract_session_id(hub_records);
+
+    // Gemini CLI validates that --resume arguments are valid UUIDs.
+    // If the source session ID is not a UUID (e.g. native UCF named sessions),
+    // we must generate a fresh UUID for Gemini to accept it.
+    let is_uuid = session_id.len() == 36
+        && session_id.split('-').count() == 5
+        && session_id.split('-').all(|seg| seg.chars().all(|c| c.is_ascii_hexdigit()));
+
+    let final_records = if !is_uuid {
+        session_id = uuid_v4();
+        let mut patched = hub_records.to_vec();
+        for record in &mut patched {
+            if let HubRecord::Session(ref mut header) = record {
+                header.session_id = session_id.clone();
+            }
+        }
+        patched
+    } else {
+        hub_records.to_vec()
+    };
+
+    let gemini_val = gemini::from_hub(&final_records)?;
 
     // Gemini uses project slugs from ~/.gemini/projects.json for session dirs
     // Falls back to SHA-256 hash if not in projects.json
@@ -443,16 +464,17 @@ fn inject_into_gemini(
     let uuid_short = &session_id[..session_id.len().min(8)];
     let output_path = chats_dir.join(format!("session-{}-{}.json", date_part, uuid_short));
 
-    // Ensure projectHash is in the output
+    // Ensure projectHash and id are correct in the output
     let mut gemini_val = gemini_val;
     gemini_val["projectHash"] = serde_json::Value::String(project_hash);
+    gemini_val["id"] = serde_json::Value::String(session_id.clone());
 
     let json = serde_json::to_string_pretty(&gemini_val)?;
     std::fs::write(&output_path, &json)?;
 
     // Write/append logs.json entries for session discovery
     let logs_path = gemini_base.join("logs.json");
-    let log_entries = gemini::build_logs_entries(hub_records);
+    let log_entries = gemini::build_logs_entries(&final_records);
     if !log_entries.is_empty() {
         let mut existing_logs: Vec<serde_json::Value> = if logs_path.exists() {
             std::fs::read_to_string(&logs_path)
@@ -867,7 +889,7 @@ fn uuid_v4() -> String {
     let pid = std::process::id() as u64;
     let a = (lo >> 32) as u32;
     let b = (lo >> 16) as u16;
-    let c = (lo & 0xFFFF) as u16 | 0x4000; // version 4
+    let c = (lo & 0x0FFF) as u16 | 0x4000; // version 4
     let d = ((hi >> 48) as u16 & 0x3FFF) | 0x8000; // variant 1
     let e = hi ^ pid;
     format!("{a:08x}-{b:04x}-{c:04x}-{d:04x}-{e:012x}")

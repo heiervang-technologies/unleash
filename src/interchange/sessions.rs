@@ -522,15 +522,15 @@ fn discover_ucf() -> Vec<SessionInfo> {
 
         if let Some(Ok(first_line)) = lines.next() {
             if let Ok(val) = serde_json::from_str::<serde_json::Value>(&first_line) {
-                if let Some(session) = val.get("session") {
-                    let updated_at = session
+                if val.get("type").and_then(|t| t.as_str()) == Some("session") {
+                    let updated_at = val
                         .get("updated_at")
                         .and_then(|t| t.as_str())
                         .unwrap_or("1970-01-01T00:00:00.000Z")
                         .to_string();
-                    let title = session.get("title").and_then(|t| t.as_str()).map(|s| s.to_string());
-                    
-                    // message count = total lines - 1 (for the header)
+                    let title = val.get("title").and_then(|t| t.as_str()).map(|s| s.to_string());
+
+                    // remaining lines after header (messages + events)
                     let message_count = lines.filter(|l| l.is_ok()).count();
 
                     sessions.push(SessionInfo {
