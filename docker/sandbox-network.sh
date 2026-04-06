@@ -117,18 +117,29 @@ status() {
 }
 
 allow_ip() {
-    local ip="${1:-}"
-    if [[ -z "$ip" ]]; then
-        echo "Usage: $0 allow-ip <IP_ADDRESS>"
+    local input="${1:-}"
+    if [[ -z "$input" ]]; then
+        echo "Usage: $0 allow-ip <IP_ADDRESS>[:<PORT>]"
         echo ""
-        echo "Opens a single LAN IP through the sandbox firewall so containers"
-        echo "can reach a local service (e.g., a local OpenAI-compatible API)."
+        echo "Opens a single LAN IP (optionally restricted to a specific port)"
+        echo "through the sandbox firewall so containers can reach a local service."
         echo ""
-        echo "Example: $0 allow-ip 192.168.1.100"
+        echo "Examples:"
+        echo "  $0 allow-ip 192.168.1.100        # open all ports on that IP"
+        echo "  $0 allow-ip 192.168.1.100:8080   # open only port 8080"
         echo ""
         echo "WARNING: This increases the attack surface. See docker/README.md"
-        echo "for security guidance."
+        echo "for security guidance. Using a port restriction is strongly recommended."
         exit 1
+    fi
+
+    # Parse IP and optional port
+    local ip port=""
+    if [[ "$input" == *:* ]]; then
+        ip="${input%%:*}"
+        port="${input##*:}"
+    else
+        ip="$input"
     fi
 
     # Validate it's actually a private IP
@@ -138,31 +149,64 @@ allow_ip() {
         exit 1
     fi
 
+    # Validate port if specified
+    if [[ -n "$port" ]] && ! [[ "$port" =~ ^[0-9]+$ && "$port" -ge 1 && "$port" -le 65535 ]]; then
+        echo "ERROR: Invalid port '$port'. Must be 1-65535."
+        exit 1
+    fi
+
+    # Build iptables rule args
+    local rule_args=(-s "${SUBNET}" -d "${ip}/32")
+    if [[ -n "$port" ]]; then
+        rule_args+=(-p tcp --dport "$port")
+    fi
+    rule_args+=(-j ACCEPT)
+
     # Insert ACCEPT rule BEFORE the DROP rules in DOCKER-USER
-    if iptables -C DOCKER-USER -s "${SUBNET}" -d "${ip}/32" -j ACCEPT 2>/dev/null; then
-        echo "Rule already exists: ACCEPT ${SUBNET} -> ${ip}"
+    if iptables -C DOCKER-USER "${rule_args[@]}" 2>/dev/null; then
+        echo "Rule already exists: ACCEPT ${SUBNET} -> ${input}"
     else
-        iptables -I DOCKER-USER -s "${SUBNET}" -d "${ip}/32" -j ACCEPT
-        echo "Added firewall exception: containers can now reach ${ip}"
+        iptables -I DOCKER-USER "${rule_args[@]}"
+        if [[ -n "$port" ]]; then
+            echo "Added firewall exception: containers can reach ${ip} on port ${port} only"
+        else
+            echo "Added firewall exception: containers can reach ${ip} on ALL ports"
+            echo "  (consider restricting to a specific port: $0 allow-ip ${ip}:<PORT>)"
+        fi
         echo ""
-        echo "To revoke: sudo $0 revoke-ip ${ip}"
+        echo "To revoke: sudo $0 revoke-ip ${input}"
         echo ""
         echo "NOTE: This rule does NOT survive reboots. Re-run after restart."
     fi
 }
 
 revoke_ip() {
-    local ip="${1:-}"
-    if [[ -z "$ip" ]]; then
-        echo "Usage: $0 revoke-ip <IP_ADDRESS>"
+    local input="${1:-}"
+    if [[ -z "$input" ]]; then
+        echo "Usage: $0 revoke-ip <IP_ADDRESS>[:<PORT>]"
         exit 1
     fi
 
-    if iptables -C DOCKER-USER -s "${SUBNET}" -d "${ip}/32" -j ACCEPT 2>/dev/null; then
-        iptables -D DOCKER-USER -s "${SUBNET}" -d "${ip}/32" -j ACCEPT
-        echo "Revoked firewall exception for ${ip}"
+    # Parse IP and optional port
+    local ip port=""
+    if [[ "$input" == *:* ]]; then
+        ip="${input%%:*}"
+        port="${input##*:}"
     else
-        echo "No exception found for ${ip}"
+        ip="$input"
+    fi
+
+    local rule_args=(-s "${SUBNET}" -d "${ip}/32")
+    if [[ -n "$port" ]]; then
+        rule_args+=(-p tcp --dport "$port")
+    fi
+    rule_args+=(-j ACCEPT)
+
+    if iptables -C DOCKER-USER "${rule_args[@]}" 2>/dev/null; then
+        iptables -D DOCKER-USER "${rule_args[@]}"
+        echo "Revoked firewall exception for ${input}"
+    else
+        echo "No exception found for ${input}"
     fi
 }
 

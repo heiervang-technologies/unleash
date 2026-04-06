@@ -121,14 +121,17 @@ The `.env` file is gitignored — never commit real credentials.
 
 If you run a local inference server (vLLM, Ollama, llama.cpp, TGI, etc.) and want the sandboxed container to reach it, you need to open a single IP through the firewall.
 
-### Step 1: Open the IP
+### Step 1: Open the IP (port-restricted)
 
 ```bash
-# Allow containers to reach your local API server (e.g., on 192.168.1.100)
+# Allow containers to reach your local API server on a specific port only (recommended)
+sudo ./docker/sandbox-network.sh allow-ip 192.168.1.100:8080
+
+# Or open all ports on that IP (less secure)
 sudo ./docker/sandbox-network.sh allow-ip 192.168.1.100
 ```
 
-This inserts an ACCEPT rule *before* the DROP rules, so only that specific IP is reachable. All other LAN addresses remain blocked.
+This inserts an ACCEPT rule *before* the DROP rules. When a port is specified, only TCP traffic to that port is allowed. All other LAN addresses remain blocked.
 
 ### Step 2: Set the endpoint
 
@@ -149,7 +152,7 @@ docker compose -f docker/docker-compose.yml \
 ### Step 4: Revoke when done
 
 ```bash
-sudo ./docker/sandbox-network.sh revoke-ip 192.168.1.100
+sudo ./docker/sandbox-network.sh revoke-ip 192.168.1.100:8080
 ```
 
 > **Security warning:** Opening a LAN IP increases the attack surface. A compromised agent could send arbitrary requests to that endpoint or probe other services on the same host. Mitigations:

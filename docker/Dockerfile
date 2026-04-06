@@ -75,11 +75,24 @@ RUN apt-get update \
        openssh-client \
        tmux \
        jq \
+       sudo \
+       iproute2 \
+       iputils-ping \
+       dnsutils \
+       net-tools \
+       wget \
+       vim-tiny \
+       less \
+       htop \
+       procps \
+       file \
+       unzip \
     && rm -rf /var/lib/apt/lists/*
 
-# Create non-root user for sandboxing
+# Create non-root user for sandboxing (with passwordless sudo)
 RUN useradd -m -s /bin/bash unleash \
-    && mkdir -p /home/unleash/.local/bin /home/unleash/.npm-global
+    && mkdir -p /home/unleash/.local/bin /home/unleash/.npm-global \
+    && echo 'unleash ALL=(ALL) NOPASSWD:ALL' > /etc/sudoers.d/unleash
 
 # -- Install unleash binary from builder stage --
 COPY --from=rust-builder /build/target/release/unleash /usr/local/bin/unleash

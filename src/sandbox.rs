@@ -602,17 +602,21 @@ pub enum SandboxAction {
     /// Remove sandbox network and firewall rules
     Teardown,
 
-    /// Open a single LAN IP through the sandbox firewall (for local API servers)
+    /// Open a single LAN IP (optionally port-restricted) through the sandbox firewall
+    ///
+    /// Examples:
+    ///   unleash sandbox allow-ip 192.168.1.100        # all ports
+    ///   unleash sandbox allow-ip 192.168.1.100:8080   # port 8080 only (recommended)
     #[command(name = "allow-ip")]
     AllowIp {
-        /// The private IP address to allow (e.g., 192.168.1.100)
+        /// The private IP address to allow, optionally with port (e.g., 192.168.1.100:8080)
         ip: String,
     },
 
     /// Close a previously opened LAN IP
     #[command(name = "revoke-ip")]
     RevokeIp {
-        /// The private IP address to revoke
+        /// The private IP address to revoke (must match the format used in allow-ip)
         ip: String,
     },
 
