@@ -2,7 +2,7 @@
 //!
 //! Wraps Docker + gVisor + LAN isolation into a seamless experience:
 //!   - `unleash sandbox setup`     — install gVisor, create network, set iptables
-//!   - `unleash sandbox <agent>`   — run an agent in the sandbox
+//!   - `unleash sandbox run [agent]` — run an agent (or bash shell) in the sandbox
 //!   - `unleash sandbox status`    — health check
 //!   - `unleash sandbox teardown`  — clean up
 //!   - `unleash sandbox allow-ip`  — open a LAN IP for local API access
@@ -45,6 +45,11 @@ fn find_docker_dir() -> Option<PathBuf> {
 
 fn sandbox_network_script(docker_dir: &Path) -> PathBuf {
     docker_dir.join("sandbox-network.sh")
+}
+
+/// Convert a Path to a string, lossy but safe (no panics on non-UTF8).
+fn path_str(p: &Path) -> String {
+    p.to_string_lossy().into_owned()
 }
 
 fn check_command_exists(cmd: &str) -> bool {
@@ -237,7 +242,7 @@ pub fn run_setup(docker_dir: &Path) -> io::Result<()> {
     print!("  Sandbox network... ");
     let script = sandbox_network_script(docker_dir);
     if script.exists() {
-        let ok = run_command("bash", &[script.to_str().unwrap(), "setup"])?;
+        let ok = run_command("bash", &[&path_str(&script), "setup"])?;
         if ok {
             println!("\x1b[32m✓\x1b[0m");
         } else {
@@ -273,7 +278,7 @@ pub fn run_setup(docker_dir: &Path) -> io::Result<()> {
                 let ok = run_command("docker", &[
                     "build",
                     "-f",
-                    dockerfile.to_str().unwrap(),
+                    &path_str(&dockerfile),
                     "-t",
                     &full_image,
                     &context,
@@ -309,7 +314,8 @@ pub fn run_setup(docker_dir: &Path) -> io::Result<()> {
     }
 
     println!("\n\x1b[32m=== Sandbox ready! ===\x1b[0m");
-    println!("  Run an agent:  unleash sandbox claude");
+    println!("  Run an agent:  unleash sandbox run claude");
+    println!("  Open a shell:  unleash sandbox run");
     println!("  Check status:  unleash sandbox status");
     Ok(())
 }
@@ -413,7 +419,24 @@ pub fn run_status(docker_dir: &Path) -> io::Result<()> {
     Ok(())
 }
 
+fn validate_sandbox_name(name: &str) -> io::Result<()> {
+    // RFC 1123 hostname: alphanumeric + hyphens, max 63 chars, no leading/trailing hyphen
+    if name.is_empty() || name.len() > 63 {
+        return Err(io::Error::other("sandbox name must be 1-63 characters"));
+    }
+    if !name.chars().all(|c| c.is_ascii_alphanumeric() || c == '-') {
+        return Err(io::Error::other("sandbox name must contain only alphanumeric characters and hyphens"));
+    }
+    if name.starts_with('-') || name.ends_with('-') {
+        return Err(io::Error::other("sandbox name must not start or end with a hyphen"));
+    }
+    Ok(())
+}
+
 pub fn run_agent(docker_dir: &Path, agent: &str, name: &str, extra_args: &[String]) -> io::Result<()> {
+    // Validate sandbox name (used as Docker hostname, must be RFC 1123 compliant)
+    validate_sandbox_name(name)?;
+
     // Validate agent name
     let valid_agents = ["claude", "codex", "gemini", "opencode", "bash", "unleash"];
     if !valid_agents.contains(&agent) {
@@ -460,12 +483,12 @@ pub fn run_agent(docker_dir: &Path, agent: &str, name: &str, extra_args: &[Strin
     let mut cmd = Command::new("docker");
 
     if use_compose {
-        cmd.args(["compose", "-f", compose_file.to_str().unwrap()]);
+        cmd.args(["compose", "-f", &path_str(&compose_file)]);
 
         // Check for local-api overlay
         let local_api_compose = docker_dir.join("docker-compose.local-api.yml");
         if std::env::var("LOCAL_API_BASE").is_ok() && local_api_compose.exists() {
-            cmd.args(["-f", local_api_compose.to_str().unwrap()]);
+            cmd.args(["-f", &path_str(&local_api_compose)]);
         }
 
         cmd.args(["run", "--rm", "-e", &format!("SANDBOX_NAME={}", name), "--hostname", name, agent]);
@@ -497,7 +520,7 @@ pub fn run_agent(docker_dir: &Path, agent: &str, name: &str, extra_args: &[Strin
         // Pass through .env file if present
         let dotenv = docker_dir.join(".env");
         if dotenv.exists() {
-            cmd.args(["--env-file", dotenv.to_str().unwrap()]);
+            cmd.args(["--env-file", &path_str(&dotenv)]);
         }
 
         cmd.args([&img, agent]);
@@ -529,7 +552,7 @@ pub fn run_teardown(docker_dir: &Path) -> io::Result<()> {
 
     let script = sandbox_network_script(docker_dir);
     if script.exists() {
-        run_command("bash", &[script.to_str().unwrap(), "teardown"])?;
+        run_command("bash", &[&path_str(&script), "teardown"])?;
     }
 
     println!("\n\x1b[32mTeardown complete.\x1b[0m");
@@ -545,7 +568,7 @@ pub fn run_allow_ip(docker_dir: &Path, ip: &str) -> io::Result<()> {
         return Err(io::Error::other("script not found"));
     }
 
-    let ok = run_command("bash", &[script.to_str().unwrap(), "allow-ip", ip])?;
+    let ok = run_command("bash", &[&path_str(&script), "allow-ip", ip])?;
     if !ok {
         return Err(io::Error::other("allow-ip failed"));
     }
@@ -561,7 +584,7 @@ pub fn run_revoke_ip(docker_dir: &Path, ip: &str) -> io::Result<()> {
         return Err(io::Error::other("script not found"));
     }
 
-    let ok = run_command("bash", &[script.to_str().unwrap(), "revoke-ip", ip])?;
+    let ok = run_command("bash", &[&path_str(&script), "revoke-ip", ip])?;
     if !ok {
         return Err(io::Error::other("revoke-ip failed"));
     }
