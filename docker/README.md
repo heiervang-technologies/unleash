@@ -99,19 +99,84 @@ sudo ./docker/sandbox-network.sh status    # Check current state
 
 ## Authentication
 
-Generate a token on your host machine, then pass it to the container:
+Copy the example env file, fill in your keys, and docker compose will pick them up automatically:
 
 ```bash
-claude setup-token
-export CLAUDE_CODE_OAUTH_TOKEN=<your-token>
+cp docker/example.env docker/.env
+# Edit docker/.env with your keys
 ```
 
-| Agent | Environment Variable |
-|-------|---------------------|
-| Claude Code | `CLAUDE_CODE_OAUTH_TOKEN` |
-| Codex | `OPENAI_API_KEY` |
-| Gemini CLI | `GEMINI_API_KEY` |
-| OpenCode | *(uses configured provider)* |
+The `.env` file is gitignored — never commit real credentials.
+
+| Agent | Environment Variable | How to Get |
+|-------|---------------------|------------|
+| Claude Code | `CLAUDE_CODE_OAUTH_TOKEN` | `claude setup-token` |
+| Codex | `OPENAI_API_KEY` | platform.openai.com |
+| Gemini CLI | `GEMINI_API_KEY` | aistudio.google.com |
+| OpenCode | *(uses configured provider)* | Depends on backend |
+
+**Security note:** These keys are passed into a container where AI agents run with full code execution. Use scoped, rotatable keys with spending limits — not your personal all-access keys. See `docker/example.env` for detailed guidance.
+
+## Using a Local OpenAI-Compatible API
+
+If you run a local inference server (vLLM, Ollama, llama.cpp, TGI, etc.) and want the sandboxed container to reach it, you need to open a single IP through the firewall.
+
+### Step 1: Open the IP
+
+```bash
+# Allow containers to reach your local API server (e.g., on 192.168.1.100)
+sudo ./docker/sandbox-network.sh allow-ip 192.168.1.100
+```
+
+This inserts an ACCEPT rule *before* the DROP rules, so only that specific IP is reachable. All other LAN addresses remain blocked.
+
+### Step 2: Set the endpoint
+
+Add to your `docker/.env`:
+
+```bash
+LOCAL_API_BASE=http://192.168.1.100:8080/v1
+```
+
+### Step 3: Run with the local-api overlay
+
+```bash
+docker compose -f docker/docker-compose.yml \
+  -f docker/docker-compose.local-api.yml \
+  run --rm opencode
+```
+
+### Step 4: Revoke when done
+
+```bash
+sudo ./docker/sandbox-network.sh revoke-ip 192.168.1.100
+```
+
+> **Security warning:** Opening a LAN IP increases the attack surface. A compromised agent could send arbitrary requests to that endpoint or probe other services on the same host. Mitigations:
+>
+> - Run the local API in its own container or VM — not bare-metal alongside sensitive services
+> - Bind the API server to a single interface/port, not `0.0.0.0`
+> - Use API-key authentication even for local endpoints
+> - Monitor API logs for unexpected requests
+>
+> The firewall exception does **not** survive reboots. Re-run `allow-ip` after restart.
+
+## Verifying the Sandbox
+
+Run the integration tests to confirm gVisor and LAN isolation are working:
+
+```bash
+# Build the image first
+docker build -f docker/Dockerfile -t unleash .
+
+# Full test suite (requires sudo for iptables checks + container spawning)
+sudo ./tests/test_sandbox_network.sh
+
+# Quick mode (internet + DNS only, skips LAN probe)
+sudo ./tests/test_sandbox_network.sh quick
+```
+
+The tests verify: internet connectivity, DNS resolution, LAN blocking for all RFC 1918 ranges, gVisor syscall filtering, and that all 5 CLIs are installed.
 
 ## Docker Compose
 

@@ -145,6 +145,24 @@ Safe configurations:
 
 The runc + multi-agent combination uses the default Docker bridge for internet (no LAN blocking, no gVisor) and the mesh network for inter-agent communication. This is a lower-security mode suitable for development.
 
+## Opening a Single LAN IP (Local API Access)
+
+If you need the container to reach a specific LAN host (e.g., a local OpenAI-compatible API server), use `allow-ip` to punch a single-host exception through the firewall:
+
+```bash
+sudo ./docker/sandbox-network.sh allow-ip 192.168.1.100   # open
+sudo ./docker/sandbox-network.sh revoke-ip 192.168.1.100  # close
+```
+
+This inserts an ACCEPT rule for that `/32` address *before* the DROP rules. All other private ranges remain blocked. The rule does not survive reboots.
+
+See [README.md](README.md#using-a-local-openai-compatible-api) for full setup instructions including the compose overlay and security guidance.
+
+| What's Opened | What's Still Blocked |
+|---------------|---------------------|
+| Only the specified IP (`/32`) | All other RFC 1918, link-local |
+| Only from sandbox containers | Host iptables unaffected |
+
 ## Troubleshooting
 
 ### Agent cannot reach another agent
