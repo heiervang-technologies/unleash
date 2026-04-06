@@ -1,23 +1,50 @@
 # Docker Setup
 
-Run agents in sandboxed containers with network isolation. Three tiers
-depending on your needs.
+Run agents in sandboxed containers with network isolation.
 
-## Quick Start
+## Quick Start (via `unleash sandbox`)
+
+The `unleash sandbox` subcommand wraps Docker + gVisor + network isolation into one workflow:
 
 ```bash
-# Build the image
-docker build -f docker/Dockerfile -t unleash .
+# One-time setup: installs gVisor, creates network, pulls image, sets up .env
+sudo unleash sandbox setup
 
-# Run a single sandboxed agent
-docker compose -f docker/docker-compose.yml run --rm claude
+# Run Claude Code in the sandbox
+unleash sandbox run claude
+
+# Open a bash shell in the sandbox
+unleash sandbox run
+
+# Check sandbox health
+unleash sandbox status
 ```
 
-## Tiers
+### Named Sandboxes
 
-### 1. Single Agent (Sandboxed)
+Run multiple independent sandboxes with `--name`:
 
-One agent in an isolated container with network filtering.
+```bash
+unleash sandbox run --name research claude
+unleash sandbox run --name testing bash
+```
+
+Each named sandbox gets its own hostname and can run any agent.
+
+### Local API Access
+
+To reach a local inference server (vLLM, Ollama, llama.cpp) from the sandbox:
+
+```bash
+sudo unleash sandbox allow-ip 192.168.1.100:8080   # port-restricted (recommended)
+sudo unleash sandbox revoke-ip 192.168.1.100:8080   # close when done
+```
+
+## Advanced: Direct Docker Compose
+
+For more control, use Docker Compose directly:
+
+### Single Agent
 
 ```bash
 docker compose -f docker/docker-compose.yml run --rm claude

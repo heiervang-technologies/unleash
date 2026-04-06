@@ -17,6 +17,7 @@ mod json_output;
 mod launcher;
 pub mod pixel_art;
 mod polyfill;
+mod sandbox;
 mod progress;
 #[cfg(feature = "tui")]
 mod text_input;
@@ -412,6 +413,7 @@ pub(crate) fn is_known_subcommand(first_arg: &str) -> bool {
             | "uninstall"
             | "sessions"
             | "convert"
+            | "sandbox"
             | "help"
     )
 }
@@ -1087,6 +1089,9 @@ pub fn run() -> io::Result<()> {
                 .map_err(|e| io::Error::other(e.to_string()))?;
             Ok(())
         }
+        Some(Commands::Sandbox { action }) => {
+            sandbox::handle_sandbox(&action)
+        }
         None => {
             #[cfg(feature = "tui")]
             return tui::run();
@@ -1202,6 +1207,7 @@ mod tests {
             "uninstall",
             "sessions",
             "convert",
+            "sandbox",
             "help",
         ] {
             assert!(

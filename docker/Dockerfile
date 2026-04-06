@@ -75,11 +75,24 @@ RUN apt-get update \
        openssh-client \
        tmux \
        jq \
+       sudo \
+       iproute2 \
+       iputils-ping \
+       dnsutils \
+       net-tools \
+       wget \
+       vim-tiny \
+       less \
+       htop \
+       procps \
+       file \
+       unzip \
     && rm -rf /var/lib/apt/lists/*
 
-# Create non-root user for sandboxing
+# Create non-root user for sandboxing (with passwordless sudo)
 RUN useradd -m -s /bin/bash unleash \
-    && mkdir -p /home/unleash/.local/bin /home/unleash/.npm-global
+    && mkdir -p /home/unleash/.local/bin /home/unleash/.npm-global \
+    && echo 'unleash ALL=(ALL) NOPASSWD:ALL' > /etc/sudoers.d/unleash
 
 # -- Install unleash binary from builder stage --
 COPY --from=rust-builder /build/target/release/unleash /usr/local/bin/unleash
@@ -115,6 +128,16 @@ ENV AGENT_UNLEASH=1
 ENV HOME=/home/unleash
 ENV PATH="/home/unleash/.local/bin:/home/unleash/.npm-global/bin:${PATH}"
 ENV NPM_CONFIG_PREFIX=/home/unleash/.npm-global
+ENV SANDBOX_NAME=sandbox
+ENV STARSHIP_CONFIG=/home/unleash/.config/starship.toml
+
+# -- Install starship prompt --
+RUN curl -fsSL https://starship.rs/install.sh | sh -s -- --yes
+
+# -- Configure starship for sandbox shell --
+COPY docker/starship.toml /home/unleash/.config/starship.toml
+RUN chown unleash:unleash /home/unleash/.config/starship.toml \
+    && echo 'eval "$(starship init bash)"' >> /home/unleash/.bashrc
 
 # Switch to non-root user
 USER unleash

@@ -1,0 +1,42 @@
+# Starship prompt for unleash sandbox containers
+# Shows sandbox name, directory, git info, and common language versions
+
+format = """[sandbox:${env_var.SANDBOX_NAME}](bold cyan) $directory$git_branch$git_status$nodejs$python$rust$golang
+$character"""
+
+[env_var.SANDBOX_NAME]
+format = "$env_value"
+default = "sandbox"
+
+[directory]
+truncation_length = 3
+style = "bold yellow"
+read_only = " ro"
+
+[character]
+success_symbol = "[>](bold green)"
+error_symbol = "[>](bold red)"
+
+[git_branch]
+format = "on [$symbol$branch]($style) "
+symbol = ""
+
+[git_status]
+format = '([$all_status$ahead_behind]($style) )'
+
+[nodejs]
+format = "[$symbol($version)]($style) "
+symbol = "node "
+detect_files = ["package.json"]
+
+[python]
+format = "[$symbol($version)]($style) "
+symbol = "py "
+
+[rust]
+format = "[$symbol($version)]($style) "
+symbol = "rs "
+
+[golang]
+format = "[$symbol($version)]($style) "
+symbol = "go "

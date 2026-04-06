@@ -635,6 +635,18 @@ pub enum Commands {
         verify: bool,
     },
 
+    /// Run agents in a sandboxed Docker container with gVisor + LAN isolation
+    ///
+    /// Examples:
+    ///   unleash sandbox setup          # One-time: install gVisor, create network, build image
+    ///   unleash sandbox claude          # Run Claude Code in the sandbox
+    ///   unleash sandbox status          # Check sandbox health
+    ///   unleash sandbox allow-ip X      # Open a LAN IP for local API access
+    Sandbox {
+        #[command(subcommand)]
+        action: crate::sandbox::SandboxAction,
+    },
+
     /// Run a profile by name (catches any unknown subcommand as a profile name)
     #[command(external_subcommand)]
     Profile(Vec<String>),
