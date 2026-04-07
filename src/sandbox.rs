@@ -320,7 +320,7 @@ pub fn run_setup(docker_dir: &Path) -> io::Result<()> {
     Ok(())
 }
 
-pub fn run_status(docker_dir: &Path) -> io::Result<()> {
+pub fn run_status(docker_dir: Option<&Path>) -> io::Result<()> {
     println!("\x1b[1mSandbox Status\x1b[0m\n");
 
     // Docker
@@ -375,30 +375,33 @@ pub fn run_status(docker_dir: &Path) -> io::Result<()> {
         println!("\x1b[31m✗\x1b[0m not found (run: unleash sandbox setup)");
     }
 
-    // .env
+    // .env (only check if we know the docker dir)
     print!("  API keys (.env):  ");
-    if env_file_exists(docker_dir) {
-        // Count non-empty, non-comment lines
-        let count = std::fs::read_to_string(docker_dir.join(".env"))
-            .ok()
-            .map(|content| {
-                content
-                    .lines()
-                    .filter(|l| {
-                        let l = l.trim();
-                        !l.is_empty() && !l.starts_with('#') && l.contains('=')
-                            && l.split('=').nth(1).map(|v| !v.is_empty()).unwrap_or(false)
-                    })
-                    .count()
-            })
-            .unwrap_or(0);
-        if count > 0 {
-            println!("\x1b[32m✓\x1b[0m {} key(s) configured", count);
+    if let Some(dir) = docker_dir {
+        if env_file_exists(dir) {
+            let count = std::fs::read_to_string(dir.join(".env"))
+                .ok()
+                .map(|content| {
+                    content
+                        .lines()
+                        .filter(|l| {
+                            let l = l.trim();
+                            !l.is_empty() && !l.starts_with('#') && l.contains('=')
+                                && l.split('=').nth(1).map(|v| !v.is_empty()).unwrap_or(false)
+                        })
+                        .count()
+                })
+                .unwrap_or(0);
+            if count > 0 {
+                println!("\x1b[32m✓\x1b[0m {} key(s) configured", count);
+            } else {
+                println!("\x1b[33m!\x1b[0m file exists but no keys set");
+            }
         } else {
-            println!("\x1b[33m!\x1b[0m file exists but no keys set");
+            println!("\x1b[31m✗\x1b[0m not found (cp docker/example.env docker/.env)");
         }
     } else {
-        println!("\x1b[31m✗\x1b[0m not found (cp docker/example.env docker/.env)");
+        println!("\x1b[33m-\x1b[0m skipped (docker dir not found)");
     }
 
     // LAN exceptions
@@ -593,6 +596,11 @@ pub fn run_revoke_ip(docker_dir: &Path, ip: &str) -> io::Result<()> {
 
 /// Main dispatch for `unleash sandbox <action>`
 pub fn handle_sandbox(action: &SandboxAction) -> io::Result<()> {
+    // Status works without docker dir (most checks are system-level)
+    if matches!(action, SandboxAction::Status) {
+        return run_status(find_docker_dir().as_deref());
+    }
+
     let docker_dir = find_docker_dir().ok_or_else(|| {
         io::Error::other(
             "Cannot find docker/ directory. Run from the unleash repo root, \
@@ -602,7 +610,7 @@ pub fn handle_sandbox(action: &SandboxAction) -> io::Result<()> {
 
     match action {
         SandboxAction::Setup => run_setup(&docker_dir),
-        SandboxAction::Status => run_status(&docker_dir),
+        SandboxAction::Status => unreachable!(),
         SandboxAction::Teardown => run_teardown(&docker_dir),
         SandboxAction::AllowIp { ip } => run_allow_ip(&docker_dir, ip),
         SandboxAction::RevokeIp { ip } => run_revoke_ip(&docker_dir, ip),
