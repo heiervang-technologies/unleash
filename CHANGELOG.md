@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.4](https://github.com/heiervang-technologies/unleash/compare/v0.1.3...v0.1.4) (2026-04-12)
+
+
+### Bug Fixes
+
+* **supercompact:** sync plugin.json threshold + audit fixes ([#80](https://github.com/heiervang-technologies/unleash/issues/80)) ([7cc2ce4](https://github.com/heiervang-technologies/unleash/commit/7cc2ce42d62383959888c80e59109929f4dbeafc))
+
 ## [0.1.3](https://github.com/heiervang-technologies/unleash/compare/v0.1.2...v0.1.3) (2026-04-12)
 
 
