@@ -51,11 +51,11 @@
     "threshold_bytes": {
       "type": "integer",
       "min": 100000,
-      "max": 2000000,
+      "max": 5000000,
       "step": 50000,
-      "default": 432000,
+      "default": 1296000,
       "label": "Trigger Threshold",
-      "description": "File size in bytes that triggers preemptive compaction"
+      "description": "File size in bytes that triggers preemptive compaction (~12 bytes/token)"
     }
   }
 }
