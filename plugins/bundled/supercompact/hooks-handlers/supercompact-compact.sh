@@ -81,12 +81,11 @@ if [[ -z "${BUDGET}" ]]; then
 
     # Floor: never set budget below 10k tokens (would lose too much)
     (( BUDGET < 10000 )) && BUDGET=10000
-
-    # Ceiling: cap at 200k tokens — even with corrected ratio, very large
-    # files shouldn't produce budgets exceeding the context window
-    (( BUDGET > 200000 )) && BUDGET=200000
   fi
 fi
+
+# Always apply ceiling — even for --budget arg or manual mode
+(( BUDGET > 200000 )) && BUDGET=200000
 
 LOCKFILE="/tmp/supercompact.lock"
 LOCK_FD=9
@@ -127,7 +126,7 @@ if ! cp "${JSONL_FILE}" "${BACKUP_FILE}"; then
   exit 0
 fi
 
-JSONL_LINES=$(wc -l < "${JSONL_FILE}" 2>/dev/null || echo 0)
+JSONL_LINES=$(grep -c "" "${JSONL_FILE}" 2>/dev/null || echo 0)
 JSONL_BYTES=$(stat -c %s "${JSONL_FILE}" 2>/dev/null || echo 0)
 log "Backup saved (${JSONL_LINES} lines, ${JSONL_BYTES} bytes)"
 
@@ -184,7 +183,7 @@ if ! echo "${LAST_LINE}" | jq empty 2>/dev/null; then
   exit 0
 fi
 
-SC_LINES=$(wc -l < "${SC_OUTPUT}" 2>/dev/null || echo 0)
+SC_LINES=$(grep -c "" "${SC_OUTPUT}" 2>/dev/null || echo 0)
 SC_BYTES=$(stat -c %s "${SC_OUTPUT}" 2>/dev/null || echo 0)
 log "Compaction complete: ${JSONL_LINES} -> ${SC_LINES} lines, ${JSONL_BYTES} -> ${SC_BYTES} bytes"
 
@@ -224,7 +223,7 @@ log "JSONL replaced successfully"
 
 # Clean up old backups (keep last 3 of each type)
 for pattern in ".pre-compact-full" ".pre-supercompact"; do
-  ls -t "${JSONL_FILE}${pattern}"* 2>/dev/null | tail -n +4 | xargs rm -f 2>/dev/null || true
+  ls -t "${JSONL_FILE}${pattern}"* 2>/dev/null | tail -n +4 | tr '\n' '\0' | xargs -0 rm -f 2>/dev/null || true
 done
 
 # --- 7. Restart via unleash-refresh ---
