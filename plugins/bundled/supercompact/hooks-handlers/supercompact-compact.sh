@@ -129,7 +129,8 @@ log "Backup saved (${JSONL_LINES} lines, ${JSONL_BYTES} bytes)"
 # --- 4. Run compact.py ---
 
 SC_OUTPUT="/tmp/supercompact-output-$$.jsonl"
-rm -f "${SC_OUTPUT}" 2>/dev/null || true
+SC_STDOUT="/tmp/supercompact-stdout-$$.txt"
+rm -f "${SC_OUTPUT}" "${SC_STDOUT}" 2>/dev/null || true
 
 log "Running compact.py (method=${METHOD}, budget=${BUDGET})"
 
@@ -138,11 +139,11 @@ cd "${SUPERCOMPACT_DIR}" || { log "ERROR: Cannot cd to ${SUPERCOMPACT_DIR}"; exi
 uv run python compact.py "${JSONL_FILE}" \
     --method "${METHOD}" \
     --budget "${BUDGET}" \
-    --output "${SC_OUTPUT}" 2>> "${LOG_FILE}"
+    --output "${SC_OUTPUT}" > "${SC_STDOUT}" 2>> "${LOG_FILE}"
 UV_EXIT=$?
 if [[ ${UV_EXIT} -ne 0 ]]; then
   log "ERROR: compact.py failed (exit ${UV_EXIT})"
-  rm -f "${SC_OUTPUT}" 2>/dev/null || true
+  rm -f "${SC_OUTPUT}" "${SC_STDOUT}" 2>/dev/null || true
   exit 0
 fi
 
@@ -226,9 +227,21 @@ done
 # creates the trigger file so the wrapper knows to restart, and sends SIGINT.
 # The wrapper then restarts Claude with --continue, loading the compacted JSONL.
 
+RESTART_MSG="SUPERCOMPACT COMPLETE (${METHOD}). ${JSONL_LINES} -> ${SC_LINES} lines, ${JSONL_BYTES} -> ${SC_BYTES} bytes."
+# Append compact.py stats if available (strip ANSI codes for clean display)
+if [[ -s "${SC_STDOUT}" ]]; then
+  STATS=$(sed 's/\x1b\[[0-9;]*m//g' "${SC_STDOUT}" 2>/dev/null | grep -v '^\s*$')
+  RESTART_MSG="${RESTART_MSG}
+${STATS}
+Continue with your current task."
+else
+  RESTART_MSG="${RESTART_MSG} Continue with your current task."
+fi
+rm -f "${SC_STDOUT}" 2>/dev/null || true
+
 if command -v unleash-refresh &>/dev/null; then
   log "Restarting via unleash-refresh"
-  unleash-refresh "COMPACT COMPLETE. Previous context has been summarized. Continue with your current task."
+  unleash-refresh "${RESTART_MSG}"
   log "unleash-refresh called — wrapper should restart Claude"
 else
   log "WARNING: unleash-refresh not found — compacted JSONL is on disk but Claude won't auto-restart"
