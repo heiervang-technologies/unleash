@@ -470,6 +470,28 @@ EOF
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::fs;
+
+    // ── Test helper ─────────────────────────────────────────
+
+    /// Create a HookManager backed by a temp directory (no real Claude needed)
+    fn test_manager(tmp: &Path) -> HookManager {
+        let settings_path = tmp.join("settings.json");
+        let hooks_dir = tmp.join("hooks");
+        fs::create_dir_all(&hooks_dir).unwrap();
+        // Write empty settings
+        fs::write(&settings_path, "{}").unwrap();
+
+        HookManager {
+            installation: ClaudeInstallation {
+                binary_path: PathBuf::from("/usr/bin/claude"),
+                package_dir: PathBuf::from("/usr/lib/claude"),
+                version: "test".to_string(),
+                settings_path,
+            },
+            hooks_dir,
+        }
+    }
 
     // ── HookEvent roundtrip ──────────────────────────────────
 
@@ -547,5 +569,361 @@ mod tests {
             HookManager::command_basename("${CLAUDE_PLUGIN_ROOT}/hooks-handlers/auto-stop.sh"),
             "auto-stop.sh"
         );
+    }
+
+    // ── register_hook ───────────────────────────────────────
+
+    #[test]
+    fn test_register_hook_creates_event_array() {
+        let tmp = tempfile::tempdir().unwrap();
+        let mgr = test_manager(tmp.path());
+
+        mgr.register_hook(HookEvent::PreCompact, "/path/to/hook.sh", None)
+            .unwrap();
+
+        let settings = mgr.read_settings().unwrap();
+        let hooks = settings["hooks"]["PreCompact"].as_array().unwrap();
+        assert_eq!(hooks.len(), 1);
+        assert_eq!(
+            hooks[0]["hooks"][0]["command"].as_str().unwrap(),
+            "/path/to/hook.sh"
+        );
+    }
+
+    #[test]
+    fn test_register_hook_deduplicates_exact_match() {
+        let tmp = tempfile::tempdir().unwrap();
+        let mgr = test_manager(tmp.path());
+
+        mgr.register_hook(HookEvent::PreCompact, "/path/to/hook.sh", None)
+            .unwrap();
+        mgr.register_hook(HookEvent::PreCompact, "/path/to/hook.sh", None)
+            .unwrap();
+
+        let settings = mgr.read_settings().unwrap();
+        let hooks = settings["hooks"]["PreCompact"].as_array().unwrap();
+        assert_eq!(hooks.len(), 1, "duplicate should not be added");
+    }
+
+    #[test]
+    fn test_register_hook_updates_path_on_basename_match() {
+        let tmp = tempfile::tempdir().unwrap();
+        let mgr = test_manager(tmp.path());
+
+        mgr.register_hook(HookEvent::PreCompact, "/old/path/hook.sh", None)
+            .unwrap();
+        mgr.register_hook(HookEvent::PreCompact, "/new/path/hook.sh", None)
+            .unwrap();
+
+        let settings = mgr.read_settings().unwrap();
+        let hooks = settings["hooks"]["PreCompact"].as_array().unwrap();
+        assert_eq!(hooks.len(), 1, "basename match should update, not add");
+        assert_eq!(
+            hooks[0]["hooks"][0]["command"].as_str().unwrap(),
+            "/new/path/hook.sh"
+        );
+    }
+
+    #[test]
+    fn test_register_hook_allows_different_basenames() {
+        let tmp = tempfile::tempdir().unwrap();
+        let mgr = test_manager(tmp.path());
+
+        mgr.register_hook(HookEvent::PreCompact, "/path/hook-a.sh", None)
+            .unwrap();
+        mgr.register_hook(HookEvent::PreCompact, "/path/hook-b.sh", None)
+            .unwrap();
+
+        let settings = mgr.read_settings().unwrap();
+        let hooks = settings["hooks"]["PreCompact"].as_array().unwrap();
+        assert_eq!(hooks.len(), 2, "different basenames should both be kept");
+    }
+
+    #[test]
+    fn test_register_hook_with_matcher() {
+        let tmp = tempfile::tempdir().unwrap();
+        let mgr = test_manager(tmp.path());
+
+        mgr.register_hook(HookEvent::PreToolUse, "/path/hook.sh", Some("Bash"))
+            .unwrap();
+
+        let settings = mgr.read_settings().unwrap();
+        let hooks = settings["hooks"]["PreToolUse"].as_array().unwrap();
+        assert_eq!(hooks[0]["matcher"].as_str().unwrap(), "Bash");
+    }
+
+    // ── unregister_hook ─────────────────────────────────────
+
+    #[test]
+    fn test_unregister_hook_removes_matching() {
+        let tmp = tempfile::tempdir().unwrap();
+        let mgr = test_manager(tmp.path());
+
+        mgr.register_hook(HookEvent::PreCompact, "/path/hook.sh", None)
+            .unwrap();
+        let removed = mgr
+            .unregister_hook(HookEvent::PreCompact, "/path/hook.sh")
+            .unwrap();
+
+        assert!(removed);
+        let settings = mgr.read_settings().unwrap();
+        let hooks = settings["hooks"]["PreCompact"].as_array().unwrap();
+        assert_eq!(hooks.len(), 0);
+    }
+
+    #[test]
+    fn test_unregister_hook_returns_false_for_missing() {
+        let tmp = tempfile::tempdir().unwrap();
+        let mgr = test_manager(tmp.path());
+
+        let removed = mgr
+            .unregister_hook(HookEvent::PreCompact, "/path/hook.sh")
+            .unwrap();
+        assert!(!removed);
+    }
+
+    // ── list_hooks ──────────────────────────────────────────
+
+    #[test]
+    fn test_list_hooks_empty() {
+        let tmp = tempfile::tempdir().unwrap();
+        let mgr = test_manager(tmp.path());
+
+        let hooks = mgr.list_hooks().unwrap();
+        assert!(hooks.is_empty());
+    }
+
+    #[test]
+    fn test_list_hooks_returns_registered() {
+        let tmp = tempfile::tempdir().unwrap();
+        let mgr = test_manager(tmp.path());
+
+        mgr.register_hook(HookEvent::PreCompact, "/path/hook.sh", None)
+            .unwrap();
+        mgr.register_hook(HookEvent::Stop, "/path/stop.sh", None)
+            .unwrap();
+
+        let hooks = mgr.list_hooks().unwrap();
+        assert_eq!(hooks.len(), 2);
+        assert!(hooks.contains_key("PreCompact"));
+        assert!(hooks.contains_key("Stop"));
+    }
+
+    // ── sync_plugin_hooks ───────────────────────────────────
+
+    #[test]
+    fn test_sync_plugin_hooks_from_hooks_json() {
+        let tmp = tempfile::tempdir().unwrap();
+        let mgr = test_manager(tmp.path());
+
+        // Create a fake plugin directory with hooks.json
+        let plugin_dir = tmp.path().join("plugins/my-plugin");
+        fs::create_dir_all(plugin_dir.join("hooks")).unwrap();
+        fs::write(
+            plugin_dir.join("hooks/hooks.json"),
+            r#"{
+                "hooks": {
+                    "PreCompact": [{
+                        "hooks": [{
+                            "type": "command",
+                            "command": "${CLAUDE_PLUGIN_ROOT}/handlers/compact.sh"
+                        }]
+                    }],
+                    "UserPromptSubmit": [{
+                        "hooks": [{
+                            "type": "command",
+                            "command": "${CLAUDE_PLUGIN_ROOT}/handlers/userprompt.sh"
+                        }]
+                    }]
+                }
+            }"#,
+        )
+        .unwrap();
+
+        mgr.sync_plugin_hooks(&[plugin_dir.clone()]).unwrap();
+
+        let settings = mgr.read_settings().unwrap();
+
+        // Check PreCompact hook was registered with expanded path
+        let pc_hooks = settings["hooks"]["PreCompact"].as_array().unwrap();
+        assert_eq!(pc_hooks.len(), 1);
+        let cmd = pc_hooks[0]["hooks"][0]["command"].as_str().unwrap();
+        assert!(
+            cmd.contains("/plugins/my-plugin/handlers/compact.sh"),
+            "CLAUDE_PLUGIN_ROOT should be expanded: {cmd}"
+        );
+        assert!(
+            !cmd.contains("${CLAUDE_PLUGIN_ROOT}"),
+            "variable should be resolved: {cmd}"
+        );
+
+        // Check UserPromptSubmit hook was also registered
+        let ups_hooks = settings["hooks"]["UserPromptSubmit"].as_array().unwrap();
+        assert_eq!(ups_hooks.len(), 1);
+    }
+
+    #[test]
+    fn test_sync_plugin_hooks_skips_missing_hooks_json() {
+        let tmp = tempfile::tempdir().unwrap();
+        let mgr = test_manager(tmp.path());
+
+        // Plugin dir exists but has no hooks/hooks.json
+        let plugin_dir = tmp.path().join("plugins/no-hooks");
+        fs::create_dir_all(&plugin_dir).unwrap();
+
+        mgr.sync_plugin_hooks(&[plugin_dir]).unwrap();
+
+        let hooks = mgr.list_hooks().unwrap();
+        assert!(hooks.is_empty());
+    }
+
+    #[test]
+    fn test_sync_plugin_hooks_idempotent() {
+        let tmp = tempfile::tempdir().unwrap();
+        let mgr = test_manager(tmp.path());
+
+        let plugin_dir = tmp.path().join("plugins/my-plugin");
+        fs::create_dir_all(plugin_dir.join("hooks")).unwrap();
+        fs::write(
+            plugin_dir.join("hooks/hooks.json"),
+            r#"{
+                "hooks": {
+                    "PreCompact": [{
+                        "hooks": [{
+                            "type": "command",
+                            "command": "${CLAUDE_PLUGIN_ROOT}/hook.sh"
+                        }]
+                    }]
+                }
+            }"#,
+        )
+        .unwrap();
+
+        // Sync twice
+        mgr.sync_plugin_hooks(&[plugin_dir.clone()]).unwrap();
+        mgr.sync_plugin_hooks(&[plugin_dir]).unwrap();
+
+        let settings = mgr.read_settings().unwrap();
+        let hooks = settings["hooks"]["PreCompact"].as_array().unwrap();
+        assert_eq!(hooks.len(), 1, "second sync should not duplicate hooks");
+    }
+
+    #[test]
+    fn test_sync_updates_path_when_plugin_dir_changes() {
+        let tmp = tempfile::tempdir().unwrap();
+        let mgr = test_manager(tmp.path());
+
+        // First sync from old location
+        let old_dir = tmp.path().join("plugins-old/my-plugin");
+        fs::create_dir_all(old_dir.join("hooks")).unwrap();
+        fs::write(
+            old_dir.join("hooks/hooks.json"),
+            r#"{"hooks":{"PreCompact":[{"hooks":[{"type":"command","command":"${CLAUDE_PLUGIN_ROOT}/hook.sh"}]}]}}"#,
+        )
+        .unwrap();
+        mgr.sync_plugin_hooks(&[old_dir]).unwrap();
+
+        // Second sync from new location (same basename hook.sh)
+        let new_dir = tmp.path().join("plugins-new/my-plugin");
+        fs::create_dir_all(new_dir.join("hooks")).unwrap();
+        fs::write(
+            new_dir.join("hooks/hooks.json"),
+            r#"{"hooks":{"PreCompact":[{"hooks":[{"type":"command","command":"${CLAUDE_PLUGIN_ROOT}/hook.sh"}]}]}}"#,
+        )
+        .unwrap();
+        mgr.sync_plugin_hooks(&[new_dir.clone()]).unwrap();
+
+        let settings = mgr.read_settings().unwrap();
+        let hooks = settings["hooks"]["PreCompact"].as_array().unwrap();
+        assert_eq!(hooks.len(), 1, "should update path, not add second entry");
+        let cmd = hooks[0]["hooks"][0]["command"].as_str().unwrap();
+        assert!(
+            cmd.contains("plugins-new"),
+            "path should be updated to new location: {cmd}"
+        );
+    }
+
+    #[test]
+    fn test_sync_preserves_existing_hooks() {
+        let tmp = tempfile::tempdir().unwrap();
+        let mgr = test_manager(tmp.path());
+
+        // Register a manual hook first
+        mgr.register_hook(HookEvent::PreCompact, "/manual/compact-notify.sh", None)
+            .unwrap();
+
+        // Then sync a plugin hook with a different basename
+        let plugin_dir = tmp.path().join("plugins/supercompact");
+        fs::create_dir_all(plugin_dir.join("hooks")).unwrap();
+        fs::write(
+            plugin_dir.join("hooks/hooks.json"),
+            r#"{"hooks":{"PreCompact":[{"hooks":[{"type":"command","command":"${CLAUDE_PLUGIN_ROOT}/supercompact-precompact.sh"}]}]}}"#,
+        )
+        .unwrap();
+        mgr.sync_plugin_hooks(&[plugin_dir]).unwrap();
+
+        let settings = mgr.read_settings().unwrap();
+        let hooks = settings["hooks"]["PreCompact"].as_array().unwrap();
+        assert_eq!(hooks.len(), 2, "plugin hook should be added alongside manual hook");
+    }
+
+    #[test]
+    fn test_sync_into_empty_event_array() {
+        let tmp = tempfile::tempdir().unwrap();
+        let mgr = test_manager(tmp.path());
+
+        // Write settings with an empty PreCompact array (the bug scenario)
+        fs::write(
+            &mgr.installation.settings_path,
+            r#"{"hooks":{"PreCompact":[]}}"#,
+        )
+        .unwrap();
+
+        let plugin_dir = tmp.path().join("plugins/supercompact");
+        fs::create_dir_all(plugin_dir.join("hooks")).unwrap();
+        fs::write(
+            plugin_dir.join("hooks/hooks.json"),
+            r#"{"hooks":{"PreCompact":[{"hooks":[{"type":"command","command":"${CLAUDE_PLUGIN_ROOT}/hook.sh"}]}]}}"#,
+        )
+        .unwrap();
+        mgr.sync_plugin_hooks(&[plugin_dir]).unwrap();
+
+        let settings = mgr.read_settings().unwrap();
+        let hooks = settings["hooks"]["PreCompact"].as_array().unwrap();
+        assert_eq!(
+            hooks.len(),
+            1,
+            "sync should populate an empty event array"
+        );
+    }
+
+    #[test]
+    fn test_sync_multiple_plugins() {
+        let tmp = tempfile::tempdir().unwrap();
+        let mgr = test_manager(tmp.path());
+
+        // Plugin A: PreCompact hook
+        let plugin_a = tmp.path().join("plugins/plugin-a");
+        fs::create_dir_all(plugin_a.join("hooks")).unwrap();
+        fs::write(
+            plugin_a.join("hooks/hooks.json"),
+            r#"{"hooks":{"PreCompact":[{"hooks":[{"type":"command","command":"${CLAUDE_PLUGIN_ROOT}/a-hook.sh"}]}]}}"#,
+        )
+        .unwrap();
+
+        // Plugin B: UserPromptSubmit hook
+        let plugin_b = tmp.path().join("plugins/plugin-b");
+        fs::create_dir_all(plugin_b.join("hooks")).unwrap();
+        fs::write(
+            plugin_b.join("hooks/hooks.json"),
+            r#"{"hooks":{"UserPromptSubmit":[{"hooks":[{"type":"command","command":"${CLAUDE_PLUGIN_ROOT}/b-hook.sh"}]}]}}"#,
+        )
+        .unwrap();
+
+        mgr.sync_plugin_hooks(&[plugin_a, plugin_b]).unwrap();
+
+        let hooks = mgr.list_hooks().unwrap();
+        assert!(hooks.contains_key("PreCompact"));
+        assert!(hooks.contains_key("UserPromptSubmit"));
     }
 }
