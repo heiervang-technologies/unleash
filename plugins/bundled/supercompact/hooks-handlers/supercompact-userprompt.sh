@@ -29,10 +29,10 @@ fi
 # Fast file-size check
 FILE_BYTES=$(stat -c %s "${JSONL_FILE}" 2>/dev/null || echo 0)
 
-# Threshold: 60% of effective context window × ~4 bytes/token
-# For 200K model: (200000 - 20000) × 0.60 × 4 = 432,000 bytes
+# Threshold: 60% of effective context window × ~12 bytes/token
+# For 200K model: (200000 - 20000) × 0.60 × 12 = 1,296,000 bytes
 # Configurable via env var for different model windows
-THRESHOLD=${PLUGIN_SETTING_THRESHOLD_BYTES:-${SUPERCOMPACT_THRESHOLD_BYTES:-432000}}
+THRESHOLD=${PLUGIN_SETTING_THRESHOLD_BYTES:-${SUPERCOMPACT_THRESHOLD_BYTES:-1296000}}
 
 if (( FILE_BYTES > THRESHOLD )); then
   log "Threshold exceeded (${FILE_BYTES} > ${THRESHOLD} bytes) — triggering preemptive compaction"

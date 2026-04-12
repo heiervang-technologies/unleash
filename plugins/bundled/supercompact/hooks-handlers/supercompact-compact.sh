@@ -68,8 +68,9 @@ if [[ -z "${BUDGET}" ]]; then
     BUDGET="${PLUGIN_SETTING_BUDGET}"
   else
     FILE_BYTES=$(stat -c %s "${JSONL_FILE}" 2>/dev/null || echo 0)
-    # ~4 bytes per token is a reasonable estimate for JSONL with tool output
-    ESTIMATED_TOKENS=$((FILE_BYTES / 4))
+    # ~12 bytes per token for JSONL (JSON structure, keys, escaping inflate
+    # byte count vs actual tokens — measured at ~16 b/t, using 12 to be conservative)
+    ESTIMATED_TOKENS=$((FILE_BYTES / 12))
 
     if [[ "${TRIGGER}" == "preemptive" ]]; then
       PCT="${PLUGIN_SETTING_BUDGET_PCT_PREEMPTIVE:-50}"
@@ -80,6 +81,10 @@ if [[ -z "${BUDGET}" ]]; then
 
     # Floor: never set budget below 10k tokens (would lose too much)
     (( BUDGET < 10000 )) && BUDGET=10000
+
+    # Ceiling: cap at 200k tokens — even with corrected ratio, very large
+    # files shouldn't produce budgets exceeding the context window
+    (( BUDGET > 200000 )) && BUDGET=200000
   fi
 fi
 
