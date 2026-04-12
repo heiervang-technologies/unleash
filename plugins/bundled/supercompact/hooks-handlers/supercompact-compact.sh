@@ -135,11 +135,13 @@ log "Running compact.py (method=${METHOD}, budget=${BUDGET})"
 
 cd "${SUPERCOMPACT_DIR}" || { log "ERROR: Cannot cd to ${SUPERCOMPACT_DIR}"; exit 0; }
 
-if ! uv run python compact.py "${JSONL_FILE}" \
+uv run python compact.py "${JSONL_FILE}" \
     --method "${METHOD}" \
     --budget "${BUDGET}" \
-    --output "${SC_OUTPUT}" 2>> "${LOG_FILE}"; then
-  log "ERROR: compact.py failed (exit $?)"
+    --output "${SC_OUTPUT}" 2>> "${LOG_FILE}"
+UV_EXIT=$?
+if [[ ${UV_EXIT} -ne 0 ]]; then
+  log "ERROR: compact.py failed (exit ${UV_EXIT})"
   rm -f "${SC_OUTPUT}" 2>/dev/null || true
   exit 0
 fi
