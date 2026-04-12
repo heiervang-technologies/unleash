@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.3](https://github.com/heiervang-technologies/unleash/compare/v0.1.2...v0.1.3) (2026-04-12)
+
+
+### Bug Fixes
+
+* **supercompact:** correct bytes/token ratio from 4 to 12 ([#78](https://github.com/heiervang-technologies/unleash/issues/78)) ([8f22586](https://github.com/heiervang-technologies/unleash/commit/8f22586accbb305c7383a19bd13d40550f836415))
+
 ## [0.1.2](https://github.com/heiervang-technologies/unleash/compare/v0.1.1...v0.1.2) (2026-04-12)
 
 
