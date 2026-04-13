@@ -48,14 +48,32 @@
       "label": "Token Budget",
       "description": "Fixed token budget (manual mode only)"
     },
+    "budget_floor": {
+      "type": "integer",
+      "min": 5000,
+      "max": 300000,
+      "step": 10000,
+      "default": 200000,
+      "label": "Budget Floor (tokens)",
+      "description": "Minimum tokens to keep after compaction (auto-detected per model, override here)"
+    },
+    "threshold_tokens": {
+      "type": "integer",
+      "min": 50000,
+      "max": 500000,
+      "step": 10000,
+      "default": 200000,
+      "label": "Trigger Threshold (tokens)",
+      "description": "Token count that triggers preemptive compaction (uses real tokenizer when available)"
+    },
     "threshold_bytes": {
       "type": "integer",
       "min": 100000,
       "max": 5000000,
       "step": 50000,
-      "default": 1296000,
-      "label": "Trigger Threshold",
-      "description": "File size in bytes that triggers preemptive compaction (~12 bytes/token)"
+      "default": 2700000,
+      "label": "Trigger Threshold (bytes fallback)",
+      "description": "File size fallback when tokenizer is unavailable (~12 bytes/token)"
     }
   }
 }

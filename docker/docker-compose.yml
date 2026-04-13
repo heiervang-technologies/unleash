@@ -20,7 +20,7 @@ services:
       context: ..
       dockerfile: docker/Dockerfile
     image: unleash:latest
-    entrypoint: /bin/bash
+    entrypoint: ["entrypoint.sh", "/bin/bash"]
     runtime: runsc
     stdin_open: true
     tty: true
@@ -32,6 +32,10 @@ services:
       - OPENAI_API_KEY
       - GEMINI_API_KEY
       - CLAUDE_CODE_OAUTH_TOKEN
+      - IS_SANDBOX=1
+    dns:
+      - 8.8.8.8
+      - 8.8.4.4
     networks:
       - sandbox
 
@@ -54,6 +58,10 @@ services:
       - OPENAI_API_KEY
       - GEMINI_API_KEY
       - CLAUDE_CODE_OAUTH_TOKEN
+      - IS_SANDBOX=1
+    dns:
+      - 8.8.8.8
+      - 8.8.4.4
     networks:
       - sandbox
 

@@ -17,9 +17,16 @@ const DOCKER_TAG: &str = "latest";
 
 /// Find the docker/ directory relative to the unleash binary or repo root.
 fn find_docker_dir() -> Option<PathBuf> {
-    // Try relative to current exe
+    // 1. User-local install: ~/.local/share/unleash/docker/
+    if let Some(data_dir) = dirs::data_dir() {
+        let local_path = data_dir.join("unleash").join("docker");
+        if local_path.join("Dockerfile").exists() {
+            return Some(local_path);
+        }
+    }
+
+    // 2. System-wide install: /usr/local/share/unleash/docker/
     if let Ok(exe) = std::env::current_exe() {
-        // Installed: /usr/local/bin/unleash -> look for /usr/local/share/unleash/docker/
         if let Some(prefix) = exe.parent().and_then(|p| p.parent()) {
             let share_path = prefix.join("share").join("unleash").join("docker");
             if share_path.join("Dockerfile").exists() {
@@ -28,15 +35,16 @@ fn find_docker_dir() -> Option<PathBuf> {
         }
     }
 
-    // Try repo layout: cwd or parent has docker/
-    let cwd = std::env::current_dir().ok()?;
-    for dir in [&cwd, &cwd.join(".."), &cwd.join("../..")]
-        .iter()
-        .filter_map(|p| p.canonicalize().ok())
-    {
-        let docker_dir = dir.join("docker");
-        if docker_dir.join("Dockerfile").exists() {
-            return Some(docker_dir);
+    // 3. Repo layout: cwd or parent has docker/
+    if let Ok(cwd) = std::env::current_dir() {
+        for dir in [&cwd, &cwd.join(".."), &cwd.join("../..")]
+            .iter()
+            .filter_map(|p| p.canonicalize().ok())
+        {
+            let docker_dir = dir.join("docker");
+            if docker_dir.join("Dockerfile").exists() {
+                return Some(docker_dir);
+            }
         }
     }
 
@@ -436,7 +444,7 @@ fn validate_sandbox_name(name: &str) -> io::Result<()> {
     Ok(())
 }
 
-pub fn run_agent(docker_dir: &Path, agent: &str, name: &str, extra_args: &[String]) -> io::Result<()> {
+pub fn run_agent(docker_dir: Option<&Path>, agent: &str, name: &str, extra_args: &[String]) -> io::Result<()> {
     // Validate sandbox name (used as Docker hostname, must be RFC 1123 compliant)
     validate_sandbox_name(name)?;
 
@@ -472,36 +480,46 @@ pub fn run_agent(docker_dir: &Path, agent: &str, name: &str, extra_args: &[Strin
         eprintln!("  Fix: sudo ./docker/sandbox-network.sh setup");
     }
 
-    if !env_file_exists(docker_dir) {
-        eprintln!("\x1b[33mwarning:\x1b[0m No .env file found. API keys may not be set.");
-        eprintln!("  Fix: cp docker/example.env docker/.env && edit docker/.env");
+    if let Some(dir) = docker_dir {
+        if !env_file_exists(dir) {
+            eprintln!("\x1b[33mwarning:\x1b[0m No .env file found. API keys may not be set.");
+            eprintln!("  Fix: cp docker/example.env docker/.env && edit docker/.env");
+        }
     }
 
     let img = image_name();
 
     // Try compose first (has env_file, service definitions, etc.)
-    let compose_file = docker_dir.join("docker-compose.yml");
-    let use_compose = compose_file.exists();
+    let compose_file = docker_dir.map(|d| d.join("docker-compose.yml"));
+    let use_compose = compose_file.as_ref().map(|f| f.exists()).unwrap_or(false);
 
     let mut cmd = Command::new("docker");
 
     if use_compose {
-        cmd.args(["compose", "-f", &path_str(&compose_file)]);
+        cmd.args(["compose", "-f", &path_str(compose_file.as_ref().unwrap())]);
 
         // Check for local-api overlay
-        let local_api_compose = docker_dir.join("docker-compose.local-api.yml");
+        let local_api_compose = docker_dir.unwrap().join("docker-compose.local-api.yml");
         if std::env::var("LOCAL_API_BASE").is_ok() && local_api_compose.exists() {
             cmd.args(["-f", &path_str(&local_api_compose)]);
         }
 
-        cmd.args(["run", "--rm", "-e", &format!("SANDBOX_NAME={}", name), "--hostname", name, agent]);
+        cmd.args([
+            "run", "--rm",
+            "-e", &format!("SANDBOX_NAME={}", name),
+            "-e", &format!("HOSTNAME={}", name),
+            agent,
+        ]);
     } else {
         // Direct docker run (no compose files available — e.g., installed via binary only)
+        let container_name = format!("unleash-{}", name);
         cmd.args([
             "run", "--rm", "-it",
             "--runtime", "runsc",
             "--network", "unleash-sandbox",
+            "--name", &container_name,
             "--hostname", name,
+            "--dns", "8.8.8.8", "--dns", "8.8.4.4",
             "-e", &format!("SANDBOX_NAME={}", name),
             "-v", &format!("{}:/workspace", std::env::current_dir()
                 .map(|p| p.to_string_lossy().to_string())
@@ -521,9 +539,11 @@ pub fn run_agent(docker_dir: &Path, agent: &str, name: &str, extra_args: &[Strin
         }
 
         // Pass through .env file if present
-        let dotenv = docker_dir.join(".env");
-        if dotenv.exists() {
-            cmd.args(["--env-file", &path_str(&dotenv)]);
+        if let Some(dir) = docker_dir {
+            let dotenv = dir.join(".env");
+            if dotenv.exists() {
+                cmd.args(["--env-file", &path_str(&dotenv)]);
+            }
         }
 
         cmd.args([&img, agent]);
@@ -594,14 +614,124 @@ pub fn run_revoke_ip(docker_dir: &Path, ip: &str) -> io::Result<()> {
     Ok(())
 }
 
-/// Main dispatch for `unleash sandbox <action>`
-pub fn handle_sandbox(action: &SandboxAction) -> io::Result<()> {
-    // Status works without docker dir (most checks are system-level)
-    if matches!(action, SandboxAction::Status) {
-        return run_status(find_docker_dir().as_deref());
+pub fn run_list() -> io::Result<()> {
+    if !docker_running() {
+        eprintln!("\x1b[31merror:\x1b[0m Docker is not running.");
+        return Err(io::Error::other("Docker not running"));
     }
 
-    let docker_dir = find_docker_dir().ok_or_else(|| {
+    // List containers on the sandbox network with useful columns
+    let output = Command::new("docker")
+        .args([
+            "ps",
+            "--filter", "network=unleash-sandbox",
+            "--format", "table {{.ID}}\t{{.Names}}\t{{.Status}}\t{{.RunningFor}}\t{{.Command}}",
+        ])
+        .output()?;
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let lines: Vec<&str> = stdout.lines().collect();
+
+    if lines.len() <= 1 {
+        println!("No running sandboxes.");
+        println!("  Start one: unleash sandbox run claude");
+        return Ok(());
+    }
+
+    println!("\x1b[1mRunning Sandboxes\x1b[0m\n");
+    for line in &lines {
+        println!("  {}", line);
+    }
+    println!("\n  Enter a sandbox: unleash sandbox enter <NAME>");
+    Ok(())
+}
+
+pub fn run_enter(target: &str, shell: &str) -> io::Result<()> {
+    if !docker_running() {
+        eprintln!("\x1b[31merror:\x1b[0m Docker is not running.");
+        return Err(io::Error::other("Docker not running"));
+    }
+
+    // Find the container — try target as container name or ID first
+    let found = Command::new("docker")
+        .args(["inspect", "--format", "{{.ID}}", target])
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null())
+        .output()
+        .map(|o| o.status.success())
+        .unwrap_or(false);
+
+    let container_id = if found {
+        target.to_string()
+    } else {
+        // Search sandbox containers by hostname
+        let output = Command::new("docker")
+            .args([
+                "ps", "-q",
+                "--filter", "network=unleash-sandbox",
+            ])
+            .output()?;
+
+        let raw = String::from_utf8_lossy(&output.stdout).to_string();
+        let container_ids: Vec<&str> = raw
+            .lines()
+            .map(|l| l.trim())
+            .filter(|l| !l.is_empty())
+            .collect();
+
+        // Check each container's hostname
+        let mut match_id = None;
+        for id in &container_ids {
+            let hostname = run_command_output("docker", &[
+                "inspect", "--format", "{{.Config.Hostname}}", id,
+            ])?;
+            if hostname.trim() == target {
+                match_id = Some(id.to_string());
+                break;
+            }
+        }
+
+        match_id.ok_or_else(|| {
+            io::Error::other(format!(
+                "No sandbox found matching '{}'. Run 'unleash sandbox list' to see running sandboxes.",
+                target
+            ))
+        })?
+    };
+
+    // Exec into the container
+    let status = Command::new("docker")
+        .args(["exec", "-it", &container_id, shell])
+        .stdin(Stdio::inherit())
+        .stdout(Stdio::inherit())
+        .stderr(Stdio::inherit())
+        .status()?;
+
+    if !status.success() {
+        return Err(io::Error::other(format!(
+            "Shell exited with code {}",
+            status.code().unwrap_or(-1)
+        )));
+    }
+    Ok(())
+}
+
+/// Main dispatch for `unleash sandbox <action>`
+pub fn handle_sandbox(action: &SandboxAction) -> io::Result<()> {
+    let docker_dir = find_docker_dir();
+
+    // These work without docker dir
+    match action {
+        SandboxAction::Status => return run_status(docker_dir.as_deref()),
+        SandboxAction::List => return run_list(),
+        SandboxAction::Enter { target, shell } => return run_enter(target, shell),
+        SandboxAction::Run { name, agent, args } => {
+            return run_agent(docker_dir.as_deref(), agent, name, args.as_slice())
+        }
+        _ => {}
+    }
+
+    let docker_dir = docker_dir.ok_or_else(|| {
         io::Error::other(
             "Cannot find docker/ directory. Run from the unleash repo root, \
              or ensure docker files are installed at /usr/local/share/unleash/docker/",
@@ -610,13 +740,11 @@ pub fn handle_sandbox(action: &SandboxAction) -> io::Result<()> {
 
     match action {
         SandboxAction::Setup => run_setup(&docker_dir),
-        SandboxAction::Status => unreachable!(),
         SandboxAction::Teardown => run_teardown(&docker_dir),
         SandboxAction::AllowIp { ip } => run_allow_ip(&docker_dir, ip),
         SandboxAction::RevokeIp { ip } => run_revoke_ip(&docker_dir, ip),
-        SandboxAction::Run { name, agent, args } => {
-            run_agent(&docker_dir, agent, name, args.as_slice())
-        }
+        SandboxAction::Status | SandboxAction::List | SandboxAction::Enter { .. }
+        | SandboxAction::Run { .. } => unreachable!(),
     }
 }
 
@@ -628,6 +756,26 @@ pub enum SandboxAction {
 
     /// Show sandbox health status
     Status,
+
+    /// List running sandbox containers
+    List,
+
+    /// Open a shell in a running sandbox container
+    ///
+    /// TARGET can be a container name, ID, or hostname.
+    ///
+    /// Examples:
+    ///   unleash sandbox enter mybox
+    ///   unleash sandbox enter abc123
+    ///   unleash sandbox enter mybox --shell /bin/zsh
+    Enter {
+        /// Container name, ID, or hostname to enter
+        target: String,
+
+        /// Shell to use inside the container
+        #[arg(long, default_value = "bash")]
+        shell: String,
+    },
 
     /// Remove sandbox network and firewall rules
     Teardown,

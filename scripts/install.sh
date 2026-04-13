@@ -208,6 +208,27 @@ else
     warn "Plugin directory not found: $REPO_ROOT/plugins/bundled"
 fi
 
+# Step 3b: Install docker files (for sandbox support from any directory)
+info "Installing docker files..."
+DOCKER_DIR="${HOME}/.local/share/unleash/docker"
+mkdir -p "$DOCKER_DIR"
+
+if [[ -d "$REPO_ROOT/docker" ]]; then
+    cp "$REPO_ROOT/docker/Dockerfile" "$DOCKER_DIR/"
+    cp "$REPO_ROOT/docker/docker-compose.yml" "$DOCKER_DIR/"
+    cp "$REPO_ROOT/docker/entrypoint.sh" "$DOCKER_DIR/"
+    chmod +x "$DOCKER_DIR/entrypoint.sh"
+    cp "$REPO_ROOT/docker/sandbox-network.sh" "$DOCKER_DIR/" 2>/dev/null || true
+    chmod +x "$DOCKER_DIR/sandbox-network.sh" 2>/dev/null || true
+    # Copy optional files
+    for f in example.env starship.toml docker-compose.*.yml; do
+        cp "$REPO_ROOT/docker/$f" "$DOCKER_DIR/" 2>/dev/null || true
+    done
+    success "Docker files installed to $DOCKER_DIR"
+else
+    warn "Docker directory not found: $REPO_ROOT/docker"
+fi
+
 # Step 4: Print summary
 echo ""
 echo "╭─────────────────────────────────────╮"

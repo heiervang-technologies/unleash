@@ -67,10 +67,14 @@ if [[ -z "${BUDGET}" ]]; then
   if [[ "${BUDGET_MODE}" == "manual" && -n "${PLUGIN_SETTING_BUDGET:-}" ]]; then
     BUDGET="${PLUGIN_SETTING_BUDGET}"
   else
-    FILE_BYTES=$(stat -c %s "${JSONL_FILE}" 2>/dev/null || echo 0)
-    # ~12 bytes per token for JSONL (JSON structure, keys, escaping inflate
-    # byte count vs actual tokens — measured at ~16 b/t, using 12 to be conservative)
-    ESTIMATED_TOKENS=$((FILE_BYTES / 12))
+    # Get token count — prefer real tokenizer, fall back to byte estimate
+    if command -v unleash &>/dev/null; then
+      ESTIMATED_TOKENS=$(unleash token-count "${JSONL_FILE}" 2>/dev/null) || ESTIMATED_TOKENS=0
+    fi
+    if [[ "${ESTIMATED_TOKENS:-0}" -eq 0 ]]; then
+      FILE_BYTES=$(stat -c %s "${JSONL_FILE}" 2>/dev/null || echo 0)
+      ESTIMATED_TOKENS=$((FILE_BYTES / 12))
+    fi
 
     if [[ "${TRIGGER}" == "preemptive" ]]; then
       PCT="${PLUGIN_SETTING_BUDGET_PCT_PREEMPTIVE:-50}"
@@ -79,8 +83,19 @@ if [[ -z "${BUDGET}" ]]; then
     fi
     BUDGET=$((ESTIMATED_TOKENS * PCT / 100))
 
-    # Floor: never set budget below 10k tokens (would lose too much)
-    (( BUDGET < 10000 )) && BUDGET=10000
+    # Floor: cloud models (claude, codex, gemini) have large context windows —
+    # never compact below 200k tokens. Local models get a lower 10k floor.
+    AGENT="${AGENT_CMD:-claude}"
+    AGENT_BASE=$(basename "${AGENT}" 2>/dev/null)
+    case "${AGENT_BASE}" in
+      claude*|codex*|gemini*)
+        BUDGET_FLOOR="${PLUGIN_SETTING_BUDGET_FLOOR:-200000}"
+        ;;
+      *)
+        BUDGET_FLOOR="${PLUGIN_SETTING_BUDGET_FLOOR:-10000}"
+        ;;
+    esac
+    (( BUDGET < BUDGET_FLOOR )) && BUDGET="${BUDGET_FLOOR}"
   fi
 fi
 
