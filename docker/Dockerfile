@@ -158,5 +158,10 @@ RUN claude --version && echo "✓ Claude Code" \
     && opencode --version && echo "✓ OpenCode" \
     && unleash --version && echo "✓ unleash"
 
-# Default entrypoint: run unleash TUI (interactive) or unleashed (headless)
-ENTRYPOINT ["unleash"]
+# Entrypoint wrapper: fix DNS for gVisor, then drop to unleash user.
+# Starts as root to write /etc/resolv.conf (gVisor's DNS proxy is broken),
+# then execs as the unleash user.
+COPY docker/entrypoint.sh /usr/local/bin/entrypoint.sh
+USER root
+ENTRYPOINT ["entrypoint.sh"]
+CMD ["unleash"]

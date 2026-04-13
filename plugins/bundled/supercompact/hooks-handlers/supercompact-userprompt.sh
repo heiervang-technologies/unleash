@@ -26,16 +26,36 @@ if [[ -z "${JSONL_FILE}" || ! -f "${JSONL_FILE}" ]]; then
   exit 0
 fi
 
-# Fast file-size check
+# Token count check — use real tokenizer if available, fall back to byte estimate
+THRESHOLD_TOKENS=${PLUGIN_SETTING_THRESHOLD_TOKENS:-${SUPERCOMPACT_THRESHOLD_TOKENS:-200000}}
+THRESHOLD_BYTES=${PLUGIN_SETTING_THRESHOLD_BYTES:-${SUPERCOMPACT_THRESHOLD_BYTES:-2700000}}
+
+# Fast path: skip tokenizer if file is clearly under threshold (bytes / 16 is a safe lower bound)
 FILE_BYTES=$(stat -c %s "${JSONL_FILE}" 2>/dev/null || echo 0)
+if (( FILE_BYTES / 16 > THRESHOLD_TOKENS )); then
+  OVER_THRESHOLD=1
+elif (( FILE_BYTES / 4 < THRESHOLD_TOKENS )); then
+  # Clearly under threshold even with generous estimate
+  OVER_THRESHOLD=0
+elif command -v unleash &>/dev/null; then
+  # Ambiguous zone — use real tokenizer
+  TOKEN_COUNT=$(unleash token-count "${JSONL_FILE}" 2>/dev/null) || TOKEN_COUNT=0
+  if (( TOKEN_COUNT > THRESHOLD_TOKENS )); then
+    OVER_THRESHOLD=1
+  else
+    OVER_THRESHOLD=0
+  fi
+else
+  # No tokenizer available, fall back to byte threshold
+  if (( FILE_BYTES > THRESHOLD_BYTES )); then
+    OVER_THRESHOLD=1
+  else
+    OVER_THRESHOLD=0
+  fi
+fi
 
-# Threshold: 60% of effective context window × ~12 bytes/token
-# For 200K model: (200000 - 20000) × 0.60 × 12 = 1,296,000 bytes
-# Configurable via env var for different model windows
-THRESHOLD=${PLUGIN_SETTING_THRESHOLD_BYTES:-${SUPERCOMPACT_THRESHOLD_BYTES:-1296000}}
-
-if (( FILE_BYTES > THRESHOLD )); then
-  log "Threshold exceeded (${FILE_BYTES} > ${THRESHOLD} bytes) — triggering preemptive compaction"
+if (( OVER_THRESHOLD )); then
+  log "Threshold exceeded (file=${FILE_BYTES} bytes, threshold=${THRESHOLD_TOKENS} tokens) — triggering preemptive compaction"
 
   # Resolve plugin root (CLAUDE_PLUGIN_ROOT is set by Claude Code for plugin hooks)
   SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"

@@ -647,6 +647,21 @@ pub enum Commands {
         action: crate::sandbox::SandboxAction,
     },
 
+    /// Count tokens in a file using tiktoken (cl100k_base) or a HuggingFace tokenizer
+    ///
+    /// Examples:
+    ///   unleash token-count transcript.jsonl              # Count with cl100k_base
+    ///   unleash token-count transcript.jsonl --tokenizer ./tokenizer.json  # HuggingFace
+    #[command(name = "token-count")]
+    TokenCount {
+        /// Path to the file to count tokens in
+        file: String,
+
+        /// Path to a HuggingFace tokenizer.json (defaults to tiktoken cl100k_base)
+        #[arg(short, long)]
+        tokenizer: Option<String>,
+    },
+
     /// Run a profile by name (catches any unknown subcommand as a profile name)
     #[command(external_subcommand)]
     Profile(Vec<String>),

@@ -18,6 +18,7 @@ mod launcher;
 pub mod pixel_art;
 mod polyfill;
 mod sandbox;
+pub mod token_count;
 mod progress;
 #[cfg(feature = "tui")]
 mod text_input;
@@ -414,6 +415,7 @@ pub(crate) fn is_known_subcommand(first_arg: &str) -> bool {
             | "sessions"
             | "convert"
             | "sandbox"
+            | "token-count"
             | "help"
     )
 }
@@ -1092,6 +1094,9 @@ pub fn run() -> io::Result<()> {
         Some(Commands::Sandbox { action }) => {
             sandbox::handle_sandbox(&action)
         }
+        Some(Commands::TokenCount { file, tokenizer }) => {
+            token_count::handle_token_count(&file, tokenizer.as_deref())
+        }
         None => {
             #[cfg(feature = "tui")]
             return tui::run();
@@ -1208,6 +1213,7 @@ mod tests {
             "sessions",
             "convert",
             "sandbox",
+            "token-count",
             "help",
         ] {
             assert!(
