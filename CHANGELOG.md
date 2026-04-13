@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.5](https://github.com/heiervang-technologies/unleash/compare/v0.1.4...v0.1.5) (2026-04-13)
+
+
+### Features
+
+* token counting, sandbox improvements, supercompact tuning ([#82](https://github.com/heiervang-technologies/unleash/issues/82)) ([2efc9d4](https://github.com/heiervang-technologies/unleash/commit/2efc9d490709ea35dc6e46639d076cfeb08a308c))
+
 ## [0.1.4](https://github.com/heiervang-technologies/unleash/compare/v0.1.3...v0.1.4) (2026-04-12)
 
 
