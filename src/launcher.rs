@@ -165,7 +165,7 @@ pub fn run(auto_mode: bool, prompt: Option<String>, extra_args: Vec<String>) -> 
             &profile_env,
             wrapper_pid,
             auto_mode,
-            agent_type,
+            agent_type.clone(),
         )?;
 
         // If we caught a signal while waiting for the child, exit immediately.
