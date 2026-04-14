@@ -48,6 +48,27 @@ unleash opencode # Start OpenCode with unleash features
 
 > Run the same install command again to update to the latest version.
 
+### Custom Agent CLIs
+
+Define any CLI agent in `~/.config/unleash/config.toml`:
+
+```toml
+[[custom_agents]]
+name = "aider"
+binary = "aider"
+description = "AI pair programming in your terminal"
+github_repo = "paul-gauthier/aider"
+
+[custom_agents.polyfill]
+headless = { flag = "--message" }
+session = { continue_arg = "--restore-chat-history", resume_arg = "--restore-chat-history" }
+fork = "unsupported"
+model_flag = "--model"                    # required
+yolo_flag = "--yes"                       # optional
+```
+
+Then launch with `unleash aider` — full polyfill support and TUI integration.
+
 ## CLI Usage
 
 ### Running Agents
