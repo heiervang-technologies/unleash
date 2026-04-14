@@ -277,7 +277,7 @@ fn run_agent_with_polyfill(
 
     // Determine the agent type for polyfill resolution
     let agent_type = profile.agent_type().unwrap_or(AgentType::Claude);
-    let agent_def = agents::AgentDefinition::from_type(agent_type);
+    let agent_def = agents::AgentDefinition::from_type(agent_type.clone());
 
     // Resolve polyfill flags into agent-specific args (CLI overrides profile defaults)
     let flags = polyfill_args.to_polyfill_flags(&profile.defaults);
@@ -300,11 +300,16 @@ fn run_agent_with_polyfill(
     }
 
     // --crossload: inject a foreign session before launching
-    let target_cli = match agent_type {
+    let target_cli_owned;
+    let target_cli = match &agent_type {
         AgentType::Claude => "claude",
         AgentType::Codex => "codex",
         AgentType::Gemini => "gemini",
         AgentType::OpenCode => "opencode",
+        AgentType::Custom(name) => {
+            target_cli_owned = name.clone();
+            &target_cli_owned
+        }
     };
 
     let mut ucf_active = None;
@@ -542,6 +547,7 @@ pub fn run() -> io::Result<()> {
                             AgentType::Codex => "codex",
                             AgentType::Gemini => "gemini",
                             AgentType::OpenCode => "opencode",
+                            AgentType::Custom(_) => "claude", // custom agents fall back to claude for crossload
                         })
                         .unwrap_or("claude")
                 }
@@ -787,7 +793,7 @@ pub fn run() -> io::Result<()> {
                             .iter()
                             .map(|def| {
                                 let installed =
-                                    manager.get_installed_version(def.agent_type).ok().flatten();
+                                    manager.get_installed_version(def.agent_type.clone()).ok().flatten();
                                 json_output::AgentInfoOutput {
                                     agent_type: format!("{:?}", def.agent_type).to_lowercase(),
                                     name: def.name.clone(),
@@ -822,14 +828,14 @@ pub fn run() -> io::Result<()> {
                             )
                         })?]
                     } else {
-                        AgentType::all().to_vec()
+                        AgentType::builtin().to_vec()
                     };
 
                     for agent_type in agents_to_check {
                         print!("Checking {}... ", agent_type.display_name());
-                        match manager.check_update(agent_type) {
+                        match manager.check_update(agent_type.clone()) {
                             Ok(true) => {
-                                let latest = manager.get_latest_version(agent_type).ok().flatten();
+                                let latest = manager.get_latest_version(agent_type.clone()).ok().flatten();
                                 println!(
                                     "update available: {}",
                                     latest.as_deref().unwrap_or("unknown")
@@ -851,7 +857,7 @@ pub fn run() -> io::Result<()> {
                     })?;
 
                     println!("Updating {}...", agent_type.display_name());
-                    match manager.update_agent(agent_type) {
+                    match manager.update_agent(agent_type.clone()) {
                         Ok(msg) => {
                             println!("{}", msg);
                             // Refresh version cache
@@ -872,7 +878,7 @@ pub fn run() -> io::Result<()> {
 
                     // Clone to release the immutable borrow before calling
                     // get_installed_version which takes &mut self.
-                    if let Some(def) = manager.get_agent(agent_type).cloned() {
+                    if let Some(def) = manager.get_agent(agent_type.clone()).cloned() {
                         let installed = manager.get_installed_version(agent_type).ok().flatten();
                         if json {
                             let info = json_output::AgentInfoOutput {
@@ -910,7 +916,7 @@ pub fn run() -> io::Result<()> {
         }
         Some(Commands::Install { agents, all }) => {
             let agent_types = if all {
-                AgentType::all().to_vec()
+                AgentType::builtin().to_vec()
             } else if !agents.is_empty() {
                 agents
                     .iter()
@@ -944,7 +950,7 @@ pub fn run() -> io::Result<()> {
         }
         Some(Commands::Uninstall { agents, all }) => {
             let agent_types = if all {
-                AgentType::all().to_vec()
+                AgentType::builtin().to_vec()
             } else if !agents.is_empty() {
                 agents
                     .iter()
@@ -981,7 +987,7 @@ pub fn run() -> io::Result<()> {
             // - -a/--all: update unleash + all installed agent CLIs
             // - positional args: update specific agents
             let agent_types = if all || clis {
-                AgentType::all().to_vec()
+                AgentType::builtin().to_vec()
             } else if !agents.is_empty() {
                 agents
                     .iter()
