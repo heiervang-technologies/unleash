@@ -186,11 +186,26 @@ impl Profile {
     }
 
     /// Return the agent type if this profile's CLI path matches a known agent
+    /// or a custom agent defined in the app config.
     pub fn agent_type(&self) -> Option<AgentType> {
         let name = std::path::Path::new(&self.agent_cli_path)
             .file_name()
             .and_then(|n| n.to_str())?;
-        AgentType::from_str(name)
+        if let Some(at) = AgentType::from_str(name) {
+            return Some(at);
+        }
+        // Check custom agents from app config
+        if let Ok(manager) = ProfileManager::new() {
+            let config = manager.load_app_config().unwrap_or_default();
+            if config
+                .custom_agents
+                .iter()
+                .any(|a| a.name == name || a.binary == name)
+            {
+                return Some(AgentType::Custom(name.to_string()));
+            }
+        }
+        None
     }
 
     /// Set an environment variable

@@ -277,7 +277,18 @@ fn run_agent_with_polyfill(
 
     // Determine the agent type for polyfill resolution
     let agent_type = profile.agent_type().unwrap_or(AgentType::Claude);
-    let agent_def = agents::AgentDefinition::from_type(agent_type.clone());
+    let agent_def = match &agent_type {
+        AgentType::Custom(ref name) => {
+            let app_config = manager.load_app_config().unwrap_or_default();
+            app_config
+                .custom_agents
+                .iter()
+                .find(|a| a.name == *name)
+                .map(agents::AgentDefinition::from_custom_config)
+                .unwrap_or_else(|| agents::AgentDefinition::from_type(AgentType::Claude))
+        }
+        _ => agents::AgentDefinition::from_type(agent_type.clone()),
+    };
 
     // Resolve polyfill flags into agent-specific args (CLI overrides profile defaults)
     let flags = polyfill_args.to_polyfill_flags(&profile.defaults);
