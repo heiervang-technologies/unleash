@@ -248,6 +248,20 @@ fn default_true() -> bool {
 }
 
 impl AgentDefinition {
+    /// Create an agent definition from a user-defined custom agent config.
+    pub fn from_custom_config(config: &crate::config::CustomAgentConfig) -> Self {
+        Self {
+            agent_type: AgentType::Custom(config.name.clone()),
+            name: config.name.clone(),
+            binary: config.binary.clone(),
+            description: config.description.clone(),
+            polyfill: config.polyfill.clone(),
+            github_repo: config.github_repo.clone(),
+            npm_package: config.npm_package.clone(),
+            enabled: config.enabled,
+        }
+    }
+
     /// Create an agent definition from an agent type.
     /// Panics for `Custom` — use `from_custom_config()` for custom agents.
     pub fn from_type(agent_type: AgentType) -> Self {
