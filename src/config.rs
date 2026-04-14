@@ -212,6 +212,33 @@ impl Profile {
     }
 }
 
+/// User-defined custom agent CLI configuration
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CustomAgentConfig {
+    /// Agent name (used as profile/subcommand identifier)
+    pub name: String,
+    /// Binary name to execute
+    pub binary: String,
+    /// Human-readable description
+    #[serde(default)]
+    pub description: String,
+    /// Polyfill configuration for flag translation
+    pub polyfill: crate::agents::AgentPolyfillConfig,
+    /// GitHub repository (owner/repo) for version checks
+    #[serde(default)]
+    pub github_repo: Option<String>,
+    /// NPM package name, if applicable
+    #[serde(default)]
+    pub npm_package: Option<String>,
+    /// Whether this custom agent is enabled
+    #[serde(default = "default_true_config")]
+    pub enabled: bool,
+}
+
+fn default_true_config() -> bool {
+    true
+}
+
 /// Global app configuration (just tracks which profile is active)
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AppConfig {
@@ -224,6 +251,9 @@ pub struct AppConfig {
     /// List of enabled plugin names. Empty = all enabled (backwards compat).
     #[serde(default)]
     pub enabled_plugins: Vec<String>,
+    /// User-defined custom agent CLIs
+    #[serde(default)]
+    pub custom_agents: Vec<CustomAgentConfig>,
 }
 
 fn default_profile_name() -> String {
@@ -293,6 +323,7 @@ impl Default for AppConfig {
             current_profile: default_profile_name(),
             animations: false,
             enabled_plugins: Vec::new(),
+            custom_agents: Vec::new(),
         }
     }
 }
@@ -950,5 +981,85 @@ theme = "#ffff00"
         );
         assert_eq!(loaded.theme, "green");
         assert_eq!(loaded.get_env("API_KEY"), Some(&"test-key".to_string()));
+    }
+
+    #[test]
+    fn test_custom_agent_config_deserialize() {
+        let toml_str = r#"
+current_profile = "claude"
+
+[[custom_agents]]
+name = "aider"
+binary = "aider"
+description = "AI pair programming"
+github_repo = "paul-gauthier/aider"
+
+[custom_agents.polyfill]
+headless = { flag = "--message" }
+session = { continue_arg = "--restore-chat-history", resume_arg = "--restore-chat-history" }
+fork = "unsupported"
+model_flag = "--model"
+yolo_flag = "--yes"
+"#;
+        let config: AppConfig = toml::from_str(toml_str).unwrap();
+        assert_eq!(config.custom_agents.len(), 1);
+        assert_eq!(config.custom_agents[0].name, "aider");
+        assert_eq!(config.custom_agents[0].binary, "aider");
+        assert_eq!(config.custom_agents[0].description, "AI pair programming");
+        assert_eq!(
+            config.custom_agents[0].github_repo,
+            Some("paul-gauthier/aider".to_string())
+        );
+        assert!(config.custom_agents[0].enabled);
+
+        // Verify polyfill config
+        assert_eq!(config.custom_agents[0].polyfill.model_flag, "--model");
+        assert_eq!(
+            config.custom_agents[0].polyfill.yolo_flag,
+            Some("--yes".to_string())
+        );
+
+        // Verify AgentDefinition can be built from it
+        let def = crate::agents::AgentDefinition::from_custom_config(&config.custom_agents[0]);
+        assert_eq!(def.binary, "aider");
+        assert_eq!(
+            def.agent_type,
+            crate::agents::AgentType::Custom("aider".to_string())
+        );
+    }
+
+    #[test]
+    fn test_custom_agents_empty_by_default() {
+        let toml_str = r#"current_profile = "claude""#;
+        let config: AppConfig = toml::from_str(toml_str).unwrap();
+        assert!(config.custom_agents.is_empty());
+    }
+
+    #[test]
+    fn test_multiple_custom_agents_with_enabled_flag() {
+        let toml_str = r#"
+[[custom_agents]]
+name = "aider"
+binary = "aider"
+[custom_agents.polyfill]
+headless = { flag = "--message" }
+session = { continue_arg = "--c", resume_arg = "--r" }
+fork = "unsupported"
+model_flag = "--model"
+
+[[custom_agents]]
+name = "cursor"
+binary = "cursor-cli"
+enabled = false
+[custom_agents.polyfill]
+headless = { flag = "-p" }
+session = { continue_arg = "--continue", resume_arg = "--resume" }
+fork = "unsupported"
+model_flag = "--model"
+"#;
+        let config: AppConfig = toml::from_str(toml_str).unwrap();
+        assert_eq!(config.custom_agents.len(), 2);
+        assert!(config.custom_agents[0].enabled);
+        assert!(!config.custom_agents[1].enabled);
     }
 }
