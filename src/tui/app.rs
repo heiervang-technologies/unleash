@@ -1,6 +1,6 @@
 //! Main TUI application
 
-use crate::agents::{AgentManager, AgentType};
+use crate::agents::{AgentDefinition, AgentManager, AgentType};
 use crate::config::{AppConfig, Profile, ProfileManager};
 use crate::input::{key_to_action, MenuState, NavAction};
 use crate::pixel_art::mascots;
@@ -362,6 +362,9 @@ pub struct App {
     // Mouse support
     /// Clickable regions registered during the last render pass for hit-testing
     clickable_areas: Vec<(Rect, ClickTarget)>,
+
+    /// All available agent types (built-in + custom from config)
+    available_agents: Vec<AgentType>,
 }
 
 impl App {
@@ -379,6 +382,15 @@ impl App {
             .or_else(|| profiles.first().cloned());
 
         let version_manager = VersionManager::new();
+
+        // Build the full list of agent types (built-in + custom from config)
+        let custom_defs: Vec<AgentDefinition> = app_config
+            .custom_agents
+            .iter()
+            .filter(|a| a.enabled)
+            .map(AgentDefinition::from_custom_config)
+            .collect();
+        let available_agents = AgentType::all_with_custom(&custom_defs);
 
         // Pre-populate version caches from embedded (compiled-in) version lists.
         // This makes version lists appear instantly — no network fetch needed.
@@ -478,7 +490,7 @@ impl App {
             help_scroll_offset: 0,
             version_focus: VersionFocus::Unleash,
             unleash_version: env!("CARGO_PKG_VERSION").to_string(),
-            agent_picker_menu: MenuState::new(AgentType::builtin().len()),
+            agent_picker_menu: MenuState::new(available_agents.len()),
             installing_version_index: None,
             install_log_lines: Vec::new(),
             show_install_log: false,
@@ -490,6 +502,7 @@ impl App {
             feature_menu: MenuState::new(0),
             discovered_plugins: Vec::new(),
             clickable_areas: Vec::new(),
+            available_agents,
         })
     }
 
@@ -1168,14 +1181,13 @@ impl App {
                 match self.version_focus {
                     VersionFocus::Unleash => {} // no scroll in unleash section
                     VersionFocus::AgentPicker => {
-                        let agents = AgentType::builtin();
-                        let current_idx = agents
+                        let current_idx = self.available_agents
                             .iter()
                             .position(|a| *a == self.version_agent)
                             .unwrap_or(0);
                         let new_idx = match action {
                             NavAction::Down => {
-                                (current_idx + 1).min(agents.len().saturating_sub(1))
+                                (current_idx + 1).min(self.available_agents.len().saturating_sub(1))
                             }
                             NavAction::Up => current_idx.saturating_sub(1),
                             _ => current_idx,
@@ -1768,7 +1780,7 @@ impl App {
                 match self.version_focus {
                     VersionFocus::Unleash => {} // nothing to jump
                     VersionFocus::AgentPicker => {
-                        let last = AgentType::builtin().len().saturating_sub(1);
+                        let last = self.available_agents.len().saturating_sub(1);
                         self.switch_to_agent_index(last);
                     }
                     VersionFocus::VersionList => self.version_menu.select_last(),
@@ -1810,13 +1822,12 @@ impl App {
             VersionFocus::AgentPicker => {
                 match action {
                     NavAction::Up | NavAction::Down => {
-                        let agents = AgentType::builtin();
-                        let current_idx = agents
+                        let current_idx = self.available_agents
                             .iter()
                             .position(|a| *a == self.version_agent)
                             .unwrap_or(0);
                         let new_idx = match action {
-                            NavAction::Down => (current_idx + 1).min(agents.len() - 1),
+                            NavAction::Down => (current_idx + 1).min(self.available_agents.len() - 1),
                             NavAction::Up => {
                                 if current_idx == 0 {
                                     // At top of agent list, move focus to unleash
@@ -1875,11 +1886,10 @@ impl App {
 
     /// Switch to the agent at the given index, refreshing versions
     fn switch_to_agent_index(&mut self, idx: usize) {
-        let agents = AgentType::builtin();
-        if idx >= agents.len() {
+        if idx >= self.available_agents.len() {
             return;
         }
-        self.version_agent = agents[idx].clone();
+        self.version_agent = self.available_agents[idx].clone();
         self.agent_picker_menu.selected = idx;
         self.version_menu.selected = 0;
         self.version_menu.scroll_offset = 0;
@@ -3821,8 +3831,7 @@ impl App {
 
     fn render_version_management(&mut self, frame: &mut Frame, area: Rect) {
         let unleash_height = 4; // 2 lines content + 2 for borders
-        let agents = AgentType::builtin();
-        let agent_height = (agents.len() as u16) + 2; // agents + borders
+        let agent_height = (self.available_agents.len() as u16) + 2; // agents + borders
 
         if self.show_install_log {
             // 4-panel layout: unleash, agent picker, version list (shrunk), install log
@@ -3925,10 +3934,9 @@ impl App {
         let inner = block.inner(area);
         frame.render_widget(block, area);
 
-        let agents = AgentType::builtin();
         let mut lines: Vec<Line> = Vec::new();
 
-        for agent in agents.iter() {
+        for agent in self.available_agents.iter() {
             let is_selected = *agent == self.version_agent;
 
             let (prefix, style) = if is_selected {
@@ -3963,7 +3971,7 @@ impl App {
         }
 
         // Register clickable areas: one row per agent
-        for (i, _) in agents.iter().enumerate() {
+        for (i, _) in self.available_agents.iter().enumerate() {
             let row = inner.y + i as u16;
             if row < inner.y + inner.height {
                 self.clickable_areas.push((
@@ -4372,6 +4380,7 @@ mod tests {
             feature_menu: MenuState::new(0),
             discovered_plugins: Vec::new(),
             clickable_areas: Vec::new(),
+            available_agents: AgentType::builtin().to_vec(),
         };
 
         (app, temp)

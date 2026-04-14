@@ -4,10 +4,10 @@
 //! - `unleash` - Entrypoint (TUI by default, or runs agent subcommands / wrapper mode)
 //!
 
-mod agents;
+pub mod agents;
 mod auth;
 mod cli;
-mod config;
+pub mod config;
 mod hooks;
 mod hyprland;
 #[cfg(feature = "tui")]
@@ -16,7 +16,7 @@ mod interchange;
 mod json_output;
 mod launcher;
 pub mod pixel_art;
-mod polyfill;
+pub mod polyfill;
 mod sandbox;
 pub mod token_count;
 mod progress;
