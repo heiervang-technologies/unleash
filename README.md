@@ -150,12 +150,18 @@ unleash claude -x                    # Interactive session picker
 
 | Source → Target | Status |
 |----------------|--------|
-| Codex → Claude | :green_circle: Lossless |
 | Claude → Gemini | :green_circle: Lossless |
 | Gemini → Claude | :green_circle: Lossless |
-| Claude → Codex | :yellow_circle: Partial |
-| OpenCode → Claude | :yellow_circle: Partial |
-| → OpenCode (all) | :white_circle: Pending |
+| Codex → Claude | :green_circle: Lossless |
+| Claude → Codex | :green_circle: Lossless |
+| OpenCode → Claude | :green_circle: Lossless |
+| Claude → OpenCode | :yellow_circle: Partial |
+| Codex → Gemini | :green_circle: Lossless |
+| Gemini → Codex | :green_circle: Lossless |
+| OpenCode → Gemini | :yellow_circle: Partial |
+| OpenCode → Codex | :yellow_circle: Partial |
+| Gemini → OpenCode | :yellow_circle: Partial |
+| Codex → OpenCode | :yellow_circle: Partial |
 
 :green_circle: Lossless · :yellow_circle: Partial · :white_circle: Pending — [Full matrix](docs/crossload-matrix.md)
 

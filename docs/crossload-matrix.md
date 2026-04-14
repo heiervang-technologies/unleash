@@ -2,7 +2,7 @@
 
 Status of conversation history loading between all supported agent CLIs.
 
-**Last updated:** 2026-04-05
+**Last updated:** 2026-04-14
 
 ## Usage
 
@@ -25,18 +25,18 @@ unleash convert --from codex session.jsonl --to claude -o output.jsonl
 
 | Source → Target | Status | Notes |
 |----------------|--------|-------|
-| Codex → Claude (synthetic) | :green_circle: Lossless | All 10 msgs verified in tmux |
-| Codex → Claude (real) | :yellow_circle: Partial | Events filtered, tool calls as text |
 | Claude → Gemini | :green_circle: Lossless | Full history, survives --list-sessions |
 | Gemini → Claude | :green_circle: Lossless | 82 messages, chain intact |
+| Codex → Claude | :green_circle: Lossless | Verified end-to-end, events filtered, tool calls preserved |
 | Claude → Codex | :green_circle: Lossless | Verified end-to-end with `codex resume`, state DB registered |
-| OpenCode → Claude | :yellow_circle: Partial | Thinking blocks converted to text |
-| Codex → Gemini | :white_circle: Untested | |
-| Gemini → Codex | :white_circle: Untested | |
-| OpenCode → Gemini | :white_circle: Untested | |
-| Claude → OpenCode | :yellow_circle: Partial | SQLite injection implemented, thinking blocks as text |
-| Codex → OpenCode | :white_circle: Untested | SQLite injection implemented |
-| Gemini → OpenCode | :white_circle: Untested | SQLite injection implemented |
+| OpenCode → Claude | :green_circle: Lossless | Thinking blocks converted to text, full history loads |
+| Codex → Gemini | :green_circle: Lossless | Via hub, verified |
+| Gemini → Codex | :green_circle: Lossless | Via hub, verified |
+| Claude → OpenCode | :yellow_circle: Partial | SQLite injection works, session not visible in OpenCode UI — investigating `-s` session loading |
+| Codex → OpenCode | :yellow_circle: Partial | SQLite injection implemented, same OpenCode display issue |
+| Gemini → OpenCode | :yellow_circle: Partial | SQLite injection implemented, same OpenCode display issue |
+| OpenCode → Gemini | :yellow_circle: Partial | Implemented, needs verification |
+| OpenCode → Codex | :yellow_circle: Partial | Implemented, needs verification |
 
 **Legend:** :green_circle: Lossless (verified end-to-end) · :yellow_circle: Partial (works with known limitations) · :red_circle: Not working · :white_circle: Untested
 
