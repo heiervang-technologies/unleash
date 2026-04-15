@@ -216,7 +216,6 @@ mod tests {
     }
 
     #[test]
-    #[ignore = "lossless target"]
     fn cross_codex_via_claude() {
         assert_cross_lossless("codex", "claude", via_codex, via_claude);
     }
