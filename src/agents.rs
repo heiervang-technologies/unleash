@@ -6,6 +6,7 @@
 //! - Installation management
 
 use serde::{Deserialize, Serialize};
+use std::borrow::Cow;
 use std::collections::HashMap;
 use std::fs;
 use std::io;
@@ -13,18 +14,19 @@ use std::path::PathBuf;
 use std::process::Command;
 
 /// Supported agent types
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum AgentType {
     Claude,
     Codex,
     Gemini,
     OpenCode,
+    Custom(String),
 }
 
 impl AgentType {
-    /// All agent types in stable order (used for TUI cycling)
-    pub fn all() -> &'static [AgentType] {
+    /// Built-in agent types in stable order (used for TUI cycling)
+    pub fn builtin() -> &'static [AgentType] {
         &[
             AgentType::Claude,
             AgentType::Codex,
@@ -33,12 +35,24 @@ impl AgentType {
         ]
     }
 
-    pub fn display_name(&self) -> &'static str {
+    /// All agent types: built-ins + custom agents from definitions
+    pub fn all_with_custom(custom: &[AgentDefinition]) -> Vec<AgentType> {
+        let mut types: Vec<AgentType> = Self::builtin().to_vec();
+        for def in custom {
+            if let AgentType::Custom(_) = &def.agent_type {
+                types.push(def.agent_type.clone());
+            }
+        }
+        types
+    }
+
+    pub fn display_name(&self) -> Cow<'static, str> {
         match self {
-            AgentType::Claude => "Claude Code",
-            AgentType::Codex => "Codex",
-            AgentType::Gemini => "Gemini CLI",
-            AgentType::OpenCode => "OpenCode",
+            AgentType::Claude => Cow::Borrowed("Claude Code"),
+            AgentType::Codex => Cow::Borrowed("Codex"),
+            AgentType::Gemini => Cow::Borrowed("Gemini CLI"),
+            AgentType::OpenCode => Cow::Borrowed("OpenCode"),
+            AgentType::Custom(name) => Cow::Owned(name.clone()),
         }
     }
 
@@ -234,13 +248,32 @@ fn default_true() -> bool {
 }
 
 impl AgentDefinition {
-    /// Create an agent definition from an agent type
+    /// Create an agent definition from a user-defined custom agent config.
+    pub fn from_custom_config(config: &crate::config::CustomAgentConfig) -> Self {
+        Self {
+            agent_type: AgentType::Custom(config.name.clone()),
+            name: config.name.clone(),
+            binary: config.binary.clone(),
+            description: config.description.clone(),
+            polyfill: config.polyfill.clone(),
+            github_repo: config.github_repo.clone(),
+            npm_package: config.npm_package.clone(),
+            enabled: config.enabled,
+        }
+    }
+
+    /// Create an agent definition from an agent type.
+    /// Panics for `Custom` — use `from_custom_config()` for custom agents.
     pub fn from_type(agent_type: AgentType) -> Self {
         match agent_type {
             AgentType::Claude => Self::claude(),
             AgentType::Codex => Self::codex(),
             AgentType::Gemini => Self::gemini(),
             AgentType::OpenCode => Self::opencode(),
+            AgentType::Custom(ref name) => panic!(
+                "AgentDefinition::from_type() called with Custom(\"{}\"). Use from_custom_config() instead.",
+                name
+            ),
         }
     }
 
@@ -433,7 +466,7 @@ impl AgentManager {
 
     /// Register an agent definition
     pub fn register_agent(&mut self, agent: AgentDefinition) {
-        self.agents.insert(agent.agent_type, agent);
+        self.agents.insert(agent.agent_type.clone(), agent);
     }
 
     /// Get an agent definition
@@ -454,7 +487,8 @@ impl AgentManager {
             .ok_or_else(|| io::Error::new(io::ErrorKind::NotFound, "Agent not found"))?;
 
         // Try to get version from binary
-        let output = Command::new(&agent.binary).arg("--version").output();
+        let binary = agent.binary.clone();
+        let output = Command::new(&binary).arg("--version").output();
 
         match output {
             Ok(out) if out.status.success() => {
@@ -469,7 +503,7 @@ impl AgentManager {
                 // Update cache
                 let entry = self.versions.entry(agent_type).or_default();
                 entry.installed = version.clone();
-                entry.binary_path = which::which(&agent.binary).ok();
+                entry.binary_path = which::which(&binary).ok();
 
                 Ok(version)
             }
@@ -557,7 +591,7 @@ impl AgentManager {
             .ok_or_else(|| io::Error::new(io::ErrorKind::NotFound, "Agent not found"))?;
 
         let repo = match &agent.github_repo {
-            Some(r) => r,
+            Some(r) => r.clone(),
             None => return Ok(None),
         };
 
@@ -603,7 +637,7 @@ impl AgentManager {
 
     /// Check if an update is available
     pub fn check_update(&mut self, agent_type: AgentType) -> io::Result<bool> {
-        let installed = self.get_installed_version(agent_type)?;
+        let installed = self.get_installed_version(agent_type.clone())?;
         let latest = self.get_latest_version(agent_type)?;
 
         match (installed, latest) {
@@ -624,6 +658,9 @@ impl AgentManager {
             AgentType::Codex => self.update_codex(),
             AgentType::Gemini => self.update_npm_agent("@google/gemini-cli", "Gemini CLI"),
             AgentType::OpenCode => self.update_opencode(),
+            AgentType::Custom(_) => Err(io::Error::other(
+                "Version management is not yet supported for custom agents",
+            )),
         }
     }
 
@@ -953,11 +990,11 @@ impl AgentManager {
 
     /// Get status summary for all agents
     pub fn status_summary(&mut self) -> Vec<(AgentType, Option<String>, Option<String>, bool)> {
-        let agent_types: Vec<AgentType> = self.agents.keys().copied().collect();
+        let agent_types: Vec<AgentType> = self.agents.keys().cloned().collect();
         let mut results = Vec::new();
 
         for agent_type in agent_types {
-            let installed = self.get_installed_version(agent_type).ok().flatten();
+            let installed = self.get_installed_version(agent_type.clone()).ok().flatten();
             let latest = self
                 .versions
                 .get(&agent_type)
@@ -989,8 +1026,8 @@ mod tests {
 
     #[test]
     fn no_non_anthropic_agent_uses_anthropic_npm_scope() {
-        for agent_type in AgentType::all() {
-            let def = AgentDefinition::from_type(*agent_type);
+        for agent_type in AgentType::builtin() {
+            let def = AgentDefinition::from_type(agent_type.clone());
             if *agent_type != AgentType::Claude {
                 if let Some(ref pkg) = def.npm_package {
                     assert!(

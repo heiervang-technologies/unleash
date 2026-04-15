@@ -118,7 +118,10 @@ pub fn run(config: UpdateConfig) -> io::Result<()> {
         let npm_agents: Vec<String> = to_update
             .iter()
             .filter_map(|r| {
-                let def = AgentDefinition::from_type(r.agent_type);
+                if let AgentType::Custom(_) = &r.agent_type {
+                    return None; // custom agents don't need npm warning
+                }
+                let def = AgentDefinition::from_type(r.agent_type.clone());
                 if def.npm_package.is_some() && r.agent_type != AgentType::Claude {
                     Some(def.name)
                 } else {
@@ -170,8 +173,9 @@ fn phase_check(agents: &[AgentType], json: bool) -> io::Result<Vec<CheckResult>>
 
     // Spawn one thread per agent.
     let mut handles = Vec::new();
-    for (idx, &agent_type) in agent_list.iter().enumerate() {
+    for (idx, agent_type) in agent_list.iter().enumerate() {
         let tx = tx.clone();
+        let agent_type = agent_type.clone();
         handles.push(thread::spawn(move || {
             let _ = tx.send((idx, LineState::Checking));
             let result = check_agent(agent_type);
@@ -241,7 +245,7 @@ fn phase_update(
     let agents: Vec<(usize, AgentType, Option<String>)> = to_update
         .iter()
         .enumerate()
-        .map(|(i, r)| (i, r.agent_type, r.installed.clone()))
+        .map(|(i, r)| (i, r.agent_type.clone(), r.installed.clone()))
         .collect();
 
     let (tx, rx) = mpsc::channel::<(usize, LineState)>();
@@ -255,14 +259,15 @@ fn phase_update(
     let mut handles: Vec<(AgentType, thread::JoinHandle<UpdateOutcome>)> = Vec::new();
     for (idx, agent_type, from_version) in agents {
         let tx = tx.clone();
+        let agent_type_for_handle = agent_type.clone();
         let handle = thread::spawn(move || {
             let start = Instant::now();
-            let result = update_agent(agent_type, &tx, idx);
+            let result = update_agent(agent_type.clone(), &tx, idx);
             let duration = start.elapsed();
 
             match result {
                 Ok(_) => {
-                    let to_version = get_installed_version(agent_type);
+                    let to_version = get_installed_version(agent_type.clone());
                     UpdateOutcome {
                         agent_type,
                         from_version,
@@ -280,7 +285,7 @@ fn phase_update(
                 },
             }
         });
-        handles.push((agent_type, handle));
+        handles.push((agent_type_for_handle, handle));
     }
 
     drop(tx);
@@ -428,8 +433,8 @@ fn check_or_update_self(check_only: bool) -> io::Result<()> {
 
 /// Check a single agent's installed vs latest version.
 fn check_agent(agent_type: AgentType) -> io::Result<CheckResult> {
-    let installed = get_installed_version(agent_type);
-    let latest = get_latest_version(agent_type)?;
+    let installed = get_installed_version(agent_type.clone());
+    let latest = get_latest_version(agent_type.clone())?;
 
     let update_available = match (&installed, &latest) {
         (Some(i), Some(l)) => version_less_than(i, l),
@@ -447,6 +452,9 @@ fn check_agent(agent_type: AgentType) -> io::Result<CheckResult> {
 
 /// Get the currently installed version by running `<binary> --version`.
 fn get_installed_version(agent_type: AgentType) -> Option<String> {
+    if let AgentType::Custom(_) = &agent_type {
+        return None; // custom agents don't support version detection yet
+    }
     let def = AgentDefinition::from_type(agent_type);
     let output = Command::new(&def.binary).arg("--version").output().ok()?;
     if !output.status.success() {
@@ -457,6 +465,9 @@ fn get_installed_version(agent_type: AgentType) -> Option<String> {
 
 /// Get the latest available version from GitHub releases API.
 fn get_latest_version(agent_type: AgentType) -> io::Result<Option<String>> {
+    if let AgentType::Custom(_) = &agent_type {
+        return Ok(None); // custom agents don't support version detection yet
+    }
     let def = AgentDefinition::from_type(agent_type);
 
     // Prefer npm registry for agents that have an npm package.
@@ -557,7 +568,7 @@ fn github_token() -> Option<String> {
 /// Uninstall one or more agent CLIs.
 pub fn uninstall(agents: Vec<AgentType>) -> io::Result<()> {
     for agent_type in &agents {
-        let installed = get_installed_version(*agent_type);
+        let installed = get_installed_version(agent_type.clone());
         if installed.is_none() {
             println!(
                 "  . {}    not installed, skipping",
@@ -568,7 +579,7 @@ pub fn uninstall(agents: Vec<AgentType>) -> io::Result<()> {
 
         print!("  - {}    uninstalling...", agent_type.display_name());
 
-        let result = uninstall_agent(*agent_type);
+        let result = uninstall_agent(agent_type.clone());
         match result {
             Ok(()) => {
                 println!(
@@ -586,6 +597,11 @@ pub fn uninstall(agents: Vec<AgentType>) -> io::Result<()> {
 }
 
 fn uninstall_agent(agent_type: AgentType) -> io::Result<()> {
+    if let AgentType::Custom(_) = &agent_type {
+        return Err(io::Error::other(
+            "Uninstall is not supported for custom agents",
+        ));
+    }
     let def = AgentDefinition::from_type(agent_type);
 
     // Try npm uninstall first for agents with npm packages
@@ -646,6 +662,9 @@ fn update_agent(
         AgentType::Codex => update_codex(tx, index),
         AgentType::Gemini => update_gemini(tx, index),
         AgentType::OpenCode => update_opencode(tx, index),
+        AgentType::Custom(_) => Err(io::Error::other(
+            "Version management is not yet supported for custom agents",
+        )),
     };
 
     match &result {

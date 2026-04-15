@@ -78,6 +78,7 @@ pub fn save_embedded_versions(map: &HashMap<crate::agents::AgentType, Vec<Versio
             crate::agents::AgentType::Codex => "codex",
             crate::agents::AgentType::Gemini => "gemini",
             crate::agents::AgentType::OpenCode => "opencode",
+            crate::agents::AgentType::Custom(_) => continue, // skip custom agents in embedded versions
         };
         let arr: Vec<serde_json::Value> = versions
             .iter()

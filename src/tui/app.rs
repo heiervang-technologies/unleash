@@ -1,6 +1,6 @@
 //! Main TUI application
 
-use crate::agents::{AgentManager, AgentType};
+use crate::agents::{AgentDefinition, AgentManager, AgentType};
 use crate::config::{AppConfig, Profile, ProfileManager};
 use crate::input::{key_to_action, MenuState, NavAction};
 use crate::pixel_art::mascots;
@@ -362,6 +362,9 @@ pub struct App {
     // Mouse support
     /// Clickable regions registered during the last render pass for hit-testing
     clickable_areas: Vec<(Rect, ClickTarget)>,
+
+    /// All available agent types (built-in + custom from config)
+    available_agents: Vec<AgentType>,
 }
 
 impl App {
@@ -380,6 +383,15 @@ impl App {
 
         let version_manager = VersionManager::new();
 
+        // Build the full list of agent types (built-in + custom from config)
+        let custom_defs: Vec<AgentDefinition> = app_config
+            .custom_agents
+            .iter()
+            .filter(|a| a.enabled)
+            .map(AgentDefinition::from_custom_config)
+            .collect();
+        let available_agents = AgentType::all_with_custom(&custom_defs);
+
         // Pre-populate version caches from embedded (compiled-in) version lists.
         // This makes version lists appear instantly — no network fetch needed.
         let embedded = crate::version::load_embedded_versions();
@@ -393,7 +405,7 @@ impl App {
         for (key, agent_type) in agent_keys {
             if let Some(versions) = embedded.get(*key) {
                 cached_version_lists.insert(
-                    *agent_type,
+                    agent_type.clone(),
                     versions
                         .iter()
                         .map(|v| VersionInfo {
@@ -416,8 +428,8 @@ impl App {
             // All other agents via AgentManager
             if let Ok(mut mgr) = AgentManager::new() {
                 for agent_type in &[AgentType::Codex, AgentType::Gemini, AgentType::OpenCode] {
-                    let v = mgr.get_installed_version(*agent_type).ok().flatten();
-                    let _ = version_tx.send((*agent_type, v));
+                    let v = mgr.get_installed_version(agent_type.clone()).ok().flatten();
+                    let _ = version_tx.send((agent_type.clone(), v));
                 }
             }
         });
@@ -478,7 +490,7 @@ impl App {
             help_scroll_offset: 0,
             version_focus: VersionFocus::Unleash,
             unleash_version: env!("CARGO_PKG_VERSION").to_string(),
-            agent_picker_menu: MenuState::new(AgentType::all().len()),
+            agent_picker_menu: MenuState::new(available_agents.len()),
             installing_version_index: None,
             install_log_lines: Vec::new(),
             show_install_log: false,
@@ -490,12 +502,13 @@ impl App {
             feature_menu: MenuState::new(0),
             discovered_plugins: Vec::new(),
             clickable_areas: Vec::new(),
+            available_agents,
         })
     }
 
     /// Refresh the cached installed version for a specific agent
     pub fn refresh_cached_version_for(&mut self, agent_type: AgentType) {
-        let version = match agent_type {
+        let version = match &agent_type {
             AgentType::Claude => {
                 let v = self.version_manager.get_installed_version();
                 self.cached_installed_version = v.clone();
@@ -503,7 +516,7 @@ impl App {
             }
             _ => AgentManager::new()
                 .ok()
-                .and_then(|mut m| m.get_installed_version(agent_type).ok().flatten()),
+                .and_then(|mut m| m.get_installed_version(agent_type.clone()).ok().flatten()),
         };
         self.cached_agent_versions.insert(agent_type, version);
     }
@@ -573,7 +586,7 @@ impl App {
                             self.cached_installed_version = version.clone();
                         }
                         self.cached_agent_versions
-                            .insert(agent_type, version.clone());
+                            .insert(agent_type.clone(), version.clone());
 
                         // Update is_installed flags in cached version lists (embedded or fetched)
                         let mut needs_save = false;
@@ -627,12 +640,12 @@ impl App {
             match receiver.try_recv() {
                 Ok((agent_type, versions, conflict_entries)) => {
                     self.cached_version_lists
-                        .insert(agent_type, versions.clone());
+                        .insert(agent_type.clone(), versions.clone());
                     crate::version::save_embedded_versions(&self.cached_version_lists);
 
                     // Record successful poll timestamp
                     self.last_version_poll
-                        .insert(agent_type, std::time::Instant::now());
+                        .insert(agent_type.clone(), std::time::Instant::now());
 
                     // Update displayed list if we're still viewing this agent
                     if self.screen == Screen::VersionManagement && self.version_agent == agent_type
@@ -694,7 +707,7 @@ impl App {
             // If done, update status and return to version list
             if state.current_step == InstallStep::Done {
                 let version = state.version.clone();
-                let agent_type = state.agent_type;
+                let agent_type = state.agent_type.clone();
                 let agent_name = agent_type.display_name();
                 let install_ok = state.install_result.as_ref().is_some_and(|r| r.success);
 
@@ -731,7 +744,7 @@ impl App {
                 // list so the async fetch thread picks up the correct installed
                 // version (important for non-Claude agents where the installed
                 // version is passed as a parameter to the list builder).
-                self.refresh_cached_version_for(agent_type);
+                self.refresh_cached_version_for(agent_type.clone());
 
                 // Update is_installed flags in the cached version list so
                 // the interim cache shown while the async fetch is in-flight
@@ -885,7 +898,7 @@ impl App {
     /// Prevents stale data from a previous agent being shown after switching.
     /// Respects a 10-minute TTL to avoid excessive network polling.
     fn clear_and_refresh_versions(&mut self) {
-        let agent = self.version_agent;
+        let agent = self.version_agent.clone();
 
         // Clear displayed list immediately to prevent stale data from wrong agent
         self.versions.clear();
@@ -959,6 +972,9 @@ impl App {
                     let conflicts = vm.detect_conflicts("opencode");
                     let _ = tx.send((AgentType::OpenCode, versions, conflicts));
                 });
+            }
+            AgentType::Custom(_) => {
+                // Version management not yet supported for custom agents
             }
         }
         self.version_list_receiver = Some(rx);
@@ -1165,14 +1181,13 @@ impl App {
                 match self.version_focus {
                     VersionFocus::Unleash => {} // no scroll in unleash section
                     VersionFocus::AgentPicker => {
-                        let agents = AgentType::all();
-                        let current_idx = agents
+                        let current_idx = self.available_agents
                             .iter()
                             .position(|a| *a == self.version_agent)
                             .unwrap_or(0);
                         let new_idx = match action {
                             NavAction::Down => {
-                                (current_idx + 1).min(agents.len().saturating_sub(1))
+                                (current_idx + 1).min(self.available_agents.len().saturating_sub(1))
                             }
                             NavAction::Up => current_idx.saturating_sub(1),
                             _ => current_idx,
@@ -1580,7 +1595,7 @@ impl App {
                 let step_tx2 = step_tx.clone();
                 // Capture agent/version BEFORE moving `pending` into the thread below.
                 // `.take()` already cleared `npm_dialog_pending`, so we must snapshot here.
-                let install_agent_version = pending.as_ref().map(|(a, v)| (*a, v.clone()));
+                let install_agent_version = pending.as_ref().map(|(a, v)| (a.clone(), v.clone()));
                 std::thread::spawn(move || {
                     for line in log_rx {
                         let _ = step_tx2.send(InstallStepResult::LogLine(line));
@@ -1714,11 +1729,16 @@ impl App {
 
             if accepted {
                 // Enter / Y: clean up
-                let agent_str = match self.version_agent {
+                let agent_str_owned;
+                let agent_str = match &self.version_agent {
                     AgentType::Claude => "claude",
                     AgentType::Codex => "codex",
                     AgentType::Gemini => "gemini",
                     AgentType::OpenCode => "opencode",
+                    AgentType::Custom(name) => {
+                        agent_str_owned = name.clone();
+                        &agent_str_owned
+                    }
                 };
                 let _ = self.version_manager.cleanup_conflicts(agent_str);
                 self.conflict_warning_open = false;
@@ -1760,7 +1780,7 @@ impl App {
                 match self.version_focus {
                     VersionFocus::Unleash => {} // nothing to jump
                     VersionFocus::AgentPicker => {
-                        let last = AgentType::all().len().saturating_sub(1);
+                        let last = self.available_agents.len().saturating_sub(1);
                         self.switch_to_agent_index(last);
                     }
                     VersionFocus::VersionList => self.version_menu.select_last(),
@@ -1802,13 +1822,12 @@ impl App {
             VersionFocus::AgentPicker => {
                 match action {
                     NavAction::Up | NavAction::Down => {
-                        let agents = AgentType::all();
-                        let current_idx = agents
+                        let current_idx = self.available_agents
                             .iter()
                             .position(|a| *a == self.version_agent)
                             .unwrap_or(0);
                         let new_idx = match action {
-                            NavAction::Down => (current_idx + 1).min(agents.len() - 1),
+                            NavAction::Down => (current_idx + 1).min(self.available_agents.len() - 1),
                             NavAction::Up => {
                                 if current_idx == 0 {
                                     // At top of agent list, move focus to unleash
@@ -1867,11 +1886,10 @@ impl App {
 
     /// Switch to the agent at the given index, refreshing versions
     fn switch_to_agent_index(&mut self, idx: usize) {
-        let agents = AgentType::all();
-        if idx >= agents.len() {
+        if idx >= self.available_agents.len() {
             return;
         }
-        self.version_agent = agents[idx];
+        self.version_agent = self.available_agents[idx].clone();
         self.agent_picker_menu.selected = idx;
         self.version_menu.selected = 0;
         self.version_menu.scroll_offset = 0;
@@ -1906,12 +1924,12 @@ impl App {
                 if !VersionManager::has_npm() {
                     self.npm_dialog_open = true;
                     self.npm_dialog_pending =
-                        Some((self.version_agent, version_info.version.clone()));
+                        Some((self.version_agent.clone(), version_info.version.clone()));
                     return;
                 }
             }
             let version = version_info.version.clone();
-            let agent = self.version_agent;
+            let agent = self.version_agent.clone();
             let is_reinstall = version_info.is_installed;
 
             self.selected_version = Some(version.clone());
@@ -1934,6 +1952,7 @@ impl App {
             let (tx, rx) = mpsc::channel();
 
             let version_clone = version.clone();
+            let agent_for_state = agent.clone();
             let handle = thread::spawn(move || {
                 // Skip real downloads in test mode to prevent overwriting real installations
                 if std::env::var("UNLEASH_SKIP_NATIVE_INSTALL").is_ok() {
@@ -1965,6 +1984,12 @@ impl App {
                     AgentType::OpenCode => {
                         vm.install_opencode_version_streaming(&version_clone, log_tx)
                     }
+                    AgentType::Custom(_) => Ok(InstallResult {
+                        success: false,
+                        stdout: String::new(),
+                        stderr: String::new(),
+                        error: Some("Version management not yet supported for custom agents".into()),
+                    }),
                 };
 
                 // Wait for bridge to flush all log lines before sending completion
@@ -1980,7 +2005,7 @@ impl App {
             });
 
             self.install_state = Some(InstallState {
-                agent_type: agent,
+                agent_type: agent_for_state,
                 version,
                 receiver: rx,
                 _handle: handle,
@@ -3396,7 +3421,7 @@ impl App {
             .npm_dialog_pending
             .as_ref()
             .map(|(a, _)| a.display_name())
-            .unwrap_or("this agent");
+            .unwrap_or(std::borrow::Cow::Borrowed("this agent"));
 
         let lines = vec![
             Line::default(),
@@ -3806,8 +3831,7 @@ impl App {
 
     fn render_version_management(&mut self, frame: &mut Frame, area: Rect) {
         let unleash_height = 4; // 2 lines content + 2 for borders
-        let agents = AgentType::all();
-        let agent_height = (agents.len() as u16) + 2; // agents + borders
+        let agent_height = (self.available_agents.len() as u16) + 2; // agents + borders
 
         if self.show_install_log {
             // 4-panel layout: unleash, agent picker, version list (shrunk), install log
@@ -3910,10 +3934,9 @@ impl App {
         let inner = block.inner(area);
         frame.render_widget(block, area);
 
-        let agents = AgentType::all();
         let mut lines: Vec<Line> = Vec::new();
 
-        for agent in agents.iter() {
+        for agent in self.available_agents.iter() {
             let is_selected = *agent == self.version_agent;
 
             let (prefix, style) = if is_selected {
@@ -3948,7 +3971,7 @@ impl App {
         }
 
         // Register clickable areas: one row per agent
-        for (i, _) in agents.iter().enumerate() {
+        for (i, _) in self.available_agents.iter().enumerate() {
             let row = inner.y + i as u16;
             if row < inner.y + inner.height {
                 self.clickable_areas.push((
@@ -4345,7 +4368,7 @@ mod tests {
             help_scroll_offset: 0,
             version_focus: VersionFocus::Unleash,
             unleash_version: env!("CARGO_PKG_VERSION").to_string(),
-            agent_picker_menu: MenuState::new(AgentType::all().len()),
+            agent_picker_menu: MenuState::new(AgentType::builtin().len()),
             installing_version_index: None,
             install_log_lines: Vec::new(),
             show_install_log: false,
@@ -4357,6 +4380,7 @@ mod tests {
             feature_menu: MenuState::new(0),
             discovered_plugins: Vec::new(),
             clickable_areas: Vec::new(),
+            available_agents: AgentType::builtin().to_vec(),
         };
 
         (app, temp)
@@ -5019,7 +5043,7 @@ mod tests {
 
     #[test]
     fn test_all_agent_types_in_cycle() {
-        let agents = AgentType::all();
+        let agents = AgentType::builtin();
         assert_eq!(agents.len(), 4);
         assert_eq!(agents[0], AgentType::Claude);
         assert_eq!(agents[1], AgentType::Codex);
