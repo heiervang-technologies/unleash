@@ -1547,7 +1547,7 @@ checksum = "39ec24b3121d976906ece63c9daad25b85969647682eee313cb5779fdd69e14e"
 
 [[package]]
 name = "unleash"
-version = "0.1.5"
+version = "0.1.6"
 dependencies = [
  "clap",
  "crossterm",

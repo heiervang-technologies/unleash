@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.6](https://github.com/heiervang-technologies/unleash/compare/v0.1.5...v0.1.6) (2026-04-15)
+
+
+### Bug Fixes
+
+* **hooks:** prune hooks for disabled plugins on sync ([#86](https://github.com/heiervang-technologies/unleash/issues/86)) ([#87](https://github.com/heiervang-technologies/unleash/issues/87)) ([b45271e](https://github.com/heiervang-technologies/unleash/commit/b45271ee930cf986d5a43a9cadc9943c26dcdd17))
+
 ## [0.1.5](https://github.com/heiervang-technologies/unleash/compare/v0.1.4...v0.1.5) (2026-04-13)
 
 
