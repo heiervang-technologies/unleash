@@ -58,8 +58,16 @@ pub fn run(auto_mode: bool, prompt: Option<String>, extra_args: Vec<String>) -> 
                     }
                 }
             }
-            // Always sync plugin hooks into settings.json on launch
+            // Always sync plugin hooks into settings.json on launch.
+            // Prune first so that plugins toggled off have their hooks removed,
+            // then re-register hooks for currently-enabled plugins.
             let plugin_dirs = find_plugin_dirs();
+            let all_plugin_dirs = find_all_plugin_dirs();
+            if let Err(e) =
+                manager.prune_hooks_for_disabled_plugins(&all_plugin_dirs, &plugin_dirs)
+            {
+                eprintln!("Warning: Failed to prune disabled plugin hooks: {}", e);
+            }
             if let Err(e) = manager.sync_plugin_hooks(&plugin_dirs) {
                 eprintln!("Warning: Failed to sync plugin hooks: {}", e);
             }

@@ -695,8 +695,15 @@ pub fn run() -> io::Result<()> {
                 Some(HooksAction::Install) => manager.install_default_hooks(),
                 Some(HooksAction::Sync) => {
                     let plugin_dirs = launcher::find_plugin_dirs();
+                    let all_plugin_dirs = launcher::find_all_plugin_dirs();
+                    let pruned = manager
+                        .prune_hooks_for_disabled_plugins(&all_plugin_dirs, &plugin_dirs)?;
                     manager.sync_plugin_hooks(&plugin_dirs)?;
-                    println!("Synced hooks from {} plugin(s)", plugin_dirs.len());
+                    println!(
+                        "Synced hooks from {} plugin(s){}",
+                        plugin_dirs.len(),
+                        if pruned { " (pruned stale hooks)" } else { "" }
+                    );
                     Ok(())
                 }
                 Some(HooksAction::List) => {
