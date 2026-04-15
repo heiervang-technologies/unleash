@@ -19,7 +19,13 @@ fn semantic_eq_inner(a: &Value, b: &Value, path: &str) -> Result<(), String> {
                 Err(format!("{path}: number mismatch: {a} != {b}"))
             }
         }
-        (Value::String(a), Value::String(b)) if a == b => Ok(()),
+        (Value::String(a), Value::String(b)) => {
+            if a == b {
+                Ok(())
+            } else {
+                Err(format!("{path}: string mismatch: {a:?} != {b:?}"))
+            }
+        }
         (Value::Array(a), Value::Array(b)) => {
             if a.len() != b.len() {
                 return Err(format!("{path}: array length {} != {}", a.len(), b.len()));
