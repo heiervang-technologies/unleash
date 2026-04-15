@@ -2387,9 +2387,15 @@ impl App {
                     self.status_message = Some(format!("Toggled: {}", plugin_name));
 
                     // Immediately sync hooks to ensure any statically injected hooks (from ~/.claude/settings.json)
-                    // accurately reflect the enabled/disabled state.
+                    // accurately reflect the enabled/disabled state. Prune first so a plugin
+                    // that was just toggled off has its hooks removed; then re-register the
+                    // hooks for the plugins that remain enabled.
                     if let Ok(manager) = crate::hooks::HookManager::new() {
-                        let _ = manager.sync_plugin_hooks(&crate::launcher::find_plugin_dirs());
+                        let enabled_dirs = crate::launcher::find_plugin_dirs();
+                        let all_dirs = crate::launcher::find_all_plugin_dirs();
+                        let _ =
+                            manager.prune_hooks_for_disabled_plugins(&all_dirs, &enabled_dirs);
+                        let _ = manager.sync_plugin_hooks(&enabled_dirs);
                     }
                 }
             }

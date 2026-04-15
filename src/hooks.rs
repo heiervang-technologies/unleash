@@ -404,6 +404,110 @@ EOF
         Ok(())
     }
 
+    /// Known plugin-root path markers used to identify plugin-originated
+    /// hook commands. A match on one of these prefixes (combined with a
+    /// disabled plugin's name as a path segment) is treated as a plugin
+    /// hook; anything else is considered user-installed and left alone.
+    const PLUGIN_ROOT_MARKERS: &'static [&'static str] = &[
+        "plugins/bundled/",
+        "unleash/plugins/",
+        ".local/share/unleash/plugins/",
+    ];
+
+    /// Return true if `command` points at a hook installed by plugin `name`.
+    fn command_belongs_to_plugin(command: &str, name: &str) -> bool {
+        if name.is_empty() {
+            return false;
+        }
+        let segment = format!("/{}/", name);
+        if !command.contains(&segment) {
+            return false;
+        }
+        Self::PLUGIN_ROOT_MARKERS
+            .iter()
+            .any(|marker| command.contains(marker))
+    }
+
+    /// Remove hooks from `settings.json` whose commands reference plugins
+    /// that are present on disk but absent from the enabled list. Call this
+    /// alongside [`sync_plugin_hooks`] so that toggling a plugin off in the
+    /// UI fully removes its hooks instead of leaving stale entries behind.
+    ///
+    /// Matching is done by plugin directory basename (plugin name), gated
+    /// on a recognized plugin-root path marker to avoid pruning unrelated
+    /// user-installed hooks that happen to share a name segment.
+    ///
+    /// Returns `true` if any hooks were removed.
+    pub fn prune_hooks_for_disabled_plugins(
+        &self,
+        all_plugin_dirs: &[PathBuf],
+        enabled_plugin_dirs: &[PathBuf],
+    ) -> io::Result<bool> {
+        let basename = |p: &PathBuf| {
+            p.file_name()
+                .and_then(|n| n.to_str())
+                .map(|s| s.to_string())
+        };
+
+        let enabled: std::collections::HashSet<String> =
+            enabled_plugin_dirs.iter().filter_map(basename).collect();
+        let disabled: Vec<String> = all_plugin_dirs
+            .iter()
+            .filter_map(basename)
+            .filter(|n| !enabled.contains(n))
+            .collect();
+
+        if disabled.is_empty() {
+            return Ok(false);
+        }
+
+        let mut settings = self.read_settings()?;
+        let hooks_obj = match settings.get_mut("hooks").and_then(|h| h.as_object_mut()) {
+            Some(h) => h,
+            None => return Ok(false),
+        };
+
+        let mut changed = false;
+
+        // Walk every event → drop any wrapper entry whose inner hooks reference
+        // a disabled plugin's directory.
+        for (_event, event_hooks) in hooks_obj.iter_mut() {
+            let arr = match event_hooks.as_array_mut() {
+                Some(a) => a,
+                None => continue,
+            };
+            let before = arr.len();
+            arr.retain(|wrapper| {
+                let inner = match wrapper.get("hooks").and_then(|h| h.as_array()) {
+                    Some(a) => a,
+                    None => return true,
+                };
+                let has_disabled_cmd = inner.iter().any(|hook| {
+                    hook.get("command")
+                        .and_then(|c| c.as_str())
+                        .map(|cmd| {
+                            disabled
+                                .iter()
+                                .any(|name| Self::command_belongs_to_plugin(cmd, name))
+                        })
+                        .unwrap_or(false)
+                });
+                !has_disabled_cmd
+            });
+            if arr.len() != before {
+                changed = true;
+            }
+        }
+
+        // Drop any event keys that are now empty arrays to keep settings.json tidy.
+        hooks_obj.retain(|_, v| !v.as_array().map(|a| a.is_empty()).unwrap_or(false));
+
+        if changed {
+            self.write_settings(&settings)?;
+        }
+        Ok(changed)
+    }
+
     /// Sync hooks from a single plugin's hooks.json
     fn sync_plugin_hook_file(&self, hooks_json: &PathBuf, plugin_dir: &Path) -> io::Result<()> {
         let content = fs::read_to_string(hooks_json)?;
@@ -925,5 +1029,197 @@ mod tests {
         let hooks = mgr.list_hooks().unwrap();
         assert!(hooks.contains_key("PreCompact"));
         assert!(hooks.contains_key("UserPromptSubmit"));
+    }
+
+    // ── prune_hooks_for_disabled_plugins ─────────────────────
+
+    /// Create a plugin dir under `plugins/bundled/<name>` and sync its hooks.
+    /// Returns the plugin directory path so callers can reference it later.
+    fn install_plugin(mgr: &HookManager, root: &Path, name: &str, hooks_json: &str) -> PathBuf {
+        let plugin_dir = root.join("plugins/bundled").join(name);
+        fs::create_dir_all(plugin_dir.join("hooks")).unwrap();
+        fs::write(plugin_dir.join("hooks/hooks.json"), hooks_json).unwrap();
+        mgr.sync_plugin_hooks(&[plugin_dir.clone()]).unwrap();
+        plugin_dir
+    }
+
+    #[test]
+    fn test_prune_removes_hooks_for_disabled_plugin() {
+        let tmp = tempfile::tempdir().unwrap();
+        let mgr = test_manager(tmp.path());
+
+        let plugin_a = install_plugin(
+            &mgr,
+            tmp.path(),
+            "plugin-a",
+            r#"{"hooks":{"PreCompact":[{"hooks":[{"type":"command","command":"${CLAUDE_PLUGIN_ROOT}/a-hook.sh"}]}]}}"#,
+        );
+        let plugin_b = install_plugin(
+            &mgr,
+            tmp.path(),
+            "supercompact",
+            r#"{"hooks":{"UserPromptSubmit":[{"hooks":[{"type":"command","command":"${CLAUDE_PLUGIN_ROOT}/sc-hook.sh"}]},{"hooks":[{"type":"command","command":"${CLAUDE_PLUGIN_ROOT}/sc-other.sh"}]}]}}"#,
+        );
+
+        // Sanity: both plugins installed
+        let before = mgr.list_hooks().unwrap();
+        assert_eq!(before.get("PreCompact").map(|v| v.len()), Some(1));
+        assert_eq!(before.get("UserPromptSubmit").map(|v| v.len()), Some(2));
+
+        // Prune with only plugin-a enabled — supercompact should be removed.
+        let changed = mgr
+            .prune_hooks_for_disabled_plugins(&[plugin_a.clone(), plugin_b], &[plugin_a])
+            .unwrap();
+        assert!(changed, "prune should report changes when plugin disabled");
+
+        let after = mgr.list_hooks().unwrap();
+        assert_eq!(
+            after.get("PreCompact").map(|v| v.len()),
+            Some(1),
+            "plugin-a's hook should be preserved"
+        );
+        assert!(
+            !after.contains_key("UserPromptSubmit"),
+            "disabled plugin's event key should be removed when empty, got: {after:?}"
+        );
+    }
+
+    #[test]
+    fn test_prune_is_noop_when_no_plugins_disabled() {
+        let tmp = tempfile::tempdir().unwrap();
+        let mgr = test_manager(tmp.path());
+
+        let plugin_a = install_plugin(
+            &mgr,
+            tmp.path(),
+            "plugin-a",
+            r#"{"hooks":{"PreCompact":[{"hooks":[{"type":"command","command":"${CLAUDE_PLUGIN_ROOT}/a.sh"}]}]}}"#,
+        );
+
+        let before = fs::read_to_string(&mgr.installation.settings_path).unwrap();
+        let changed = mgr
+            .prune_hooks_for_disabled_plugins(&[plugin_a.clone()], &[plugin_a])
+            .unwrap();
+        let after = fs::read_to_string(&mgr.installation.settings_path).unwrap();
+
+        assert!(!changed, "prune should return false when nothing to prune");
+        assert_eq!(before, after, "settings.json should be untouched");
+    }
+
+    #[test]
+    fn test_prune_leaves_user_installed_hooks_alone() {
+        let tmp = tempfile::tempdir().unwrap();
+        let mgr = test_manager(tmp.path());
+
+        // User hook path does NOT contain any plugin-root marker — must not be pruned
+        // even when a plugin with the same name segment is disabled.
+        mgr.register_hook(
+            HookEvent::PreCompact,
+            "/home/user/scripts/supercompact/my-hook.sh",
+            None,
+        )
+        .unwrap();
+
+        // Register a real plugin-originated hook we want pruned
+        let plugin_dir = install_plugin(
+            &mgr,
+            tmp.path(),
+            "supercompact",
+            r#"{"hooks":{"PreCompact":[{"hooks":[{"type":"command","command":"${CLAUDE_PLUGIN_ROOT}/sc.sh"}]}]}}"#,
+        );
+
+        let changed = mgr
+            .prune_hooks_for_disabled_plugins(&[plugin_dir], &[])
+            .unwrap();
+        assert!(changed, "plugin-originated hook should be pruned");
+
+        let hooks = mgr.list_hooks().unwrap();
+        let precompact = hooks.get("PreCompact").expect("user hook should remain");
+        assert_eq!(precompact.len(), 1, "only user hook should be left");
+        assert!(
+            precompact[0].contains("/home/user/scripts/"),
+            "user hook should be preserved: {precompact:?}"
+        );
+    }
+
+    #[test]
+    fn test_prune_handles_missing_settings_file() {
+        let tmp = tempfile::tempdir().unwrap();
+        let mgr = test_manager(tmp.path());
+        // Remove the settings file
+        fs::remove_file(&mgr.installation.settings_path).unwrap();
+
+        let plugin_dir = tmp.path().join("plugins/bundled/supercompact");
+        let changed = mgr
+            .prune_hooks_for_disabled_plugins(&[plugin_dir], &[])
+            .unwrap();
+        assert!(!changed);
+    }
+
+    #[test]
+    fn test_prune_preserves_other_plugins_at_same_event() {
+        let tmp = tempfile::tempdir().unwrap();
+        let mgr = test_manager(tmp.path());
+
+        // Two plugins registering hooks at the same event
+        let omnihook = install_plugin(
+            &mgr,
+            tmp.path(),
+            "omnihook",
+            r#"{"hooks":{"Stop":[{"hooks":[{"type":"command","command":"${CLAUDE_PLUGIN_ROOT}/omni.sh"}]}]}}"#,
+        );
+        let supercompact = install_plugin(
+            &mgr,
+            tmp.path(),
+            "supercompact",
+            r#"{"hooks":{"Stop":[{"hooks":[{"type":"command","command":"${CLAUDE_PLUGIN_ROOT}/sc.sh"}]}]}}"#,
+        );
+
+        let changed = mgr
+            .prune_hooks_for_disabled_plugins(
+                &[omnihook.clone(), supercompact],
+                &[omnihook],
+            )
+            .unwrap();
+        assert!(changed);
+
+        let hooks = mgr.list_hooks().unwrap();
+        let stop = hooks.get("Stop").expect("Stop event should still exist");
+        assert_eq!(stop.len(), 1);
+        assert!(
+            stop[0].contains("omnihook"),
+            "omnihook should remain, got: {stop:?}"
+        );
+    }
+
+    #[test]
+    fn test_command_belongs_to_plugin_false_positive_guards() {
+        // Plugin name + root marker → match
+        assert!(HookManager::command_belongs_to_plugin(
+            "/repo/plugins/bundled/supercompact/hooks/sc.sh",
+            "supercompact"
+        ));
+        assert!(HookManager::command_belongs_to_plugin(
+            "/home/me/.local/share/unleash/plugins/supercompact/handler.sh",
+            "supercompact"
+        ));
+
+        // Plugin name but no root marker → no match (user hook)
+        assert!(!HookManager::command_belongs_to_plugin(
+            "/home/user/scripts/supercompact/my-hook.sh",
+            "supercompact"
+        ));
+
+        // Root marker but wrong plugin name → no match
+        assert!(!HookManager::command_belongs_to_plugin(
+            "/repo/plugins/bundled/other-plugin/hook.sh",
+            "supercompact"
+        ));
+
+        // Empty name → never matches
+        assert!(!HookManager::command_belongs_to_plugin(
+            "/repo/plugins/bundled/supercompact/hook.sh",
+            ""
+        ));
     }
 }
