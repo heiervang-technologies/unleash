@@ -8,6 +8,9 @@ pub fn to_hub<R: BufRead>(reader: R) -> Result<Vec<HubRecord>, ConvertError> {
     let mut records = Vec::new();
     let mut session_emitted = false;
     let mut last_timestamp = String::new();
+    // If the first line carries a `_ucf_hub.session` escape hatch, use it
+    // verbatim as the session header (for cross-CLI lossless round-trip).
+    let mut carried_session: Option<SessionHeader> = None;
 
     for line in reader.lines() {
         let line = line?;
@@ -17,6 +20,9 @@ pub fn to_hub<R: BufRead>(reader: R) -> Result<Vec<HubRecord>, ConvertError> {
         let val: Value = serde_json::from_str(&line)?;
 
         if !session_emitted {
+            if let Some(sess_val) = val.get("_ucf_hub").and_then(|u| u.get("session")) {
+                carried_session = serde_json::from_value(sess_val.clone()).ok();
+            }
             records.push(HubRecord::Session(build_session_header(&val)));
             session_emitted = true;
         }
@@ -38,9 +44,17 @@ pub fn to_hub<R: BufRead>(reader: R) -> Result<Vec<HubRecord>, ConvertError> {
         }
     }
 
-    // Patch session updated_at
+    // Patch session updated_at (only if we synthesized the header)
     if let Some(HubRecord::Session(ref mut session)) = records.first_mut() {
         session.updated_at = last_timestamp;
+    }
+
+    // If a carried session header was provided via `_ucf_hub.session`, replace
+    // the synthesized one so foreign-source sessions survive the round trip.
+    if let Some(carried) = carried_session {
+        if let Some(HubRecord::Session(ref mut session)) = records.first_mut() {
+            *session = carried;
+        }
     }
 
     Ok(records)
@@ -48,22 +62,46 @@ pub fn to_hub<R: BufRead>(reader: R) -> Result<Vec<HubRecord>, ConvertError> {
 
 /// Convert Hub records back to Claude Code JSONL values.
 /// Reconstructs from universal fields + minimal extensions. No _original fallback.
+///
+/// When the hub session's `source_cli` is not `claude-code`, the first emitted
+/// line carries a `_ucf_hub.session` field holding the full SessionHeader so
+/// the hub → claude → hub round trip is lossless. Per-message foreign
+/// extensions are stashed under `_ucf_hub.ext`.
 pub fn from_hub(records: &[HubRecord]) -> Result<Vec<Value>, ConvertError> {
     let mut lines = Vec::new();
     let mut session_id = String::new();
     let mut version = String::new();
+    let mut session_passthrough: Option<Value> = None;
 
     for record in records {
         match record {
             HubRecord::Session(s) => {
                 session_id = s.session_id.clone();
                 version = s.source_version.clone();
+                // Stash the full session header whenever the source isn't
+                // Claude — Claude JSONL can't represent fields like
+                // ucf_version, title, slug, parent_session_id natively.
+                if s.source_cli != "claude-code" {
+                    session_passthrough = Some(serde_json::to_value(s)?);
+                }
             }
             HubRecord::Message(msg) => {
                 lines.push(hub_message_to_claude(msg, &session_id, &version)?);
             }
             HubRecord::Event(evt) => {
                 lines.push(hub_event_to_claude(evt, &session_id, &version)?);
+            }
+        }
+    }
+
+    // Attach the session passthrough to the first emitted line.
+    if let (Some(sess), Some(first)) = (session_passthrough, lines.first_mut()) {
+        if let Value::Object(ref mut obj) = first {
+            let entry = obj
+                .entry("_ucf_hub".to_string())
+                .or_insert_with(|| Value::Object(serde_json::Map::new()));
+            if let Value::Object(ref mut inner) = entry {
+                inner.insert("session".to_string(), sess);
             }
         }
     }
@@ -116,8 +154,31 @@ fn message_to_hub(val: &Value, msg_type: &str) -> Result<HubMessage, ConvertErro
     let content = extract_content_blocks(val, msg_type)?;
     let metadata = extract_metadata(val, msg_type);
 
-    // Minimal extensions: only Claude-specific fields not in universal schema
-    let ext = build_claude_extensions(val, msg_type);
+    // If the line carries a `_ucf_hub` passthrough, its Claude-shaped fields
+    // (isSidechain, userType, etc.) were synthesized during a foreign → Claude
+    // conversion. They don't represent real claude-code extensions, so skip
+    // scraping them to keep the hub message's extensions symmetric.
+    let foreign_originated = val.get("_ucf_hub").is_some();
+    let mut ext = if foreign_originated {
+        Value::Null
+    } else {
+        build_claude_extensions(val, msg_type)
+    };
+
+    // Merge back any foreign-CLI extensions stashed under `_ucf_hub.ext`.
+    if let Some(foreign) = val
+        .get("_ucf_hub")
+        .and_then(|u| u.get("ext"))
+        .and_then(|e| e.as_object())
+    {
+        if let Some(obj) = ext.as_object_mut() {
+            for (k, v) in foreign {
+                obj.insert(k.clone(), v.clone());
+            }
+        } else {
+            ext = Value::Object(foreign.clone());
+        }
+    }
 
     Ok(HubMessage {
         id: str_field(val, "uuid"),
@@ -143,6 +204,7 @@ fn build_claude_extensions(val: &Value, msg_type: &str) -> Value {
         "parentUuid", // → parent_id
         "cwd",       // → metadata.cwd
         "gitBranch", // → metadata.git_branch
+        "_ucf_hub",  // hub-level passthrough for cross-CLI round-trip
     ];
 
     let mut ext = serde_json::Map::new();
@@ -367,7 +429,7 @@ fn extract_metadata(val: &Value, msg_type: &str) -> MessageMetadata {
 fn event_to_hub(val: &Value, msg_type: &str) -> Result<HubEvent, ConvertError> {
     // Stash ALL fields except the hub event schema fields (type, timestamp, data)
     // into extensions for lossless round-trip
-    let hub_fields: &[&str] = &["type", "timestamp", "data"];
+    let hub_fields: &[&str] = &["type", "timestamp", "data", "_ucf_hub"];
     let mut ext = serde_json::Map::new();
     if let Some(obj) = val.as_object() {
         for (k, v) in obj {
@@ -379,14 +441,33 @@ fn event_to_hub(val: &Value, msg_type: &str) -> Result<HubEvent, ConvertError> {
 
     let data = val.get("data").cloned().unwrap_or(Value::Null);
 
+    // Start with Claude extensions, then merge in any foreign extensions that
+    // were carried through via `_ucf_hub.ext`.
+    let mut extensions = if ext.is_empty() {
+        serde_json::Map::new()
+    } else {
+        let mut m = serde_json::Map::new();
+        m.insert("claude-code".into(), Value::Object(ext));
+        m
+    };
+    if let Some(foreign) = val
+        .get("_ucf_hub")
+        .and_then(|u| u.get("ext"))
+        .and_then(|e| e.as_object())
+    {
+        for (k, v) in foreign {
+            extensions.insert(k.clone(), v.clone());
+        }
+    }
+
     Ok(HubEvent {
         event_type: msg_type.to_string(),
         timestamp: str_field(val, "timestamp"),
         data,
-        extensions: if ext.is_empty() {
+        extensions: if extensions.is_empty() {
             Value::Null
         } else {
-            serde_json::json!({"claude-code": ext})
+            Value::Object(extensions)
         },
     })
 }
@@ -545,7 +626,42 @@ fn hub_message_to_claude(
         line["gitBranch"] = Value::String(branch.clone());
     }
 
+    // Stash foreign-CLI extensions under `_ucf_hub.ext` for lossless
+    // cross-CLI round-trip (everything in hub extensions except "claude-code").
+    if let Some(foreign) = foreign_extensions(&msg.extensions) {
+        attach_ucf_hub_ext(&mut line, foreign);
+    }
+
     Ok(line)
+}
+
+/// Extract all hub extensions that are NOT claude-code (foreign to this format).
+fn foreign_extensions(ext: &Value) -> Option<Value> {
+    let obj = ext.as_object()?;
+    let foreign: serde_json::Map<String, Value> = obj
+        .iter()
+        .filter(|(k, _)| k.as_str() != "claude-code")
+        .map(|(k, v)| (k.clone(), v.clone()))
+        .collect();
+    if foreign.is_empty() {
+        None
+    } else {
+        Some(Value::Object(foreign))
+    }
+}
+
+/// Merge `ext` into `line._ucf_hub.ext`, creating the nested objects as needed.
+fn attach_ucf_hub_ext(line: &mut Value, ext: Value) {
+    let Value::Object(ref mut obj) = line else {
+        return;
+    };
+    let entry = obj
+        .entry("_ucf_hub".to_string())
+        .or_insert_with(|| Value::Object(serde_json::Map::new()));
+    let Value::Object(ref mut inner) = entry else {
+        return;
+    };
+    inner.insert("ext".to_string(), ext);
 }
 
 fn hub_content_to_claude(blocks: &[ContentBlock]) -> Vec<Value> {
@@ -647,6 +763,10 @@ fn hub_event_to_claude(
     }
     if (line.get("version").is_none() || line["version"].is_null()) && !version.is_empty() {
         line["version"] = Value::String(version.to_string());
+    }
+
+    if let Some(foreign) = foreign_extensions(&evt.extensions) {
+        attach_ucf_hub_ext(&mut line, foreign);
     }
 
     Ok(line)
