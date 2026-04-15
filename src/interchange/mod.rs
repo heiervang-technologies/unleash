@@ -6,6 +6,8 @@ pub mod gemini;
 pub(crate) mod helpers;
 pub mod hub;
 pub mod inject;
+#[cfg(test)]
+mod lossless_tests;
 pub mod opencode;
 pub mod semantic_eq;
 pub mod sessions;
