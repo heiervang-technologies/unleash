@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.7](https://github.com/heiervang-technologies/unleash/compare/v0.1.6...v0.1.7) (2026-04-15)
+
+
+### Bug Fixes
+
+* **docker:** treat flag-first CMD override as unleash args ([#89](https://github.com/heiervang-technologies/unleash/issues/89)) ([895cf2d](https://github.com/heiervang-technologies/unleash/commit/895cf2d8f7cceda9e5ab9508095fe4dc90a3d2bd))
+
 ## [0.1.6](https://github.com/heiervang-technologies/unleash/compare/v0.1.5...v0.1.6) (2026-04-15)
 
 
