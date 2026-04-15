@@ -19,6 +19,15 @@ nameserver 8.8.4.4
 EOF
 fi
 
+# If the image is invoked with a flag as the first argument (e.g. `docker run
+# image --version`), docker replaces the default CMD and hands us just the flag.
+# Bash's `exec` builtin then tries to parse it as its own option and dies with
+# "exec: --: invalid option". Treat flag-first invocations as arguments to the
+# default `unleash` binary, matching the intent of `CMD ["unleash"]`.
+if [[ "${1:-}" == -* ]]; then
+    set -- unleash "$@"
+fi
+
 # Determine if we should drop privileges
 cmd="$(basename "${1:-}" 2>/dev/null)"
 case "$cmd" in
