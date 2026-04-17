@@ -223,7 +223,6 @@ mod tests {
     }
 
     #[test]
-    #[ignore = "lossless target"]
     fn cross_codex_via_opencode() {
         assert_cross_lossless("codex", "opencode", via_codex, via_opencode);
     }

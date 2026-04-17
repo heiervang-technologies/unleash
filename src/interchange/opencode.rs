@@ -121,8 +121,21 @@ pub fn to_hub(input: &OpenCodeInput) -> Result<Vec<HubRecord>, ConvertError> {
             .and_then(|v| v.as_f64().or_else(|| v.as_u64().map(|u| u as f64)))
             .map(unix_ms_to_iso);
 
+        // For foreign-originated messages, honor the carried hub id so the
+        // A → opencode → A round trip preserves message identity. Otherwise
+        // synthesize a deterministic id from the message index.
+        let id = if foreign_originated {
+            msg.get("id")
+                .and_then(|v| v.as_str())
+                .filter(|s| !s.is_empty())
+                .map(String::from)
+                .unwrap_or_else(|| format!("opencode-msg-{msg_i}"))
+        } else {
+            format!("opencode-msg-{msg_i}")
+        };
+
         records.push(HubRecord::Message(HubMessage {
-            id: format!("opencode-msg-{msg_i}"),
+            id,
             api_message_id: None,
             parent_id: opt_str(msg, "parentID"),
             timestamp,
@@ -313,10 +326,19 @@ fn unix_ms_to_iso(ms: f64) -> String {
     let m = if mp < 10 { mp + 3 } else { mp - 9 };
     let year = if m <= 2 { y + 1 } else { y };
 
-    format!(
-        "{:04}-{:02}-{:02}T{:02}:{:02}:{:02}.{:03}Z",
-        year, m, d, hours, minutes, seconds, millis
-    )
+    // Omit the `.000` millisecond suffix when millis is zero so round trips
+    // through ISO → ms → ISO don't gain spurious `.000` precision.
+    if millis == 0 {
+        format!(
+            "{:04}-{:02}-{:02}T{:02}:{:02}:{:02}Z",
+            year, m, d, hours, minutes, seconds
+        )
+    } else {
+        format!(
+            "{:04}-{:02}-{:02}T{:02}:{:02}:{:02}.{:03}Z",
+            year, m, d, hours, minutes, seconds, millis
+        )
+    }
 }
 
 fn iso_to_unix_ms(iso: &str) -> f64 {
@@ -894,6 +916,11 @@ fn hub_message_to_opencode(msg: &HubMessage) -> Result<(Value, Vec<Value>), Conv
             "created": created_ms,
         },
     });
+
+    // Preserve the hub message id so cross-CLI round trips can restore it.
+    if !msg.id.is_empty() {
+        message["id"] = Value::String(msg.id.clone());
+    }
 
     if let Some(completed) = completed_ms {
         message["time"]["completed"] = serde_json::json!(completed);

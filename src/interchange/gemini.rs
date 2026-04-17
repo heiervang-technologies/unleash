@@ -211,6 +211,11 @@ pub fn from_hub(records: &[HubRecord]) -> Result<Value, ConvertError> {
                     if let Some(foreign) = foreign_extensions(&msg.extensions) {
                         attach_ucf_hub_ext(&mut gm, foreign);
                     }
+                    // Gemini has no native `completed_at` — stash it so
+                    // cross-CLI round trips preserve dual-timestamp semantics.
+                    if let Some(ref ca) = msg.completed_at {
+                        attach_ucf_hub_field(&mut gm, "completed_at", Value::String(ca.clone()));
+                    }
                     messages.push(gm);
                 }
                 HubRecord::Event(evt) => {
@@ -330,6 +335,20 @@ fn attach_ucf_hub_session(node: &mut Value, session: Value) {
         return;
     };
     inner.insert("session".to_string(), session);
+}
+
+/// Set `node._ucf_hub.<key> = value`.
+fn attach_ucf_hub_field(node: &mut Value, key: &str, value: Value) {
+    let Value::Object(ref mut obj) = node else {
+        return;
+    };
+    let entry = obj
+        .entry("_ucf_hub".to_string())
+        .or_insert_with(|| Value::Object(serde_json::Map::new()));
+    let Value::Object(ref mut inner) = entry else {
+        return;
+    };
+    inner.insert(key.to_string(), value);
 }
 
 fn normalize_hub_records_for_gemini(records: &[HubRecord]) -> Vec<HubRecord> {
@@ -709,12 +728,20 @@ fn message_to_hub(msg: &Value, foreign_session: bool) -> Result<HubMessage, Conv
         ext = Value::Null;
     }
 
+    // Gemini has no native `completed_at`; recover it from `_ucf_hub` when
+    // present so cross-CLI round trips preserve dual-timestamp semantics.
+    let completed_at = msg
+        .get("_ucf_hub")
+        .and_then(|u| u.get("completed_at"))
+        .and_then(|v| v.as_str())
+        .map(String::from);
+
     Ok(HubMessage {
         id: str_field(msg, "id"),
         api_message_id: None,
         parent_id: None,
         timestamp: str_field(msg, "timestamp"),
-        completed_at: None,
+        completed_at,
         role: role.to_string(),
         content,
         metadata,
