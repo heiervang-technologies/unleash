@@ -11,6 +11,11 @@ pub fn to_hub<R: BufRead>(reader: R) -> Result<Vec<HubRecord>, ConvertError> {
     // If the first line carries a `_ucf_hub.session` escape hatch, use it
     // verbatim as the session header (for cross-CLI lossless round-trip).
     let mut carried_session: Option<SessionHeader> = None;
+    // Once we've seen `_ucf_hub.session`, every subsequent line is foreign-
+    // originated even without its own `_ucf_hub.ext`. This prevents
+    // `build_claude_extensions` from stashing Claude-shaped synthesized fields
+    // (sessionId, version, etc.) that aren't real claims about the content.
+    let mut foreign_session = false;
 
     for line in reader.lines() {
         let line = line?;
@@ -22,6 +27,7 @@ pub fn to_hub<R: BufRead>(reader: R) -> Result<Vec<HubRecord>, ConvertError> {
         if !session_emitted {
             if let Some(sess_val) = val.get("_ucf_hub").and_then(|u| u.get("session")) {
                 carried_session = serde_json::from_value(sess_val.clone()).ok();
+                foreign_session = true;
             }
             records.push(HubRecord::Session(build_session_header(&val)));
             session_emitted = true;
@@ -36,10 +42,18 @@ pub fn to_hub<R: BufRead>(reader: R) -> Result<Vec<HubRecord>, ConvertError> {
 
         match msg_type {
             "user" | "assistant" => {
-                records.push(HubRecord::Message(message_to_hub(&val, msg_type)?));
+                records.push(HubRecord::Message(message_to_hub(
+                    &val,
+                    msg_type,
+                    foreign_session,
+                )?));
             }
             _ => {
-                records.push(HubRecord::Event(event_to_hub(&val, msg_type)?));
+                records.push(HubRecord::Event(event_to_hub(
+                    &val,
+                    msg_type,
+                    foreign_session,
+                )?));
             }
         }
     }
@@ -140,7 +154,11 @@ fn build_session_header(val: &Value) -> SessionHeader {
 
 // --- to_hub direction ---
 
-fn message_to_hub(val: &Value, msg_type: &str) -> Result<HubMessage, ConvertError> {
+fn message_to_hub(
+    val: &Value,
+    msg_type: &str,
+    foreign_session: bool,
+) -> Result<HubMessage, ConvertError> {
     let message = val.get("message");
     let role = if msg_type == "assistant" {
         "assistant"
@@ -158,7 +176,9 @@ fn message_to_hub(val: &Value, msg_type: &str) -> Result<HubMessage, ConvertErro
     // (isSidechain, userType, etc.) were synthesized during a foreign → Claude
     // conversion. They don't represent real claude-code extensions, so skip
     // scraping them to keep the hub message's extensions symmetric.
-    let foreign_originated = val.get("_ucf_hub").is_some();
+    // `foreign_session` propagates the same logic across the whole session when
+    // only the first line carried a `_ucf_hub.session` marker.
+    let foreign_originated = foreign_session || val.get("_ucf_hub").is_some();
     let mut ext = if foreign_originated {
         Value::Null
     } else {
@@ -426,15 +446,23 @@ fn extract_metadata(val: &Value, msg_type: &str) -> MessageMetadata {
     }
 }
 
-fn event_to_hub(val: &Value, msg_type: &str) -> Result<HubEvent, ConvertError> {
+fn event_to_hub(
+    val: &Value,
+    msg_type: &str,
+    foreign_session: bool,
+) -> Result<HubEvent, ConvertError> {
+    let foreign_originated = foreign_session || val.get("_ucf_hub").is_some();
+
     // Stash ALL fields except the hub event schema fields (type, timestamp, data)
     // into extensions for lossless round-trip
     let hub_fields: &[&str] = &["type", "timestamp", "data", "_ucf_hub"];
     let mut ext = serde_json::Map::new();
-    if let Some(obj) = val.as_object() {
-        for (k, v) in obj {
-            if !hub_fields.contains(&k.as_str()) && !v.is_null() {
-                ext.insert(k.clone(), v.clone());
+    if !foreign_originated {
+        if let Some(obj) = val.as_object() {
+            for (k, v) in obj {
+                if !hub_fields.contains(&k.as_str()) && !v.is_null() {
+                    ext.insert(k.clone(), v.clone());
+                }
             }
         }
     }
