@@ -19,6 +19,20 @@ pub struct OpenCodeOutput {
 pub fn to_hub(input: &OpenCodeInput) -> Result<Vec<HubRecord>, ConvertError> {
     let mut records = Vec::new();
 
+    // `messages[0]._ucf_hub.session` is the cross-CLI escape hatch carrying a
+    // full SessionHeader for non-OpenCode sources. When present, we replace
+    // the synthesized header at the end and treat every message as foreign-
+    // originated so we don't stash OpenCode-native fidelity fields
+    // (`_original_message`, `_original_parts`) that weren't actually authored
+    // by OpenCode.
+    let carried_session: Option<SessionHeader> = input
+        .messages
+        .first()
+        .and_then(|m| m.get("_ucf_hub"))
+        .and_then(|u| u.get("session"))
+        .and_then(|s| serde_json::from_value(s.clone()).ok());
+    let foreign_session = carried_session.is_some();
+
     // Build session header from first message
     if let Some(first_msg) = input.messages.first() {
         records.push(HubRecord::Session(build_session_header(
@@ -50,21 +64,50 @@ pub fn to_hub(input: &OpenCodeInput) -> Result<Vec<HubRecord>, ConvertError> {
         let content = parts_to_content_blocks(&msg_parts)?;
         let metadata = extract_metadata(msg);
 
-        // Stash original message AND its parts for lossless round-trip
-        let mut ext_map = serde_json::Map::new();
-        // Preserve original message
-        ext_map.insert("_original_message".into(), msg.clone());
-        // Preserve original parts for this message
-        ext_map.insert("_original_parts".into(), Value::Array(msg_parts.clone()));
-        // Also preserve the fields from build_opencode_extensions for cross-CLI use
-        if let Value::Object(extra) = build_opencode_extensions(msg) {
-            if let Some(Value::Object(oc)) = extra.get("opencode") {
-                for (k, v) in oc {
-                    ext_map.insert(k.clone(), v.clone());
+        let foreign_originated = foreign_session || msg.get("_ucf_hub").is_some();
+
+        // When the message came from a foreign source, the "original" opencode
+        // payload is a synthesized shape, not a real OpenCode claim — skip the
+        // `_original_message`/`_original_parts` stash and the opencode-native
+        // extension fields. Preserve only foreign extensions carried through
+        // `_ucf_hub.ext`.
+        let mut extensions = if foreign_originated {
+            Value::Object(serde_json::Map::new())
+        } else {
+            let mut ext_map = serde_json::Map::new();
+            ext_map.insert("_original_message".into(), msg.clone());
+            ext_map.insert("_original_parts".into(), Value::Array(msg_parts.clone()));
+            if let Value::Object(extra) = build_opencode_extensions(msg) {
+                if let Some(Value::Object(oc)) = extra.get("opencode") {
+                    for (k, v) in oc {
+                        ext_map.insert(k.clone(), v.clone());
+                    }
                 }
             }
+            serde_json::json!({"opencode": ext_map})
+        };
+
+        if let Some(foreign) = msg
+            .get("_ucf_hub")
+            .and_then(|u| u.get("ext"))
+            .and_then(|e| e.as_object())
+        {
+            if let Some(obj) = extensions.as_object_mut() {
+                for (k, v) in foreign {
+                    obj.insert(k.clone(), v.clone());
+                }
+            } else {
+                extensions = Value::Object(foreign.clone());
+            }
         }
-        let extensions = serde_json::json!({"opencode": ext_map});
+
+        if foreign_originated
+            && extensions
+                .as_object()
+                .is_some_and(serde_json::Map::is_empty)
+        {
+            extensions = Value::Null;
+        }
 
         let timestamp = unix_ms_to_iso(
             msg.get("time")
@@ -104,10 +147,23 @@ pub fn to_hub(input: &OpenCodeInput) -> Result<Vec<HubRecord>, ConvertError> {
         }
     }
 
+    // If a carried session header was provided via `_ucf_hub.session`, replace
+    // the synthesized one so foreign-source sessions survive the round trip.
+    if let Some(carried) = carried_session {
+        if let Some(HubRecord::Session(ref mut session)) = records.first_mut() {
+            *session = carried;
+        }
+    }
+
     Ok(records)
 }
 
 /// Convert Hub records back to OpenCode messages + parts.
+///
+/// When the hub session's `source_cli` is not `opencode`, the first emitted
+/// message carries a `_ucf_hub.session` field holding the full SessionHeader
+/// so the hub → opencode → hub round trip is lossless. Per-message foreign
+/// extensions are stashed under `_ucf_hub.ext`.
 pub fn from_hub(records: &[HubRecord]) -> Result<OpenCodeOutput, ConvertError> {
     let mut messages = Vec::new();
     let mut parts = Vec::new();
@@ -122,6 +178,17 @@ pub fn from_hub(records: &[HubRecord]) -> Result<OpenCodeOutput, ConvertError> {
         } else {
             false
         }
+    });
+
+    // If the hub session came from a non-OpenCode source, stash the whole
+    // SessionHeader so the hub → opencode → hub round trip is lossless.
+    let session_passthrough: Option<Value> = records.iter().find_map(|r| {
+        if let HubRecord::Session(s) = r {
+            if s.source_cli != "opencode" {
+                return serde_json::to_value(s).ok();
+            }
+        }
+        None
     });
 
     if is_native_roundtrip {
@@ -148,11 +215,14 @@ pub fn from_hub(records: &[HubRecord]) -> Result<OpenCodeOutput, ConvertError> {
             match record {
                 HubRecord::Session(_) => {}
                 HubRecord::Message(msg) => {
-                    let (oc_msg, mut oc_parts) = hub_message_to_opencode(msg)?;
+                    let (mut oc_msg, mut oc_parts) = hub_message_to_opencode(msg)?;
                     for part in &mut oc_parts {
                         if let Some(obj) = part.as_object_mut() {
                             obj.insert("_msg_idx".to_string(), serde_json::json!(msg_idx));
                         }
+                    }
+                    if let Some(foreign) = foreign_extensions(&msg.extensions) {
+                        attach_ucf_hub_ext(&mut oc_msg, foreign);
                     }
                     messages.push(oc_msg);
                     parts.extend(oc_parts);
@@ -163,7 +233,57 @@ pub fn from_hub(records: &[HubRecord]) -> Result<OpenCodeOutput, ConvertError> {
         }
     }
 
+    // Attach cross-CLI session passthrough to the first emitted message.
+    if let (Some(sess), Some(first)) = (session_passthrough, messages.first_mut()) {
+        attach_ucf_hub_session(first, sess);
+    }
+
     Ok(OpenCodeOutput { messages, parts })
+}
+
+// === _ucf_hub passthrough helpers ===
+
+/// Extract hub extensions that are NOT `opencode` (foreign to this format).
+fn foreign_extensions(ext: &Value) -> Option<Value> {
+    let obj = ext.as_object()?;
+    let foreign: serde_json::Map<String, Value> = obj
+        .iter()
+        .filter(|(k, _)| k.as_str() != "opencode")
+        .map(|(k, v)| (k.clone(), v.clone()))
+        .collect();
+    if foreign.is_empty() {
+        None
+    } else {
+        Some(Value::Object(foreign))
+    }
+}
+
+/// Merge `ext` into `node._ucf_hub.ext`, creating the nested objects as needed.
+fn attach_ucf_hub_ext(node: &mut Value, ext: Value) {
+    let Value::Object(ref mut obj) = node else {
+        return;
+    };
+    let entry = obj
+        .entry("_ucf_hub".to_string())
+        .or_insert_with(|| Value::Object(serde_json::Map::new()));
+    let Value::Object(ref mut inner) = entry else {
+        return;
+    };
+    inner.insert("ext".to_string(), ext);
+}
+
+/// Attach a serialized SessionHeader to `node._ucf_hub.session`.
+fn attach_ucf_hub_session(node: &mut Value, session: Value) {
+    let Value::Object(ref mut obj) = node else {
+        return;
+    };
+    let entry = obj
+        .entry("_ucf_hub".to_string())
+        .or_insert_with(|| Value::Object(serde_json::Map::new()));
+    let Value::Object(ref mut inner) = entry else {
+        return;
+    };
+    inner.insert("session".to_string(), session);
 }
 
 // === Helpers ===

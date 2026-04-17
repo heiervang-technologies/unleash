@@ -108,7 +108,6 @@ mod tests {
     }
 
     #[test]
-    #[ignore = "lossless target — pending _ucf_extensions passthrough"]
     fn idempotent_via_claude() {
         assert_idempotent("claude", via_claude);
     }
@@ -119,13 +118,11 @@ mod tests {
     }
 
     #[test]
-    #[ignore = "lossless target — pending _ucf_extensions passthrough"]
     fn idempotent_via_gemini() {
         assert_idempotent("gemini", via_gemini);
     }
 
     #[test]
-    #[ignore = "lossless target — pending _ucf_extensions passthrough"]
     fn idempotent_via_opencode() {
         assert_idempotent("opencode", via_opencode);
     }
