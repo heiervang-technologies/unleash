@@ -7,6 +7,15 @@ use std::io::BufRead;
 pub fn to_hub<R: BufRead>(reader: R) -> Result<Vec<HubRecord>, ConvertError> {
     let mut records = Vec::new();
     let mut session_emitted = false;
+    // If any line carries a `_ucf_hub.session` escape hatch, we replace the
+    // synthesized codex session header with it at the end so cross-CLI round
+    // trips preserve the original non-codex session identity.
+    let mut carried_session: Option<SessionHeader> = None;
+    // True once we've seen `_ucf_hub.session` — every subsequent line is then
+    // treated as foreign-originated even without its own `_ucf_hub.ext`, so we
+    // don't stash codex-native fidelity fields (`_original_payload`) that
+    // weren't actually authored by codex.
+    let mut foreign_session = false;
 
     for line in reader.lines() {
         let line = line?;
@@ -22,6 +31,21 @@ pub fn to_hub<R: BufRead>(reader: R) -> Result<Vec<HubRecord>, ConvertError> {
             .unwrap_or("")
             .to_string();
         let payload = val.get("payload").cloned().unwrap_or(Value::Null);
+        let ucf_hub = val.get("_ucf_hub");
+        let foreign_ext = ucf_hub
+            .and_then(|u| u.get("ext"))
+            .and_then(|e| e.as_object())
+            .cloned();
+
+        if !session_emitted {
+            if let Some(sess_val) = ucf_hub.and_then(|u| u.get("session")) {
+                carried_session = serde_json::from_value(sess_val.clone()).ok();
+                foreign_session = true;
+            }
+        }
+        // A line is foreign-originated if the whole session was foreign OR
+        // this specific line carries a `_ucf_hub` passthrough.
+        let foreign_originated = foreign_session || ucf_hub.is_some();
 
         match event_type {
             "session_meta" => {
@@ -35,9 +59,19 @@ pub fn to_hub<R: BufRead>(reader: R) -> Result<Vec<HubRecord>, ConvertError> {
                     records.push(HubRecord::Session(default_session(&timestamp)));
                     session_emitted = true;
                 }
-                records.push(HubRecord::Message(response_item_to_hub(
-                    &payload, &timestamp,
-                )?));
+                let mut msg = response_item_to_hub(&payload, &timestamp)?;
+                if foreign_originated {
+                    // Synthesized codex extensions are not real claims about
+                    // codex-origin content. Reset to just the foreign keys.
+                    msg.extensions = Value::Object(serde_json::Map::new());
+                }
+                if let Some(ext) = &foreign_ext {
+                    merge_into_extensions(&mut msg.extensions, ext);
+                }
+                if foreign_originated && ext_is_empty(&msg.extensions) {
+                    msg.extensions = Value::Null;
+                }
+                records.push(HubRecord::Message(msg));
             }
             "event_msg" => {
                 if !session_emitted {
@@ -48,37 +82,43 @@ pub fn to_hub<R: BufRead>(reader: R) -> Result<Vec<HubRecord>, ConvertError> {
                     .get("type")
                     .and_then(|t| t.as_str())
                     .unwrap_or("");
-                // Preserve ALL event_msg types for lossless round-trip
-                let ext = serde_json::json!({"codex": {"_outer_type": "event_msg"}});
-                match sub_type {
-                    "token_count" => {
-                        records.push(HubRecord::Event(HubEvent {
-                            event_type: "token_count".to_string(),
-                            timestamp: timestamp.clone(),
-                            data: payload.clone(),
-                            extensions: ext,
-                        }));
-                    }
-                    _ => {
-                        records.push(HubRecord::Event(HubEvent {
-                            event_type: format!("codex_{sub_type}"),
-                            timestamp: timestamp.clone(),
-                            data: payload.clone(),
-                            extensions: ext,
-                        }));
-                    }
+                let mut ext = serde_json::json!({"codex": {"_outer_type": "event_msg"}});
+                if foreign_originated {
+                    ext = Value::Object(serde_json::Map::new());
                 }
+                if let Some(foreign) = &foreign_ext {
+                    merge_into_extensions(&mut ext, foreign);
+                }
+                if foreign_originated && ext_is_empty(&ext) {
+                    ext = Value::Null;
+                }
+                let event_type_str = if sub_type == "token_count" {
+                    "token_count".to_string()
+                } else {
+                    format!("codex_{sub_type}")
+                };
+                records.push(HubRecord::Event(HubEvent {
+                    event_type: event_type_str,
+                    timestamp: timestamp.clone(),
+                    data: payload.clone(),
+                    extensions: ext,
+                }));
             }
             "turn_context" => {
                 if !session_emitted {
                     records.push(HubRecord::Session(default_session(&timestamp)));
                     session_emitted = true;
                 }
+                let mut ext = Value::Null;
+                if let Some(foreign) = &foreign_ext {
+                    ext = Value::Object(serde_json::Map::new());
+                    merge_into_extensions(&mut ext, foreign);
+                }
                 records.push(HubRecord::Event(HubEvent {
                     event_type: "turn_context".to_string(),
                     timestamp: timestamp.clone(),
                     data: payload.clone(),
-                    extensions: Value::Null,
+                    extensions: ext,
                 }));
             }
             _ => {
@@ -86,13 +126,26 @@ pub fn to_hub<R: BufRead>(reader: R) -> Result<Vec<HubRecord>, ConvertError> {
                     records.push(HubRecord::Session(default_session(&timestamp)));
                     session_emitted = true;
                 }
+                let mut ext = Value::Null;
+                if let Some(foreign) = &foreign_ext {
+                    ext = Value::Object(serde_json::Map::new());
+                    merge_into_extensions(&mut ext, foreign);
+                }
                 records.push(HubRecord::Event(HubEvent {
                     event_type: format!("codex_{event_type}"),
                     timestamp,
                     data: payload,
-                    extensions: Value::Null,
+                    extensions: ext,
                 }));
             }
+        }
+    }
+
+    // If a carried session header was provided via `_ucf_hub.session`, replace
+    // the synthesized one so foreign-source sessions survive the round trip.
+    if let Some(carried) = carried_session {
+        if let Some(HubRecord::Session(ref mut session)) = records.first_mut() {
+            *session = carried;
         }
     }
 
@@ -100,22 +153,121 @@ pub fn to_hub<R: BufRead>(reader: R) -> Result<Vec<HubRecord>, ConvertError> {
 }
 
 /// Convert Hub records back to Codex JSONL rollout.
+///
+/// When the hub session's `source_cli` is not `codex`, the first emitted line
+/// carries a `_ucf_hub.session` field holding the full SessionHeader so the
+/// hub → codex → hub round trip is lossless. Per-message foreign extensions
+/// are stashed under `_ucf_hub.ext`.
 pub fn from_hub(records: &[HubRecord]) -> Result<Vec<Value>, ConvertError> {
     let mut lines = Vec::new();
+    let mut session_passthrough: Option<Value> = None;
 
     for record in records {
-        let line = match record {
-            HubRecord::Session(s) => hub_session_to_codex(s)?,
-            HubRecord::Message(msg) => hub_message_to_codex(msg)?,
-            HubRecord::Event(evt) => hub_event_to_codex(evt)?,
-        };
-        // Skip null entries (events/messages that couldn't be converted)
-        if !line.is_null() {
-            lines.push(line);
+        match record {
+            HubRecord::Session(s) => {
+                // Stash the full session header whenever the source isn't
+                // Codex — Codex JSONL can't represent fields like ucf_version,
+                // title, slug, parent_session_id natively.
+                if s.source_cli != "codex" {
+                    session_passthrough = Some(serde_json::to_value(s)?);
+                }
+                let line = hub_session_to_codex(s)?;
+                if !line.is_null() {
+                    lines.push(line);
+                }
+            }
+            HubRecord::Message(msg) => {
+                let mut line = hub_message_to_codex(msg)?;
+                if !line.is_null() {
+                    if let Some(foreign) = foreign_extensions(&msg.extensions) {
+                        attach_ucf_hub_ext(&mut line, foreign);
+                    }
+                    lines.push(line);
+                }
+            }
+            HubRecord::Event(evt) => {
+                let mut line = hub_event_to_codex(evt)?;
+                if !line.is_null() {
+                    if let Some(foreign) = foreign_extensions(&evt.extensions) {
+                        attach_ucf_hub_ext(&mut line, foreign);
+                    }
+                    lines.push(line);
+                }
+            }
         }
     }
 
+    // Attach the session passthrough to the first emitted line.
+    if let (Some(sess), Some(first)) = (session_passthrough, lines.first_mut()) {
+        attach_ucf_hub_session(first, sess);
+    }
+
     Ok(lines)
+}
+
+// === _ucf_hub passthrough helpers ===
+
+/// Returns true if `ext` is null or an empty object.
+fn ext_is_empty(ext: &Value) -> bool {
+    match ext {
+        Value::Null => true,
+        Value::Object(map) => map.is_empty(),
+        _ => false,
+    }
+}
+
+/// Merge `ext` map into `extensions`, upgrading to an object if needed.
+fn merge_into_extensions(extensions: &mut Value, ext: &serde_json::Map<String, Value>) {
+    if let Some(obj) = extensions.as_object_mut() {
+        for (k, v) in ext {
+            obj.insert(k.clone(), v.clone());
+        }
+    } else {
+        *extensions = Value::Object(ext.clone());
+    }
+}
+
+/// Extract all hub extensions that are NOT codex (foreign to this format).
+fn foreign_extensions(ext: &Value) -> Option<Value> {
+    let obj = ext.as_object()?;
+    let foreign: serde_json::Map<String, Value> = obj
+        .iter()
+        .filter(|(k, _)| k.as_str() != "codex")
+        .map(|(k, v)| (k.clone(), v.clone()))
+        .collect();
+    if foreign.is_empty() {
+        None
+    } else {
+        Some(Value::Object(foreign))
+    }
+}
+
+/// Merge `ext` into `line._ucf_hub.ext`, creating the nested objects as needed.
+fn attach_ucf_hub_ext(line: &mut Value, ext: Value) {
+    let Value::Object(ref mut obj) = line else {
+        return;
+    };
+    let entry = obj
+        .entry("_ucf_hub".to_string())
+        .or_insert_with(|| Value::Object(serde_json::Map::new()));
+    let Value::Object(ref mut inner) = entry else {
+        return;
+    };
+    inner.insert("ext".to_string(), ext);
+}
+
+/// Attach a serialized SessionHeader to `line._ucf_hub.session`.
+fn attach_ucf_hub_session(line: &mut Value, session: Value) {
+    let Value::Object(ref mut obj) = line else {
+        return;
+    };
+    let entry = obj
+        .entry("_ucf_hub".to_string())
+        .or_insert_with(|| Value::Object(serde_json::Map::new()));
+    let Value::Object(ref mut inner) = entry else {
+        return;
+    };
+    inner.insert("session".to_string(), session);
 }
 
 // === to_hub helpers ===
@@ -615,6 +767,10 @@ fn hub_message_to_codex(msg: &HubMessage) -> Result<Value, ConvertError> {
     });
     if let Some(v) = cc.get("item_id") {
         payload["id"] = v.clone();
+    } else if !msg.id.is_empty() {
+        // Foreign-originated message: preserve the hub message id so
+        // round-tripping back to hub recovers it.
+        payload["id"] = Value::String(msg.id.clone());
     }
 
     Ok(serde_json::json!({

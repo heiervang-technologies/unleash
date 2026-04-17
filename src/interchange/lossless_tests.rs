@@ -114,7 +114,6 @@ mod tests {
     }
 
     #[test]
-    #[ignore = "lossless target — pending _ucf_extensions passthrough"]
     fn idempotent_via_codex() {
         assert_idempotent("codex", via_codex);
     }
