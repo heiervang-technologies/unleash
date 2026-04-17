@@ -9,6 +9,13 @@ pub fn semantic_eq(a: &Value, b: &Value) -> Result<(), String> {
 fn semantic_eq_inner(a: &Value, b: &Value, path: &str) -> Result<(), String> {
     match (a, b) {
         (Value::Null, Value::Null) => Ok(()),
+        // An empty object and null are semantically equivalent for optional
+        // fields like `extensions`, `metadata`, `project`, etc. This keeps
+        // round-trip equality stable across converters that normalize "no
+        // extra data" differently (some emit `{}`, others emit `null`).
+        (Value::Null, Value::Object(m)) | (Value::Object(m), Value::Null) if m.is_empty() => {
+            Ok(())
+        }
         (Value::Bool(a), Value::Bool(b)) if a == b => Ok(()),
         (Value::Number(a), Value::Number(b)) => {
             let af = a.as_f64().unwrap_or(0.0);

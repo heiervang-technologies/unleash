@@ -200,12 +200,18 @@ fn message_to_hub(
         }
     }
 
+    let completed_at = val
+        .get("_ucf_hub")
+        .and_then(|u| u.get("completed_at"))
+        .and_then(|v| v.as_str())
+        .map(String::from);
+
     Ok(HubMessage {
         id: str_field(val, "uuid"),
         api_message_id: message.and_then(|m| opt_str(m, "id")),
         parent_id: opt_str(val, "parentUuid"),
         timestamp: str_field(val, "timestamp"),
-        completed_at: None,
+        completed_at,
         role: role.to_string(),
         content,
         metadata,
@@ -660,6 +666,12 @@ fn hub_message_to_claude(
         attach_ucf_hub_ext(&mut line, foreign);
     }
 
+    // Claude has no native `completed_at` concept — stash it in `_ucf_hub`
+    // so cross-CLI round trips preserve the hub's dual-timestamp semantics.
+    if let Some(ref ca) = msg.completed_at {
+        attach_ucf_hub_field(&mut line, "completed_at", Value::String(ca.clone()));
+    }
+
     Ok(line)
 }
 
@@ -690,6 +702,20 @@ fn attach_ucf_hub_ext(line: &mut Value, ext: Value) {
         return;
     };
     inner.insert("ext".to_string(), ext);
+}
+
+/// Set `line._ucf_hub.<key> = value`.
+fn attach_ucf_hub_field(line: &mut Value, key: &str, value: Value) {
+    let Value::Object(ref mut obj) = line else {
+        return;
+    };
+    let entry = obj
+        .entry("_ucf_hub".to_string())
+        .or_insert_with(|| Value::Object(serde_json::Map::new()));
+    let Value::Object(ref mut inner) = entry else {
+        return;
+    };
+    inner.insert(key.to_string(), value);
 }
 
 fn hub_content_to_claude(blocks: &[ContentBlock]) -> Vec<Value> {

@@ -71,6 +71,14 @@ pub fn to_hub<R: BufRead>(reader: R) -> Result<Vec<HubRecord>, ConvertError> {
                 if foreign_originated && ext_is_empty(&msg.extensions) {
                     msg.extensions = Value::Null;
                 }
+                // Codex has no native `completed_at`; recover it from the
+                // passthrough when present.
+                if let Some(ca) = ucf_hub
+                    .and_then(|u| u.get("completed_at"))
+                    .and_then(|v| v.as_str())
+                {
+                    msg.completed_at = Some(ca.to_string());
+                }
                 records.push(HubRecord::Message(msg));
             }
             "event_msg" => {
@@ -182,6 +190,11 @@ pub fn from_hub(records: &[HubRecord]) -> Result<Vec<Value>, ConvertError> {
                     if let Some(foreign) = foreign_extensions(&msg.extensions) {
                         attach_ucf_hub_ext(&mut line, foreign);
                     }
+                    // Codex has no native `completed_at` — stash it so cross-CLI
+                    // round trips preserve the hub's dual-timestamp semantics.
+                    if let Some(ref ca) = msg.completed_at {
+                        attach_ucf_hub_field(&mut line, "completed_at", Value::String(ca.clone()));
+                    }
                     lines.push(line);
                 }
             }
@@ -268,6 +281,20 @@ fn attach_ucf_hub_session(line: &mut Value, session: Value) {
         return;
     };
     inner.insert("session".to_string(), session);
+}
+
+/// Set `line._ucf_hub.<key> = value`.
+fn attach_ucf_hub_field(line: &mut Value, key: &str, value: Value) {
+    let Value::Object(ref mut obj) = line else {
+        return;
+    };
+    let entry = obj
+        .entry("_ucf_hub".to_string())
+        .or_insert_with(|| Value::Object(serde_json::Map::new()));
+    let Value::Object(ref mut inner) = entry else {
+        return;
+    };
+    inner.insert(key.to_string(), value);
 }
 
 // === to_hub helpers ===
