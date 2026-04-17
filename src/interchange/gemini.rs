@@ -10,6 +10,17 @@ pub fn to_hub(data: &[u8]) -> Result<Vec<HubRecord>, ConvertError> {
     let root: Value = serde_json::from_slice(data)?;
     let mut records = Vec::new();
 
+    // `root._ucf_hub.session` is the cross-CLI escape hatch carrying a full
+    // SessionHeader for non-Gemini sources. When present, we replace the
+    // synthesized header at the end and treat every message as foreign-
+    // originated so we don't stash Gemini-native `_original_message` fidelity
+    // fields that weren't actually authored by Gemini.
+    let carried_session: Option<SessionHeader> = root
+        .get("_ucf_hub")
+        .and_then(|u| u.get("session"))
+        .and_then(|s| serde_json::from_value(s.clone()).ok());
+    let foreign_session = carried_session.is_some();
+
     records.push(HubRecord::Session(build_session_header(&root)));
 
     let messages = root
@@ -30,7 +41,7 @@ pub fn to_hub(data: &[u8]) -> Result<Vec<HubRecord>, ConvertError> {
         };
         match role_raw.as_str() {
             "user" | "gemini" => {
-                let mut hub_msg = message_to_hub(msg)?;
+                let mut hub_msg = message_to_hub(msg, foreign_session)?;
                 let mut results = Vec::new();
                 
                 // Gemini bundles ToolUse and ToolResult in the same assistant message.
@@ -66,11 +77,11 @@ pub fn to_hub(data: &[u8]) -> Result<Vec<HubRecord>, ConvertError> {
                 }
             }
             "info" => {
-                records.push(HubRecord::Event(info_to_hub_event(msg)?));
+                records.push(HubRecord::Event(info_to_hub_event(msg, foreign_session)?));
             }
             _ => {
                 // Unknown role — treat as event
-                records.push(HubRecord::Event(info_to_hub_event(msg)?));
+                records.push(HubRecord::Event(info_to_hub_event(msg, foreign_session)?));
             }
         }
     }
@@ -85,6 +96,14 @@ pub fn to_hub(data: &[u8]) -> Result<Vec<HubRecord>, ConvertError> {
             {
                 session.updated_at = last_ts.to_string();
             }
+        }
+    }
+
+    // If a carried session header was provided via `_ucf_hub.session`, replace
+    // the synthesized one so foreign-source sessions survive the round trip.
+    if let Some(carried) = carried_session {
+        if let Some(HubRecord::Session(ref mut session)) = records.first_mut() {
+            *session = carried;
         }
     }
 
@@ -105,6 +124,7 @@ pub fn from_hub(records: &[HubRecord]) -> Result<Value, ConvertError> {
     let mut start_time = String::new();
     let mut last_updated = String::new();
     let mut messages = Vec::new();
+    let mut session_passthrough: Option<Value> = None;
 
     // Check if this is a native Gemini round-trip (has _original_message in extensions)
     let is_native_roundtrip = records.iter().any(|r| match r {
@@ -120,6 +140,17 @@ pub fn from_hub(records: &[HubRecord]) -> Result<Value, ConvertError> {
             .is_some(),
         _ => false,
     });
+
+    // If the hub session came from a non-Gemini source, stash the whole
+    // SessionHeader so the hub → gemini → hub round trip is lossless.
+    if let Some(HubRecord::Session(s)) = records
+        .iter()
+        .find(|r| matches!(r, HubRecord::Session(_)))
+    {
+        if s.source_cli != "gemini-cli" {
+            session_passthrough = Some(serde_json::to_value(s)?);
+        }
+    }
 
     if is_native_roundtrip {
         // Native Gemini round-trip: use original messages directly
@@ -176,10 +207,18 @@ pub fn from_hub(records: &[HubRecord]) -> Result<Value, ConvertError> {
                         .unwrap_or(Value::Null);
                 }
                 HubRecord::Message(msg) => {
-                    messages.push(hub_message_to_gemini(msg)?);
+                    let mut gm = hub_message_to_gemini(msg)?;
+                    if let Some(foreign) = foreign_extensions(&msg.extensions) {
+                        attach_ucf_hub_ext(&mut gm, foreign);
+                    }
+                    messages.push(gm);
                 }
                 HubRecord::Event(evt) => {
-                    messages.push(hub_event_to_gemini(evt)?);
+                    let mut gm = hub_event_to_gemini(evt)?;
+                    if let Some(foreign) = foreign_extensions(&evt.extensions) {
+                        attach_ucf_hub_ext(&mut gm, foreign);
+                    }
+                    messages.push(gm);
                 }
             }
         }
@@ -242,7 +281,55 @@ pub fn from_hub(records: &[HubRecord]) -> Result<Value, ConvertError> {
         root["kind"] = Value::String("main".into());
     }
 
+    // Attach cross-CLI session passthrough (foreign source_cli).
+    if let Some(sess) = session_passthrough {
+        attach_ucf_hub_session(&mut root, sess);
+    }
+
     Ok(root)
+}
+
+/// Extract hub extensions that are NOT `gemini-cli` (foreign to this format).
+fn foreign_extensions(ext: &Value) -> Option<Value> {
+    let obj = ext.as_object()?;
+    let foreign: serde_json::Map<String, Value> = obj
+        .iter()
+        .filter(|(k, _)| k.as_str() != "gemini-cli")
+        .map(|(k, v)| (k.clone(), v.clone()))
+        .collect();
+    if foreign.is_empty() {
+        None
+    } else {
+        Some(Value::Object(foreign))
+    }
+}
+
+/// Merge `ext` into `node._ucf_hub.ext`, creating the nested objects as needed.
+fn attach_ucf_hub_ext(node: &mut Value, ext: Value) {
+    let Value::Object(ref mut obj) = node else {
+        return;
+    };
+    let entry = obj
+        .entry("_ucf_hub".to_string())
+        .or_insert_with(|| Value::Object(serde_json::Map::new()));
+    let Value::Object(ref mut inner) = entry else {
+        return;
+    };
+    inner.insert("ext".to_string(), ext);
+}
+
+/// Attach a serialized SessionHeader to `node._ucf_hub.session`.
+fn attach_ucf_hub_session(node: &mut Value, session: Value) {
+    let Value::Object(ref mut obj) = node else {
+        return;
+    };
+    let entry = obj
+        .entry("_ucf_hub".to_string())
+        .or_insert_with(|| Value::Object(serde_json::Map::new()));
+    let Value::Object(ref mut inner) = entry else {
+        return;
+    };
+    inner.insert("session".to_string(), session);
 }
 
 fn normalize_hub_records_for_gemini(records: &[HubRecord]) -> Vec<HubRecord> {
@@ -420,7 +507,8 @@ fn build_session_header(root: &Value) -> SessionHeader {
     let updated_at = opt_str(root, "lastUpdated").unwrap_or_default();
 
     // Stash ALL root-level fields (except messages/sessionId which are mapped)
-    let hub_fields: &[&str] = &["sessionId", "messages", "startTime", "lastUpdated"];
+    // `_ucf_hub` carries cross-CLI passthrough and is handled separately in `to_hub`.
+    let hub_fields: &[&str] = &["sessionId", "messages", "startTime", "lastUpdated", "_ucf_hub"];
     let mut ext = serde_json::Map::new();
     if let Some(obj) = root.as_object() {
         for (k, v) in obj {
@@ -454,7 +542,7 @@ fn build_session_header(root: &Value) -> SessionHeader {
 
 // --- to_hub direction ---
 
-fn message_to_hub(msg: &Value) -> Result<HubMessage, ConvertError> {
+fn message_to_hub(msg: &Value, foreign_session: bool) -> Result<HubMessage, ConvertError> {
     let role_raw = {
         let r = str_field(msg, "role");
         if r.is_empty() {
@@ -587,10 +675,39 @@ fn message_to_hub(msg: &Value) -> Result<HubMessage, ConvertError> {
 
     let metadata = extract_metadata(msg);
 
-    // Stash the ENTIRE original message for lossless round-trip
-    let ext = serde_json::json!({"gemini-cli": {
-        "_original_message": msg,
-    }});
+    // Stash the ENTIRE original message for lossless round-trip — but only for
+    // Gemini-authored messages. If the session or this line is foreign-
+    // originated, the "original" is a synthesized Gemini shape, not a real
+    // Gemini claim, so we skip stashing and just preserve any non-Gemini
+    // foreign extensions carried via `_ucf_hub.ext`.
+    let foreign_originated = foreign_session || msg.get("_ucf_hub").is_some();
+    let mut ext = if foreign_originated {
+        Value::Object(serde_json::Map::new())
+    } else {
+        serde_json::json!({"gemini-cli": {"_original_message": msg}})
+    };
+
+    if let Some(foreign) = msg
+        .get("_ucf_hub")
+        .and_then(|u| u.get("ext"))
+        .and_then(|e| e.as_object())
+    {
+        if let Some(obj) = ext.as_object_mut() {
+            for (k, v) in foreign {
+                obj.insert(k.clone(), v.clone());
+            }
+        } else {
+            ext = Value::Object(foreign.clone());
+        }
+    }
+
+    if foreign_originated
+        && ext
+            .as_object()
+            .is_some_and(serde_json::Map::is_empty)
+    {
+        ext = Value::Null;
+    }
 
     Ok(HubMessage {
         id: str_field(msg, "id"),
@@ -623,15 +740,42 @@ fn extract_metadata(msg: &Value) -> MessageMetadata {
     }
 }
 
-fn info_to_hub_event(msg: &Value) -> Result<HubEvent, ConvertError> {
-    // Stash the ENTIRE original message for lossless round-trip
+fn info_to_hub_event(msg: &Value, foreign_session: bool) -> Result<HubEvent, ConvertError> {
+    let foreign_originated = foreign_session || msg.get("_ucf_hub").is_some();
+
+    let mut ext = if foreign_originated {
+        Value::Object(serde_json::Map::new())
+    } else {
+        serde_json::json!({"gemini-cli": {"_original_message": msg}})
+    };
+
+    if let Some(foreign) = msg
+        .get("_ucf_hub")
+        .and_then(|u| u.get("ext"))
+        .and_then(|e| e.as_object())
+    {
+        if let Some(obj) = ext.as_object_mut() {
+            for (k, v) in foreign {
+                obj.insert(k.clone(), v.clone());
+            }
+        } else {
+            ext = Value::Object(foreign.clone());
+        }
+    }
+
+    if foreign_originated
+        && ext
+            .as_object()
+            .is_some_and(serde_json::Map::is_empty)
+    {
+        ext = Value::Null;
+    }
+
     Ok(HubEvent {
         event_type: "info".to_string(),
         timestamp: str_field(msg, "timestamp"),
         data: serde_json::json!({"text": str_field(msg, "text")}),
-        extensions: serde_json::json!({"gemini-cli": {
-            "_original_message": msg,
-        }}),
+        extensions: ext,
     })
 }
 
