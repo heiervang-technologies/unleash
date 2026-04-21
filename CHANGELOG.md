@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.8](https://github.com/heiervang-technologies/unleash/compare/v0.1.7...v0.1.8) (2026-04-21)
+
+
+### Features
+
+* **supercompact:** budget slash command and safer defaults ([#91](https://github.com/heiervang-technologies/unleash/issues/91)) ([319de31](https://github.com/heiervang-technologies/unleash/commit/319de310b4bff04afa4f9c5be001ad5b3fac896e))
+
 ## [0.1.7](https://github.com/heiervang-technologies/unleash/compare/v0.1.6...v0.1.7) (2026-04-15)
 
 
