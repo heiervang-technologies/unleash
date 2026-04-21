@@ -8,12 +8,52 @@
 //!   - `unleash sandbox allow-ip`  — open a LAN IP for local API access
 //!   - `unleash sandbox revoke-ip` — close it
 
+use include_dir::{include_dir, Dir};
 use std::io;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 
 const DOCKER_IMAGE: &str = "marksverdhei/unleash";
 const DOCKER_TAG: &str = "latest";
+
+/// Embedded copy of the repo's docker/ directory, baked into the binary so that
+/// `sandbox setup` works even after `cp unleash ~/.local/bin/` with no repo.
+static EMBEDDED_DOCKER: Dir<'_> = include_dir!("$CARGO_MANIFEST_DIR/docker");
+
+/// Write the embedded docker/ tree to `~/.local/share/unleash/docker/` if it's
+/// not already installed there. Returns the path it wrote (or found).
+fn ensure_installed_docker_dir() -> io::Result<PathBuf> {
+    let data_dir = dirs::data_dir().ok_or_else(|| {
+        io::Error::other("Could not locate user data dir (dirs::data_dir() returned None)")
+    })?;
+    let install_path = data_dir.join("unleash").join("docker");
+    if install_path.join("Dockerfile").exists() {
+        return Ok(install_path);
+    }
+    std::fs::create_dir_all(&install_path)?;
+    EMBEDDED_DOCKER.extract(&install_path).map_err(|e| {
+        io::Error::other(format!(
+            "Failed to extract embedded docker/ to {}: {}",
+            install_path.display(),
+            e
+        ))
+    })?;
+    // include_dir preserves file contents but not modes — re-chmod shell scripts.
+    for script in ["sandbox-network.sh", "entrypoint.sh"] {
+        let p = install_path.join(script);
+        if p.exists() {
+            use std::os::unix::fs::PermissionsExt;
+            let mut perms = std::fs::metadata(&p)?.permissions();
+            perms.set_mode(0o755);
+            std::fs::set_permissions(&p, perms)?;
+        }
+    }
+    println!(
+        "\x1b[36m→\x1b[0m Installed docker assets to {}",
+        install_path.display()
+    );
+    Ok(install_path)
+}
 
 /// Find the docker/ directory relative to the unleash binary or repo root.
 fn find_docker_dir() -> Option<PathBuf> {
@@ -49,6 +89,16 @@ fn find_docker_dir() -> Option<PathBuf> {
     }
 
     None
+}
+
+/// Like `find_docker_dir` but falls back to extracting the embedded docker/ tree
+/// into `~/.local/share/unleash/docker/`. Always succeeds (or returns an error
+/// with a clear remediation message).
+fn find_or_install_docker_dir() -> io::Result<PathBuf> {
+    if let Some(dir) = find_docker_dir() {
+        return Ok(dir);
+    }
+    ensure_installed_docker_dir()
 }
 
 fn sandbox_network_script(docker_dir: &Path) -> PathBuf {
@@ -102,11 +152,13 @@ fn is_root() -> bool {
 fn needs_sudo(action: &str) -> io::Result<()> {
     if !is_root() {
         eprintln!(
-            "\x1b[33mwarning:\x1b[0m '{}' requires root privileges. Re-run with sudo:",
+            "\x1b[31merror:\x1b[0m `unleash sandbox {}` needs root to install gVisor, \
+             set iptables rules, and restart docker.",
             action
         );
-        eprintln!("  sudo unleash sandbox {}", action);
-        return Err(io::Error::other("requires root"));
+        eprintln!("       Re-run as: \x1b[1msudo unleash sandbox {}\x1b[0m", action);
+        // Empty-string error — main() suppresses the duplicate "error:" line.
+        return Err(io::Error::other(""));
     }
     Ok(())
 }
@@ -138,19 +190,34 @@ fn network_exists() -> bool {
         .unwrap_or(false)
 }
 
-/// Check if iptables LAN-blocking rules are in place
+/// Check if iptables LAN-blocking rules are in place.
+///
+/// Checks three chains — all must be present for the sandbox to be safe:
+///   - raw/PREROUTING (pre-DNAT; catches k8s NodePorts, Docker port-maps)
+///   - DOCKER-USER   (container → other LAN hosts via FORWARD)
+///   - INPUT         (container → Docker host itself)
 fn iptables_rules_active() -> bool {
-    let output = Command::new("iptables")
+    // Silence stderr — without root, iptables prints noisy lock errors we don't care about.
+    let raw_ok = Command::new("iptables")
+        .args(["-t", "raw", "-C", "PREROUTING",
+               "-s", "172.30.0.0/16", "-d", "10.0.0.0/8", "-j", "DROP"])
+        .stderr(Stdio::null())
+        .status()
+        .map(|s| s.success())
+        .unwrap_or(false);
+    let forward_ok = Command::new("iptables")
         .args(["-L", "DOCKER-USER", "-n"])
-        .output();
-
-    match output {
-        Ok(out) => {
-            let stdout = String::from_utf8_lossy(&out.stdout);
-            stdout.contains("172.30.0.0/16")
-        }
-        Err(_) => false,
-    }
+        .stderr(Stdio::null())
+        .output()
+        .map(|o| String::from_utf8_lossy(&o.stdout).contains("172.30.0.0/16"))
+        .unwrap_or(false);
+    let input_ok = Command::new("iptables")
+        .args(["-C", "INPUT", "-s", "172.30.0.0/16", "-j", "DROP"])
+        .stderr(Stdio::null())
+        .status()
+        .map(|s| s.success())
+        .unwrap_or(false);
+    raw_ok && forward_ok && input_ok
 }
 
 /// Check if the unleash Docker image exists (either local or pulled)
@@ -275,31 +342,53 @@ pub fn run_setup(docker_dir: &Path) -> io::Result<()> {
         if ok {
             println!("  \x1b[32m✓\x1b[0m Image pulled");
         } else {
-            // Fall back to local build if pull fails and we have the Dockerfile
+            // Fall back to local build only when the full repo source is in reach —
+            // the Dockerfile is a multi-stage build that compiles unleash from source.
             let dockerfile = docker_dir.join("Dockerfile");
-            if dockerfile.exists() {
-                println!("  \x1b[33m!\x1b[0m Pull failed — building locally...");
-                let context = docker_dir
-                    .parent()
-                    .map(|p| p.to_string_lossy().to_string())
-                    .unwrap_or_else(|| ".".to_string());
+            let context = docker_dir
+                .parent()
+                .map(|p| p.to_path_buf())
+                .unwrap_or_else(|| PathBuf::from("."));
+            let repo_sources_present = dockerfile.exists()
+                && context.join("Cargo.toml").exists()
+                && context.join("src").is_dir()
+                && context.join("scripts/unleash-exit").exists();
+            if repo_sources_present {
+                println!("  \x1b[33m!\x1b[0m Pull failed — building locally from repo source...");
                 let ok = run_command("docker", &[
                     "build",
                     "-f",
                     &path_str(&dockerfile),
                     "-t",
                     &full_image,
-                    &context,
+                    &context.to_string_lossy(),
                 ])?;
                 if ok {
                     println!("  \x1b[32m✓\x1b[0m Image built locally");
                 } else {
-                    eprintln!("  \x1b[31m✗\x1b[0m Image build failed");
-                    return Err(io::Error::other("docker build failed"));
+                    eprintln!("  \x1b[31m✗\x1b[0m Local `docker build` failed — see output above.");
+                    return Err(io::Error::other(
+                        "docker build failed (see output above)",
+                    ));
                 }
             } else {
-                eprintln!("  \x1b[31m✗\x1b[0m Pull failed and no Dockerfile found for local build");
-                return Err(io::Error::other("image pull failed"));
+                eprintln!(
+                    "  \x1b[31m✗\x1b[0m `docker pull {}` failed and the repo source is not \
+                     available for a local build.",
+                    full_image
+                );
+                eprintln!("     Fix one of:");
+                eprintln!(
+                    "       1) check network / `docker login` and retry: docker pull {}",
+                    full_image
+                );
+                eprintln!(
+                    "       2) run `unleash sandbox setup` from inside the unleash repo so a local build has src/, Cargo.toml, scripts/"
+                );
+                return Err(io::Error::other(format!(
+                    "could not obtain image {}: pull failed and no repo source for local build",
+                    full_image
+                )));
             }
         }
     }
@@ -731,12 +820,21 @@ pub fn handle_sandbox(action: &SandboxAction) -> io::Result<()> {
         _ => {}
     }
 
-    let docker_dir = docker_dir.ok_or_else(|| {
-        io::Error::other(
-            "Cannot find docker/ directory. Run from the unleash repo root, \
-             or ensure docker files are installed at /usr/local/share/unleash/docker/",
-        )
-    })?;
+    // For actions that need docker_dir: fall back to extracting embedded assets
+    // so `unleash sandbox setup` works from anywhere with just the binary.
+    let docker_dir = match docker_dir {
+        Some(d) => d,
+        None => find_or_install_docker_dir().map_err(|e| {
+            io::Error::other(format!(
+                "Could not locate or install docker/ assets. Tried:\n  \
+                 - ~/.local/share/unleash/docker/\n  \
+                 - <install-prefix>/share/unleash/docker/\n  \
+                 - ./docker/ (and parents)\n\
+                 Underlying error: {}",
+                e
+            ))
+        })?,
+    };
 
     match action {
         SandboxAction::Setup => run_setup(&docker_dir),

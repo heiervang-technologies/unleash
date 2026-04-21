@@ -40,6 +40,9 @@ rusqlite = { version = "0.32", features = ["bundled"] }
 tiktoken-rs = "0.9"
 tokenizers = { version = "0.21", default-features = false, features = ["onig"] }
 
+# Embed docker/ assets for binary-only installs
+include_dir = "0.7"
+
 [dev-dependencies]
 tempfile = "3.15"
 proptest = "1.5"
