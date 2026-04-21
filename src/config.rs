@@ -182,6 +182,17 @@ impl Profile {
                 theme: "#10b981".to_string(),
                 env: default_env(),
             },
+            Self {
+                name: "pi".to_string(),
+                description: "Pi coding agent by Mario Zechner".to_string(),
+                agent_cli_path: "pi".to_string(),
+                agent_cli_args: Vec::new(),
+                defaults: ProfileDefaults::default(),
+                agents: ProfileOverrides::default(),
+                stop_prompt: None,
+                theme: "#a855f7".to_string(),
+                env: default_env(),
+            },
         ]
     }
 
@@ -626,11 +637,12 @@ mod tests {
     fn test_default_profile_created() {
         let (manager, _temp) = test_manager();
         let profiles = manager.list_profiles().unwrap();
-        // All 4 agent profiles are seeded by default
+        // All agent profiles are seeded by default
         assert!(profiles.contains(&"claude".to_string()));
         assert!(profiles.contains(&"codex".to_string()));
         assert!(profiles.contains(&"gemini".to_string()));
         assert!(profiles.contains(&"opencode".to_string()));
+        assert!(profiles.contains(&"pi".to_string()));
     }
 
     #[test]

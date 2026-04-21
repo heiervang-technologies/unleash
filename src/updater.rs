@@ -451,6 +451,8 @@ fn check_agent(agent_type: AgentType) -> io::Result<CheckResult> {
 }
 
 /// Get the currently installed version by running `<binary> --version`.
+/// Some CLIs (e.g. Pi) print the version to stderr rather than stdout, so
+/// we fall back to stderr when stdout has no parsable version.
 fn get_installed_version(agent_type: AgentType) -> Option<String> {
     if let AgentType::Custom(_) = &agent_type {
         return None; // custom agents don't support version detection yet
@@ -461,6 +463,7 @@ fn get_installed_version(agent_type: AgentType) -> Option<String> {
         return None;
     }
     parse_version(&String::from_utf8_lossy(&output.stdout))
+        .or_else(|| parse_version(&String::from_utf8_lossy(&output.stderr)))
 }
 
 /// Get the latest available version from GitHub releases API.
@@ -662,6 +665,7 @@ fn update_agent(
         AgentType::Codex => update_codex(tx, index),
         AgentType::Gemini => update_gemini(tx, index),
         AgentType::OpenCode => update_opencode(tx, index),
+        AgentType::Pi => update_pi(tx, index),
         AgentType::Custom(_) => Err(io::Error::other(
             "Version management is not yet supported for custom agents",
         )),
@@ -848,6 +852,35 @@ fn update_gemini(tx: &mpsc::Sender<(usize, LineState)>, index: usize) -> io::Res
 
     if output.status.success() {
         let version = get_installed_version(AgentType::Gemini).unwrap_or_else(|| "latest".into());
+        Ok(version)
+    } else {
+        Err(io::Error::other(format!(
+            "npm install failed: {}",
+            String::from_utf8_lossy(&output.stderr)
+        )))
+    }
+}
+
+/// Update Pi via npm.
+fn update_pi(tx: &mpsc::Sender<(usize, LineState)>, index: usize) -> io::Result<String> {
+    let _ = tx.send((
+        index,
+        LineState::Building {
+            version: String::new(),
+            phase: "installing via npm...".into(),
+        },
+    ));
+
+    if !ensure_npm()? {
+        return Err(io::Error::other("npm required to install Pi"));
+    }
+
+    let output = crate::version::VersionManager::npm_global_command()
+        .args(["install", "-g", "@mariozechner/pi-coding-agent@latest"])
+        .output()?;
+
+    if output.status.success() {
+        let version = get_installed_version(AgentType::Pi).unwrap_or_else(|| "latest".into());
         Ok(version)
     } else {
         Err(io::Error::other(format!(

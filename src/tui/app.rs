@@ -401,6 +401,7 @@ impl App {
             ("codex", AgentType::Codex),
             ("gemini", AgentType::Gemini),
             ("opencode", AgentType::OpenCode),
+            ("pi", AgentType::Pi),
         ];
         for (key, agent_type) in agent_keys {
             if let Some(versions) = embedded.get(*key) {
@@ -427,7 +428,12 @@ impl App {
 
             // All other agents via AgentManager
             if let Ok(mut mgr) = AgentManager::new() {
-                for agent_type in &[AgentType::Codex, AgentType::Gemini, AgentType::OpenCode] {
+                for agent_type in &[
+                    AgentType::Codex,
+                    AgentType::Gemini,
+                    AgentType::OpenCode,
+                    AgentType::Pi,
+                ] {
                     let v = mgr.get_installed_version(agent_type.clone()).ok().flatten();
                     let _ = version_tx.send((agent_type.clone(), v));
                 }
@@ -971,6 +977,14 @@ impl App {
                     let versions = vm.get_opencode_version_list(installed.as_deref());
                     let conflicts = vm.detect_conflicts("opencode");
                     let _ = tx.send((AgentType::OpenCode, versions, conflicts));
+                });
+            }
+            AgentType::Pi => {
+                thread::spawn(move || {
+                    let vm = VersionManager::new();
+                    let versions = vm.get_pi_version_list(installed.as_deref());
+                    let conflicts = vm.detect_conflicts("pi");
+                    let _ = tx.send((AgentType::Pi, versions, conflicts));
                 });
             }
             AgentType::Custom(_) => {
@@ -1673,6 +1687,9 @@ impl App {
                             AgentType::OpenCode => {
                                 vm.install_opencode_version_streaming(&version, log_tx)
                             }
+                            AgentType::Pi => {
+                                vm.install_pi_version_streaming(&version, log_tx)
+                            }
                             _ => Ok(crate::version::InstallResult {
                                 success: false,
                                 stdout: String::new(),
@@ -1735,6 +1752,7 @@ impl App {
                     AgentType::Codex => "codex",
                     AgentType::Gemini => "gemini",
                     AgentType::OpenCode => "opencode",
+                    AgentType::Pi => "pi",
                     AgentType::Custom(name) => {
                         agent_str_owned = name.clone();
                         &agent_str_owned
@@ -1905,7 +1923,10 @@ impl App {
         }
         if let Some(version_info) = self.versions.get(self.version_menu.selected) {
             // Check if agent needs npm and it's missing
-            let needs_npm = matches!(self.version_agent, AgentType::Gemini | AgentType::OpenCode);
+            let needs_npm = matches!(
+                self.version_agent,
+                AgentType::Gemini | AgentType::OpenCode | AgentType::Pi
+            );
             if needs_npm && !VersionManager::has_npm() {
                 // Try sourcing nvm first
                 if let Ok(output) = std::process::Command::new("bash")
@@ -1984,6 +2005,7 @@ impl App {
                     AgentType::OpenCode => {
                         vm.install_opencode_version_streaming(&version_clone, log_tx)
                     }
+                    AgentType::Pi => vm.install_pi_version_streaming(&version_clone, log_tx),
                     AgentType::Custom(_) => Ok(InstallResult {
                         success: false,
                         stdout: String::new(),
@@ -4768,7 +4790,7 @@ mod tests {
         app.version_focus = VersionFocus::AgentPicker;
         assert_eq!(app.version_agent, AgentType::Claude);
 
-        // Navigate down: Claude -> Codex -> Gemini -> OpenCode
+        // Navigate down: Claude -> Codex -> Gemini -> OpenCode -> Pi
         let _ = app.handle_version_input(NavAction::Down, key_for(NavAction::Down));
         assert_eq!(app.version_agent, AgentType::Codex);
 
@@ -4778,9 +4800,12 @@ mod tests {
         let _ = app.handle_version_input(NavAction::Down, key_for(NavAction::Down));
         assert_eq!(app.version_agent, AgentType::OpenCode);
 
+        let _ = app.handle_version_input(NavAction::Down, key_for(NavAction::Down));
+        assert_eq!(app.version_agent, AgentType::Pi);
+
         // Clamp at bottom (no wrap)
         let _ = app.handle_version_input(NavAction::Down, key_for(NavAction::Down));
-        assert_eq!(app.version_agent, AgentType::OpenCode);
+        assert_eq!(app.version_agent, AgentType::Pi);
     }
 
     #[test]
@@ -5050,11 +5075,12 @@ mod tests {
     #[test]
     fn test_all_agent_types_in_cycle() {
         let agents = AgentType::builtin();
-        assert_eq!(agents.len(), 4);
+        assert_eq!(agents.len(), 5);
         assert_eq!(agents[0], AgentType::Claude);
         assert_eq!(agents[1], AgentType::Codex);
         assert_eq!(agents[2], AgentType::Gemini);
         assert_eq!(agents[3], AgentType::OpenCode);
+        assert_eq!(agents[4], AgentType::Pi);
     }
 
     #[test]
@@ -5063,6 +5089,7 @@ mod tests {
         assert_eq!(AgentType::Codex.display_name(), "Codex");
         assert_eq!(AgentType::Gemini.display_name(), "Gemini CLI");
         assert_eq!(AgentType::OpenCode.display_name(), "OpenCode");
+        assert_eq!(AgentType::Pi.display_name(), "Pi");
     }
 
     #[test]
@@ -5073,6 +5100,8 @@ mod tests {
         assert_eq!(AgentType::from_str("gemini-cli"), Some(AgentType::Gemini));
         assert_eq!(AgentType::from_str("opencode"), Some(AgentType::OpenCode));
         assert_eq!(AgentType::from_str("open-code"), Some(AgentType::OpenCode));
+        assert_eq!(AgentType::from_str("pi"), Some(AgentType::Pi));
+        assert_eq!(AgentType::from_str("pi-coding-agent"), Some(AgentType::Pi));
         assert_eq!(AgentType::from_str("unknown"), None);
     }
 
@@ -5172,7 +5201,7 @@ mod tests {
         // Press 'G' to jump to bottom
         let big_g_key = KeyEvent::new(KeyCode::Char('G'), KeyModifiers::SHIFT);
         let _ = app.handle_version_input(NavAction::None, big_g_key);
-        assert_eq!(app.version_agent, AgentType::OpenCode);
+        assert_eq!(app.version_agent, AgentType::Pi);
     }
 
     #[test]

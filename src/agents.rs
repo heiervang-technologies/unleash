@@ -21,6 +21,7 @@ pub enum AgentType {
     Codex,
     Gemini,
     OpenCode,
+    Pi,
     Custom(String),
 }
 
@@ -32,6 +33,7 @@ impl AgentType {
             AgentType::Codex,
             AgentType::Gemini,
             AgentType::OpenCode,
+            AgentType::Pi,
         ]
     }
 
@@ -52,6 +54,7 @@ impl AgentType {
             AgentType::Codex => Cow::Borrowed("Codex"),
             AgentType::Gemini => Cow::Borrowed("Gemini CLI"),
             AgentType::OpenCode => Cow::Borrowed("OpenCode"),
+            AgentType::Pi => Cow::Borrowed("Pi"),
             AgentType::Custom(name) => Cow::Owned(name.clone()),
         }
     }
@@ -62,6 +65,7 @@ impl AgentType {
             "codex" => Some(AgentType::Codex),
             "gemini" | "gemini-cli" => Some(AgentType::Gemini),
             "opencode" | "open-code" => Some(AgentType::OpenCode),
+            "pi" | "pi-coding-agent" => Some(AgentType::Pi),
             _ => None,
         }
     }
@@ -270,6 +274,7 @@ impl AgentDefinition {
             AgentType::Codex => Self::codex(),
             AgentType::Gemini => Self::gemini(),
             AgentType::OpenCode => Self::opencode(),
+            AgentType::Pi => Self::pi(),
             AgentType::Custom(ref name) => panic!(
                 "AgentDefinition::from_type() called with Custom(\"{}\"). Use from_custom_config() instead.",
                 name
@@ -412,6 +417,40 @@ impl AgentDefinition {
             enabled: true,
         }
     }
+
+    /// Create Pi agent definition
+    pub fn pi() -> Self {
+        Self {
+            agent_type: AgentType::Pi,
+            name: "Pi".to_string(),
+            binary: "pi".to_string(),
+            description: "Coding agent CLI with read, bash, edit, write tools".to_string(),
+            polyfill: AgentPolyfillConfig {
+                headless: HeadlessStrategy::Flag("-p".to_string()),
+                session: SessionStrategy {
+                    continue_arg: "--continue".to_string(),
+                    resume_arg: "--resume".to_string(),
+                },
+                fork: ForkStrategy::Flag("--fork".to_string()),
+                yolo_flag: None,
+                model_flag: "--model".to_string(),
+                effort_flag: Some("--thinking".to_string()),
+                auto_flag: None,
+                verbose_flag: None,
+                output_format_flag: Some("--mode".to_string()),
+                system_prompt_flag: Some("--system-prompt".to_string()),
+                allowed_tools_flag: Some("--tools".to_string()),
+                sandbox: SandboxStrategy::Unsupported,
+                name_flag: None,
+                add_dir_flag: None,
+                approval_mode_flag: None,
+                worktree_flag: None,
+            },
+            github_repo: None,
+            npm_package: Some("@mariozechner/pi-coding-agent".to_string()),
+            enabled: true,
+        }
+    }
 }
 
 /// Version information for an agent
@@ -457,6 +496,7 @@ impl AgentManager {
         manager.register_agent(AgentDefinition::codex());
         manager.register_agent(AgentDefinition::gemini());
         manager.register_agent(AgentDefinition::opencode());
+        manager.register_agent(AgentDefinition::pi());
 
         // Load cached versions
         manager.load_version_cache()?;
@@ -492,8 +532,14 @@ impl AgentManager {
 
         match output {
             Ok(out) if out.status.success() => {
-                let version_str = String::from_utf8_lossy(&out.stdout);
-                let mut version = Self::parse_version(&version_str);
+                let stdout_str = String::from_utf8_lossy(&out.stdout);
+                let mut version = Self::parse_version(&stdout_str);
+
+                // Some agents (e.g. pi) write --version to stderr.
+                if version.is_none() {
+                    let stderr_str = String::from_utf8_lossy(&out.stderr);
+                    version = Self::parse_version(&stderr_str);
+                }
 
                 // Codex reports "0.0.0" from source builds — fall back to git tag
                 if agent_type == AgentType::Codex && version.as_deref() == Some("0.0.0") {
@@ -658,6 +704,7 @@ impl AgentManager {
             AgentType::Codex => self.update_codex(),
             AgentType::Gemini => self.update_npm_agent("@google/gemini-cli", "Gemini CLI"),
             AgentType::OpenCode => self.update_opencode(),
+            AgentType::Pi => self.update_npm_agent("@mariozechner/pi-coding-agent", "Pi"),
             AgentType::Custom(_) => Err(io::Error::other(
                 "Version management is not yet supported for custom agents",
             )),
@@ -1039,6 +1086,17 @@ mod tests {
                 }
             }
         }
+    }
+
+    #[test]
+    fn pi_npm_package_is_mariozechner() {
+        let pi = AgentDefinition::pi();
+        assert_eq!(
+            pi.npm_package.as_deref(),
+            Some("@mariozechner/pi-coding-agent")
+        );
+        assert_eq!(pi.binary, "pi");
+        assert_eq!(pi.agent_type, AgentType::Pi);
     }
 
     #[test]

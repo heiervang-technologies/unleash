@@ -57,7 +57,7 @@ pub fn load_embedded_versions() -> HashMap<String, Vec<String>> {
     let content = std::fs::read_to_string(&path).unwrap_or_else(|_| "{}".to_string());
     let parsed: serde_json::Value = serde_json::from_str(&content).unwrap_or_default();
     let mut map = HashMap::new();
-    for key in &["claude", "codex", "gemini", "opencode"] {
+    for key in &["claude", "codex", "gemini", "opencode", "pi"] {
         if let Some(arr) = parsed.get(key).and_then(|v| v.as_array()) {
             let versions: Vec<String> = arr
                 .iter()
@@ -78,6 +78,7 @@ pub fn save_embedded_versions(map: &HashMap<crate::agents::AgentType, Vec<Versio
             crate::agents::AgentType::Codex => "codex",
             crate::agents::AgentType::Gemini => "gemini",
             crate::agents::AgentType::OpenCode => "opencode",
+            crate::agents::AgentType::Pi => "pi",
             crate::agents::AgentType::Custom(_) => continue, // skip custom agents in embedded versions
         };
         let arr: Vec<serde_json::Value> = versions
@@ -1035,6 +1036,29 @@ impl VersionManager {
         })
     }
 
+    // ── Pi ──────────────────────────────────────────────────
+
+    /// Get available Pi versions from npm registry
+    pub fn get_pi_available_versions(&self) -> io::Result<Vec<String>> {
+        Self::query_npm_registry_versions("@mariozechner/pi-coding-agent", 20)
+    }
+
+    /// Get combined Pi version list with status
+    pub fn get_pi_version_list(&self, installed: Option<&str>) -> Vec<VersionInfo> {
+        let available = self.get_pi_available_versions().unwrap_or_default();
+
+        let mut versions: Vec<VersionInfo> = available
+            .into_iter()
+            .map(|v| VersionInfo {
+                is_installed: installed == Some(v.as_str()),
+                version: v,
+            })
+            .collect();
+
+        versions.sort_by(|a, b| version_compare(&b.version, &a.version));
+        versions
+    }
+
     // ── OpenCode ────────────────────────────────────────────
 
     /// Get available OpenCode versions from npm registry.
@@ -1502,6 +1526,49 @@ impl VersionManager {
                     "Failed to install Gemini CLI v{}: {}",
                     version, stderr
                 ))
+            },
+        })
+    }
+
+    /// Install Pi with streaming log output
+    pub fn install_pi_version_streaming(
+        &self,
+        version: &str,
+        log_tx: mpsc::Sender<String>,
+    ) -> io::Result<InstallResult> {
+        if !Self::has_npm() {
+            return Ok(InstallResult {
+                success: false,
+                stdout: String::new(),
+                stderr: "npm is not available".to_string(),
+                error: Some("npm is required to install Pi".to_string()),
+            });
+        }
+
+        let use_sudo = Self::npm_global_needs_sudo();
+        let _ = log_tx.send(format!(
+            "Running: {}npm install -g @mariozechner/pi-coding-agent@{}",
+            if use_sudo { "sudo " } else { "" },
+            version
+        ));
+        let (ok, stdout, stderr) = Self::run_streaming(
+            Self::npm_global_command().args([
+                "install",
+                "-g",
+                "--force",
+                &format!("@mariozechner/pi-coding-agent@{}", version),
+            ]),
+            &log_tx,
+        )?;
+
+        Ok(InstallResult {
+            success: ok,
+            stdout,
+            stderr: stderr.clone(),
+            error: if ok {
+                None
+            } else {
+                Some(format!("Failed to install Pi v{}: {}", version, stderr))
             },
         })
     }

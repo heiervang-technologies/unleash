@@ -317,6 +317,7 @@ fn run_agent_with_polyfill(
         AgentType::Codex => "codex",
         AgentType::Gemini => "gemini",
         AgentType::OpenCode => "opencode",
+        AgentType::Pi => "pi",
         AgentType::Custom(name) => {
             target_cli_owned = name.clone();
             &target_cli_owned
@@ -548,6 +549,7 @@ pub fn run() -> io::Result<()> {
                 "codex" => "codex",
                 "gemini" | "gemini-cli" => "gemini",
                 "opencode" => "opencode",
+                "pi" => "pi",
                 _ => {
                     // Fall back to AGENT_CMD
                     env::var("AGENT_CMD")
@@ -558,6 +560,7 @@ pub fn run() -> io::Result<()> {
                             AgentType::Codex => "codex",
                             AgentType::Gemini => "gemini",
                             AgentType::OpenCode => "opencode",
+                            AgentType::Pi => "pi",
                             AgentType::Custom(_) => "claude", // custom agents fall back to claude for crossload
                         })
                         .unwrap_or("claude")
