@@ -1,5 +1,18 @@
 # Changelog
 
+## [0.1.10](https://github.com/heiervang-technologies/unleash/compare/v0.1.9...v0.1.10) (2026-04-21)
+
+
+### Features
+
+* add Pi coding agent support ([af451a1](https://github.com/heiervang-technologies/unleash/commit/af451a19274382734acf068680c396a6e7959917))
+* **sandbox:** run from any directory + clearer setup errors ([ee1f03d](https://github.com/heiervang-technologies/unleash/commit/ee1f03d9235021bc09b8dea2fe1a4b3f65fba294))
+
+
+### Bug Fixes
+
+* **sandbox:** block LAN/host access at raw/PREROUTING (pre-DNAT) ([7df4bd7](https://github.com/heiervang-technologies/unleash/commit/7df4bd7eac1007c08dd5a066a2b55956048a83b6))
+
 ## [0.1.9](https://github.com/heiervang-technologies/unleash/compare/v0.1.8...v0.1.9) (2026-04-21)
 
 
