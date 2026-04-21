@@ -27,32 +27,64 @@ setup() {
         echo "  Network ${NETWORK_NAME} already exists"
     fi
 
-    # Block LAN access from sandbox containers (RFC 1918 private ranges)
-    # DOCKER-USER chain is processed before Docker's own rules
+    # Block LAN + host access from sandbox containers using the `raw` PREROUTING
+    # chain. This runs BEFORE any NAT/DNAT, so it catches traffic that would
+    # otherwise be rewritten by k8s NodePorts, Docker port-maps, CNI plugins,
+    # etc. (Simply adding rules to DOCKER-USER/FORWARD races against KUBE-FORWARD
+    # and loses for any DNAT'd service.)
     #
-    # NOTE: The 172.16.0.0/12 rule also covers the sandbox subnet (172.30.0.0/16).
-    # This intentionally blocks inter-container communication — each container
-    # should only talk to the internet, not to other sandbox containers.
-    local rules=(
+    # Covered ranges:
+    #   10.0.0.0/8         — RFC 1918 / common LAN / k8s pod CIDRs
+    #   172.16.0.0/12      — RFC 1918 / Docker bridges incl. our own subnet
+    #                        (intentional: blocks inter-container + gateway access)
+    #   192.168.0.0/16     — RFC 1918 / home LANs
+    #   169.254.0.0/16     — Link-local + cloud metadata (169.254.169.254)
+    #   100.64.0.0/10      — CGNAT / Tailscale overlays
+    local raw_rules=(
         "-s ${SUBNET} -d 10.0.0.0/8 -j DROP"
         "-s ${SUBNET} -d 172.16.0.0/12 -j DROP"
         "-s ${SUBNET} -d 192.168.0.0/16 -j DROP"
         "-s ${SUBNET} -d 169.254.0.0/16 -j DROP"
+        "-s ${SUBNET} -d 100.64.0.0/10 -j DROP"
     )
 
-    for rule in "${rules[@]}"; do
-        if ! iptables -C DOCKER-USER ${rule} 2>/dev/null; then
-            iptables -I DOCKER-USER ${rule}
-            echo "  Added firewall rule: DROP ${rule}"
+    for rule in "${raw_rules[@]}"; do
+        if ! iptables -t raw -C PREROUTING ${rule} 2>/dev/null; then
+            iptables -t raw -I PREROUTING ${rule}
+            echo "  Added raw/PREROUTING rule: DROP ${rule}"
         else
-            echo "  Firewall rule already exists: ${rule}"
+            echo "  raw/PREROUTING rule already exists: ${rule}"
         fi
     done
+
+    # Belt-and-suspenders: keep the legacy DOCKER-USER rules too (for any packet
+    # path that skips raw PREROUTING, e.g. locally generated traffic).
+    local docker_rules=(
+        "-s ${SUBNET} -d 10.0.0.0/8 -j DROP"
+        "-s ${SUBNET} -d 172.16.0.0/12 -j DROP"
+        "-s ${SUBNET} -d 192.168.0.0/16 -j DROP"
+        "-s ${SUBNET} -d 169.254.0.0/16 -j DROP"
+        "-s ${SUBNET} -d 100.64.0.0/10 -j DROP"
+    )
+    for rule in "${docker_rules[@]}"; do
+        if ! iptables -C DOCKER-USER ${rule} 2>/dev/null; then
+            iptables -I DOCKER-USER ${rule}
+            echo "  Added DOCKER-USER rule: DROP ${rule}"
+        fi
+    done
+
+    # And an INPUT chain drop as a final safety net for anything we missed.
+    local input_rule="-s ${SUBNET} -j DROP"
+    if ! iptables -C INPUT ${input_rule} 2>/dev/null; then
+        iptables -I INPUT ${input_rule}
+        echo "  Added INPUT rule: DROP ${input_rule}"
+    fi
 
     echo ""
     echo "Sandbox ready. Containers on '${NETWORK_NAME}' have:"
     echo "  - Full internet access (APIs, npm, git, etc.)"
-    echo "  - No access to LAN (10.x, 172.16-31.x, 192.168.x blocked)"
+    echo "  - No access to any RFC 1918 / CGNAT address (LAN, k8s pods, Tailscale, host)"
+    echo "  - Enforced before DNAT (k8s NodePorts, Docker port-maps can't be reached)"
     echo ""
     echo "Run containers with: --network ${NETWORK_NAME}"
 }
@@ -60,19 +92,44 @@ setup() {
 teardown() {
     echo "Tearing down sandboxed network: ${NETWORK_NAME}"
 
-    # Remove firewall rules
+    # Remove raw/PREROUTING rules (primary defense)
+    local raw_rules=(
+        "-s ${SUBNET} -d 10.0.0.0/8 -j DROP"
+        "-s ${SUBNET} -d 172.16.0.0/12 -j DROP"
+        "-s ${SUBNET} -d 192.168.0.0/16 -j DROP"
+        "-s ${SUBNET} -d 169.254.0.0/16 -j DROP"
+        "-s ${SUBNET} -d 100.64.0.0/10 -j DROP"
+    )
+
+    for rule in "${raw_rules[@]}"; do
+        # Loop in case multiple copies were inserted over time
+        while iptables -t raw -C PREROUTING ${rule} 2>/dev/null; do
+            iptables -t raw -D PREROUTING ${rule}
+            echo "  Removed raw/PREROUTING rule: ${rule}"
+        done
+    done
+
+    # Remove DOCKER-USER (FORWARD) rules
     local rules=(
         "-s ${SUBNET} -d 10.0.0.0/8 -j DROP"
         "-s ${SUBNET} -d 172.16.0.0/12 -j DROP"
         "-s ${SUBNET} -d 192.168.0.0/16 -j DROP"
         "-s ${SUBNET} -d 169.254.0.0/16 -j DROP"
+        "-s ${SUBNET} -d 100.64.0.0/10 -j DROP"
     )
 
     for rule in "${rules[@]}"; do
-        if iptables -C DOCKER-USER ${rule} 2>/dev/null; then
+        while iptables -C DOCKER-USER ${rule} 2>/dev/null; do
             iptables -D DOCKER-USER ${rule}
-            echo "  Removed firewall rule: ${rule}"
-        fi
+            echo "  Removed DOCKER-USER rule: ${rule}"
+        done
+    done
+
+    # Remove INPUT rule (container-to-host block)
+    local input_rule="-s ${SUBNET} -j DROP"
+    while iptables -C INPUT ${input_rule} 2>/dev/null; do
+        iptables -D INPUT ${input_rule}
+        echo "  Removed INPUT rule: ${input_rule}"
     done
 
     # Remove network
@@ -104,7 +161,19 @@ status() {
     fi
 
     echo ""
-    echo "  Firewall rules (DOCKER-USER):"
+    echo "  Firewall rules (raw/PREROUTING → pre-DNAT, blocks k8s NodePorts):"
+    if ! iptables -t raw -L PREROUTING -n 2>/dev/null; then
+        echo "    Cannot read raw/PREROUTING (try: sudo $0 status)"
+    elif iptables -t raw -L PREROUTING -n 2>/dev/null | grep -q "${SUBNET%%/*}"; then
+        iptables -t raw -L PREROUTING -n 2>/dev/null | grep "${SUBNET%%/*}" | while read -r line; do
+            echo "    ${line}"
+        done
+    else
+        echo "    Missing — containers can reach DNAT'd LAN services! Run: sudo $0 setup"
+    fi
+
+    echo ""
+    echo "  Firewall rules (DOCKER-USER → other LAN hosts):"
     if ! iptables -L DOCKER-USER -n 2>/dev/null; then
         echo "    Cannot read iptables rules (try: sudo $0 status)"
     elif iptables -L DOCKER-USER -n 2>/dev/null | grep -q "${SUBNET%%/*}"; then
@@ -113,6 +182,18 @@ status() {
         done
     else
         echo "    No sandbox rules found (run: sudo $0 setup)"
+    fi
+
+    echo ""
+    echo "  Firewall rule (INPUT → Docker host):"
+    if ! iptables -L INPUT -n 2>/dev/null; then
+        echo "    Cannot read INPUT chain (try: sudo $0 status)"
+    elif iptables -L INPUT -n 2>/dev/null | grep -qE "DROP.*${SUBNET//./\\.}"; then
+        iptables -L INPUT -n 2>/dev/null | grep -E "DROP.*${SUBNET//./\\.}" | while read -r line; do
+            echo "    ${line}"
+        done
+    else
+        echo "    Missing — containers can reach the host! Run: sudo $0 setup"
     fi
 }
 
