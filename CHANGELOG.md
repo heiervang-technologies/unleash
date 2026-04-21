@@ -1,5 +1,23 @@
 # Changelog
 
+## [0.1.9](https://github.com/heiervang-technologies/unleash/compare/v0.1.8...v0.1.9) (2026-04-21)
+
+
+### Features
+
+* add custom_agents config to AppConfig ([4bd41d1](https://github.com/heiervang-technologies/unleash/commit/4bd41d1a86d373a520e155e2e3d917545ff1c4ca))
+* **interchange:** _ucf_hub passthrough for codex converter ([64a8c89](https://github.com/heiervang-technologies/unleash/commit/64a8c897105b1b0c2737deb21d242c7c42d2d78a))
+* **interchange:** _ucf_hub passthrough for gemini converter ([2ee5e1f](https://github.com/heiervang-technologies/unleash/commit/2ee5e1f1c854d6c3c4c3d90a6e1801b5f20670e3))
+* **interchange:** _ucf_hub passthrough for opencode converter ([f03d80d](https://github.com/heiervang-technologies/unleash/commit/f03d80dc909737827ea3037bf1fdbfefeb7b6450))
+* **interchange:** add _ucf_hub passthrough to Claude converter ([fbe0fc6](https://github.com/heiervang-technologies/unleash/commit/fbe0fc6b39a45eb7ba609d1c4b839b342edf6778))
+* **interchange:** preserve completed_at across cross-CLI round trips ([a1deff3](https://github.com/heiervang-technologies/unleash/commit/a1deff38e0a2a0cf094b1610126076d47c35387f))
+* wire custom agents into launcher and subcommand resolution ([169f7c1](https://github.com/heiervang-technologies/unleash/commit/169f7c1d82356718e49ede5fc93e5b805585dc9e))
+
+
+### Bug Fixes
+
+* **interchange:** semantic_eq reports string value diffs correctly ([e858f95](https://github.com/heiervang-technologies/unleash/commit/e858f9507c251eb4c77944397eaa6e1c40a07e6a))
+
 ## [0.1.8](https://github.com/heiervang-technologies/unleash/compare/v0.1.7...v0.1.8) (2026-04-21)
 
 
