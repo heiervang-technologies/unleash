@@ -51,6 +51,17 @@ fi
 
 # --- Configuration ---
 
+# User-persisted overrides from /supercompact-budget slash command.
+# Sourced before defaults so the file's values take effect but can still be
+# overridden by explicit environment variables set at launch.
+USER_SETTINGS="${HOME}/.config/unleash/plugins/supercompact/settings.env"
+if [[ -f "${USER_SETTINGS}" ]]; then
+  set -a
+  # shellcheck disable=SC1090
+  source "${USER_SETTINGS}" 2>/dev/null || true
+  set +a
+fi
+
 SUPERCOMPACT_DIR="${PLUGIN_SETTING_DIR:-${HOME}/ht/supercompact}"
 METHOD="${PLUGIN_SETTING_METHOD:-eitf}"
 
@@ -83,13 +94,15 @@ if [[ -z "${BUDGET}" ]]; then
     fi
     BUDGET=$((ESTIMATED_TOKENS * PCT / 100))
 
-    # Floor: cloud models (claude, codex, gemini) have large context windows —
-    # never compact below 200k tokens. Local models get a lower 10k floor.
+    # Floor: cloud models (claude, codex, gemini) have ~200k context windows.
+    # Compacted size must leave headroom for system prompt (~15-30k), tool
+    # definitions, and several new turns — so floor sits well below the window.
+    # Local models get a lower 10k floor.
     AGENT="${AGENT_CMD:-claude}"
     AGENT_BASE=$(basename "${AGENT}" 2>/dev/null)
     case "${AGENT_BASE}" in
       claude*|codex*|gemini*)
-        BUDGET_FLOOR="${PLUGIN_SETTING_BUDGET_FLOOR:-200000}"
+        BUDGET_FLOOR="${PLUGIN_SETTING_BUDGET_FLOOR:-100000}"
         ;;
       *)
         BUDGET_FLOOR="${PLUGIN_SETTING_BUDGET_FLOOR:-10000}"
@@ -99,8 +112,11 @@ if [[ -z "${BUDGET}" ]]; then
   fi
 fi
 
-# Always apply ceiling — even for --budget arg or manual mode
-(( BUDGET > 200000 )) && BUDGET=200000
+# Hard ceiling — even for --budget arg or manual mode. Capped below the
+# 200k context window so compacted transcripts leave room for the system
+# prompt, tool schemas, and a few follow-up turns before pressure resumes.
+BUDGET_CEILING="${PLUGIN_SETTING_BUDGET_CEILING:-150000}"
+(( BUDGET > BUDGET_CEILING )) && BUDGET="${BUDGET_CEILING}"
 
 LOCKFILE="/tmp/supercompact.lock"
 LOCK_FD=9
@@ -155,6 +171,7 @@ log "Running compact.py (method=${METHOD}, budget=${BUDGET})"
 
 cd "${SUPERCOMPACT_DIR}" || { log "ERROR: Cannot cd to ${SUPERCOMPACT_DIR}"; exit 0; }
 
+HF_HUB_OFFLINE=1 TRANSFORMERS_OFFLINE=1 \
 uv run python compact.py "${JSONL_FILE}" \
     --method "${METHOD}" \
     --budget "${BUDGET}" \
@@ -163,6 +180,14 @@ UV_EXIT=$?
 if [[ ${UV_EXIT} -ne 0 ]]; then
   log "ERROR: compact.py failed (exit ${UV_EXIT})"
   rm -f "${SC_OUTPUT}" "${SC_STDOUT}" 2>/dev/null || true
+  # Robustness: for MANUAL /compact, we must still prevent the native API
+  # compaction from firing — Claude Code hook exit codes cannot block it,
+  # so kill-and-restart the session with an explanation.
+  if [[ "${TRIGGER}" == "manual" ]] && command -v unleash-refresh &>/dev/null; then
+    log "Pipeline failed on manual /compact; killing session to abort native API compaction"
+    unleash-refresh "Supercompact pipeline failed (exit ${UV_EXIT}). Native /compact aborted to avoid burning API tokens. See ~/.cache/supercompact/hook.log."
+    sleep 10
+  fi
   exit 0
 fi
 
