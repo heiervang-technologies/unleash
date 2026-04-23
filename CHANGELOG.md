@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.12](https://github.com/heiervang-technologies/unleash/compare/v0.1.11...v0.1.12) (2026-04-23)
+
+
+### Bug Fixes
+
+* **docker:** ship Pi CLI + restore docker/ embed for sandbox ([4f1de9c](https://github.com/heiervang-technologies/unleash/commit/4f1de9cd2e530aa2b09186f884f3432b4b288531))
+
 ## [0.1.11](https://github.com/heiervang-technologies/unleash/compare/v0.1.10...v0.1.11) (2026-04-23)
 
 
