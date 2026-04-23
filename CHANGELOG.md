@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.13](https://github.com/heiervang-technologies/unleash/compare/v0.1.12...v0.1.13) (2026-04-23)
+
+
+### Features
+
+* **interchange:** first-class Pi session converter ([ede3c0a](https://github.com/heiervang-technologies/unleash/commit/ede3c0aa5e991d583e59e91ff9c1cde2eadb2d3f))
+
 ## [0.1.12](https://github.com/heiervang-technologies/unleash/compare/v0.1.11...v0.1.12) (2026-04-23)
 
 
