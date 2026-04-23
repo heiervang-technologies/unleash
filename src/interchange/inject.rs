@@ -1,7 +1,7 @@
 //! Session injection: convert a foreign session and load it into a target CLI.
 
 use crate::interchange::sessions::{find_session, SessionInfo};
-use crate::interchange::{claude, codex, gemini, hub::HubRecord, opencode, ConvertError};
+use crate::interchange::{claude, codex, gemini, hub::HubRecord, opencode, pi, ConvertError};
 
 /// Result of injecting a session: the session ID to resume with and any extra args.
 pub struct InjectionResult {
@@ -39,6 +39,7 @@ pub fn inject_session(
         "codex" => inject_into_codex(&session, &hub_records),
         "gemini" | "gemini-cli" => inject_into_gemini(&session, &hub_records),
         "opencode" => inject_into_opencode(&session, &hub_records),
+        "pi" | "pi-coding-agent" => inject_into_pi(&session, &hub_records),
         _ => Err(ConvertError::InvalidFormat(format!(
             "Unsupported target CLI: {target_cli}"
         ))),
@@ -65,6 +66,11 @@ pub fn source_to_hub(session: &SessionInfo) -> Result<Vec<HubRecord>, ConvertErr
             // For OpenCode, we need to export from the DB
             let input = export_opencode_session(&session.id)?;
             opencode::to_hub(&input)
+        }
+        "pi" => {
+            let data = std::fs::read_to_string(&session.path)?;
+            let reader = std::io::BufReader::new(data.as_bytes());
+            pi::to_hub(reader)
         }
         "ucf" => {
             let data = std::fs::read_to_string(&session.path)?;
@@ -705,6 +711,164 @@ fn inject_into_opencode(
     })
 }
 
+fn inject_into_pi(
+    source: &SessionInfo,
+    hub_records: &[HubRecord],
+) -> Result<InjectionResult, ConvertError> {
+    let mut pi_lines = pi::from_hub(hub_records)?;
+    if pi_lines.is_empty() {
+        return Err(ConvertError::InvalidFormat(
+            "Pi injection: converter produced no records".into(),
+        ));
+    }
+
+    // Fresh session UUID for the Pi file + resume handle.
+    let session_id = uuid_v4();
+
+    // Pi lands in the user's current working directory; use cwd when available,
+    // otherwise fall back to the source session's original cwd.
+    let cwd = std::env::current_dir()
+        .map(|p| p.to_string_lossy().to_string())
+        .unwrap_or_else(|_| source.directory.clone());
+
+    // Patch the first record (must be the session header) with the new id/cwd
+    // and capture its timestamp for the filename.
+    let timestamp = {
+        let first = pi_lines
+            .get_mut(0)
+            .and_then(|v| v.as_object_mut())
+            .ok_or_else(|| {
+                ConvertError::InvalidFormat(
+                    "Pi injection: first record is not a JSON object".into(),
+                )
+            })?;
+        first.insert("id".into(), serde_json::Value::String(session_id.clone()));
+        first.insert("cwd".into(), serde_json::Value::String(cwd.clone()));
+        first
+            .get("timestamp")
+            .and_then(|t| t.as_str())
+            .map(String::from)
+            .unwrap_or_else(current_iso_timestamp)
+    };
+
+    // Regenerate the parentId chain: each non-session record gets a fresh id,
+    // parentId links to the previous record's id (or null for the first).
+    let mut prev_id: Option<String> = None;
+    for line in pi_lines.iter_mut().skip(1) {
+        if let serde_json::Value::Object(obj) = line {
+            let new_id = short_id();
+            obj.insert("id".into(), serde_json::Value::String(new_id.clone()));
+            obj.insert(
+                "parentId".into(),
+                match &prev_id {
+                    Some(p) => serde_json::Value::String(p.clone()),
+                    None => serde_json::Value::Null,
+                },
+            );
+            prev_id = Some(new_id);
+        }
+    }
+
+    // Pi encodes the project dir as --<path with / replaced by ->--.
+    let project_dir_name = encode_pi_project_path(&cwd);
+    let project_dir = dirs::home_dir()
+        .ok_or_else(|| ConvertError::InvalidFormat("No home dir".into()))?
+        .join(".pi")
+        .join("agent")
+        .join("sessions")
+        .join(&project_dir_name);
+    std::fs::create_dir_all(&project_dir)?;
+
+    // Filename: <timestamp-with-dashes>_<session-uuid>.jsonl — colons and dots
+    // from the ISO timestamp become dashes to match real Pi session files.
+    let ts_for_file = timestamp.replace([':', '.'], "-");
+    let output_path = project_dir.join(format!("{ts_for_file}_{session_id}.jsonl"));
+
+    let mut output = String::new();
+    for line in &pi_lines {
+        output.push_str(&serde_json::to_string(line)?);
+        output.push('\n');
+    }
+    std::fs::write(&output_path, &output)?;
+
+    eprintln!(
+        "Injected {} lines to {}",
+        pi_lines.len(),
+        output_path.display()
+    );
+
+    Ok(InjectionResult {
+        session_id: session_id.clone(),
+        resume_args: vec!["--resume".into(), session_id],
+        message: format!(
+            "Session '{}' from {} injected into Pi",
+            source.name.as_deref().unwrap_or(&source.id),
+            source.cli,
+        ),
+    })
+}
+
+/// Encode a cwd for Pi's project-dir naming scheme: strip leading '/', replace
+/// '/' with '-', wrap in '--...--'. An empty cwd yields "--imported--".
+fn encode_pi_project_path(dir: &str) -> String {
+    let trimmed = dir.trim_start_matches('/');
+    if trimmed.is_empty() {
+        return "--imported--".to_string();
+    }
+    format!("--{}--", trimmed.replace('/', "-"))
+}
+
+/// Short hex id matching Pi's per-record identifier style (8 hex chars).
+fn short_id() -> String {
+    use std::time::{SystemTime, UNIX_EPOCH};
+    let nanos = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_nanos();
+    // Mix with a fast counter to disambiguate calls in the same nanosecond.
+    static COUNTER: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+    let seq = COUNTER.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    let mixed = (nanos as u64).wrapping_mul(0x9E3779B97F4A7C15).wrapping_add(seq);
+    format!("{:08x}", (mixed as u32))
+}
+
+fn current_iso_timestamp() -> String {
+    use std::time::{SystemTime, UNIX_EPOCH};
+    // Approximate RFC3339 formatter — enough for Pi's filename stem.
+    let now = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default();
+    let secs = now.as_secs() as i64;
+    let millis = now.subsec_millis();
+    // Days since epoch to calendar date (proleptic Gregorian).
+    let days = secs.div_euclid(86_400);
+    let remainder = secs.rem_euclid(86_400);
+    let hh = remainder / 3600;
+    let mm = (remainder % 3600) / 60;
+    let ss = remainder % 60;
+    let (year, month, day) = days_to_ymd(days);
+    format!(
+        "{:04}-{:02}-{:02}T{:02}:{:02}:{:02}.{:03}Z",
+        year, month, day, hh, mm, ss, millis
+    )
+}
+
+fn days_to_ymd(mut days: i64) -> (i32, u32, u32) {
+    // Convert days since 1970-01-01 to (year, month, day).
+    // Algorithm: Howard Hinnant's civil_from_days.
+    days += 719_468;
+    let era = days.div_euclid(146_097);
+    let doe = days.rem_euclid(146_097) as u64;
+    let yoe = (doe - doe / 1_460 + doe / 36_524 - doe / 146_096) / 365;
+    let y = yoe as i64 + era * 400;
+    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
+    let mp = (5 * doy + 2) / 153;
+    let d = doy - (153 * mp + 2) / 5 + 1;
+    let m = if mp < 10 { mp + 3 } else { mp - 9 };
+    let y = if m <= 2 { y + 1 } else { y };
+    (y as i32, m as u32, d as u32)
+}
+
 /// Find an existing OpenCode project by worktree path, or create one.
 fn find_or_create_opencode_project(
     conn: &rusqlite::Connection,
@@ -1331,5 +1495,69 @@ mod tests {
             .query_row("SELECT COUNT(*) FROM project", [], |r| r.get(0))
             .unwrap();
         assert_eq!(count, 1);
+    }
+
+    // ── encode_pi_project_path ───────────────────────────────
+
+    #[test]
+    fn test_encode_pi_project_path_absolute() {
+        assert_eq!(
+            encode_pi_project_path("/home/me/ht/unleash"),
+            "--home-me-ht-unleash--"
+        );
+    }
+
+    #[test]
+    fn test_encode_pi_project_path_root() {
+        assert_eq!(encode_pi_project_path("/"), "--imported--");
+    }
+
+    #[test]
+    fn test_encode_pi_project_path_empty() {
+        assert_eq!(encode_pi_project_path(""), "--imported--");
+    }
+
+    #[test]
+    fn test_encode_pi_project_path_nested() {
+        // Matches the real fixture dir shipped with the repo.
+        assert_eq!(
+            encode_pi_project_path("/home/me/ht/forks/ht-llama.cpp"),
+            "--home-me-ht-forks-ht-llama.cpp--"
+        );
+    }
+
+    // ── short_id + current_iso_timestamp ─────────────────────
+
+    #[test]
+    fn test_short_id_is_hex_8() {
+        let id = short_id();
+        assert_eq!(id.len(), 8, "short_id should be 8 chars: {id}");
+        assert!(
+            id.chars().all(|c| c.is_ascii_hexdigit()),
+            "short_id should be hex only: {id}"
+        );
+    }
+
+    #[test]
+    fn test_short_id_uniqueness_rapid() {
+        // Even in a tight loop the atomic counter keeps consecutive ids distinct.
+        let mut seen = std::collections::HashSet::new();
+        for _ in 0..1000 {
+            assert!(seen.insert(short_id()));
+        }
+    }
+
+    #[test]
+    fn test_current_iso_timestamp_shape() {
+        let ts = current_iso_timestamp();
+        // YYYY-MM-DDTHH:MM:SS.mmmZ → 24 chars
+        assert_eq!(ts.len(), 24, "timestamp should be 24 chars: {ts}");
+        assert_eq!(&ts[4..5], "-");
+        assert_eq!(&ts[7..8], "-");
+        assert_eq!(&ts[10..11], "T");
+        assert_eq!(&ts[13..14], ":");
+        assert_eq!(&ts[16..17], ":");
+        assert_eq!(&ts[19..20], ".");
+        assert!(ts.ends_with('Z'));
     }
 }
