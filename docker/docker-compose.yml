@@ -93,6 +93,13 @@ services:
     environment:
       - AGENT_CMD=opencode
 
+  # Pi coding agent (mariozechner/pi-coding-agent)
+  pi:
+    extends: unleash
+    environment:
+      - AGENT_CMD=pi
+      - ANTHROPIC_API_KEY
+
 networks:
   sandbox:
     external: true

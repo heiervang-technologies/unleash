@@ -40,6 +40,11 @@ services:
       mesh:
         aliases:
           - opencode.mesh
+  pi:
+    networks:
+      mesh:
+        aliases:
+          - pi.mesh
 
 networks:
   sandbox:

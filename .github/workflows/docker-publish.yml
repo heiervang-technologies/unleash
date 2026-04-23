@@ -59,7 +59,7 @@ jobs:
         run: |
           FAILED=0
 
-          for cli in claude codex gemini opencode; do
+          for cli in claude codex gemini opencode pi; do
             echo -n "  $cli: "
             VERSION=$(docker run --rm unleash:local $cli --version 2>&1 | grep -iE '[0-9]+\.[0-9]+' | head -1) || true
             if [ -n "$VERSION" ]; then

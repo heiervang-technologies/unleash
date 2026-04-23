@@ -1,10 +1,11 @@
 # unleash Docker Image
 #
-# Sandboxed container with all 4 supported coder CLIs:
+# Sandboxed container with all 5 supported coder CLIs:
 #   - Claude Code (Anthropic)
 #   - Codex (OpenAI)
 #   - Gemini CLI (Google)
 #   - OpenCode
+#   - Pi (mariozechner/pi-coding-agent)
 #
 # Build:
 #   docker build -f docker/Dockerfile -t unleash .
@@ -41,6 +42,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 COPY Cargo.toml Cargo.lock build.rs ./
 COPY data/ data/
 COPY assets/ assets/
+# docker/ is embedded into the binary via include_dir! in src/sandbox.rs
+COPY docker/ docker/
 RUN mkdir src && echo 'fn main() {}' > src/main.rs \
     && cargo build --release 2>/dev/null || true \
     && rm -rf src
@@ -143,19 +146,22 @@ RUN chown unleash:unleash /home/unleash/.config/starship.toml \
 USER unleash
 WORKDIR /workspace
 
-# -- Install all 4 agent CLIs using unleash's own install paths --
+# -- Install all 5 agent CLIs using unleash's own install paths --
 # Claude Code: native GCS binary (not npm)
 # Codex: prebuilt binary from GitHub releases
 # Gemini CLI: npm
 # OpenCode: npm (installed separately — unleash install doesn't support it yet)
-RUN unleash install claude codex gemini \
+# Pi: npm (@mariozechner/pi-coding-agent)
+RUN unleash install claude codex gemini pi \
     && npm install -g opencode-ai@latest
 
 # Verify all CLIs are installed (build will fail if any are missing)
+# Pi prints its version to stderr, so redirect before grepping.
 RUN claude --version && echo "✓ Claude Code" \
     && codex --version && echo "✓ Codex" \
     && gemini --version && echo "✓ Gemini CLI" \
     && opencode --version && echo "✓ OpenCode" \
+    && pi --version 2>&1 && echo "✓ Pi" \
     && unleash --version && echo "✓ unleash"
 
 # Entrypoint wrapper: fix DNS for gVisor, then drop to unleash user.
