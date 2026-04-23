@@ -23,6 +23,7 @@ pub fn discover_all() -> Vec<SessionInfo> {
     sessions.extend(discover_codex());
     sessions.extend(discover_gemini());
     sessions.extend(discover_opencode());
+    sessions.extend(discover_pi());
     sessions.extend(discover_ucf());
     sessions.sort_by(|a, b| b.updated_at.cmp(&a.updated_at));
     sessions
@@ -35,6 +36,7 @@ pub fn discover_for(cli: CliFormat) -> Vec<SessionInfo> {
         CliFormat::Codex => discover_codex(),
         CliFormat::GeminiCli => discover_gemini(),
         CliFormat::OpenCode => discover_opencode(),
+        CliFormat::Pi => discover_pi(),
         CliFormat::Ucf => discover_ucf(),
     }
 }
@@ -480,6 +482,78 @@ mod tests {
             ts2
         );
     }
+}
+
+// === Pi discovery ===
+
+fn discover_pi() -> Vec<SessionInfo> {
+    let mut sessions = Vec::new();
+    let pi_dir = match dirs::home_dir() {
+        Some(h) => h.join(".pi").join("agent").join("sessions"),
+        None => return sessions,
+    };
+
+    if !pi_dir.exists() {
+        return sessions;
+    }
+
+    let Ok(project_dirs) = std::fs::read_dir(&pi_dir) else {
+        return sessions;
+    };
+
+    for project in project_dirs.flatten() {
+        if !project.file_type().is_ok_and(|ft| ft.is_dir()) {
+            continue;
+        }
+        let project_path = project.path();
+        // Pi encodes the project dir as --<path-with-slashes-as-hyphens>--
+        let raw = project.file_name().to_string_lossy().to_string();
+        let decoded = raw
+            .strip_prefix("--")
+            .and_then(|s| s.strip_suffix("--"))
+            .map(|s| format!("/{}", s.replace('-', "/")))
+            .unwrap_or(raw.clone());
+
+        let Ok(files) = std::fs::read_dir(&project_path) else {
+            continue;
+        };
+
+        for file in files.flatten() {
+            let path = file.path();
+            if path.extension().and_then(|e| e.to_str()) != Some("jsonl") {
+                continue;
+            }
+
+            let session_id = path
+                .file_stem()
+                .and_then(|s| s.to_str())
+                .unwrap_or("")
+                .to_string();
+
+            let updated_at = file
+                .metadata()
+                .ok()
+                .and_then(|m| m.modified().ok())
+                .map(|t| {
+                    let duration = t.duration_since(std::time::UNIX_EPOCH).unwrap_or_default();
+                    format_epoch_ms(duration.as_millis() as u64)
+                })
+                .unwrap_or_default();
+
+            sessions.push(SessionInfo {
+                cli: "pi".to_string(),
+                id: session_id,
+                name: None,
+                title: None,
+                directory: decoded.clone(),
+                path,
+                updated_at,
+                message_count: None,
+            });
+        }
+    }
+
+    sessions
 }
 
 // === UCF (Native Hub) discovery ===

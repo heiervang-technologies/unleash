@@ -9,6 +9,7 @@ pub mod inject;
 #[cfg(test)]
 mod lossless_tests;
 pub mod opencode;
+pub mod pi;
 pub mod semantic_eq;
 pub mod sessions;
 
@@ -20,6 +21,7 @@ pub enum CliFormat {
     Codex,
     GeminiCli,
     OpenCode,
+    Pi,
     Ucf,
 }
 
@@ -30,6 +32,7 @@ impl fmt::Display for CliFormat {
             Self::Codex => write!(f, "codex"),
             Self::GeminiCli => write!(f, "gemini-cli"),
             Self::OpenCode => write!(f, "opencode"),
+            Self::Pi => write!(f, "pi"),
             Self::Ucf => write!(f, "ucf"),
         }
     }
@@ -44,6 +47,7 @@ impl std::str::FromStr for CliFormat {
             "codex" => Ok(Self::Codex),
             "gemini" | "gemini-cli" => Ok(Self::GeminiCli),
             "opencode" => Ok(Self::OpenCode),
+            "pi" | "pi-coding-agent" => Ok(Self::Pi),
             "ucf" | "hub" => Ok(Self::Ucf),
             _ => Err(ConvertError::InvalidFormat(format!(
                 "Unknown CLI format: {s}"
@@ -117,6 +121,10 @@ pub fn convert_command(
             codex::to_hub(reader)?
         }
         "gemini" | "gemini-cli" => gemini::to_hub(input_data.as_bytes())?,
+        "pi" | "pi-coding-agent" => {
+            let reader = BufReader::new(input_data.as_bytes());
+            pi::to_hub(reader)?
+        }
         "opencode" => {
             let messages: Vec<serde_json::Value> = serde_json::from_str(&input_data)?;
             // Parts file: same directory, replace -messages.json with -parts.json
@@ -146,7 +154,7 @@ pub fn convert_command(
         }
         _ => {
             return Err(ConvertError::InvalidFormat(format!(
-                "Unsupported source format: {from}. Supported: claude, codex, gemini, opencode, hub"
+                "Unsupported source format: {from}. Supported: claude, codex, gemini, opencode, pi, hub"
             )));
         }
     };
@@ -156,6 +164,7 @@ pub fn convert_command(
         let back = match from {
             "claude" | "claude-code" => claude::from_hub(&hub_records)?,
             "codex" => codex::from_hub(&hub_records)?,
+            "pi" | "pi-coding-agent" => pi::from_hub(&hub_records)?,
             "gemini" | "gemini-cli" => {
                 let back_val = gemini::from_hub(&hub_records)?;
                 // Gemini is a single JSON file, compare the whole object
@@ -260,6 +269,7 @@ pub fn convert_command(
         let values = match to {
             "claude" | "claude-code" => claude::from_hub(&hub_records)?,
             "codex" => codex::from_hub(&hub_records)?,
+            "pi" | "pi-coding-agent" => pi::from_hub(&hub_records)?,
             "gemini" | "gemini-cli" => {
                 let val = gemini::from_hub(&hub_records)?;
                 let json = serde_json::to_string_pretty(&val)?;
@@ -298,7 +308,7 @@ pub fn convert_command(
             }
             _ => {
                 return Err(ConvertError::InvalidFormat(format!(
-                    "Unsupported target format: {to}. Supported: claude, codex, gemini, opencode, hub"
+                    "Unsupported target format: {to}. Supported: claude, codex, gemini, opencode, pi, hub"
                 )));
             }
         };

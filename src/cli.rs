@@ -616,11 +616,11 @@ pub enum Commands {
 
     /// Convert conversation history between CLI formats
     Convert {
-        /// Source format (claude, codex, gemini, opencode, hub)
+        /// Source format (claude, codex, gemini, opencode, pi, hub)
         #[arg(long)]
         from: String,
 
-        /// Target format (claude, codex, gemini, opencode, hub). Defaults to hub.
+        /// Target format (claude, codex, gemini, opencode, pi, hub). Defaults to hub.
         #[arg(long, default_value = "hub")]
         to: String,
 
