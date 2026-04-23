@@ -988,10 +988,8 @@ pub fn run() -> io::Result<()> {
                     })
                     .collect::<io::Result<Vec<_>>>()?
             } else {
-                return Err(io::Error::new(
-                    io::ErrorKind::InvalidInput,
-                    "Specify agents to uninstall (e.g. 'unleash uninstall gemini') or use --all",
-                ));
+                // Bare `unleash uninstall` → interactive dialogue for unleash + agents.
+                return updater::uninstall_interactive();
             };
 
             updater::uninstall(agent_types)

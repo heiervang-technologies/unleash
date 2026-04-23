@@ -599,6 +599,192 @@ pub fn uninstall(agents: Vec<AgentType>) -> io::Result<()> {
     Ok(())
 }
 
+/// Interactive uninstall flow: prompts the user to uninstall unleash itself,
+/// plus optionally any installed agent CLIs. Requires a TTY on stdin.
+pub fn uninstall_interactive() -> io::Result<()> {
+    let stdin_is_tty = unsafe { libc::isatty(libc::STDIN_FILENO) != 0 };
+    if !stdin_is_tty || std::env::var("UNLEASH_TUI").is_ok() {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "Specify agents to uninstall (e.g. 'unleash uninstall gemini') or use --all. \
+             Bare 'unleash uninstall' requires an interactive terminal.",
+        ));
+    }
+
+    println!();
+    println!("\x1b[1munleash Uninstaller\x1b[0m");
+    println!();
+
+    if !prompt_yes_no("Uninstall unleash?", false)? {
+        println!("Cancelled.");
+        return Ok(());
+    }
+
+    // Probe installed agents
+    let mut installed_agents: Vec<(AgentType, String)> = Vec::new();
+    for agent_type in AgentType::builtin() {
+        if let Some(version) = get_installed_version(agent_type.clone()) {
+            installed_agents.push((agent_type.clone(), version));
+        }
+    }
+
+    let mut agents_to_remove: Vec<AgentType> = Vec::new();
+    if !installed_agents.is_empty() {
+        println!();
+        println!("Installed agent CLIs:");
+        for (agent_type, version) in &installed_agents {
+            println!("  - {} {}", agent_type.display_name(), version);
+        }
+        println!();
+
+        if prompt_yes_no("Also uninstall all agent CLIs?", false)? {
+            agents_to_remove = installed_agents.iter().map(|(a, _)| a.clone()).collect();
+        } else if prompt_yes_no("Select agents individually?", false)? {
+            for (agent_type, version) in &installed_agents {
+                let q = format!("  Uninstall {} {}?", agent_type.display_name(), version);
+                if prompt_yes_no(&q, false)? {
+                    agents_to_remove.push(agent_type.clone());
+                }
+            }
+        }
+    }
+
+    // Discover what's on disk for unleash itself
+    let bin_dir = dirs::home_dir()
+        .map(|h| h.join(".local/bin"))
+        .unwrap_or_else(|| std::path::PathBuf::from(".local/bin"));
+    let data_dir = dirs::home_dir()
+        .map(|h| h.join(".local/share/unleash"))
+        .unwrap_or_else(|| std::path::PathBuf::from(".local/share/unleash"));
+    let config_dir = dirs::home_dir()
+        .map(|h| h.join(".config/unleash"))
+        .unwrap_or_else(|| std::path::PathBuf::from(".config/unleash"));
+    let native_dir = dirs::home_dir()
+        .map(|h| h.join(".local/share/claude/versions"))
+        .unwrap_or_else(|| std::path::PathBuf::from(".local/share/claude/versions"));
+    let cargo_bin = dirs::home_dir()
+        .map(|h| h.join(".cargo/bin/unleash"))
+        .unwrap_or_else(|| std::path::PathBuf::from(".cargo/bin/unleash"));
+
+    let bin_names = [
+        "unleash",
+        "unleash-refresh",
+        "unleash-exit",
+        "restart-claude",
+        "exit-claude",
+    ];
+    let installed_bins: Vec<std::path::PathBuf> = bin_names
+        .iter()
+        .map(|n| bin_dir.join(n))
+        .filter(|p| p.exists() || p.is_symlink())
+        .collect();
+
+    println!();
+    println!("The following will be removed:");
+    if !installed_bins.is_empty() {
+        println!("  Binaries/symlinks in {}:", bin_dir.display());
+        for p in &installed_bins {
+            println!("    - {}", p.file_name().and_then(|n| n.to_str()).unwrap_or(""));
+        }
+    }
+    if data_dir.exists() {
+        println!("  Data directory: {}", data_dir.display());
+    }
+    if native_dir.exists() {
+        println!("  Native Claude Code binaries: {}", native_dir.display());
+    }
+    if cargo_bin.exists() {
+        println!("  Cargo-installed binary: {}", cargo_bin.display());
+    }
+    if !agents_to_remove.is_empty() {
+        println!("  Agent CLIs:");
+        for a in &agents_to_remove {
+            println!("    - {}", a.display_name());
+        }
+    }
+    println!();
+
+    if !prompt_yes_no("Proceed?", false)? {
+        println!("Cancelled.");
+        return Ok(());
+    }
+
+    // Uninstall agents first (while unleash is still in place).
+    if !agents_to_remove.is_empty() {
+        println!();
+        println!("Uninstalling agent CLIs...");
+        uninstall(agents_to_remove)?;
+    }
+
+    // Remove unleash binaries and symlinks
+    if !installed_bins.is_empty() {
+        println!();
+        println!("Removing binaries...");
+        for p in &installed_bins {
+            match std::fs::remove_file(p) {
+                Ok(()) => println!("  removed {}", p.display()),
+                Err(e) => eprintln!("  failed to remove {}: {}", p.display(), e),
+            }
+        }
+    }
+
+    if data_dir.exists() {
+        match std::fs::remove_dir_all(&data_dir) {
+            Ok(()) => println!("  removed {}", data_dir.display()),
+            Err(e) => eprintln!("  failed to remove {}: {}", data_dir.display(), e),
+        }
+    }
+
+    if native_dir.exists() {
+        match std::fs::remove_dir_all(&native_dir) {
+            Ok(()) => println!("  removed {}", native_dir.display()),
+            Err(e) => eprintln!("  failed to remove {}: {}", native_dir.display(), e),
+        }
+    }
+
+    if cargo_bin.exists() {
+        match std::fs::remove_file(&cargo_bin) {
+            Ok(()) => println!("  removed {}", cargo_bin.display()),
+            Err(e) => eprintln!("  failed to remove {}: {}", cargo_bin.display(), e),
+        }
+    }
+
+    // Config removal is opt-in (user may want to keep profiles).
+    if config_dir.exists() {
+        println!();
+        let q = format!("Remove configuration directory {}?", config_dir.display());
+        if prompt_yes_no(&q, false)? {
+            match std::fs::remove_dir_all(&config_dir) {
+                Ok(()) => println!("  removed {}", config_dir.display()),
+                Err(e) => eprintln!("  failed to remove {}: {}", config_dir.display(), e),
+            }
+        } else {
+            println!("  kept {}", config_dir.display());
+        }
+    }
+
+    println!();
+    println!("unleash has been uninstalled.");
+    Ok(())
+}
+
+/// Prompt the user with a yes/no question. `default_yes` controls the displayed
+/// hint and the behavior when the user just presses Enter.
+fn prompt_yes_no(question: &str, default_yes: bool) -> io::Result<bool> {
+    let hint = if default_yes { "[Y/n]" } else { "[y/N]" };
+    use std::io::Write;
+    print!("{} {} ", question, hint);
+    std::io::stdout().flush().ok();
+
+    let mut input = String::new();
+    std::io::stdin().read_line(&mut input)?;
+    let answer = input.trim().to_lowercase();
+    if answer.is_empty() {
+        return Ok(default_yes);
+    }
+    Ok(answer == "y" || answer == "yes")
+}
+
 fn uninstall_agent(agent_type: AgentType) -> io::Result<()> {
     if let AgentType::Custom(_) = &agent_type {
         return Err(io::Error::other(

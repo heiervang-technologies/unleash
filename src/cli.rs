@@ -563,9 +563,10 @@ pub enum Commands {
         all: bool,
     },
 
-    /// Uninstall an agent CLI
+    /// Uninstall unleash and/or agent CLIs
     ///
     /// Examples:
+    ///   unleash uninstall              # Interactive: uninstall unleash + selected agents
     ///   unleash uninstall gemini       # Uninstall Gemini CLI
     ///   unleash uninstall --all        # Uninstall all agent CLIs
     Uninstall {
