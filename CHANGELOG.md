@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.11](https://github.com/heiervang-technologies/unleash/compare/v0.1.10...v0.1.11) (2026-04-23)
+
+
+### Features
+
+* **cli:** interactive bare 'unleash uninstall' dialogue ([c106642](https://github.com/heiervang-technologies/unleash/commit/c1066423f4e9c039db9aefc02e463dcf475761a9))
+
 ## [0.1.10](https://github.com/heiervang-technologies/unleash/compare/v0.1.9...v0.1.10) (2026-04-21)
 
 
