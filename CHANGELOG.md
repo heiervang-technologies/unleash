@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.15](https://github.com/heiervang-technologies/unleash/compare/v0.1.14...v0.1.15) (2026-04-24)
+
+
+### Features
+
+* **interchange:** idempotent crossload via persisted index ([7281f3c](https://github.com/heiervang-technologies/unleash/commit/7281f3cb0028cbc9a9178010f8bbeb58b9278497))
+
 ## [0.1.14](https://github.com/heiervang-technologies/unleash/compare/v0.1.13...v0.1.14) (2026-04-23)
 
 
