@@ -910,8 +910,15 @@ fn hub_message_to_opencode(msg: &HubMessage) -> Result<(Value, Vec<Value>), Conv
     let created_ms = iso_to_unix_ms(&msg.timestamp);
     let completed_ms = msg.completed_at.as_deref().map(iso_to_unix_ms);
 
+    // OpenCode has no native "tool" role: tool results are carried as tool
+    // parts on user-role messages (mirroring Anthropic's convention). Any
+    // incoming tool-role hub message (e.g. from Pi) is coerced to user so
+    // the output matches OpenCode's on-the-wire shape and the cross-CLI
+    // round-trip produces portable roles.
+    let out_role = if msg.role == "tool" { "user" } else { msg.role.as_str() };
+
     let mut message = serde_json::json!({
-        "role": msg.role,
+        "role": out_role,
         "time": {
             "created": created_ms,
         },

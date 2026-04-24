@@ -442,9 +442,6 @@ mod tests {
     }
 
     #[test]
-    #[ignore = "OpenCode round-trip preserves tool-role messages instead of \
-                collapsing them into assistant tool_use/tool_result blocks, \
-                which trips the cross-CLI role whitelist. Fix in opencode.rs."]
     fn test_pi_to_opencode_portable_fields() {
         let hub = pi_to_hub();
         let original = extract_portable(&hub);
