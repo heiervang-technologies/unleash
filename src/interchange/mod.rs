@@ -2,6 +2,7 @@ pub mod claude;
 pub mod codex;
 #[cfg(test)]
 mod cross_cli_tests;
+pub mod crossload_index;
 pub mod gemini;
 pub(crate) mod helpers;
 pub mod hub;

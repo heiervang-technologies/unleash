@@ -1,5 +1,6 @@
 //! Session injection: convert a foreign session and load it into a target CLI.
 
+use crate::interchange::crossload_index::{self, entry_is_live};
 use crate::interchange::sessions::{find_session, SessionInfo};
 use crate::interchange::{claude, codex, gemini, hub::HubRecord, opencode, pi, ConvertError};
 
@@ -13,6 +14,10 @@ pub struct InjectionResult {
 
 /// Inject a foreign session into the target CLI's session store.
 /// Returns the session ID that the target CLI can resume.
+///
+/// Idempotent: if the same (source, target) pair has already been crossloaded
+/// and the cached target session still exists on disk, the cached target id is
+/// returned without re-injecting. Use `UNLEASH_CROSSLOAD_FORCE=1` to bypass.
 pub fn inject_session(
     source_query: &str,
     target_cli: &str,
@@ -29,20 +34,89 @@ pub fn inject_session(
         session.directory,
     );
 
+    // Normalize target cli alias to the canonical discriminator we key on.
+    let canonical_target = normalize_target_cli(target_cli);
+    let force = std::env::var("UNLEASH_CROSSLOAD_FORCE")
+        .map(|v| !v.is_empty() && v != "0")
+        .unwrap_or(false);
+
+    let mut index = crossload_index::load();
+    if !force {
+        if let Some(entry) = index.lookup(&session.cli, &session.id, canonical_target) {
+            if entry_is_live(entry) {
+                eprintln!(
+                    "Already crossloaded; reusing target session '{}' (set UNLEASH_CROSSLOAD_FORCE=1 to re-inject)",
+                    entry.target_session_id
+                );
+                return Ok(InjectionResult {
+                    session_id: entry.target_session_id.clone(),
+                    resume_args: resume_args_for(canonical_target, &entry.target_session_id),
+                    message: format!(
+                        "Reused cached crossload of '{}' from {} into {}",
+                        session.name.as_deref().unwrap_or(&session.id),
+                        session.cli,
+                        canonical_target,
+                    ),
+                });
+            }
+            // Cached target is gone; drop the stale entry and fall through.
+            index.remove(&session.cli, &session.id, canonical_target);
+        }
+    }
+
     // Convert source to Hub
     let hub_records = source_to_hub(&session)?;
     eprintln!("Converted {} records to hub format", hub_records.len());
 
     // Inject into target
-    match target_cli {
-        "claude" | "claude-code" => inject_into_claude(&session, &hub_records),
-        "codex" => inject_into_codex(&session, &hub_records),
-        "gemini" | "gemini-cli" => inject_into_gemini(&session, &hub_records),
-        "opencode" => inject_into_opencode(&session, &hub_records),
-        "pi" | "pi-coding-agent" => inject_into_pi(&session, &hub_records),
-        _ => Err(ConvertError::InvalidFormat(format!(
-            "Unsupported target CLI: {target_cli}"
-        ))),
+    let (result, target_path) = match target_cli {
+        "claude" | "claude-code" => inject_into_claude(&session, &hub_records)?,
+        "codex" => inject_into_codex(&session, &hub_records)?,
+        "gemini" | "gemini-cli" => inject_into_gemini(&session, &hub_records)?,
+        "opencode" => inject_into_opencode(&session, &hub_records)?,
+        "pi" | "pi-coding-agent" => inject_into_pi(&session, &hub_records)?,
+        _ => {
+            return Err(ConvertError::InvalidFormat(format!(
+                "Unsupported target CLI: {target_cli}"
+            )))
+        }
+    };
+
+    index.record(
+        &session.cli,
+        &session.id,
+        canonical_target,
+        result.session_id.clone(),
+        target_path,
+    );
+    if let Err(e) = crossload_index::save(&index) {
+        eprintln!(
+            "Warning: could not persist crossload index ({e}); future re-crossloads may duplicate"
+        );
+    }
+
+    Ok(result)
+}
+
+fn normalize_target_cli(target: &str) -> &str {
+    match target {
+        "claude" | "claude-code" => "claude",
+        "codex" => "codex",
+        "gemini" | "gemini-cli" => "gemini",
+        "opencode" => "opencode",
+        "pi" | "pi-coding-agent" => "pi",
+        other => other,
+    }
+}
+
+fn resume_args_for(target: &str, session_id: &str) -> Vec<String> {
+    match target {
+        "claude" => vec!["--resume".into(), session_id.into()],
+        "codex" => vec!["resume".into(), session_id.into()],
+        "gemini" => vec!["--resume".into(), session_id.into()],
+        "opencode" => vec!["-s".into(), session_id.into()],
+        "pi" => vec!["--resume".into(), session_id.into()],
+        _ => vec!["--resume".into(), session_id.into()],
     }
 }
 
@@ -131,7 +205,7 @@ fn export_opencode_session(session_id: &str) -> Result<opencode::OpenCodeInput, 
 fn inject_into_claude(
     source: &SessionInfo,
     hub_records: &[HubRecord],
-) -> Result<InjectionResult, ConvertError> {
+) -> Result<(InjectionResult, String), ConvertError> {
     let all_claude_lines = claude::from_hub(hub_records)?;
 
     // Filter: only keep user/assistant messages with non-empty, non-system content
@@ -237,21 +311,25 @@ fn inject_into_claude(
         output_path.display()
     );
 
-    Ok(InjectionResult {
-        session_id: session_id.clone(),
-        resume_args: vec!["--resume".into(), session_id],
-        message: format!(
-            "Session '{}' from {} injected into Claude Code",
-            source.name.as_deref().unwrap_or(&source.id),
-            source.cli,
-        ),
-    })
+    let target_path = output_path.to_string_lossy().to_string();
+    Ok((
+        InjectionResult {
+            session_id: session_id.clone(),
+            resume_args: vec!["--resume".into(), session_id],
+            message: format!(
+                "Session '{}' from {} injected into Claude Code",
+                source.name.as_deref().unwrap_or(&source.id),
+                source.cli,
+            ),
+        },
+        target_path,
+    ))
 }
 
 fn inject_into_codex(
     source: &SessionInfo,
     hub_records: &[HubRecord],
-) -> Result<InjectionResult, ConvertError> {
+) -> Result<(InjectionResult, String), ConvertError> {
     let codex_lines = codex::from_hub(hub_records)?;
 
     // Generate a fresh UUID for the Codex session (Codex uses UUIDv7)
@@ -326,15 +404,19 @@ fn inject_into_codex(
     // Register in state_5.sqlite threads table for app-server resume
     register_codex_thread(&codex_home, &session_id, &output_path, &cwd, source);
 
-    Ok(InjectionResult {
-        session_id: session_id.clone(),
-        resume_args: vec!["resume".into(), session_id],
-        message: format!(
-            "Session '{}' from {} injected into Codex",
-            source.name.as_deref().unwrap_or(&source.id),
-            source.cli,
-        ),
-    })
+    let target_path = output_path.to_string_lossy().to_string();
+    Ok((
+        InjectionResult {
+            session_id: session_id.clone(),
+            resume_args: vec!["resume".into(), session_id],
+            message: format!(
+                "Session '{}' from {} injected into Codex",
+                source.name.as_deref().unwrap_or(&source.id),
+                source.cli,
+            ),
+        },
+        target_path,
+    ))
 }
 
 /// Register an injected session in the Codex state database so `codex resume <id>` works.
@@ -422,7 +504,7 @@ fn find_codex_state_db(codex_home: &std::path::Path) -> Option<std::path::PathBu
 fn inject_into_gemini(
     source: &SessionInfo,
     hub_records: &[HubRecord],
-) -> Result<InjectionResult, ConvertError> {
+) -> Result<(InjectionResult, String), ConvertError> {
     let mut session_id = extract_session_id(hub_records);
 
     // Gemini CLI validates that --resume arguments are valid UUIDs.
@@ -497,15 +579,19 @@ fn inject_into_gemini(
 
     eprintln!("Injected session to {}", output_path.display());
 
-    Ok(InjectionResult {
-        session_id: session_id.clone(),
-        resume_args: vec!["--resume".into(), session_id],
-        message: format!(
-            "Session '{}' from {} injected into Gemini CLI",
-            source.name.as_deref().unwrap_or(&source.id),
-            source.cli,
-        ),
-    })
+    let target_path = output_path.to_string_lossy().to_string();
+    Ok((
+        InjectionResult {
+            session_id: session_id.clone(),
+            resume_args: vec!["--resume".into(), session_id],
+            message: format!(
+                "Session '{}' from {} injected into Gemini CLI",
+                source.name.as_deref().unwrap_or(&source.id),
+                source.cli,
+            ),
+        },
+        target_path,
+    ))
 }
 
 fn gemini_project_slug(cwd: &str) -> String {
@@ -573,7 +659,7 @@ fn sha256_hex(input: &str) -> String {
 fn inject_into_opencode(
     source: &SessionInfo,
     hub_records: &[HubRecord],
-) -> Result<InjectionResult, ConvertError> {
+) -> Result<(InjectionResult, String), ConvertError> {
     let oc_output = opencode::from_hub(hub_records)?;
 
     let db_path = dirs::data_dir()
@@ -699,22 +785,27 @@ fn inject_into_opencode(
         slug,
     );
 
-    Ok(InjectionResult {
-        session_id: session_id.clone(),
-        resume_args: vec!["-s".into(), session_id],
-        message: format!(
-            "Session '{}' from {} injected into OpenCode (slug: {})",
-            source.name.as_deref().unwrap_or(&source.id),
-            source.cli,
-            slug,
-        ),
-    })
+    // OpenCode is DB-backed — no representative file path; entry_is_live()
+    // treats an empty target_path as always live.
+    Ok((
+        InjectionResult {
+            session_id: session_id.clone(),
+            resume_args: vec!["-s".into(), session_id],
+            message: format!(
+                "Session '{}' from {} injected into OpenCode (slug: {})",
+                source.name.as_deref().unwrap_or(&source.id),
+                source.cli,
+                slug,
+            ),
+        },
+        String::new(),
+    ))
 }
 
 fn inject_into_pi(
     source: &SessionInfo,
     hub_records: &[HubRecord],
-) -> Result<InjectionResult, ConvertError> {
+) -> Result<(InjectionResult, String), ConvertError> {
     let mut pi_lines = pi::from_hub(hub_records)?;
     if pi_lines.is_empty() {
         return Err(ConvertError::InvalidFormat(
@@ -797,15 +888,19 @@ fn inject_into_pi(
         output_path.display()
     );
 
-    Ok(InjectionResult {
-        session_id: session_id.clone(),
-        resume_args: vec!["--resume".into(), session_id],
-        message: format!(
-            "Session '{}' from {} injected into Pi",
-            source.name.as_deref().unwrap_or(&source.id),
-            source.cli,
-        ),
-    })
+    let target_path = output_path.to_string_lossy().to_string();
+    Ok((
+        InjectionResult {
+            session_id: session_id.clone(),
+            resume_args: vec!["--resume".into(), session_id],
+            message: format!(
+                "Session '{}' from {} injected into Pi",
+                source.name.as_deref().unwrap_or(&source.id),
+                source.cli,
+            ),
+        },
+        target_path,
+    ))
 }
 
 /// Encode a cwd for Pi's project-dir naming scheme: strip leading '/', replace
