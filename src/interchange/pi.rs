@@ -147,7 +147,10 @@ pub fn from_hub(records: &[HubRecord]) -> Result<Vec<Value>, ConvertError> {
                 lines.push(hub_session_to_pi(s));
             }
             HubRecord::Message(msg) => {
-                lines.push(hub_message_to_pi(msg)?);
+                let Some(pi_line) = hub_message_to_pi(msg)? else {
+                    continue;
+                };
+                lines.push(pi_line);
                 // Re-borrow to attach foreign extensions.
                 if let Some(foreign) = foreign_extensions(&msg.extensions) {
                     if let Some(line) = lines.last_mut() {
@@ -647,13 +650,16 @@ fn hub_event_to_pi(evt: &HubEvent) -> Result<Option<Value>, ConvertError> {
             }
             Ok(Some(Value::Object(out)))
         }
-        other => Err(ConvertError::InvalidFormat(format!(
-            "pi: cannot emit event type \"{other}\" as Pi record"
-        ))),
+        // Unknown event types come from cross-CLI conversion (e.g. Claude's
+        // file-history-snapshot or Gemini's info). Pi has no native record
+        // for them, so drop them rather than failing — the content is lossy
+        // across CLIs by design. Lossless Pi-native round-trips never hit
+        // this branch.
+        _ => Ok(None),
     }
 }
 
-fn hub_message_to_pi(msg: &HubMessage) -> Result<Value, ConvertError> {
+fn hub_message_to_pi(msg: &HubMessage) -> Result<Option<Value>, ConvertError> {
     let pi_ext = msg.extensions.get("pi").cloned().unwrap_or(Value::Null);
     let pi_obj = pi_ext.as_object().cloned().unwrap_or_default();
 
@@ -663,11 +669,10 @@ fn hub_message_to_pi(msg: &HubMessage) -> Result<Value, ConvertError> {
         "user" => "user",
         "assistant" => "assistant",
         "tool" => "toolResult",
-        other => {
-            return Err(ConvertError::InvalidFormat(format!(
-                "pi: cannot emit hub role \"{other}\" as Pi message"
-            )));
-        }
+        // System / other non-portable roles don't exist in Pi's record set.
+        // Drop them so cross-CLI conversion doesn't fail; Pi-native inputs
+        // never reach this arm.
+        _ => return Ok(None),
     };
 
     inner.insert("role".into(), Value::String(role.into()));
@@ -816,7 +821,7 @@ fn hub_message_to_pi(msg: &HubMessage) -> Result<Value, ConvertError> {
     );
     out.insert("message".into(), Value::Object(inner));
 
-    Ok(Value::Object(out))
+    Ok(Some(Value::Object(out)))
 }
 
 fn content_block_to_pi(block: &ContentBlock) -> Value {
