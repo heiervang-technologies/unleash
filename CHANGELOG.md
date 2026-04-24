@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.16](https://github.com/heiervang-technologies/unleash/compare/v0.1.15...v0.1.16) (2026-04-24)
+
+
+### Features
+
+* **interchange:** Pi joins cross-CLI portability matrix ([0d5695f](https://github.com/heiervang-technologies/unleash/commit/0d5695f0f77a622f754523d55ce37dbc9c29f350))
+
 ## [0.1.15](https://github.com/heiervang-technologies/unleash/compare/v0.1.14...v0.1.15) (2026-04-24)
 
 
