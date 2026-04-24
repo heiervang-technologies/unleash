@@ -125,11 +125,34 @@ pub struct InstallResult {
 }
 
 /// Version manager for code agents
-pub struct VersionManager;
+#[derive(Default, Clone, Copy)]
+pub struct VersionManager {
+    /// When true, `install_version()` and related paths skip native binary
+    /// downloads (and fall back to npm-only when applicable). Used exclusively
+    /// by tests to avoid overwriting the user's real installation. The
+    /// UNLEASH_SKIP_NATIVE_INSTALL env var flips the same switch; this field
+    /// lets tests opt in without mutating process-global state (which is
+    /// `unsafe` in modern Rust and racy under parallel test execution).
+    skip_native_download: bool,
+}
 
 impl VersionManager {
     pub fn new() -> Self {
-        Self
+        Self::default()
+    }
+
+    /// Constructor for tests: disables real native-binary downloads so tests
+    /// don't overwrite the developer's installed agent CLIs. Prefer this over
+    /// setting UNLEASH_SKIP_NATIVE_INSTALL from a test body.
+    #[cfg(test)]
+    pub fn new_for_test() -> Self {
+        Self {
+            skip_native_download: true,
+        }
+    }
+
+    fn should_skip_native_download(&self) -> bool {
+        self.skip_native_download || std::env::var("UNLEASH_SKIP_NATIVE_INSTALL").is_ok()
     }
 
     // ── Claude Code ──────────────────────────────────────────────
@@ -638,7 +661,7 @@ impl VersionManager {
     /// Tries native binary from GCS first, falls back to npm
     pub fn install_version(&self, version: &str) -> io::Result<InstallResult> {
         // Skip native download in test mode to prevent overwriting real installations
-        if std::env::var("UNLEASH_SKIP_NATIVE_INSTALL").is_ok() {
+        if self.should_skip_native_download() {
             return self.install_version_npm_only(version);
         }
 
@@ -1661,11 +1684,6 @@ impl VersionManager {
     }
 }
 
-impl Default for VersionManager {
-    fn default() -> Self {
-        Self
-    }
-}
 
 /// Canonically compare two version strings (semver-like).
 ///
@@ -2090,21 +2108,19 @@ mod tests {
         let new_path = format!("{}:{}", mock_path.display(), original_path);
 
         // SAFETY: This test runs single-threaded and restores env vars before returning
+        // PATH still needs env mutation so install_version_npm_only finds the
+        // mock `npm` shim. The previously-unsafe UNLEASH_SKIP_NATIVE_INSTALL
+        // flag is now replaced by VersionManager::new_for_test().
         unsafe {
             std::env::set_var("PATH", &new_path);
-            // Skip native GCS download — we only want to test the npm path.
-            // Without this, install_version downloads a real binary and overwrites
-            // the user's installed Claude Code version.
-            std::env::set_var("UNLEASH_SKIP_NATIVE_INSTALL", "1");
         }
 
-        let vm = VersionManager::new();
+        let vm = VersionManager::new_for_test();
         let result = vm.install_version("2.1.4");
 
-        // SAFETY: Restoring original env vars
+        // SAFETY: Restoring original PATH
         unsafe {
             std::env::set_var("PATH", original_path);
-            std::env::remove_var("UNLEASH_SKIP_NATIVE_INSTALL");
         }
 
         assert!(result.is_ok(), "install_version should not return an error");

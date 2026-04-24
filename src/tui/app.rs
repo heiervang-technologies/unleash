@@ -316,6 +316,11 @@ pub struct App {
     pub art_animation: Option<ArtAnimation>,
     /// Whether animations are enabled
     pub animations_enabled: bool,
+    /// Test-only: skip real binary downloads in install flows. Prevents the
+    /// TUI install tests from overwriting the developer's installed CLIs.
+    /// Set via test_app() constructor; not exposed in production builds.
+    #[cfg(test)]
+    pub test_skip_native_install: bool,
     /// Pending screen transition (waits for animation to complete)
     pub pending_screen: Option<Screen>,
     /// Pending external edit - content to edit in external editor
@@ -489,6 +494,8 @@ impl App {
             art_layout: ArtLayout::ArtRight,
             art_animation: None,
             animations_enabled,
+            #[cfg(test)]
+            test_skip_native_install: false,
             pending_screen: None,
             pending_external_edit: None,
             pending_profile_file_edit: None,
@@ -1974,9 +1981,13 @@ impl App {
 
             let version_clone = version.clone();
             let agent_for_state = agent.clone();
+            #[cfg(test)]
+            let skip_native = self.test_skip_native_install;
+            #[cfg(not(test))]
+            let skip_native = std::env::var("UNLEASH_SKIP_NATIVE_INSTALL").is_ok();
             let handle = thread::spawn(move || {
                 // Skip real downloads in test mode to prevent overwriting real installations
-                if std::env::var("UNLEASH_SKIP_NATIVE_INSTALL").is_ok() {
+                if skip_native {
                     let _ = tx.send(InstallStepResult::InstallComplete(InstallResult {
                         success: true,
                         stdout: "skipped (test mode)".into(),
@@ -4389,6 +4400,8 @@ mod tests {
             art_layout: ArtLayout::default(),
             art_animation: None,
             animations_enabled: true,
+            #[cfg(test)]
+            test_skip_native_install: false,
             pending_screen: None,
             pending_external_edit: None,
             pending_profile_file_edit: None,
@@ -4876,9 +4889,9 @@ mod tests {
 
     #[test]
     fn test_codex_install_sets_install_state() {
-        // Prevent real downloads from overwriting installed binaries
-        unsafe { std::env::set_var("UNLEASH_SKIP_NATIVE_INSTALL", "1"); }
         let (mut app, _temp) = test_app();
+        // Prevent real downloads from overwriting installed binaries.
+        app.test_skip_native_install = true;
         app.animations_enabled = false;
         app.screen = Screen::VersionManagement;
         app.version_agent = AgentType::Codex;
@@ -5024,9 +5037,8 @@ mod tests {
 
     #[test]
     fn test_gemini_install_sets_install_state() {
-        // Prevent real downloads from overwriting installed binaries
-        unsafe { std::env::set_var("UNLEASH_SKIP_NATIVE_INSTALL", "1"); }
         let (mut app, _temp) = test_app();
+        app.test_skip_native_install = true;
         app.animations_enabled = false;
         app.screen = Screen::VersionManagement;
         app.version_agent = AgentType::Gemini;
@@ -5049,9 +5061,8 @@ mod tests {
 
     #[test]
     fn test_opencode_install_sets_install_state() {
-        // Prevent real downloads from overwriting installed binaries
-        unsafe { std::env::set_var("UNLEASH_SKIP_NATIVE_INSTALL", "1"); }
         let (mut app, _temp) = test_app();
+        app.test_skip_native_install = true;
         app.animations_enabled = false;
         app.screen = Screen::VersionManagement;
         app.version_agent = AgentType::OpenCode;
