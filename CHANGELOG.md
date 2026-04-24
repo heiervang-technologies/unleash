@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.17](https://github.com/heiervang-technologies/unleash/compare/v0.1.16...v0.1.17) (2026-04-24)
+
+
+### Bug Fixes
+
+* **opencode:** coerce tool-role hub messages to user role ([ac10cef](https://github.com/heiervang-technologies/unleash/commit/ac10cef4a4040029bcaf022f886d9d521427d663))
+
 ## [0.1.16](https://github.com/heiervang-technologies/unleash/compare/v0.1.15...v0.1.16) (2026-04-24)
 
 
