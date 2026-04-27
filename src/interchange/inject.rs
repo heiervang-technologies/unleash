@@ -115,7 +115,7 @@ fn resume_args_for(target: &str, session_id: &str) -> Vec<String> {
         "codex" => vec!["resume".into(), session_id.into()],
         "gemini" => vec!["--resume".into(), session_id.into()],
         "opencode" => vec!["-s".into(), session_id.into()],
-        "pi" => vec!["--resume".into(), session_id.into()],
+        "pi" => vec!["--session".into(), session_id.into()],
         _ => vec!["--resume".into(), session_id.into()],
     }
 }
@@ -823,7 +823,9 @@ fn inject_into_pi(
         .unwrap_or_else(|_| source.directory.clone());
 
     // Patch the first record (must be the session header) with the new id/cwd
-    // and capture its timestamp for the filename.
+    // and capture its timestamp for the filename. Foreign sessions often arrive
+    // with an empty created_at, which would yield filenames like `_<id>.jsonl`
+    // that pi rejects with "No conversation found". Treat empty as missing.
     let timestamp = {
         let first = pi_lines
             .get_mut(0)
@@ -835,11 +837,9 @@ fn inject_into_pi(
             })?;
         first.insert("id".into(), serde_json::Value::String(session_id.clone()));
         first.insert("cwd".into(), serde_json::Value::String(cwd.clone()));
-        first
-            .get("timestamp")
-            .and_then(|t| t.as_str())
-            .map(String::from)
-            .unwrap_or_else(current_iso_timestamp)
+        let ts = pi_session_timestamp_or_now(first);
+        first.insert("timestamp".into(), serde_json::Value::String(ts.clone()));
+        ts
     };
 
     // Regenerate the parentId chain: each non-session record gets a fresh id,
@@ -892,7 +892,7 @@ fn inject_into_pi(
     Ok((
         InjectionResult {
             session_id: session_id.clone(),
-            resume_args: vec!["--resume".into(), session_id],
+            resume_args: vec!["--session".into(), session_id],
             message: format!(
                 "Session '{}' from {} injected into Pi",
                 source.name.as_deref().unwrap_or(&source.id),
@@ -901,6 +901,19 @@ fn inject_into_pi(
         },
         target_path,
     ))
+}
+
+/// Read a usable session timestamp from a Pi session header, falling back to
+/// `current_iso_timestamp()` when the field is missing or empty. Pi rejects
+/// session files whose filename stem starts with '_' (the result of an empty
+/// timestamp), so we cannot trust the foreign converter's output verbatim.
+fn pi_session_timestamp_or_now(header: &serde_json::Map<String, serde_json::Value>) -> String {
+    header
+        .get("timestamp")
+        .and_then(|t| t.as_str())
+        .filter(|s| !s.is_empty())
+        .map(String::from)
+        .unwrap_or_else(current_iso_timestamp)
 }
 
 /// Encode a cwd for Pi's project-dir naming scheme: strip leading '/', replace
@@ -1640,6 +1653,50 @@ mod tests {
         for _ in 0..1000 {
             assert!(seen.insert(short_id()));
         }
+    }
+
+    // ── pi crossload regressions ─────────────────────────────
+
+    #[test]
+    fn test_resume_args_for_pi_uses_session_flag() {
+        // pi's `--resume` is a no-arg picker; resuming a specific session
+        // requires `--session <path|id>`. inject_session must produce the
+        // latter or pi will error with "unknown option".
+        assert_eq!(
+            resume_args_for("pi", "abc-123"),
+            vec!["--session".to_string(), "abc-123".to_string()],
+        );
+    }
+
+    #[test]
+    fn test_pi_session_timestamp_fallback_when_empty() {
+        // Foreign converters (e.g. claude→hub) often leave session.created_at
+        // empty, which would land in pi's session header as "timestamp": "".
+        // The fallback must kick in for missing AND empty values, otherwise
+        // the resulting filename starts with '_' and pi rejects the file.
+        let mut empty = serde_json::Map::new();
+        empty.insert(
+            "timestamp".into(),
+            serde_json::Value::String(String::new()),
+        );
+        let ts = pi_session_timestamp_or_now(&empty);
+        assert!(!ts.is_empty(), "empty timestamp must fall back to now");
+        assert_eq!(ts.len(), 24, "fallback should be ISO-8601: {ts}");
+
+        let missing = serde_json::Map::new();
+        let ts2 = pi_session_timestamp_or_now(&missing);
+        assert_eq!(ts2.len(), 24, "missing timestamp must fall back to now");
+
+        let mut populated = serde_json::Map::new();
+        populated.insert(
+            "timestamp".into(),
+            serde_json::Value::String("2026-04-27T19:00:00.000Z".into()),
+        );
+        assert_eq!(
+            pi_session_timestamp_or_now(&populated),
+            "2026-04-27T19:00:00.000Z",
+            "populated timestamp must be preserved as-is"
+        );
     }
 
     #[test]
