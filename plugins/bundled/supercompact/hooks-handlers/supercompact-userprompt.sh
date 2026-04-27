@@ -26,8 +26,21 @@ if [[ -z "${JSONL_FILE}" || ! -f "${JSONL_FILE}" ]]; then
   exit 0
 fi
 
-# Token count check — use real tokenizer if available, fall back to byte estimate
-THRESHOLD_TOKENS=${PLUGIN_SETTING_THRESHOLD_TOKENS:-${SUPERCOMPACT_THRESHOLD_TOKENS:-200000}}
+# Source user settings so /supercompact-budget threshold <N> takes effect
+USER_SETTINGS="${HOME}/.config/unleash/plugins/supercompact/settings.env"
+if [[ -f "${USER_SETTINGS}" ]]; then
+  set -a
+  # shellcheck disable=SC1090
+  source "${USER_SETTINGS}" 2>/dev/null || true
+  set +a
+fi
+
+# THRESHOLD: when to TRIGGER preemptive auto-compaction. Should sit just below
+# the model context window (200k for cloud models) so we compact before the
+# native API auto-compact would. NOT the same as BUDGET (compression target).
+# Default 180k = 90% of 200k context window — leaves room for one or two
+# more turns to land before compaction kicks in.
+THRESHOLD_TOKENS=${PLUGIN_SETTING_THRESHOLD_TOKENS:-${SUPERCOMPACT_THRESHOLD_TOKENS:-180000}}
 THRESHOLD_BYTES=${PLUGIN_SETTING_THRESHOLD_BYTES:-${SUPERCOMPACT_THRESHOLD_BYTES:-2700000}}
 
 # Fast path: skip tokenizer if file is clearly under threshold (bytes / 16 is a safe lower bound)
@@ -55,7 +68,7 @@ else
 fi
 
 if (( OVER_THRESHOLD )); then
-  log "Threshold exceeded (file=${FILE_BYTES} bytes, threshold=${THRESHOLD_TOKENS} tokens) — triggering preemptive compaction"
+  log "THRESHOLD exceeded (file=${FILE_BYTES} bytes, tokens~=${TOKEN_COUNT:-?}, threshold=${THRESHOLD_TOKENS}) — triggering preemptive compaction (will compress to BUDGET)"
 
   # Resolve plugin root (CLAUDE_PLUGIN_ROOT is set by Claude Code for plugin hooks)
   SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
