@@ -12,6 +12,14 @@
 
 set -uo pipefail
 
+# Self-disable guard: bail if supercompact is disabled in unleash config.
+# Robust against stale hook registrations the wrapper failed to prune.
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+CHECK_ENABLED="${SCRIPT_DIR}/../scripts/check-enabled.sh"
+if [[ -x "${CHECK_ENABLED}" ]] && ! "${CHECK_ENABLED}" supercompact; then
+  exit 0
+fi
+
 LOG_DIR="${HOME}/.cache/supercompact"
 mkdir -p "${LOG_DIR}" 2>/dev/null || true
 log() { echo "$(date -Iseconds) [userprompt] $1" >> "${LOG_DIR}/hook.log" 2>/dev/null || true; }
