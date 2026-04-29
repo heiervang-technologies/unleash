@@ -103,9 +103,25 @@ pub fn to_hub<R: BufRead>(reader: R) -> Result<Vec<HubRecord>, ConvertError> {
                 ));
             }
             other => {
-                return Err(ConvertError::InvalidFormat(format!(
-                    "pi: unknown record type \"{other}\""
-                )));
+                // Unknown control record types (new pi features we haven't taught
+                // the converter about yet). Rather than failing the whole session,
+                // stash the raw JSON in an opaque event so from_hub can restore it
+                // byte-for-byte on the way out — the round-trip stays lossless and
+                // future pi versions don't break the crossloader.
+                eprintln!(
+                    "\x1b[33m⚠\x1b[0m pi: unknown record type \"{other}\" — preserving as opaque event"
+                );
+                if !session_emitted {
+                    records.push(HubRecord::Session(default_session(
+                        last_timestamp.as_deref().unwrap_or(""),
+                    )));
+                    session_emitted = true;
+                }
+                let mut evt = pi_unknown_record_to_event(&val);
+                if let Some(ext) = &foreign_ext {
+                    merge_into_extensions(&mut evt.extensions, ext);
+                }
+                records.push(HubRecord::Event(evt));
             }
         }
     }
@@ -269,6 +285,32 @@ fn pi_session_to_hub(val: &Value) -> SessionHeader {
         parent_session_id: None,
         extensions: Value::Object(
             [(String::from("pi"), Value::Object(pi_ext))]
+                .into_iter()
+                .collect(),
+        ),
+    }
+}
+
+/// Stash the entire raw record under `extensions.pi.unknown_record` so
+/// `hub_event_to_pi` can restore it verbatim. The hub event itself uses
+/// the sentinel type `pi_unknown` and carries an empty data object — all
+/// the fidelity lives in extensions.
+fn pi_unknown_record_to_event(val: &Value) -> HubEvent {
+    let timestamp = val
+        .get("timestamp")
+        .and_then(|v| v.as_str())
+        .unwrap_or("")
+        .to_string();
+
+    let mut pi_ns = Map::new();
+    pi_ns.insert("unknown_record".into(), val.clone());
+
+    HubEvent {
+        event_type: "pi_unknown".to_string(),
+        timestamp,
+        data: Value::Object(Map::new()),
+        extensions: Value::Object(
+            [(String::from("pi"), Value::Object(pi_ns))]
                 .into_iter()
                 .collect(),
         ),
@@ -622,6 +664,18 @@ fn hub_session_to_pi(session: &SessionHeader) -> Value {
 
 fn hub_event_to_pi(evt: &HubEvent) -> Result<Option<Value>, ConvertError> {
     match evt.event_type.as_str() {
+        // Opaque stash for unknown pi record types: the original record was
+        // saved verbatim under extensions.pi.unknown_record by to_hub. Restore
+        // it byte-for-byte so the round-trip is lossless even for record types
+        // the converter didn't recognize.
+        "pi_unknown" => {
+            let stashed = evt
+                .extensions
+                .get("pi")
+                .and_then(|p| p.get("unknown_record"))
+                .cloned();
+            Ok(stashed)
+        }
         "model_change" | "thinking_level_change" | "compaction" => {
             let mut out = Map::new();
             out.insert("type".into(), Value::String(evt.event_type.clone()));
@@ -1108,16 +1162,28 @@ mod tests {
         assert!((output_cost - 0.00006599999999999999_f64).abs() < 1e-20);
     }
 
+    /// Unknown record types must be preserved as opaque events rather than
+    /// failing the conversion. This makes the converter forward-compatible
+    /// with future pi record types without requiring code changes.
     #[test]
-    fn error_on_unknown_top_level_type() {
+    fn unknown_top_level_type_preserved_as_opaque_event() {
         let input = r#"{"type":"session","version":3,"id":"s","timestamp":"2026-04-21T10:36:07.238Z","cwd":"/tmp"}
 {"type":"bogus","id":"x","timestamp":"2026-04-21T10:36:07.242Z"}"#;
         let reader = std::io::BufReader::new(input.as_bytes());
-        let err = to_hub(reader).expect_err("should error on unknown type");
-        match err {
-            ConvertError::InvalidFormat(m) => assert!(m.contains("bogus"), "msg: {m}"),
-            other => panic!("wrong error variant: {other:?}"),
-        }
+        let records = to_hub(reader).expect("should not error on unknown type");
+        // Two records: the session header + the opaque event.
+        assert_eq!(records.len(), 2, "records: {records:?}");
+        let HubRecord::Event(ref evt) = records[1] else {
+            panic!("second record should be an Event, got {:?}", records[1]);
+        };
+        assert_eq!(evt.event_type, "pi_unknown");
+        let stashed = evt
+            .extensions
+            .get("pi")
+            .and_then(|p| p.get("unknown_record"))
+            .expect("raw record stashed under extensions.pi.unknown_record");
+        assert_eq!(stashed.get("type").and_then(|v| v.as_str()), Some("bogus"));
+        assert_eq!(stashed.get("id").and_then(|v| v.as_str()), Some("x"));
     }
 
     #[test]
@@ -1179,6 +1245,36 @@ mod tests {
             "{}\n{}\n",
             serde_json::to_string(&session).unwrap(),
             serde_json::to_string(&compaction).unwrap(),
+        );
+        let produced = roundtrip_lines(&input);
+        assert_lines_match(&input, &produced);
+    }
+
+    /// A pi session containing a record type the converter doesn't recognize
+    /// (e.g. a future pi feature) must round-trip losslessly via the opaque
+    /// stash: to_hub stashes the raw JSON, from_hub restores it verbatim.
+    #[test]
+    fn unknown_record_type_round_trip() {
+        let session = serde_json::json!({
+            "type": "session",
+            "version": 3,
+            "id": "019daf9c-92c6-742e-8766-1490fd1a7f43",
+            "timestamp": "2026-04-21T10:36:07.238Z",
+            "cwd": "/home/me/ht",
+        });
+        // A hypothetical future control-record type pi might add.
+        let unknown = serde_json::json!({
+            "type": "future_pi_event",
+            "id": "a1b2c3",
+            "parentId": "d4e5f6",
+            "timestamp": "2026-05-15T12:00:00.000Z",
+            "newField": {"nested": [1, 2, 3]},
+            "anotherField": "some-value",
+        });
+        let input = format!(
+            "{}\n{}\n",
+            serde_json::to_string(&session).unwrap(),
+            serde_json::to_string(&unknown).unwrap(),
         );
         let produced = roundtrip_lines(&input);
         assert_lines_match(&input, &produced);
