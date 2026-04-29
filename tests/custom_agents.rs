@@ -18,7 +18,7 @@ github_repo = "paul-gauthier/aider"
 
 [custom_agents.polyfill]
 headless = { flag = "--message" }
-session = { continue_arg = "--restore-chat-history", resume_arg = "--restore-chat-history" }
+session = { continue_strategy = { flag = "--restore-chat-history" }, resume_strategy = { flag = "--restore-chat-history" } }
 fork = "unsupported"
 model_flag = "--model"
 yolo_flag = "--yes"
@@ -51,7 +51,7 @@ binary = "aider"
 
 [custom_agents.polyfill]
 headless = { flag = "--message" }
-session = { continue_arg = "--c", resume_arg = "--r" }
+session = { continue_strategy = { flag = "--c" }, resume_strategy = { flag = "--r" } }
 fork = "unsupported"
 model_flag = "--model"
 yolo_flag = "--yes"
@@ -97,7 +97,7 @@ name = "aider"
 binary = "aider"
 [custom_agents.polyfill]
 headless = { flag = "--message" }
-session = { continue_arg = "--c", resume_arg = "--r" }
+session = { continue_strategy = { flag = "--c" }, resume_strategy = { flag = "--r" } }
 fork = "unsupported"
 model_flag = "--model"
 
@@ -107,7 +107,7 @@ binary = "cursor-cli"
 enabled = false
 [custom_agents.polyfill]
 headless = { flag = "-p" }
-session = { continue_arg = "--continue", resume_arg = "--resume" }
+session = { continue_strategy = { flag = "--continue" }, resume_strategy = { flag = "--resume" } }
 fork = "unsupported"
 model_flag = "--model"
 "#;
