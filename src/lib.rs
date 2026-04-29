@@ -30,7 +30,7 @@ mod version;
 
 use crate::agents::AgentType;
 use clap::Parser;
-use cli::{Cli, Commands};
+use cli::{Cli, Commands, ConfigAction};
 use config::ProfileManager;
 use std::env;
 use std::io;
@@ -1146,6 +1146,7 @@ pub fn run() -> io::Result<()> {
         Some(Commands::TokenCount { file, tokenizer }) => {
             token_count::handle_token_count(&file, tokenizer.as_deref())
         }
+        Some(Commands::Config { action }) => handle_config(action),
         None => {
             #[cfg(feature = "tui")]
             return tui::run();
@@ -1289,6 +1290,26 @@ mod tests {
         assert!(!is_known_subcommand("invalid-subcommand"));
         assert!(!is_known_subcommand(""));
         assert!(!is_known_subcommand("VERSION")); // case sensitive
+    }
+}
+
+fn handle_config(action: ConfigAction) -> io::Result<()> {
+    match action {
+        ConfigAction::IsPluginEnabled { name } => {
+            let manager = ProfileManager::new()?;
+            let path = manager.config_dir().join("config.toml");
+            // No config file = first run before TUI write = treat as all enabled.
+            if !path.exists() {
+                return Ok(());
+            }
+            let cfg = manager.load_app_config()?;
+            // Empty enabled_plugins = "all enabled" (backwards compat).
+            if cfg.enabled_plugins.is_empty() || cfg.enabled_plugins.contains(&name) {
+                Ok(())
+            } else {
+                std::process::exit(1);
+            }
+        }
     }
 }
 
