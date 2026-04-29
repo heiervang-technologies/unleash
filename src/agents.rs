@@ -112,6 +112,13 @@ pub struct SessionStrategy {
     pub continue_arg: String,
     /// Argument for resuming specific session (e.g., "-r", "resume")
     pub resume_arg: String,
+    /// True when resume/continue are subcommands (codex), not flags. When set,
+    /// they take over `subcommand_prefix` instead of being appended as args.
+    /// This matters when combined with a subcommand-style headless mode: without
+    /// this distinction, codex would receive `exec PROMPT resume <id>`, which
+    /// codex parses as positional args to `exec` rather than a `resume` invocation.
+    #[serde(default)]
+    pub resume_is_subcommand: bool,
 }
 
 /// Polyfill configuration for an agent
@@ -294,6 +301,7 @@ impl AgentDefinition {
                 session: SessionStrategy {
                     continue_arg: "--continue".to_string(),
                     resume_arg: "--resume".to_string(),
+                    resume_is_subcommand: false,
                 },
                 fork: ForkStrategy::Flag("--fork-session".to_string()),
                 yolo_flag: Some("--dangerously-skip-permissions".to_string()),
@@ -328,6 +336,7 @@ impl AgentDefinition {
                 session: SessionStrategy {
                     continue_arg: "resume --last".to_string(),
                     resume_arg: "resume".to_string(),
+                    resume_is_subcommand: true,
                 },
                 fork: ForkStrategy::Subcommand("fork".to_string()),
                 yolo_flag: Some("--dangerously-bypass-approvals-and-sandbox".to_string()),
@@ -362,6 +371,7 @@ impl AgentDefinition {
                 session: SessionStrategy {
                     continue_arg: "--resume latest".to_string(),
                     resume_arg: "--resume".to_string(),
+                    resume_is_subcommand: false,
                 },
                 fork: ForkStrategy::Unsupported,
                 yolo_flag: Some("--yolo".to_string()),
@@ -396,6 +406,7 @@ impl AgentDefinition {
                 session: SessionStrategy {
                     continue_arg: "--continue".to_string(),
                     resume_arg: "--session".to_string(),
+                    resume_is_subcommand: false,
                 },
                 fork: ForkStrategy::Flag("--fork".to_string()),
                 yolo_flag: None,
@@ -430,6 +441,7 @@ impl AgentDefinition {
                 session: SessionStrategy {
                     continue_arg: "--continue".to_string(),
                     resume_arg: "--resume".to_string(),
+                    resume_is_subcommand: false,
                 },
                 fork: ForkStrategy::Flag("--fork".to_string()),
                 yolo_flag: None,

@@ -290,9 +290,11 @@ fn run_agent_with_polyfill(
         _ => agents::AgentDefinition::from_type(agent_type.clone()),
     };
 
-    // Resolve polyfill flags into agent-specific args (CLI overrides profile defaults)
+    // Resolve polyfill flags into agent-specific args (CLI overrides profile defaults).
+    // Mutable because subcommand-style resume agents (codex) need re-resolution
+    // after crossload/UCF injection feeds back the injected session id.
     let flags = polyfill_args.to_polyfill_flags(&profile.defaults);
-    let resolved = polyfill::resolve(&agent_def.polyfill, &flags, &profile.agent_cli_args);
+    let mut resolved = polyfill::resolve(&agent_def.polyfill, &flags, &profile.agent_cli_args);
 
     // --dry-run: print the resolved command and exit without executing
     if polyfill_args.dry_run {
@@ -324,16 +326,34 @@ fn run_agent_with_polyfill(
         }
     };
 
+    // For subcommand-style resume agents (codex), the injected session id replaces
+    // the headless `exec` subcommand: instead of `codex exec PROMPT resume <id>`
+    // (which codex parses as positional args to `exec` and fails), we want
+    // `codex resume <id> PROMPT`. Patch `resolved.subcommand_prefix` directly so
+    // the launch builds the correct invocation. For flag-style agents, keep the
+    // existing path of appending the resume args to `extra_args`.
+    let inject_into_resume = |extra_args: &mut Vec<String>,
+                              resolved: &mut polyfill::ResolvedInvocation,
+                              session_id: &str,
+                              resume_args: Vec<String>| {
+        if agent_def.polyfill.session.resume_is_subcommand {
+            resolved.subcommand_prefix =
+                vec![agent_def.polyfill.session.resume_arg.clone(), session_id.to_string()];
+        } else {
+            extra_args.extend(resume_args);
+        }
+    };
+
     let mut ucf_active = None;
-    if let Some(ref ucf_name) = polyfill_args.ucf {
+    if let Some(ucf_name) = polyfill_args.ucf.clone() {
         if ucf_name.is_empty() {
             eprintln!("\x1b[31m✗\x1b[0m --ucf requires a session name (e.g. --ucf my-project)");
             return Ok(());
         }
-        let (session_id, resume_args) = setup_ucf_session(ucf_name, target_cli)?;
-        extra_args.extend(resume_args);
-        ucf_active = Some((ucf_name.clone(), target_cli.to_string(), session_id));
-    } else if let Some(ref crossload_query) = polyfill_args.crossload {
+        let (session_id, resume_args) = setup_ucf_session(&ucf_name, target_cli)?;
+        inject_into_resume(&mut extra_args, &mut resolved, &session_id, resume_args);
+        ucf_active = Some((ucf_name, target_cli.to_string(), session_id));
+    } else if let Some(crossload_query) = polyfill_args.crossload.clone() {
 
         let query = if crossload_query.is_empty() {
             // Interactive picker
@@ -360,8 +380,12 @@ fn run_agent_with_polyfill(
         match interchange::inject::inject_session(&query, target_cli) {
             Ok(result) => {
                 eprintln!("\x1b[32m✓\x1b[0m {}", result.message);
-                // Add resume args to launch the session
-                extra_args.extend(result.resume_args);
+                inject_into_resume(
+                    &mut extra_args,
+                    &mut resolved,
+                    &result.session_id,
+                    result.resume_args,
+                );
             }
             Err(e) => {
                 eprintln!("\x1b[31m✗\x1b[0m Crossload failed: {e}");

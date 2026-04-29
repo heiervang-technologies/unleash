@@ -113,25 +113,39 @@ pub fn resolve(
         }
     }
 
-    // --- Resume ---
-    // Resume is handled before headless because it might set a subcommand prefix
-    // (e.g. Codex) which takes precedence.
+    // --- Resume / Continue ---
+    // Subcommand-style agents (codex) put resume/continue into `subcommand_prefix`
+    // instead of args, so the resume subcommand replaces the headless `exec`
+    // subcommand cleanly. Flag-style agents append into args as before.
+    let resume_or_continue_active = flags.resume.is_some() || flags.continue_session;
     if let Some(ref resume_id) = flags.resume {
         let resume_args = config.get_resume_args(resume_id.as_deref());
-        // For data-driven simplicity, we don't deduplicate multi-arg session commands yet
-        args.extend(resume_args);
+        if config.session.resume_is_subcommand {
+            subcommand_prefix.extend(resume_args);
+        } else {
+            args.extend(resume_args);
+        }
     } else if flags.continue_session {
-        // --- Continue ---
         let continue_args = config.get_continue_args();
-        args.extend(continue_args);
+        if config.session.resume_is_subcommand {
+            subcommand_prefix.extend(continue_args);
+        } else {
+            args.extend(continue_args);
+        }
     }
 
     // --- Headless ---
-    // Only apply if neither resume nor continue is active; those modes already
-    // place the agent into a specific session and adding a headless subcommand
-    // (e.g. "exec" for Codex) would produce a garbled invocation.
+    // When resume/continue is active for a subcommand-style agent, the resume
+    // subcommand owns `subcommand_prefix`; just append the prompt as a positional
+    // arg (codex `resume <id> [PROMPT]` accepts a positional prompt).
+    // For flag-style agents, headless is skipped when a session is active,
+    // since the existing crossload/UCF path appends the resume args to extra_args
+    // *after* polyfill resolution and we want the headless flag/prompt to land
+    // alongside it.
     if let Some(ref prompt) = flags.headless {
-        if flags.resume.is_none() && !flags.continue_session {
+        if resume_or_continue_active && config.session.resume_is_subcommand {
+            args.push(prompt.clone());
+        } else if !resume_or_continue_active {
             let (h_args, h_sub) = config.get_headless_invocation(prompt);
             args.extend(h_args);
             subcommand_prefix.extend(h_sub);
@@ -399,14 +413,20 @@ mod tests {
 
     #[test]
     fn test_codex_continue_session() {
+        // Codex uses subcommand-style resume/continue, so they go into
+        // subcommand_prefix instead of args. This is what allows codex to
+        // run `codex resume --last` rather than `codex resume --last` as
+        // positional args to whatever the leading subcommand happens to be.
         let config = AgentDefinition::codex().polyfill;
         let flags = PolyfillFlags {
             continue_session: true,
             ..default_flags()
         };
         let inv = resolve(&config, &flags, &[]);
-        assert!(inv.args.contains(&"resume".to_string()));
-        assert!(inv.args.contains(&"--last".to_string()));
+        assert_eq!(
+            inv.subcommand_prefix,
+            vec!["resume".to_string(), "--last".to_string()]
+        );
     }
 
     #[test]
@@ -614,9 +634,15 @@ mod tests {
     // --- Headless suppressed by resume / continue ---
 
     #[test]
-    fn test_codex_headless_suppressed_when_resume_set() {
-        // Codex headless uses a subcommand ("exec"). When --resume is also set
-        // the two subcommands would conflict. Headless must be suppressed.
+    fn test_codex_headless_combined_with_resume() {
+        // Codex's resume is subcommand-style, so when both --resume and -p are
+        // set the resume subcommand owns the prefix and the prompt becomes a
+        // positional arg of `resume`. This produces:
+        //     codex resume <id> "PROMPT"
+        // Previously this combo was suppressed (headless dropped) because the
+        // two subcommands "exec" and "resume" would have collided as
+        //     codex exec PROMPT resume <id>
+        // which codex parses as positional args to `exec`.
         let config = AgentDefinition::codex().polyfill;
         let flags = PolyfillFlags {
             resume: Some(Some("sess-1".to_string())),
@@ -625,21 +651,22 @@ mod tests {
             ..default_flags()
         };
         let inv = resolve(&config, &flags, &[]);
-        assert!(
-            inv.subcommand_prefix.is_empty(),
-            "exec subcommand must not be added when resume is set"
+        assert_eq!(
+            inv.subcommand_prefix,
+            vec!["resume".to_string(), "sess-1".to_string()]
         );
         assert!(
-            !inv.args.contains(&"do the thing".to_string()),
-            "headless prompt must not appear"
+            inv.args.contains(&"do the thing".to_string()),
+            "headless prompt should be present as positional arg"
         );
-        // resume args should still be present
-        assert!(inv.args.contains(&"resume".to_string()));
-        assert!(inv.args.contains(&"sess-1".to_string()));
+        assert!(
+            !inv.args.contains(&"exec".to_string()),
+            "the headless `exec` subcommand must not leak into args"
+        );
     }
 
     #[test]
-    fn test_codex_headless_suppressed_when_continue_set() {
+    fn test_codex_headless_combined_with_continue() {
         let config = AgentDefinition::codex().polyfill;
         let flags = PolyfillFlags {
             continue_session: true,
@@ -648,15 +675,11 @@ mod tests {
             ..default_flags()
         };
         let inv = resolve(&config, &flags, &[]);
-        assert!(
-            inv.subcommand_prefix.is_empty(),
-            "exec subcommand must not be added when continue is set"
+        assert_eq!(
+            inv.subcommand_prefix,
+            vec!["resume".to_string(), "--last".to_string()]
         );
-        assert!(
-            !inv.args.contains(&"keep going".to_string()),
-            "headless prompt must not appear"
-        );
-        assert!(inv.args.contains(&"resume".to_string()));
+        assert!(inv.args.contains(&"keep going".to_string()));
     }
 
     #[test]
