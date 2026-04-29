@@ -1,5 +1,14 @@
 # Changelog
 
+## [0.1.18](https://github.com/heiervang-technologies/unleash/compare/v0.1.17...v0.1.18) (2026-04-29)
+
+
+### Bug Fixes
+
+* **crossload:** pi parser + empty-timestamp + codex resume/headless ([#105](https://github.com/heiervang-technologies/unleash/issues/105)) ([5f3d3dc](https://github.com/heiervang-technologies/unleash/commit/5f3d3dc24cf8772237e71ca8b0959173801ff12b))
+* **supercompact:** self-disable guard so disabled plugin can't fire stale hooks ([#103](https://github.com/heiervang-technologies/unleash/issues/103)) ([aa0c0f4](https://github.com/heiervang-technologies/unleash/commit/aa0c0f41c9758426ec989c93dde43f9a2ee4ad61))
+* **supercompact:** separate THRESHOLD from BUDGET, lower trigger to 180k ([#102](https://github.com/heiervang-technologies/unleash/issues/102)) ([c9c7b72](https://github.com/heiervang-technologies/unleash/commit/c9c7b7278a4c141bc825bec8390bc32e0160a64e))
+
 ## [0.1.17](https://github.com/heiervang-technologies/unleash/compare/v0.1.16...v0.1.17) (2026-04-24)
 
 
