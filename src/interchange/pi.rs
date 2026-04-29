@@ -84,7 +84,7 @@ pub fn to_hub<R: BufRead>(reader: R) -> Result<Vec<HubRecord>, ConvertError> {
                 }
                 records.push(HubRecord::Message(msg));
             }
-            "model_change" | "thinking_level_change" => {
+            "model_change" | "thinking_level_change" | "compaction" => {
                 if !session_emitted {
                     records.push(HubRecord::Session(default_session(
                         last_timestamp.as_deref().unwrap_or(""),
@@ -622,7 +622,7 @@ fn hub_session_to_pi(session: &SessionHeader) -> Value {
 
 fn hub_event_to_pi(evt: &HubEvent) -> Result<Option<Value>, ConvertError> {
     match evt.event_type.as_str() {
-        "model_change" | "thinking_level_change" => {
+        "model_change" | "thinking_level_change" | "compaction" => {
             let mut out = Map::new();
             out.insert("type".into(), Value::String(evt.event_type.clone()));
             if let Some(obj) = evt.data.as_object() {
@@ -1150,6 +1150,38 @@ mod tests {
         let input = include_str!("tests/fixtures/pi-sample.jsonl");
         let produced = roundtrip_lines(input);
         assert_lines_match(input, &produced);
+    }
+
+    /// Pi sessions can contain `compaction` records (auto-summary checkpoints).
+    /// `to_hub` must accept them as control events and `from_hub` must restore
+    /// them verbatim — otherwise pi sources cannot be crossloaded into anything.
+    #[test]
+    fn compaction_round_trip() {
+        let session = serde_json::json!({
+            "type": "session",
+            "version": 3,
+            "id": "019daf9c-92c6-742e-8766-1490fd1a7f43",
+            "timestamp": "2026-04-21T10:36:07.238Z",
+            "cwd": "/home/me/ht",
+        });
+        let compaction = serde_json::json!({
+            "type": "compaction",
+            "id": "3b8644e0",
+            "parentId": "4258ee64",
+            "timestamp": "2026-04-27T19:27:37.271Z",
+            "summary": "## Goal\n- (none)",
+            "firstKeptEntryId": "06dedc02",
+            "tokensBefore": 22018,
+            "details": {"readFiles": [], "modifiedFiles": []},
+            "fromHook": false,
+        });
+        let input = format!(
+            "{}\n{}\n",
+            serde_json::to_string(&session).unwrap(),
+            serde_json::to_string(&compaction).unwrap(),
+        );
+        let produced = roundtrip_lines(&input);
+        assert_lines_match(&input, &produced);
     }
 
     /// Real-world fixture round-trip. Runs the full 64-line Pi session at
