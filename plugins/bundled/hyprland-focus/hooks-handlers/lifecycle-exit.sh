@@ -11,6 +11,9 @@ WRAPPER_PID="${2:-$$}"
 
 SCRIPT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 
+# Self-disable guard: skip silently when plugin is disabled in unleash config.
+"$SCRIPT_DIR/scripts/check-enabled.sh" hyprland-focus 2>/dev/null || exit 0
+
 # Reset window to opaque
 if [[ -n "${HYPRLAND_INSTANCE_SIGNATURE:-}" ]] && [[ "${AU_HYPRLAND_FOCUS:-}" != "0" ]]; then
     timeout 3 "$SCRIPT_DIR/scripts/hypr-window-opacity.sh" reset 2>/dev/null || true

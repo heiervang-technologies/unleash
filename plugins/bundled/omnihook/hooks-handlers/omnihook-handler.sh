@@ -14,6 +14,18 @@
 
 set -euo pipefail
 
+SCRIPT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
+
+# Self-disable guard: claude --plugin-dir keeps stale plugins loaded across
+# unleash-refresh restarts even after the user disables them in the TUI.
+# Drain stdin (so we don't block whatever fed us) and exit silently.
+if ! "$SCRIPT_DIR/scripts/check-enabled.sh" omnihook 2>/dev/null; then
+    if [[ ! -t 0 ]]; then
+        exec 0</dev/null
+    fi
+    exit 0
+fi
+
 # Configuration
 QUEUE_DIR="${HOME}/.cache/unleash/omnihook"
 WRAPPER_PID="${AGENT_WRAPPER_PID:-$$}"

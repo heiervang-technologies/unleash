@@ -11,6 +11,9 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 
+# Self-disable guard: skip silently when plugin is disabled in unleash config.
+"$SCRIPT_DIR/scripts/check-enabled.sh" hyprland-focus 2>/dev/null || exit 0
+
 # Clear stale window address cache from previous sessions
 "$SCRIPT_DIR/scripts/hypr-window-opacity.sh" clear-state 2>/dev/null || true
 
