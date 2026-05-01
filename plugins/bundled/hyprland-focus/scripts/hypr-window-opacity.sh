@@ -126,8 +126,8 @@ set_opacity() {
     local addr
     addr=$(get_address) || return 1
     # Use separate hyprctl calls instead of --batch to reduce IPC complexity
-    timeout 2 hyprctl dispatch setprop "address:$addr" opacity "$active" override &>/dev/null || true
-    timeout 2 hyprctl dispatch setprop "address:$addr" opacity_inactive "$inactive" override &>/dev/null || true
+    timeout 2 hyprctl setprop "address:$addr" alpha "$active" lock &>/dev/null || true
+    timeout 2 hyprctl setprop "address:$addr" alphainactive "$inactive" lock &>/dev/null || true
 }
 
 # --- Main ---
