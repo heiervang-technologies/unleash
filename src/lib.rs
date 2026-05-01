@@ -428,6 +428,7 @@ pub(crate) fn is_known_subcommand(first_arg: &str) -> bool {
             | "convert"
             | "sandbox"
             | "token-count"
+            | "config"
             | "help"
     )
 }
@@ -1235,6 +1236,7 @@ mod tests {
             "convert",
             "sandbox",
             "token-count",
+            "config",
             "help",
         ] {
             assert!(
