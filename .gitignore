@@ -35,3 +35,4 @@ scripts/cu
 docs/superpowers/
 src/assets/candidates/
 src/assets/mascot.*.bbox.ans
+/AGENT_SYNC.md
