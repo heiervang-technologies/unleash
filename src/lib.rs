@@ -95,6 +95,31 @@ fn detect_agent_type_from_cmd_path(cmd: &str) -> Option<AgentType> {
     AgentType::from_str(cmd_name)
 }
 
+/// Resolve the binary path/name for a target CLI used by the wrapper-reentry
+/// crossload path. Prefers the user's profile (`agent_cli_path`) so that
+/// custom binary paths (e.g., a per-machine pi build) are honored, and falls
+/// back to the agent definition's default binary name when no profile exists.
+/// For unknown target names, returns the name itself as the binary.
+fn resolve_target_binary(target_cli: &str) -> String {
+    if let Ok(manager) = ProfileManager::new() {
+        if let Ok(profile) = manager.load_profile(target_cli) {
+            return profile.agent_cli_path;
+        }
+    }
+    let canonical = match target_cli {
+        "claude" | "claude-code" => Some(AgentType::Claude),
+        "codex" => Some(AgentType::Codex),
+        "gemini" | "gemini-cli" => Some(AgentType::Gemini),
+        "opencode" => Some(AgentType::OpenCode),
+        "pi" | "pi-coding-agent" => Some(AgentType::Pi),
+        _ => None,
+    };
+    match canonical {
+        Some(agent_type) => agents::AgentDefinition::from_type(agent_type).binary,
+        None => target_cli.to_string(),
+    }
+}
+
 fn codex_history_path() -> Option<std::path::PathBuf> {
     if let Some(codex_home) = env::var_os("CODEX_HOME") {
         return Some(std::path::PathBuf::from(codex_home).join("history.jsonl"));
@@ -562,6 +587,16 @@ pub fn run() -> io::Result<()> {
                         .unwrap_or("claude")
                 }
             };
+
+            // Re-bind AGENT_CMD to the target CLI's binary. The wrapper-reentry
+            // path inherits AGENT_CMD from the parent unleash session, which may
+            // point at a different agent than the crossload target. Without this,
+            // launcher::run would launch the parent's binary against
+            // target-specific resume args — e.g., claude rejecting `--session`
+            // when crossloading from claude into pi. Profile path does the
+            // equivalent set in run_agent_with_polyfill before launcher::run.
+            let target_binary = resolve_target_binary(target_cli);
+            env::set_var("AGENT_CMD", &target_binary);
 
             let mut ucf_session_id = None;
 
@@ -1179,6 +1214,27 @@ mod tests {
         assert!(!auto);
         assert_eq!(prompt.as_deref(), Some("hello"));
         assert_eq!(pass_args, vec!["--foo".to_string()]);
+    }
+
+    #[test]
+    fn test_resolve_target_binary_uses_agent_default_when_no_profile() {
+        // When no profile is registered for the target, fall back to the
+        // agent definition's canonical binary name. Guards the wrapper-reentry
+        // crossload path against silently inheriting the parent's AGENT_CMD.
+        // Use a target name that is unlikely to have a user profile on disk.
+        let resolved = resolve_target_binary("pi-coding-agent");
+        assert_eq!(resolved, "pi");
+
+        let resolved = resolve_target_binary("claude-code");
+        assert_eq!(resolved, "claude");
+    }
+
+    #[test]
+    fn test_resolve_target_binary_custom_falls_back_to_target_name() {
+        // Unknown target → AgentType::Custom → AgentDefinition::from_type
+        // returns a definition whose `binary` matches the custom name.
+        let resolved = resolve_target_binary("totally-nonexistent-agent-xyz");
+        assert_eq!(resolved, "totally-nonexistent-agent-xyz");
     }
 
     #[test]

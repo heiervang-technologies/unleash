@@ -153,8 +153,12 @@ pub fn resolve(
     // alongside it.
     if let Some(ref prompt) = flags.headless {
         if resume_or_continue_active && resume_is_subcommand {
+            // Subcommand-style resume (codex): resume subcommand owns
+            // subcommand_prefix; append prompt as a positional arg.
             args.push(prompt.clone());
-        } else if !resume_or_continue_active {
+        } else {
+            // Flag-style agents (claude, pi, gemini) or no resume active:
+            // add headless flag/subcommand normally.
             let (h_args, h_sub) = config.get_headless_invocation(prompt);
             args.extend(h_args);
             subcommand_prefix.extend(h_sub);
