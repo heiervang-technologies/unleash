@@ -61,5 +61,10 @@ fi
 # Create trigger file
 touch "${TRIGGER_FILE}"
 
+# Kill the full process tree (MCP servers, spawned shells) so they don't
+# leak across restarts and accumulate memory. Children first, then parent.
+pkill -P "${CLAUDE_PID}" 2>/dev/null || true
+sleep 0.1
+
 # Kill Claude - wrapper will handle restart
 kill -INT "${CLAUDE_PID}"

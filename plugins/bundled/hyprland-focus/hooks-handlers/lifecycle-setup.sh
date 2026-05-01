@@ -16,8 +16,8 @@ SCRIPT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 
 # Apply window rules for unleash windows
 timeout 3 hyprctl --batch \
-    "keyword windowrule float on, match:class ^(unleash)$ ; \
-     keyword windowrule opacity 0.95 0.9, match:class ^(unleash)$" \
+    "keyword windowrulev2 float, class:^(unleash)$ ; \
+     keyword windowrulev2 opacity 0.95 0.9, class:^(unleash)$" \
     2>/dev/null || true
 
 # Startup notification

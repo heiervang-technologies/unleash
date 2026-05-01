@@ -97,10 +97,9 @@ pub fn get_info() -> Option<HyprlandInfo> {
 
 // --- Window rules ---
 
-/// Set a window rule via `hyprctl keyword windowrule`.
-/// Uses the Hyprland 0.53+ syntax: `<rule>, match:<match_type> <pattern>`
+/// Set a window rule via `hyprctl keyword windowrulev2`.
 pub fn set_window_rule(rule: &str) -> io::Result<()> {
-    hyprctl(&["keyword", "windowrule", rule])?;
+    hyprctl(&["keyword", "windowrulev2", rule])?;
     Ok(())
 }
 
@@ -111,8 +110,8 @@ pub fn apply_agent_window_rules() -> io::Result<()> {
     let _ = Command::new("hyprctl")
         .args([
             "--batch",
-            "keyword windowrule float on, match:class ^(unleash)$ ; \
-             keyword windowrule opacity 0.95 0.9, match:class ^(unleash)$",
+            "keyword windowrulev2 float, class:^(unleash)$ ; \
+             keyword windowrulev2 opacity 0.95 0.9, class:^(unleash)$",
         ])
         .stdin(std::process::Stdio::null())
         .stdout(std::process::Stdio::null())
@@ -125,7 +124,7 @@ pub fn apply_agent_window_rules() -> io::Result<()> {
 #[allow(dead_code)]
 pub fn set_workspace_rule(class_match: &str, workspace: u32) -> io::Result<()> {
     set_window_rule(&format!(
-        "workspace {}, match:class ^({})$",
+        "workspace {}, class:^({})$",
         workspace, class_match
     ))
 }
