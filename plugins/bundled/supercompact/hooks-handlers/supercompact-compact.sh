@@ -244,6 +244,18 @@ if (( SC_LINES < MIN_LINES )); then
   exit 0
 fi
 
+# Budget ceiling guard — if compact.py failed to honor the budget (e.g. PyTorch
+# missing, degenerate input), reject the output so we don't restart Claude
+# with an oversized history that causes runaway memory growth.
+# JSONL is roughly 8-16 bytes/token; 12 bytes is a safe upper bound.
+MAX_BYTES=$((BUDGET * 12))
+if (( SC_BYTES > MAX_BYTES )); then
+  log "ERROR: Output ${SC_BYTES} bytes exceeds budget ceiling ${MAX_BYTES} (${BUDGET} tokens @ ~12 bytes/tok) — refusing to replace"
+  cp "${BACKUP_FILE}" "${JSONL_FILE}" 2>/dev/null || true
+  rm -f "${SC_OUTPUT}" 2>/dev/null || true
+  exit 0
+fi
+
 # --- 6. Replace JSONL ---
 # Safe to replace while Claude is running: Claude holds all messages in memory
 # and only reads the JSONL at session startup. The file on disk is append-only
