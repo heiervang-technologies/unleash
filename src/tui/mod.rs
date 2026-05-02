@@ -218,6 +218,61 @@ fn run_app(
             continue;
         }
 
+        // Check for pending custom agent TOML edit (issue #109).
+        // Open $EDITOR on the temp template, then parse the result and persist
+        // the custom agent. Any parse error is surfaced via status_message and
+        // the user is returned to the picker so they can retry.
+        if let Some(path) = app.pending_custom_agent_edit.take() {
+            disable_raw_mode()?;
+            execute!(
+                terminal.backend_mut(),
+                LeaveAlternateScreen,
+                DisableMouseCapture
+            )?;
+
+            let result = run_external_editor_file(&path);
+
+            enable_raw_mode()?;
+            execute!(
+                terminal.backend_mut(),
+                EnterAlternateScreen,
+                EnableMouseCapture
+            )?;
+
+            match result {
+                Ok(()) => match std::fs::read_to_string(&path) {
+                    Ok(text) => match app::parse_custom_agent_toml(&text) {
+                        Ok(cfg) => {
+                            app.install_custom_agent(cfg);
+                        }
+                        Err(e) => {
+                            // Re-queue the file so the user can fix it.
+                            app.status_message =
+                                Some(format!("Custom agent TOML invalid: {}", e));
+                            app.pending_custom_agent_edit = Some(path.clone());
+                            app.edit_field = app::EditField::AgentCliPicker;
+                        }
+                    },
+                    Err(e) => {
+                        app.status_message = Some(format!("Failed to read template: {}", e));
+                        app.edit_field = app::EditField::AgentCliPicker;
+                    }
+                },
+                Err(e) => {
+                    app.status_message = Some(format!("Editor error: {}", e));
+                    app.edit_field = app::EditField::AgentCliPicker;
+                }
+            }
+
+            // Cleanup if the user did not request a retry.
+            if app.pending_custom_agent_edit.is_none() {
+                let _ = std::fs::remove_file(&path);
+            }
+
+            terminal.draw(|f| app.render(f))?;
+            continue;
+        }
+
         // Check for pending profile file edit (open TOML in editor)
         if let Some(path) = app.pending_profile_file_edit.take() {
             // Leave alternate screen and disable raw mode for editor
