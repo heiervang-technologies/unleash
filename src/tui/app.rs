@@ -186,10 +186,108 @@ pub enum EditField {
     ProfileDescription,
     EnvKey,
     EnvValue,
+    /// Free-text editing of the agent CLI path (legacy; kept for back-compat / tests)
     AgentCliPath,
+    /// Cycle picker for the agent CLI (issue #109)
+    AgentCliPicker,
+    /// Sub-prompt asking how to set up a new custom agent (wizard vs. $EDITOR)
+    AgentCliCustomChoice,
+    /// Wizard step: display name for a new custom agent
+    CustomAgentName,
+    /// Wizard step: binary name
+    CustomAgentBinary,
+    /// Wizard step: headless flag (e.g. "-p") — empty switches to subcommand prompt
+    CustomAgentHeadlessFlag,
+    /// Wizard step: headless subcommand (used if flag was empty)
+    CustomAgentHeadlessSubcommand,
+    /// Wizard step: continue strategy flag (e.g. "--continue")
+    CustomAgentContinueFlag,
+    /// Wizard step: resume strategy flag (e.g. "--resume")
+    CustomAgentResumeFlag,
+    /// Wizard step: model flag (e.g. "--model")
+    CustomAgentModelFlag,
+    /// Wizard step: yolo flag (optional, blank = none)
+    CustomAgentYoloFlag,
     ClaudeArgs,
     StopPrompt,
     ThemeHex,
+}
+
+/// One entry in the agent CLI picker cycle (issue #109).
+/// Includes the existing built-in CLIs, any user-defined custom agents,
+/// and a final sentinel that opens the "Add Custom..." flow.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum AgentCliPickerEntry {
+    /// A real agent type (built-in or custom)
+    Agent(AgentType),
+    /// Sentinel — selecting this opens the custom-agent setup chooser
+    AddCustom,
+}
+
+impl AgentCliPickerEntry {
+    /// Display label rendered between the ◀ ▶ arrows
+    pub fn display_name(&self) -> String {
+        match self {
+            AgentCliPickerEntry::Agent(a) => a.display_name().into_owned(),
+            AgentCliPickerEntry::AddCustom => "+ Add Custom...".to_string(),
+        }
+    }
+}
+
+/// Build the ordered list of picker entries: built-ins, then user-defined
+/// custom agents, then the "Add Custom..." sentinel last.
+pub fn build_agent_cli_picker_entries(custom: &[AgentDefinition]) -> Vec<AgentCliPickerEntry> {
+    let mut entries: Vec<AgentCliPickerEntry> = AgentType::builtin()
+        .iter()
+        .cloned()
+        .map(AgentCliPickerEntry::Agent)
+        .collect();
+    for def in custom {
+        if let AgentType::Custom(_) = &def.agent_type {
+            entries.push(AgentCliPickerEntry::Agent(def.agent_type.clone()));
+        }
+    }
+    entries.push(AgentCliPickerEntry::AddCustom);
+    entries
+}
+
+/// Resolve the binary path for an agent type.
+/// For built-ins, prefer `which::which(<binary>)` so the profile records the
+/// resolved absolute path. Falls back to the bare binary name if `which` fails.
+pub fn resolve_agent_binary_path(
+    agent: &AgentType,
+    custom: &[AgentDefinition],
+) -> String {
+    let binary = match agent {
+        AgentType::Claude => AgentDefinition::claude().binary,
+        AgentType::Codex => AgentDefinition::codex().binary,
+        AgentType::Gemini => AgentDefinition::gemini().binary,
+        AgentType::OpenCode => AgentDefinition::opencode().binary,
+        AgentType::Pi => AgentDefinition::pi().binary,
+        AgentType::Custom(name) => custom
+            .iter()
+            .find(|d| matches!(&d.agent_type, AgentType::Custom(n) if n == name))
+            .map(|d| d.binary.clone())
+            .unwrap_or_else(|| name.clone()),
+    };
+    which::which(&binary)
+        .ok()
+        .map(|p| p.to_string_lossy().to_string())
+        .unwrap_or(binary)
+}
+
+/// Wizard scratch space for an in-progress custom agent definition (issue #109).
+#[derive(Debug, Clone, Default)]
+pub struct CustomAgentDraft {
+    pub name: String,
+    pub binary: String,
+    /// If non-empty, headless uses Flag(...) — otherwise we ask for a subcommand
+    pub headless_flag: String,
+    pub headless_subcommand: String,
+    pub continue_flag: String,
+    pub resume_flag: String,
+    pub model_flag: String,
+    pub yolo_flag: String,
 }
 
 /// State for async version installation
@@ -220,6 +318,148 @@ pub enum InstallStepResult {
 
 /// Spinner animation frames
 const SPINNER_FRAMES: &[&str] = &["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
+
+impl CustomAgentDraft {
+    /// Convert a finished wizard draft into a CustomAgentConfig that can be
+    /// persisted to AppConfig. Returns Err with a human-readable message when
+    /// required fields are missing or contradictory.
+    pub fn into_config(self) -> Result<crate::config::CustomAgentConfig, String> {
+        use crate::agents::{
+            AgentPolyfillConfig, ForkStrategy, HeadlessStrategy, ResumeStrategy, SandboxStrategy,
+            SessionStrategy,
+        };
+
+        if self.name.trim().is_empty() {
+            return Err("Custom agent name is required".into());
+        }
+        if self.binary.trim().is_empty() {
+            return Err("Custom agent binary is required".into());
+        }
+        if AgentType::from_str(self.name.trim()).is_some() {
+            return Err(format!(
+                "'{}' clashes with a built-in agent name",
+                self.name.trim()
+            ));
+        }
+
+        let headless = if !self.headless_flag.trim().is_empty() {
+            HeadlessStrategy::Flag(self.headless_flag.trim().to_string())
+        } else if !self.headless_subcommand.trim().is_empty() {
+            HeadlessStrategy::Subcommand(self.headless_subcommand.trim().to_string())
+        } else {
+            return Err("Either a headless flag or a headless subcommand is required".into());
+        };
+
+        let continue_strategy = if self.continue_flag.trim().is_empty() {
+            ResumeStrategy::Flag("--continue".to_string())
+        } else {
+            ResumeStrategy::Flag(self.continue_flag.trim().to_string())
+        };
+        let resume_strategy = if self.resume_flag.trim().is_empty() {
+            ResumeStrategy::Flag("--resume".to_string())
+        } else {
+            ResumeStrategy::Flag(self.resume_flag.trim().to_string())
+        };
+
+        let model_flag = if self.model_flag.trim().is_empty() {
+            "--model".to_string()
+        } else {
+            self.model_flag.trim().to_string()
+        };
+
+        let yolo_flag = if self.yolo_flag.trim().is_empty() {
+            None
+        } else {
+            Some(self.yolo_flag.trim().to_string())
+        };
+
+        Ok(crate::config::CustomAgentConfig {
+            name: self.name.trim().to_string(),
+            binary: self.binary.trim().to_string(),
+            description: format!("Custom agent: {}", self.name.trim()),
+            polyfill: AgentPolyfillConfig {
+                headless,
+                session: SessionStrategy {
+                    continue_strategy,
+                    resume_strategy,
+                },
+                fork: ForkStrategy::Unsupported,
+                yolo_flag,
+                model_flag,
+                effort_flag: None,
+                auto_flag: None,
+                verbose_flag: None,
+                output_format_flag: None,
+                system_prompt_flag: None,
+                allowed_tools_flag: None,
+                sandbox: SandboxStrategy::Unsupported,
+                name_flag: None,
+                add_dir_flag: None,
+                approval_mode_flag: None,
+                worktree_flag: None,
+            },
+            github_repo: None,
+            npm_package: None,
+            enabled: true,
+        })
+    }
+}
+
+/// Render a commented TOML template for a new custom agent (issue #109).
+/// Used by the "$EDITOR" path of the Add Custom... flow.
+pub fn custom_agent_toml_template() -> String {
+    r#"# unleash custom agent definition
+# Save this file to apply. Lines starting with '#' are comments.
+# Required: name, binary, polyfill.headless, polyfill.session, polyfill.fork, polyfill.model_flag.
+
+name = "my-agent"
+binary = "my-agent"
+description = "Custom agent CLI"
+# github_repo = "owner/repo"
+# npm_package = "@scope/package"
+enabled = true
+
+[polyfill]
+# Headless invocation. Pick ONE of:
+#   headless = { flag = "-p" }       # passes prompt as `--prompt-flag <text>`
+#   headless = { subcommand = "exec" } # invokes `<binary> exec <text>`
+headless = { flag = "-p" }
+
+# Session continue/resume. Each can be a flag or a subcommand.
+session = { continue_strategy = { flag = "--continue" }, resume_strategy = { flag = "--resume" } }
+
+# Fork strategy: { flag = "--fork" } | { subcommand = "fork" } | "unsupported"
+fork = "unsupported"
+
+# Model flag (required)
+model_flag = "--model"
+
+# Optional permission-bypass / yolo flag
+# yolo_flag = "--dangerously-skip-permissions"
+
+# Optional flags — uncomment to enable
+# effort_flag = "--effort"
+# auto_flag = "--full-auto"
+# verbose_flag = "--verbose"
+# output_format_flag = "--output-format"
+# system_prompt_flag = "--system-prompt"
+# allowed_tools_flag = "--allowed-tools"
+# name_flag = "--name"
+# add_dir_flag = "--add-dir"
+# approval_mode_flag = "--permission-mode"
+# worktree_flag = "--worktree"
+
+# Sandbox: "unsupported" | { boolflag = "--sandbox" } | { valueflag = ["--sandbox", "workspace-write"] }
+# sandbox = "unsupported"
+"#
+        .to_string()
+}
+
+/// Parse a custom agent TOML document (as written by the user via $EDITOR)
+/// into a CustomAgentConfig. Strips the document of comments first via toml.
+pub fn parse_custom_agent_toml(text: &str) -> Result<crate::config::CustomAgentConfig, String> {
+    toml::from_str::<crate::config::CustomAgentConfig>(text).map_err(|e| e.to_string())
+}
 
 /// Art layout configuration
 /// Controls where Claude mascot appears relative to content
@@ -370,6 +610,18 @@ pub struct App {
 
     /// All available agent types (built-in + custom from config)
     available_agents: Vec<AgentType>,
+
+    // ── Profile-edit Agent CLI picker (issue #109) ──────────────────────────
+    /// Current index within `agent_cli_picker_entries()` while EditField is
+    /// AgentCliPicker.
+    pub agent_picker_index: usize,
+    /// Choice index in the "Add Custom..." sub-prompt: 0 = wizard, 1 = editor.
+    pub agent_picker_custom_choice: usize,
+    /// In-progress wizard draft, alive while we walk the wizard fields.
+    pub custom_agent_draft: Option<CustomAgentDraft>,
+    /// Set when the editor flow needs the TUI to suspend itself and run $EDITOR
+    /// on a TOML template — handled by the run_app loop in tui/mod.rs.
+    pub pending_custom_agent_edit: Option<std::path::PathBuf>,
 }
 
 impl App {
@@ -516,6 +768,10 @@ impl App {
             discovered_plugins: Vec::new(),
             clickable_areas: Vec::new(),
             available_agents,
+            agent_picker_index: 0,
+            agent_picker_custom_choice: 0,
+            custom_agent_draft: None,
+            pending_custom_agent_edit: None,
         })
     }
 
@@ -1041,6 +1297,214 @@ impl App {
         self.editing_profile = Some(profile);
     }
 
+    // ── Agent CLI picker (issue #109) ──────────────────────────────────────
+
+    /// Build the picker entry list from the current AppConfig + built-ins.
+    pub fn agent_cli_picker_entries(&self) -> Vec<AgentCliPickerEntry> {
+        let custom: Vec<AgentDefinition> = self
+            .app_config
+            .custom_agents
+            .iter()
+            .filter(|c| c.enabled)
+            .map(AgentDefinition::from_custom_config)
+            .collect();
+        build_agent_cli_picker_entries(&custom)
+    }
+
+    /// Refresh `available_agents` (used by the version screen) after the
+    /// custom agent list changes.
+    fn refresh_available_agents(&mut self) {
+        let custom: Vec<AgentDefinition> = self
+            .app_config
+            .custom_agents
+            .iter()
+            .filter(|c| c.enabled)
+            .map(AgentDefinition::from_custom_config)
+            .collect();
+        self.available_agents = AgentType::all_with_custom(&custom);
+        self.agent_picker_menu
+            .set_items_count(self.available_agents.len());
+    }
+
+    /// Enter the cycle picker for the editing profile's agent CLI.
+    pub fn open_agent_cli_picker(&mut self) {
+        let entries = self.agent_cli_picker_entries();
+        // Default to whichever entry matches the profile's current agent_cli_path
+        let current = self
+            .editing_profile
+            .as_ref()
+            .and_then(|p| p.agent_type())
+            .unwrap_or(AgentType::Claude);
+        let idx = entries
+            .iter()
+            .position(|e| matches!(e, AgentCliPickerEntry::Agent(a) if *a == current))
+            .unwrap_or(0);
+        self.agent_picker_index = idx;
+        self.edit_field = EditField::AgentCliPicker;
+    }
+
+    /// Apply the picker selection at `agent_picker_index` to the editing profile.
+    /// Returns true if a real agent was applied (false if AddCustom was selected).
+    pub fn apply_agent_cli_picker(&mut self) -> bool {
+        let entries = self.agent_cli_picker_entries();
+        let entry = match entries.get(self.agent_picker_index) {
+            Some(e) => e.clone(),
+            None => return false,
+        };
+        match entry {
+            AgentCliPickerEntry::Agent(agent) => {
+                let custom_defs: Vec<AgentDefinition> = self
+                    .app_config
+                    .custom_agents
+                    .iter()
+                    .filter(|c| c.enabled)
+                    .map(AgentDefinition::from_custom_config)
+                    .collect();
+                let path = resolve_agent_binary_path(&agent, &custom_defs);
+                if let Some(ref mut profile) = self.editing_profile {
+                    profile.agent_cli_path = path;
+                    let _ = self.profile_manager.save_profile(profile);
+                }
+                self.sync_editing_to_selected();
+                self.status_message = Some(format!("Agent CLI: {}", agent.display_name()));
+                self.edit_field = EditField::None;
+                true
+            }
+            AgentCliPickerEntry::AddCustom => {
+                // Move into the choice sub-prompt
+                self.agent_picker_custom_choice = 0;
+                self.edit_field = EditField::AgentCliCustomChoice;
+                false
+            }
+        }
+    }
+
+    /// Handle navigation while the cycle picker is active.
+    pub fn handle_agent_cli_picker_key(&mut self, key: KeyEvent) -> Option<AppAction> {
+        let entries = self.agent_cli_picker_entries();
+        if entries.is_empty() {
+            self.edit_field = EditField::None;
+            return None;
+        }
+        match key.code {
+            KeyCode::Left | KeyCode::Char('h') => {
+                self.agent_picker_index = if self.agent_picker_index == 0 {
+                    entries.len() - 1
+                } else {
+                    self.agent_picker_index - 1
+                };
+            }
+            KeyCode::Right | KeyCode::Char('l') | KeyCode::Tab => {
+                self.agent_picker_index = (self.agent_picker_index + 1) % entries.len();
+            }
+            KeyCode::Enter | KeyCode::Char(' ') => {
+                self.apply_agent_cli_picker();
+            }
+            KeyCode::Esc | KeyCode::Char('q') => {
+                self.edit_field = EditField::None;
+            }
+            _ => {}
+        }
+        None
+    }
+
+    /// Handle the "wizard or editor?" sub-prompt.
+    pub fn handle_custom_choice_key(&mut self, key: KeyEvent) -> Option<AppAction> {
+        match key.code {
+            KeyCode::Left | KeyCode::Char('h') | KeyCode::Up | KeyCode::Char('k') => {
+                self.agent_picker_custom_choice = 0;
+            }
+            KeyCode::Right | KeyCode::Char('l') | KeyCode::Down | KeyCode::Char('j') => {
+                self.agent_picker_custom_choice = 1;
+            }
+            KeyCode::Tab => {
+                self.agent_picker_custom_choice = 1 - self.agent_picker_custom_choice;
+            }
+            KeyCode::Enter | KeyCode::Char(' ') => {
+                if self.agent_picker_custom_choice == 0 {
+                    // Start the interactive wizard
+                    self.start_custom_agent_wizard();
+                } else {
+                    // Open $EDITOR on a TOML template
+                    self.start_custom_agent_editor();
+                }
+            }
+            KeyCode::Esc => {
+                // Back to the picker
+                self.edit_field = EditField::AgentCliPicker;
+            }
+            _ => {}
+        }
+        None
+    }
+
+    /// Begin the interactive wizard for creating a new custom agent.
+    pub fn start_custom_agent_wizard(&mut self) {
+        self.custom_agent_draft = Some(CustomAgentDraft::default());
+        self.key_input = TextInput::new().with_placeholder("e.g. aider");
+        self.edit_field = EditField::CustomAgentName;
+    }
+
+    /// Begin the $EDITOR-based flow: write a TOML template to a temp file
+    /// and ask the run_app loop to open it.
+    pub fn start_custom_agent_editor(&mut self) {
+        let dir = std::env::temp_dir();
+        let path = dir.join(format!(
+            "unleash-custom-agent-{}.toml",
+            std::process::id()
+        ));
+        if let Err(e) = std::fs::write(&path, custom_agent_toml_template()) {
+            self.status_message = Some(format!("Failed to write template: {}", e));
+            self.edit_field = EditField::None;
+            return;
+        }
+        self.pending_custom_agent_edit = Some(path);
+        // Drop edit state so the main loop can suspend cleanly.
+        self.edit_field = EditField::None;
+    }
+
+    /// Apply a freshly built CustomAgentConfig: persist to AppConfig, update
+    /// the editing profile to point at it, refresh caches, and set status.
+    pub fn install_custom_agent(&mut self, agent: crate::config::CustomAgentConfig) {
+        let name = agent.name.clone();
+        let binary = agent.binary.clone();
+
+        // Replace existing entry with same name (idempotent)
+        if let Some(existing) = self
+            .app_config
+            .custom_agents
+            .iter_mut()
+            .find(|c| c.name == name)
+        {
+            *existing = agent;
+        } else {
+            self.app_config.custom_agents.push(agent);
+        }
+        let _ = self.profile_manager.save_app_config(&self.app_config);
+        self.refresh_available_agents();
+
+        // Point profile at the new custom agent
+        let resolved =
+            which::which(&binary)
+                .ok()
+                .map(|p| p.to_string_lossy().to_string())
+                .unwrap_or(binary);
+        if let Some(ref mut profile) = self.editing_profile {
+            profile.agent_cli_path = resolved;
+            let _ = self.profile_manager.save_profile(profile);
+        }
+        self.sync_editing_to_selected();
+
+        // Re-open the picker so user sees the new agent selected
+        let entries = self.agent_cli_picker_entries();
+        self.agent_picker_index = entries
+            .iter()
+            .position(|e| matches!(e, AgentCliPickerEntry::Agent(AgentType::Custom(n)) if *n == name))
+            .unwrap_or(0);
+        self.status_message = Some(format!("Custom agent '{}' added", name));
+        self.edit_field = EditField::AgentCliPicker;
+    }
+
     fn save_editing_profile(&mut self) -> io::Result<()> {
         if let Some(ref mut profile) = self.editing_profile {
             profile.env.clear();
@@ -1256,6 +1720,15 @@ impl App {
             // Up, Up, Down, Down, Left, Right, Left, Right, B, A
             self.check_konami_code(key.code);
 
+            // Picker mode: cycle picker for the agent CLI (issue #109)
+            if self.edit_field == EditField::AgentCliPicker {
+                return Ok(self.handle_agent_cli_picker_key(key));
+            }
+            // Sub-prompt for "Add Custom..." flow
+            if self.edit_field == EditField::AgentCliCustomChoice {
+                return Ok(self.handle_custom_choice_key(key));
+            }
+
             // If we're editing text, handle text input
             if self.edit_field != EditField::None {
                 return Ok(self.handle_text_input(key));
@@ -1303,6 +1776,15 @@ impl App {
             | EditField::ClaudeArgs
             | EditField::StopPrompt
             | EditField::ThemeHex => &mut self.key_input,
+            EditField::CustomAgentName
+            | EditField::CustomAgentBinary
+            | EditField::CustomAgentHeadlessFlag
+            | EditField::CustomAgentHeadlessSubcommand
+            | EditField::CustomAgentContinueFlag
+            | EditField::CustomAgentResumeFlag
+            | EditField::CustomAgentModelFlag
+            | EditField::CustomAgentYoloFlag => &mut self.key_input,
+            EditField::AgentCliPicker | EditField::AgentCliCustomChoice => return None,
             EditField::None => return None,
         };
 
@@ -1420,6 +1902,81 @@ impl App {
                             );
                         }
                     }
+                    EditField::CustomAgentName => {
+                        if let Some(draft) = self.custom_agent_draft.as_mut() {
+                            draft.name = self.key_input.value.trim().to_string();
+                        }
+                        self.key_input = TextInput::new().with_placeholder("e.g. aider");
+                        self.edit_field = EditField::CustomAgentBinary;
+                    }
+                    EditField::CustomAgentBinary => {
+                        if let Some(draft) = self.custom_agent_draft.as_mut() {
+                            draft.binary = self.key_input.value.trim().to_string();
+                        }
+                        self.key_input = TextInput::new()
+                            .with_placeholder("-p (blank to use a subcommand instead)");
+                        self.edit_field = EditField::CustomAgentHeadlessFlag;
+                    }
+                    EditField::CustomAgentHeadlessFlag => {
+                        let flag = self.key_input.value.trim().to_string();
+                        if let Some(draft) = self.custom_agent_draft.as_mut() {
+                            draft.headless_flag = flag.clone();
+                        }
+                        self.key_input = TextInput::new();
+                        if flag.is_empty() {
+                            self.key_input.placeholder = "e.g. exec".to_string();
+                            self.edit_field = EditField::CustomAgentHeadlessSubcommand;
+                        } else {
+                            self.key_input.placeholder = "--continue".to_string();
+                            self.edit_field = EditField::CustomAgentContinueFlag;
+                        }
+                    }
+                    EditField::CustomAgentHeadlessSubcommand => {
+                        if let Some(draft) = self.custom_agent_draft.as_mut() {
+                            draft.headless_subcommand = self.key_input.value.trim().to_string();
+                        }
+                        self.key_input = TextInput::new().with_placeholder("--continue");
+                        self.edit_field = EditField::CustomAgentContinueFlag;
+                    }
+                    EditField::CustomAgentContinueFlag => {
+                        if let Some(draft) = self.custom_agent_draft.as_mut() {
+                            draft.continue_flag = self.key_input.value.trim().to_string();
+                        }
+                        self.key_input = TextInput::new().with_placeholder("--resume");
+                        self.edit_field = EditField::CustomAgentResumeFlag;
+                    }
+                    EditField::CustomAgentResumeFlag => {
+                        if let Some(draft) = self.custom_agent_draft.as_mut() {
+                            draft.resume_flag = self.key_input.value.trim().to_string();
+                        }
+                        self.key_input = TextInput::new().with_placeholder("--model");
+                        self.edit_field = EditField::CustomAgentModelFlag;
+                    }
+                    EditField::CustomAgentModelFlag => {
+                        if let Some(draft) = self.custom_agent_draft.as_mut() {
+                            draft.model_flag = self.key_input.value.trim().to_string();
+                        }
+                        self.key_input = TextInput::new()
+                            .with_placeholder("optional, blank = none");
+                        self.edit_field = EditField::CustomAgentYoloFlag;
+                    }
+                    EditField::CustomAgentYoloFlag => {
+                        if let Some(draft) = self.custom_agent_draft.as_mut() {
+                            draft.yolo_flag = self.key_input.value.trim().to_string();
+                        }
+                        // Wizard complete — convert and persist.
+                        let draft = self.custom_agent_draft.take().unwrap_or_default();
+                        match draft.into_config() {
+                            Ok(cfg) => {
+                                self.install_custom_agent(cfg);
+                            }
+                            Err(e) => {
+                                self.status_message = Some(format!("Wizard error: {}", e));
+                                self.edit_field = EditField::None;
+                            }
+                        }
+                        self.key_input = TextInput::new();
+                    }
                     EditField::ProfileName => {
                         let new_name = self.key_input.value.trim().to_string();
                         if !new_name.is_empty() {
@@ -1474,6 +2031,21 @@ impl App {
                 }
             }
             KeyCode::Esc => {
+                // Drop any in-progress custom agent wizard
+                if matches!(
+                    self.edit_field,
+                    EditField::CustomAgentName
+                        | EditField::CustomAgentBinary
+                        | EditField::CustomAgentHeadlessFlag
+                        | EditField::CustomAgentHeadlessSubcommand
+                        | EditField::CustomAgentContinueFlag
+                        | EditField::CustomAgentResumeFlag
+                        | EditField::CustomAgentModelFlag
+                        | EditField::CustomAgentYoloFlag
+                ) {
+                    self.custom_agent_draft = None;
+                    self.status_message = Some("Custom agent setup cancelled".into());
+                }
                 self.edit_field = EditField::None;
                 if self.screen == Screen::EnvVarEdit {
                     self.screen = Screen::ProfileEdit;
@@ -2212,14 +2784,8 @@ impl App {
                         self.edit_field = EditField::ProfileName;
                     }
                     1 => {
-                        // Edit Agent CLI path
-                        let current = self
-                            .editing_profile
-                            .as_ref()
-                            .map(|p| p.agent_cli_path.clone())
-                            .unwrap_or_default();
-                        self.key_input = TextInput::new().with_value(&current);
-                        self.edit_field = EditField::AgentCliPath;
+                        // Agent CLI: open the cycle picker (issue #109) instead of free text.
+                        self.open_agent_cli_picker();
                     }
                     2 => {
                         // Edit arguments
@@ -2700,7 +3266,14 @@ impl App {
         match self.screen {
             Screen::Main => self.render_main_menu(frame, area),
             Screen::Profiles => self.render_profiles(frame, area),
-            Screen::ProfileEdit => self.render_profile_edit(frame, area),
+            Screen::ProfileEdit => {
+                self.render_profile_edit(frame, area);
+                if self.edit_field == EditField::AgentCliCustomChoice {
+                    self.render_custom_agent_choice_dialog(frame, frame.area());
+                } else if self.is_custom_agent_wizard_active() {
+                    self.render_custom_agent_wizard_dialog(frame, frame.area());
+                }
+            }
             Screen::EnvVarEdit => {
                 self.render_profile_edit(frame, area);
                 self.render_env_var_dialog(frame, frame.area());
@@ -3149,6 +3722,8 @@ impl App {
                     4 => self.edit_field == EditField::StopPrompt,
                     _ => false,
                 };
+            // Agent CLI picker mode (issue #109): row 1 shows ◀ Claude Code ▶
+            let is_picking_agent = i == 1 && self.edit_field == EditField::AgentCliPicker;
 
             let style = if is_selected {
                 Style::default()
@@ -3177,7 +3752,22 @@ impl App {
                 Span::styled(": ", Style::default().fg(Color::DarkGray)),
             ];
 
-            if is_editing {
+            if is_picking_agent {
+                let entries = self.agent_cli_picker_entries();
+                let label = entries
+                    .get(self.agent_picker_index)
+                    .map(|e| e.display_name())
+                    .unwrap_or_else(|| "?".to_string());
+                let arrow_style = Style::default()
+                    .fg(self.accent_color())
+                    .add_modifier(Modifier::BOLD);
+                let label_style = Style::default()
+                    .fg(Color::Yellow)
+                    .add_modifier(Modifier::BOLD);
+                spans.push(Span::styled("◀ ", arrow_style));
+                spans.push(Span::styled(label, label_style));
+                spans.push(Span::styled(" ▶", arrow_style));
+            } else if is_editing {
                 self.key_input.set_viewport_width(max_value_width);
                 let (before, at_cursor, after) = self.key_input.render_parts();
                 let cursor_style = Style::default().fg(Color::Black).bg(Color::Yellow);
@@ -3409,6 +3999,199 @@ impl App {
             .block(Block::default().style(Style::default().bg(Color::Black)))
             .wrap(Wrap { trim: false });
 
+        frame.render_widget(dialog, dialog_area);
+    }
+
+    /// Whether the in-progress custom-agent wizard owns the input loop.
+    pub fn is_custom_agent_wizard_active(&self) -> bool {
+        matches!(
+            self.edit_field,
+            EditField::CustomAgentName
+                | EditField::CustomAgentBinary
+                | EditField::CustomAgentHeadlessFlag
+                | EditField::CustomAgentHeadlessSubcommand
+                | EditField::CustomAgentContinueFlag
+                | EditField::CustomAgentResumeFlag
+                | EditField::CustomAgentModelFlag
+                | EditField::CustomAgentYoloFlag
+        )
+    }
+
+    /// Modal: "Add Custom..." setup chooser (issue #109).
+    fn render_custom_agent_choice_dialog(&self, frame: &mut Frame, area: Rect) {
+        let dialog_width = 60.min(area.width.saturating_sub(4));
+        let dialog_height = 9;
+        let dialog_x = (area.width.saturating_sub(dialog_width)) / 2;
+        let dialog_y = (area.height.saturating_sub(dialog_height)) / 2;
+        let dialog_area = Rect::new(dialog_x, dialog_y, dialog_width, dialog_height);
+        frame.render_widget(Clear, dialog_area);
+
+        let selected = Style::default()
+            .fg(self.accent_color())
+            .add_modifier(Modifier::BOLD);
+        let unselected = Style::default().fg(Color::DarkGray);
+        let wizard_style = if self.agent_picker_custom_choice == 0 {
+            selected
+        } else {
+            unselected
+        };
+        let editor_style = if self.agent_picker_custom_choice == 1 {
+            selected
+        } else {
+            unselected
+        };
+
+        let lines = vec![
+            Line::from(Span::styled(
+                "  Add Custom Agent",
+                Style::default()
+                    .fg(self.accent_color())
+                    .add_modifier(Modifier::BOLD),
+            )),
+            Line::from(""),
+            Line::from(Span::styled(
+                "  How would you like to set it up?",
+                Style::default().fg(Color::White),
+            )),
+            Line::from(""),
+            Line::from(vec![
+                Span::styled("  [ ", unselected),
+                Span::styled("Interactive wizard", wizard_style),
+                Span::styled(" ]   [ ", unselected),
+                Span::styled("Edit TOML in $EDITOR", editor_style),
+                Span::styled(" ]", unselected),
+            ]),
+            Line::from(""),
+            Line::from(Span::styled(
+                "  [←/→ choose] [Enter=confirm] [Esc=back]",
+                Style::default().fg(Color::DarkGray),
+            )),
+        ];
+
+        let dialog = Paragraph::new(lines)
+            .block(
+                Block::default()
+                    .borders(Borders::ALL)
+                    .border_style(Style::default().fg(self.accent_color()))
+                    .style(Style::default().bg(Color::Black)),
+            )
+            .wrap(Wrap { trim: false });
+        frame.render_widget(dialog, dialog_area);
+    }
+
+    /// Modal: interactive wizard for a new custom agent (issue #109).
+    fn render_custom_agent_wizard_dialog(&self, frame: &mut Frame, area: Rect) {
+        let dialog_width = 70.min(area.width.saturating_sub(4));
+        let dialog_height = 14;
+        let dialog_x = (area.width.saturating_sub(dialog_width)) / 2;
+        let dialog_y = (area.height.saturating_sub(dialog_height)) / 2;
+        let dialog_area = Rect::new(dialog_x, dialog_y, dialog_width, dialog_height);
+        frame.render_widget(Clear, dialog_area);
+
+        let (step, total, label, hint) = match self.edit_field {
+            EditField::CustomAgentName => {
+                (1, 8, "Name", "A short identifier (no spaces)")
+            }
+            EditField::CustomAgentBinary => {
+                (2, 8, "Binary", "Executable on PATH or absolute path")
+            }
+            EditField::CustomAgentHeadlessFlag => (
+                3,
+                8,
+                "Headless flag",
+                "Flag that takes a prompt (e.g. -p). Blank = use a subcommand.",
+            ),
+            EditField::CustomAgentHeadlessSubcommand => (
+                3,
+                8,
+                "Headless subcommand",
+                "Subcommand for headless invocation (e.g. exec)",
+            ),
+            EditField::CustomAgentContinueFlag => (
+                4,
+                8,
+                "Continue flag",
+                "Flag for resuming the latest session (default: --continue)",
+            ),
+            EditField::CustomAgentResumeFlag => (
+                5,
+                8,
+                "Resume flag",
+                "Flag for resuming a specific session (default: --resume)",
+            ),
+            EditField::CustomAgentModelFlag => {
+                (6, 8, "Model flag", "Flag for model selection (default: --model)")
+            }
+            EditField::CustomAgentYoloFlag => (
+                7,
+                8,
+                "Yolo flag",
+                "Permission-bypass flag (optional, blank = none)",
+            ),
+            _ => (0, 8, "", ""),
+        };
+
+        let title = format!("  Custom Agent Wizard  [{}/{}]", step, total);
+        let cursor_style = Style::default().fg(Color::Black).bg(Color::Yellow);
+        let value_style = Style::default()
+            .fg(Color::Yellow)
+            .add_modifier(Modifier::BOLD);
+
+        // Build input line with cursor
+        let mut input_spans = vec![Span::styled(
+            format!("  {}: ", label),
+            Style::default().fg(self.accent_color()),
+        )];
+        let (before, at_cursor, after) = self.key_input.render_parts();
+        if before.is_empty() && at_cursor.is_none() && self.key_input.is_empty() {
+            input_spans.push(Span::styled(" ", cursor_style));
+            input_spans.push(Span::styled(
+                self.key_input.placeholder.clone(),
+                Style::default().fg(Color::DarkGray),
+            ));
+        } else {
+            input_spans.push(Span::styled(before.to_string(), value_style));
+            match at_cursor {
+                Some(c) => input_spans.push(Span::styled(c.to_string(), cursor_style)),
+                None => input_spans.push(Span::styled(" ", cursor_style)),
+            }
+            input_spans.push(Span::styled(after.to_string(), value_style));
+        }
+
+        let lines = vec![
+            Line::from(Span::styled(
+                title,
+                Style::default()
+                    .fg(self.accent_color())
+                    .add_modifier(Modifier::BOLD),
+            )),
+            Line::from(""),
+            Line::from(Span::styled(
+                format!("  {}", hint),
+                Style::default().fg(Color::DarkGray),
+            )),
+            Line::from(""),
+            Line::from(input_spans),
+            Line::from(""),
+            Line::from(""),
+            Line::from(""),
+            Line::from(""),
+            Line::from(""),
+            Line::from(""),
+            Line::from(Span::styled(
+                "  [Enter=next] [Esc=cancel]",
+                Style::default().fg(Color::DarkGray),
+            )),
+        ];
+
+        let dialog = Paragraph::new(lines)
+            .block(
+                Block::default()
+                    .borders(Borders::ALL)
+                    .border_style(Style::default().fg(self.accent_color()))
+                    .style(Style::default().bg(Color::Black)),
+            )
+            .wrap(Wrap { trim: false });
         frame.render_widget(dialog, dialog_area);
     }
 
@@ -4422,6 +5205,10 @@ mod tests {
             discovered_plugins: Vec::new(),
             clickable_areas: Vec::new(),
             available_agents: AgentType::builtin().to_vec(),
+            agent_picker_index: 0,
+            agent_picker_custom_choice: 0,
+            custom_agent_draft: None,
+            pending_custom_agent_edit: None,
         };
 
         (app, temp)
@@ -5243,5 +6030,330 @@ mod tests {
         // Press something else — should clear pending and handle normally
         let _ = app.handle_version_input(NavAction::Down, key_for(NavAction::Down));
         assert!(!app.g_pending);
+    }
+
+    // ── Issue #109: Agent CLI cycle picker ─────────────────────────────────
+
+    /// Verify the picker contains every built-in plus a final AddCustom sentinel.
+    #[test]
+    fn test_picker_entries_default_order() {
+        let entries = build_agent_cli_picker_entries(&[]);
+        assert_eq!(entries.len(), 6);
+        assert_eq!(entries[0], AgentCliPickerEntry::Agent(AgentType::Claude));
+        assert_eq!(entries[1], AgentCliPickerEntry::Agent(AgentType::Codex));
+        assert_eq!(entries[2], AgentCliPickerEntry::Agent(AgentType::Gemini));
+        assert_eq!(entries[3], AgentCliPickerEntry::Agent(AgentType::OpenCode));
+        assert_eq!(entries[4], AgentCliPickerEntry::Agent(AgentType::Pi));
+        assert_eq!(entries[5], AgentCliPickerEntry::AddCustom);
+    }
+
+    /// Custom agents appear in the picker between built-ins and AddCustom.
+    #[test]
+    fn test_picker_entries_includes_custom() {
+        let mut def = AgentDefinition::claude();
+        def.agent_type = AgentType::Custom("aider".to_string());
+        def.name = "aider".to_string();
+        def.binary = "aider".to_string();
+        let entries = build_agent_cli_picker_entries(&[def]);
+        assert_eq!(entries.len(), 7);
+        assert_eq!(
+            entries[5],
+            AgentCliPickerEntry::Agent(AgentType::Custom("aider".to_string()))
+        );
+        assert_eq!(entries[6], AgentCliPickerEntry::AddCustom);
+    }
+
+    /// Right key advances and wraps; left key wraps backwards.
+    #[test]
+    fn test_picker_left_right_wraps() {
+        let (mut app, _temp) = test_app();
+        let mut profile = Profile::new("test");
+        profile.agent_cli_path = "claude".to_string();
+        app.load_profile_for_editing(profile);
+        app.env_menu.selected = 1;
+
+        app.open_agent_cli_picker();
+        assert_eq!(app.edit_field, EditField::AgentCliPicker);
+        // Picker initially seeded to current agent (Claude = idx 0)
+        assert_eq!(app.agent_picker_index, 0);
+
+        // Right cycles forward
+        app.handle_agent_cli_picker_key(KeyEvent::new(KeyCode::Right, KeyModifiers::NONE));
+        assert_eq!(app.agent_picker_index, 1); // Codex
+
+        // Left wraps from 1 -> 0 (Claude)
+        app.handle_agent_cli_picker_key(KeyEvent::new(KeyCode::Left, KeyModifiers::NONE));
+        assert_eq!(app.agent_picker_index, 0);
+
+        // Left from 0 wraps to last (AddCustom = 5 with no custom agents)
+        app.handle_agent_cli_picker_key(KeyEvent::new(KeyCode::Left, KeyModifiers::NONE));
+        assert_eq!(app.agent_picker_index, 5);
+
+        // Right from last wraps back to 0
+        app.handle_agent_cli_picker_key(KeyEvent::new(KeyCode::Right, KeyModifiers::NONE));
+        assert_eq!(app.agent_picker_index, 0);
+    }
+
+    /// h / l vim keys also cycle.
+    #[test]
+    fn test_picker_vim_keys_cycle() {
+        let (mut app, _temp) = test_app();
+        let profile = Profile::new("test");
+        app.load_profile_for_editing(profile);
+        app.open_agent_cli_picker();
+        app.agent_picker_index = 2;
+        app.handle_agent_cli_picker_key(KeyEvent::new(KeyCode::Char('l'), KeyModifiers::NONE));
+        assert_eq!(app.agent_picker_index, 3);
+        app.handle_agent_cli_picker_key(KeyEvent::new(KeyCode::Char('h'), KeyModifiers::NONE));
+        assert_eq!(app.agent_picker_index, 2);
+    }
+
+    /// Selecting a built-in updates profile.agent_cli_path so it points at that
+    /// agent's binary, and Profile::agent_type() resolves correctly.
+    #[test]
+    fn test_picker_select_builtin_updates_profile() {
+        let (mut app, _temp) = test_app();
+        let mut profile = Profile::new("test");
+        profile.agent_cli_path = "claude".to_string();
+        app.load_profile_for_editing(profile);
+        app.open_agent_cli_picker();
+
+        // Move to Codex (index 1) and confirm
+        app.agent_picker_index = 1;
+        let applied = app.apply_agent_cli_picker();
+        assert!(applied, "selecting a real agent should apply");
+        assert_eq!(app.edit_field, EditField::None);
+
+        let saved = app.editing_profile.as_ref().unwrap();
+        // Path should resolve to "codex" (or its absolute path on this machine).
+        // file_name() must match the codex binary so agent_type() returns Codex.
+        let file_name = std::path::Path::new(&saved.agent_cli_path)
+            .file_name()
+            .map(|n| n.to_string_lossy().to_string())
+            .unwrap_or_default();
+        assert_eq!(file_name, "codex", "agent_cli_path: {}", saved.agent_cli_path);
+        assert_eq!(saved.agent_type(), Some(AgentType::Codex));
+    }
+
+    /// Selecting AddCustom transitions to the choice sub-prompt.
+    #[test]
+    fn test_picker_select_add_custom_opens_choice() {
+        let (mut app, _temp) = test_app();
+        let profile = Profile::new("test");
+        app.load_profile_for_editing(profile);
+        app.open_agent_cli_picker();
+        let entries = app.agent_cli_picker_entries();
+        app.agent_picker_index = entries.len() - 1; // AddCustom
+
+        let applied = app.apply_agent_cli_picker();
+        assert!(!applied, "AddCustom should not apply directly");
+        assert_eq!(app.edit_field, EditField::AgentCliCustomChoice);
+    }
+
+    /// After a custom agent is added to AppConfig, it appears in the cycle.
+    #[test]
+    fn test_custom_agent_appears_in_cycle() {
+        let (mut app, _temp) = test_app();
+        // Inject a custom agent directly
+        let cfg = crate::config::CustomAgentConfig {
+            name: "aider".to_string(),
+            binary: "aider".to_string(),
+            description: "test".to_string(),
+            polyfill: AgentDefinition::claude().polyfill,
+            github_repo: None,
+            npm_package: None,
+            enabled: true,
+        };
+        app.app_config.custom_agents.push(cfg);
+
+        let entries = app.agent_cli_picker_entries();
+        // 5 builtins + 1 custom + AddCustom = 7
+        assert_eq!(entries.len(), 7);
+        assert!(matches!(
+            &entries[5],
+            AgentCliPickerEntry::Agent(AgentType::Custom(n)) if n == "aider"
+        ));
+    }
+
+    /// Wizard happy path: walking all steps yields a valid CustomAgentConfig.
+    #[test]
+    fn test_wizard_happy_path_produces_config() {
+        let draft = CustomAgentDraft {
+            name: "aider".to_string(),
+            binary: "aider".to_string(),
+            headless_flag: "--message".to_string(),
+            headless_subcommand: String::new(),
+            continue_flag: "--restore-chat-history".to_string(),
+            resume_flag: "--restore-chat-history".to_string(),
+            model_flag: "--model".to_string(),
+            yolo_flag: "--yes".to_string(),
+        };
+        let cfg = draft.into_config().expect("draft should produce a config");
+        assert_eq!(cfg.name, "aider");
+        assert_eq!(cfg.binary, "aider");
+        assert_eq!(cfg.polyfill.model_flag, "--model");
+        assert_eq!(cfg.polyfill.yolo_flag, Some("--yes".to_string()));
+        assert!(cfg.enabled);
+    }
+
+    /// Wizard rejects missing binary.
+    #[test]
+    fn test_wizard_rejects_empty_binary() {
+        let draft = CustomAgentDraft {
+            name: "aider".to_string(),
+            binary: String::new(),
+            headless_flag: "-p".to_string(),
+            ..Default::default()
+        };
+        assert!(draft.into_config().is_err());
+    }
+
+    /// Wizard rejects names that clash with built-ins.
+    #[test]
+    fn test_wizard_rejects_builtin_name_clash() {
+        let draft = CustomAgentDraft {
+            name: "claude".to_string(),
+            binary: "claude".to_string(),
+            headless_flag: "-p".to_string(),
+            ..Default::default()
+        };
+        assert!(draft.into_config().is_err());
+    }
+
+    /// Wizard requires either a headless flag or subcommand.
+    #[test]
+    fn test_wizard_requires_headless_strategy() {
+        let draft = CustomAgentDraft {
+            name: "aider".to_string(),
+            binary: "aider".to_string(),
+            ..Default::default()
+        };
+        assert!(draft.into_config().is_err());
+    }
+
+    /// install_custom_agent persists to AppConfig and points the editing
+    /// profile at the new binary.
+    #[test]
+    fn test_install_custom_agent_persists_and_selects() {
+        let (mut app, _temp) = test_app();
+        let mut profile = Profile::new("test");
+        profile.agent_cli_path = "claude".to_string();
+        app.load_profile_for_editing(profile);
+
+        let cfg = crate::config::CustomAgentConfig {
+            name: "myagent".to_string(),
+            binary: "myagent".to_string(),
+            description: "test".to_string(),
+            polyfill: AgentDefinition::claude().polyfill,
+            github_repo: None,
+            npm_package: None,
+            enabled: true,
+        };
+        app.install_custom_agent(cfg);
+
+        // Persisted to AppConfig
+        assert!(app
+            .app_config
+            .custom_agents
+            .iter()
+            .any(|c| c.name == "myagent"));
+        // Profile points at it (agent_cli_path file_name == "myagent")
+        let saved = app.editing_profile.as_ref().unwrap();
+        let fname = std::path::Path::new(&saved.agent_cli_path)
+            .file_name()
+            .map(|n| n.to_string_lossy().to_string())
+            .unwrap_or_default();
+        assert_eq!(fname, "myagent");
+        // Picker is re-opened with the new agent selected
+        assert_eq!(app.edit_field, EditField::AgentCliPicker);
+        let entries = app.agent_cli_picker_entries();
+        assert!(matches!(
+            entries.get(app.agent_picker_index),
+            Some(AgentCliPickerEntry::Agent(AgentType::Custom(n))) if n == "myagent"
+        ));
+    }
+
+    /// The TOML template parses cleanly: filling in default values produces a
+    /// valid CustomAgentConfig.
+    #[test]
+    fn test_toml_template_parses_with_defaults() {
+        let template = custom_agent_toml_template();
+        let cfg =
+            parse_custom_agent_toml(&template).expect("default template should parse cleanly");
+        assert_eq!(cfg.name, "my-agent");
+        assert_eq!(cfg.binary, "my-agent");
+        assert_eq!(cfg.polyfill.model_flag, "--model");
+    }
+
+    /// User-edited TOML round-trips through parse_custom_agent_toml.
+    #[test]
+    fn test_parse_custom_agent_toml_user_doc() {
+        let toml = r#"
+name = "aider"
+binary = "aider"
+description = "AI pair programming"
+enabled = true
+
+[polyfill]
+headless = { flag = "--message" }
+session = { continue_strategy = { flag = "--c" }, resume_strategy = { flag = "--r" } }
+fork = "unsupported"
+model_flag = "--model"
+yolo_flag = "--yes"
+"#;
+        let cfg = parse_custom_agent_toml(toml).expect("user TOML should parse");
+        assert_eq!(cfg.name, "aider");
+        assert_eq!(cfg.polyfill.yolo_flag, Some("--yes".to_string()));
+    }
+
+    /// The picker exits cleanly on Esc without mutating the profile.
+    #[test]
+    fn test_picker_esc_cancels() {
+        let (mut app, _temp) = test_app();
+        let mut profile = Profile::new("test");
+        profile.agent_cli_path = "claude".to_string();
+        let original = profile.agent_cli_path.clone();
+        app.load_profile_for_editing(profile);
+        app.open_agent_cli_picker();
+
+        // Cycle right then Esc
+        app.handle_agent_cli_picker_key(KeyEvent::new(KeyCode::Right, KeyModifiers::NONE));
+        app.handle_agent_cli_picker_key(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE));
+        assert_eq!(app.edit_field, EditField::None);
+        assert_eq!(
+            app.editing_profile.as_ref().unwrap().agent_cli_path,
+            original
+        );
+    }
+
+    /// The custom-choice prompt routes Enter on the wizard option to
+    /// EditField::CustomAgentName, and on the editor option queues a temp file.
+    #[test]
+    fn test_custom_choice_dispatches() {
+        let (mut app, _temp) = test_app();
+        app.load_profile_for_editing(Profile::new("test"));
+
+        // Wizard
+        app.edit_field = EditField::AgentCliCustomChoice;
+        app.agent_picker_custom_choice = 0;
+        app.handle_custom_choice_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
+        assert_eq!(app.edit_field, EditField::CustomAgentName);
+        assert!(app.custom_agent_draft.is_some());
+
+        // Editor
+        app.custom_agent_draft = None;
+        app.edit_field = EditField::AgentCliCustomChoice;
+        app.agent_picker_custom_choice = 1;
+        app.handle_custom_choice_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
+        let path = app
+            .pending_custom_agent_edit
+            .as_ref()
+            .expect("editor flow should queue a temp file");
+        assert!(
+            path.exists(),
+            "template should be written before editor runs"
+        );
+        // Cleanup so we don't leave files in /tmp
+        let _ = std::fs::remove_file(path);
     }
 }
