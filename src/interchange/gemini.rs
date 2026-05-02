@@ -41,9 +41,24 @@ pub fn to_hub(data: &[u8]) -> Result<Vec<HubRecord>, ConvertError> {
         };
         match role_raw.as_str() {
             "user" | "gemini" => {
+                // If a full HubMessage was stashed via `_ucf_hub.message`,
+                // restore it verbatim — the Gemini shape can lose mixed
+                // content variants and Hub-only metadata, but the stashed
+                // blob captures everything the foreign source produced.
+                if let Some(stashed) = msg
+                    .get("_ucf_hub")
+                    .and_then(|u| u.get("message"))
+                    .cloned()
+                {
+                    if let Ok(hub_msg) = serde_json::from_value::<HubMessage>(stashed) {
+                        records.push(HubRecord::Message(hub_msg));
+                        continue;
+                    }
+                }
+
                 let mut hub_msg = message_to_hub(msg, foreign_session)?;
                 let mut results = Vec::new();
-                
+
                 // Gemini bundles ToolUse and ToolResult in the same assistant message.
                 // The Hub format expects ToolResults in a subsequent user message.
                 hub_msg.content.retain(|b| {
@@ -54,7 +69,7 @@ pub fn to_hub(data: &[u8]) -> Result<Vec<HubRecord>, ConvertError> {
                         true
                     }
                 });
-                
+
                 let result_msg = if !results.is_empty() {
                     Some(HubMessage {
                         id: format!("{}_results", hub_msg.id),
@@ -143,12 +158,14 @@ pub fn from_hub(records: &[HubRecord]) -> Result<Value, ConvertError> {
 
     // If the hub session came from a non-Gemini source, stash the whole
     // SessionHeader so the hub → gemini → hub round trip is lossless.
+    let mut foreign_source = false;
     if let Some(HubRecord::Session(s)) = records
         .iter()
         .find(|r| matches!(r, HubRecord::Session(_)))
     {
         if s.source_cli != "gemini-cli" {
             session_passthrough = Some(serde_json::to_value(s)?);
+            foreign_source = true;
         }
     }
 
@@ -192,8 +209,18 @@ pub fn from_hub(records: &[HubRecord]) -> Result<Value, ConvertError> {
             }
         }
     } else {
-        // Cross-CLI path: reconstruct from hub content
-        let normalized_records = normalize_hub_records_for_gemini(records);
+        // Cross-CLI path: reconstruct from hub content. When the hub was
+        // sourced from a non-Gemini CLI, skip the Gemini-specific
+        // normalization (tool-result re-pairing, empty-text stripping,
+        // adjacent-role merging) — those passes lose message boundaries that
+        // a foreign source needs preserved. Instead, emit one Gemini message
+        // per hub message and stash the full HubMessage under
+        // `_ucf_hub.message` so `to_hub` can restore it byte-for-byte.
+        let normalized_records: Vec<HubRecord> = if foreign_source {
+            records.to_vec()
+        } else {
+            normalize_hub_records_for_gemini(records)
+        };
         for record in &normalized_records {
             match record {
                 HubRecord::Session(s) => {
@@ -215,6 +242,13 @@ pub fn from_hub(records: &[HubRecord]) -> Result<Value, ConvertError> {
                     // cross-CLI round trips preserve dual-timestamp semantics.
                     if let Some(ref ca) = msg.completed_at {
                         attach_ucf_hub_field(&mut gm, "completed_at", Value::String(ca.clone()));
+                    }
+                    if foreign_source {
+                        attach_ucf_hub_field(
+                            &mut gm,
+                            "message",
+                            serde_json::to_value(msg)?,
+                        );
                     }
                     messages.push(gm);
                 }
