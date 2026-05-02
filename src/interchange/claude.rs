@@ -86,6 +86,10 @@ pub fn from_hub(records: &[HubRecord]) -> Result<Vec<Value>, ConvertError> {
     let mut session_id = String::new();
     let mut version = String::new();
     let mut session_passthrough: Option<Value> = None;
+    // Whether to stash the entire HubMessage on each line for cross-CLI
+    // lossless round-trip. Native Claude sources don't need this — their own
+    // schema already captures everything. Foreign sources do.
+    let mut stash_messages = false;
 
     for record in records {
         match record {
@@ -97,10 +101,15 @@ pub fn from_hub(records: &[HubRecord]) -> Result<Vec<Value>, ConvertError> {
                 // ucf_version, title, slug, parent_session_id natively.
                 if s.source_cli != "claude-code" {
                     session_passthrough = Some(serde_json::to_value(s)?);
+                    stash_messages = true;
                 }
             }
             HubRecord::Message(msg) => {
-                lines.push(hub_message_to_claude(msg, &session_id, &version)?);
+                let mut line = hub_message_to_claude(msg, &session_id, &version)?;
+                if stash_messages {
+                    attach_ucf_hub_field(&mut line, "message", serde_json::to_value(msg)?);
+                }
+                lines.push(line);
             }
             HubRecord::Event(evt) => {
                 lines.push(hub_event_to_claude(evt, &session_id, &version)?);
@@ -206,7 +215,7 @@ fn message_to_hub(
         .and_then(|v| v.as_str())
         .map(String::from);
 
-    Ok(HubMessage {
+    let mut hub_msg = HubMessage {
         id: str_field(val, "uuid"),
         api_message_id: message.and_then(|m| opt_str(m, "id")),
         parent_id: opt_str(val, "parentUuid"),
@@ -216,7 +225,24 @@ fn message_to_hub(
         content,
         metadata,
         extensions: ext,
-    })
+    };
+
+    // If a full HubMessage was stashed via `_ucf_hub.message`, restore it
+    // verbatim so cross-CLI round-trips preserve every hub field that has no
+    // native Claude representation (mixed-content blocks, foreign metadata,
+    // etc.). Foreign extensions stashed under `_ucf_hub.ext` are already part
+    // of the stashed message, so this takes precedence.
+    if let Some(stashed) = val
+        .get("_ucf_hub")
+        .and_then(|u| u.get("message"))
+        .cloned()
+    {
+        if let Ok(restored) = serde_json::from_value::<HubMessage>(stashed) {
+            hub_msg = restored;
+        }
+    }
+
+    Ok(hub_msg)
 }
 
 fn build_claude_extensions(val: &Value, msg_type: &str) -> Value {
@@ -434,9 +460,21 @@ fn extract_metadata(val: &Value, msg_type: &str) -> MessageMetadata {
                     .get("cache_read_input_tokens")
                     .and_then(|v| v.as_u64())
                     .unwrap_or(0),
-                reasoning: 0,
-                tool: 0,
-                total: 0,
+                // Claude has no native reasoning/tool/total token fields, but we
+                // stash them in usage when writing from foreign hubs so a round
+                // trip preserves the counts. Read them back here.
+                reasoning: u
+                    .get("reasoning_tokens")
+                    .and_then(|v| v.as_u64())
+                    .unwrap_or(0),
+                tool: u
+                    .get("tool_tokens")
+                    .and_then(|v| v.as_u64())
+                    .unwrap_or(0),
+                total: u
+                    .get("total_tokens")
+                    .and_then(|v| v.as_u64())
+                    .unwrap_or(0),
             }),
             stop_reason: message.and_then(|m| opt_str(m, "stop_reason")),
             cwd: opt_str(val, "cwd"),
@@ -557,6 +595,17 @@ fn hub_message_to_claude(
                 "cache_creation_input_tokens": tokens.cache_creation,
                 "cache_read_input_tokens": tokens.cache_read,
             });
+            // Stash hub fields Claude has no native slot for so a round trip
+            // preserves them. `to_hub` reads them back into the hub TokenUsage.
+            if tokens.reasoning > 0 {
+                usage["reasoning_tokens"] = serde_json::json!(tokens.reasoning);
+            }
+            if tokens.tool > 0 {
+                usage["tool_tokens"] = serde_json::json!(tokens.tool);
+            }
+            if tokens.total > 0 {
+                usage["total_tokens"] = serde_json::json!(tokens.total);
+            }
             // Restore extra usage fields
             if let Some(extra) = cc.get("usage_extra") {
                 if let Some(obj) = extra.as_object() {
