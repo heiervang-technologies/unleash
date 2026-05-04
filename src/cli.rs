@@ -639,13 +639,14 @@ pub enum Commands {
     /// Run agents in a sandboxed Docker container with gVisor + LAN isolation
     ///
     /// Examples:
-    ///   unleash sandbox setup          # One-time: install gVisor, create network, build image
-    ///   unleash sandbox claude          # Run Claude Code in the sandbox
+    ///   unleash sandbox                 # Launch the interactive setup wizard
+    ///   unleash sandbox setup           # Same wizard (alias for back-compat)
+    ///   unleash sandbox run claude      # Run Claude Code in the sandbox
     ///   unleash sandbox status          # Check sandbox health
     ///   unleash sandbox allow-ip X      # Open a LAN IP for local API access
     Sandbox {
         #[command(subcommand)]
-        action: crate::sandbox::SandboxAction,
+        action: Option<crate::sandbox::SandboxAction>,
     },
 
     /// Count tokens in a file using tiktoken (cl100k_base) or a HuggingFace tokenizer

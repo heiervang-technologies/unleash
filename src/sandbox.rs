@@ -16,6 +16,18 @@ use std::process::{Command, Stdio};
 const DOCKER_IMAGE: &str = "marksverdhei/unleash";
 const DOCKER_TAG: &str = "latest";
 
+/// Canonical environment-variable keys the sandbox wizard surfaces by default.
+/// These match the API keys the wrapped agent CLIs read at runtime.
+pub const CANONICAL_ENV_KEYS: &[&str] = &[
+    "ANTHROPIC_API_KEY",
+    "CLAUDE_CODE_OAUTH_TOKEN",
+    "OPENAI_API_KEY",
+    "GEMINI_API_KEY",
+    "OPENROUTER_API_KEY",
+    "LOCAL_API_BASE",
+    "OPENAI_BASE_URL",
+];
+
 /// Embedded copy of the repo's docker/ directory, baked into the binary so that
 /// `sandbox setup` works even after `cp unleash ~/.local/bin/` with no repo.
 static EMBEDDED_DOCKER: Dir<'_> = include_dir!("$CARGO_MANIFEST_DIR/docker");
@@ -56,7 +68,7 @@ fn ensure_installed_docker_dir() -> io::Result<PathBuf> {
 }
 
 /// Find the docker/ directory relative to the unleash binary or repo root.
-fn find_docker_dir() -> Option<PathBuf> {
+pub fn find_docker_dir() -> Option<PathBuf> {
     // 1. User-local install: ~/.local/share/unleash/docker/
     if let Some(data_dir) = dirs::data_dir() {
         let local_path = data_dir.join("unleash").join("docker");
@@ -94,7 +106,7 @@ fn find_docker_dir() -> Option<PathBuf> {
 /// Like `find_docker_dir` but falls back to extracting the embedded docker/ tree
 /// into `~/.local/share/unleash/docker/`. Always succeeds (or returns an error
 /// with a clear remediation message).
-fn find_or_install_docker_dir() -> io::Result<PathBuf> {
+pub fn find_or_install_docker_dir() -> io::Result<PathBuf> {
     if let Some(dir) = find_docker_dir() {
         return Ok(dir);
     }
@@ -135,7 +147,12 @@ fn run_command_output(cmd: &str, args: &[&str]) -> io::Result<String> {
     Ok(String::from_utf8_lossy(&output.stdout).to_string())
 }
 
-fn is_root() -> bool {
+/// Returns true if the current process is root (uid 0).
+///
+/// The wizard *should not* be running as root — it shells out to sudo
+/// per privileged step. We use this only to *warn* a user who somehow
+/// got here as root that they should run as their normal user.
+pub fn is_root() -> bool {
     // Check UID via /proc or id command
     std::fs::read_to_string("/proc/self/status")
         .ok()
@@ -149,27 +166,13 @@ fn is_root() -> bool {
         .unwrap_or(false)
 }
 
-fn needs_sudo(action: &str) -> io::Result<()> {
-    if !is_root() {
-        eprintln!(
-            "\x1b[31merror:\x1b[0m `unleash sandbox {}` needs root to install gVisor, \
-             set iptables rules, and restart docker.",
-            action
-        );
-        eprintln!("       Re-run as: \x1b[1msudo unleash sandbox {}\x1b[0m", action);
-        // Empty-string error — main() suppresses the duplicate "error:" line.
-        return Err(io::Error::other(""));
-    }
-    Ok(())
-}
-
 /// Check if gVisor (runsc) is installed
-fn gvisor_installed() -> bool {
+pub fn gvisor_installed() -> bool {
     check_command_exists("runsc")
 }
 
 /// Check if Docker is running
-fn docker_running() -> bool {
+pub fn docker_running() -> bool {
     Command::new("docker")
         .args(["info"])
         .stdout(Stdio::null())
@@ -180,7 +183,7 @@ fn docker_running() -> bool {
 }
 
 /// Check if the sandbox network exists
-fn network_exists() -> bool {
+pub fn network_exists() -> bool {
     Command::new("docker")
         .args(["network", "inspect", "unleash-sandbox"])
         .stdout(Stdio::null())
@@ -196,7 +199,7 @@ fn network_exists() -> bool {
 ///   - raw/PREROUTING (pre-DNAT; catches k8s NodePorts, Docker port-maps)
 ///   - DOCKER-USER   (container → other LAN hosts via FORWARD)
 ///   - INPUT         (container → Docker host itself)
-fn iptables_rules_active() -> bool {
+pub fn iptables_rules_active() -> bool {
     // Silence stderr — without root, iptables prints noisy lock errors we don't care about.
     let raw_ok = Command::new("iptables")
         .args(["-t", "raw", "-C", "PREROUTING",
@@ -221,7 +224,7 @@ fn iptables_rules_active() -> bool {
 }
 
 /// Check if the unleash Docker image exists (either local or pulled)
-fn image_exists() -> bool {
+pub fn image_exists() -> bool {
     let full_image = format!("{}:{}", DOCKER_IMAGE, DOCKER_TAG);
     // Check for both the pulled name and a local "unleash:latest" alias
     for name in &[full_image.as_str(), "unleash:latest"] {
@@ -257,25 +260,475 @@ fn image_name() -> String {
 }
 
 /// Check if the .env file exists in the docker directory
-fn env_file_exists(docker_dir: &Path) -> bool {
+pub fn env_file_exists(docker_dir: &Path) -> bool {
     docker_dir.join(".env").exists()
+}
+
+// ─── Step functions ─────────────────────────────────────────
+//
+// Each step is a small function returning a structured outcome.
+// The CLI `run_setup` runs them in order and prints colored output.
+// The TUI wizard (see tui::app) calls them individually so it can
+// render per-step status, retry, or skip.
+
+/// Why a step failed (used by both CLI and TUI to suggest next actions).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum StepFailure {
+    /// Docker daemon isn't running. User must start it.
+    DockerNotRunning,
+    /// Architecture isn't supported for the gVisor binary release.
+    UnsupportedArch,
+    /// `sudo` not available on this system.
+    SudoMissing,
+    /// User cancelled the sudo password prompt or auth failed.
+    SudoAuth,
+    /// No TTY available — sudo can't prompt for a password.
+    NoTty,
+    /// Network setup script not found at the expected path.
+    ScriptMissing(PathBuf),
+    /// Docker image pull failed *and* repo source for a local build is absent.
+    PullFailedNoSource(String),
+    /// Generic recoverable error with a human-readable message.
+    Recoverable(String),
+}
+
+impl StepFailure {
+    /// Human-readable summary suitable for the TUI details pane.
+    pub fn message(&self) -> String {
+        match self {
+            StepFailure::DockerNotRunning => "Docker daemon is not running.".into(),
+            StepFailure::UnsupportedArch => {
+                "Unsupported CPU architecture — only x86_64 and aarch64 have prebuilt gVisor binaries.".into()
+            }
+            StepFailure::SudoMissing => {
+                "`sudo` is not installed on PATH. Install sudo or run as a user with passwordless privilege escalation.".into()
+            }
+            StepFailure::SudoAuth => {
+                "sudo authentication was cancelled or failed. Retry?".into()
+            }
+            StepFailure::NoTty => {
+                "This step needs an interactive sudo prompt. Run the wizard from a terminal, or pre-authorize with `sudo -v` first.".into()
+            }
+            StepFailure::ScriptMissing(p) => {
+                format!("sandbox-network.sh not found at {}", p.display())
+            }
+            StepFailure::PullFailedNoSource(img) => format!(
+                "`docker pull {}` failed and the repo source isn't available for a local build.",
+                img
+            ),
+            StepFailure::Recoverable(s) => s.clone(),
+        }
+    }
+
+    /// Concrete next-step suggestion(s) shown alongside the error.
+    pub fn next_actions(&self) -> Vec<String> {
+        match self {
+            StepFailure::DockerNotRunning => vec![
+                "Start Docker: sudo systemctl start docker".into(),
+                "Then retry this step.".into(),
+            ],
+            StepFailure::UnsupportedArch => vec![
+                "Build gVisor from source (see https://gvisor.dev/docs/user_guide/install/), then retry.".into(),
+            ],
+            StepFailure::SudoMissing => vec![
+                "Install sudo (e.g. `pacman -S sudo` / `apt install sudo`).".into(),
+                "Or run the manual setup steps directly (docker/sandbox-network.sh).".into(),
+            ],
+            StepFailure::SudoAuth => vec![
+                "Retry — you'll be prompted for your password again.".into(),
+                "Or run `sudo -v` in another terminal first to cache credentials.".into(),
+            ],
+            StepFailure::NoTty => vec![
+                "Open the wizard in an interactive terminal.".into(),
+                "Or pre-authorize: `sudo -v` then re-run.".into(),
+            ],
+            StepFailure::ScriptMissing(_) => vec![
+                "Reinstall unleash, or run from inside the unleash repo.".into(),
+            ],
+            StepFailure::PullFailedNoSource(img) => vec![
+                format!("Check network connectivity and retry: docker pull {}", img),
+                "Or run the wizard from inside the unleash repo to enable local build fallback.".into(),
+            ],
+            StepFailure::Recoverable(_) => vec!["Retry the step.".into()],
+        }
+    }
+}
+
+impl std::fmt::Display for StepFailure {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&self.message())
+    }
+}
+
+impl From<StepFailure> for io::Error {
+    fn from(f: StepFailure) -> Self {
+        io::Error::other(f.message())
+    }
+}
+
+impl From<io::Error> for StepFailure {
+    fn from(e: io::Error) -> Self {
+        StepFailure::Recoverable(e.to_string())
+    }
+}
+
+/// Outcome of a sudo-fronted command: distinguishes user-facing failure modes.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum SudoOutcome {
+    Ok,
+    /// `sudo` itself isn't available.
+    SudoMissing,
+    /// User cancelled the password prompt, wrong password, or sudoers rejection.
+    AuthFailed,
+    /// No TTY — sudo can't prompt.
+    NoTty,
+    /// The privileged command itself failed (with stderr).
+    CommandFailed(String),
+    /// Other I/O error launching the command.
+    #[allow(dead_code)]
+    Other(String),
+}
+
+/// Run a privileged command via `sudo`, classifying common failure modes.
+///
+/// Pass `cmd_path` as an *absolute* path so it works under sudo's `secure_path`.
+/// `args` are forwarded to the privileged command. Output is inherited so the
+/// password prompt is visible to the user — callers running inside a TUI must
+/// suspend the alternate screen first.
+pub fn run_sudo<P: AsRef<std::ffi::OsStr>>(
+    cmd_path: &str,
+    args: &[P],
+) -> io::Result<SudoOutcome> {
+    if which::which("sudo").is_err() {
+        return Ok(SudoOutcome::SudoMissing);
+    }
+    // Only require a TTY if we don't already have cached creds.
+    if !has_tty() && !sudo_has_cached_credentials() {
+        return Ok(SudoOutcome::NoTty);
+    }
+
+    let mut cmd = Command::new("sudo");
+    cmd.arg(cmd_path);
+    for a in args {
+        cmd.arg(a);
+    }
+    cmd.stdin(Stdio::inherit())
+        .stdout(Stdio::inherit())
+        .stderr(Stdio::inherit());
+
+    let status = cmd.status()?;
+    if status.success() {
+        return Ok(SudoOutcome::Ok);
+    }
+    // sudo returns 1 on auth failure / cancel and on most command failures.
+    // Use `sudo -n true` afterward to disambiguate: if `-n` succeeds, creds
+    // were valid (so the command itself failed); otherwise it was an auth issue.
+    let auth_ok = Command::new("sudo")
+        .args(["-n", "true"])
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .status()
+        .map(|s| s.success())
+        .unwrap_or(false);
+    if !auth_ok {
+        return Ok(SudoOutcome::AuthFailed);
+    }
+    Ok(SudoOutcome::CommandFailed(format!(
+        "exited with code {}",
+        status.code().unwrap_or(-1)
+    )))
+}
+
+fn has_tty() -> bool {
+    use std::io::IsTerminal;
+    std::io::stdin().is_terminal() && std::io::stderr().is_terminal()
+}
+
+fn sudo_has_cached_credentials() -> bool {
+    Command::new("sudo")
+        .args(["-n", "true"])
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .status()
+        .map(|s| s.success())
+        .unwrap_or(false)
+}
+
+/// Step 1: verify Docker daemon is reachable.
+pub fn step_check_docker() -> Result<String, StepFailure> {
+    if docker_running() {
+        Ok("Docker daemon is running.".into())
+    } else {
+        Err(StepFailure::DockerNotRunning)
+    }
+}
+
+/// Step 2: detect / install gVisor (`runsc`).
+///
+/// If `auto_install` is false, this only checks. Otherwise it tries the
+/// privileged install path (one sudo invocation downloading the official
+/// release tarball and registering the runtime with Docker).
+pub fn step_gvisor(auto_install: bool) -> Result<String, StepFailure> {
+    if gvisor_installed() {
+        return Ok("gVisor (runsc) is installed.".into());
+    }
+    if !auto_install {
+        return Err(StepFailure::Recoverable(
+            "gVisor not installed. Auto-install was declined.".into(),
+        ));
+    }
+    let arch = if cfg!(target_arch = "x86_64") {
+        "amd64"
+    } else if cfg!(target_arch = "aarch64") {
+        "arm64"
+    } else {
+        return Err(StepFailure::UnsupportedArch);
+    };
+    let url = format!(
+        "https://storage.googleapis.com/gvisor/releases/release/latest/{}/runsc",
+        arch
+    );
+    // Run the install via sudo bash -c with an absolute /usr/bin/bash where
+    // available so secure_path doesn't bite us; otherwise fall back to "bash".
+    let bash = which::which("bash")
+        .map(|p| p.to_string_lossy().to_string())
+        .unwrap_or_else(|_| "bash".to_string());
+    let script = format!(
+        "curl -fsSL -o /tmp/runsc '{}' && chmod +x /tmp/runsc && mv /tmp/runsc /usr/local/bin/runsc && runsc install && systemctl restart docker",
+        url
+    );
+    let outcome = run_sudo(&bash, &["-c", &script])?;
+    match outcome {
+        SudoOutcome::Ok => Ok("gVisor installed and Docker restarted.".into()),
+        SudoOutcome::SudoMissing => Err(StepFailure::SudoMissing),
+        SudoOutcome::AuthFailed => Err(StepFailure::SudoAuth),
+        SudoOutcome::NoTty => Err(StepFailure::NoTty),
+        SudoOutcome::CommandFailed(s) | SudoOutcome::Other(s) => {
+            Err(StepFailure::Recoverable(format!("gVisor install failed: {}", s)))
+        }
+    }
+}
+
+/// Step 3: create sandbox network + iptables rules via the bundled script.
+///
+/// This step shells out to `sudo bash <abs sandbox-network.sh> setup`.
+pub fn step_sandbox_network(docker_dir: &Path) -> Result<String, StepFailure> {
+    let script = sandbox_network_script(docker_dir);
+    if !script.exists() {
+        return Err(StepFailure::ScriptMissing(script));
+    }
+    if iptables_rules_active() && network_exists() {
+        return Ok("Sandbox network and iptables rules already active.".into());
+    }
+    // Use absolute path to bash so sudo's secure_path doesn't strip it.
+    let bash = which::which("bash")
+        .map(|p| p.to_string_lossy().to_string())
+        .unwrap_or_else(|_| "/bin/bash".to_string());
+    let abs_script = path_str(&script);
+    let outcome = run_sudo(&bash, &[abs_script.as_str(), "setup"])?;
+    match outcome {
+        SudoOutcome::Ok => Ok("Sandbox network and iptables rules configured.".into()),
+        SudoOutcome::SudoMissing => Err(StepFailure::SudoMissing),
+        SudoOutcome::AuthFailed => Err(StepFailure::SudoAuth),
+        SudoOutcome::NoTty => Err(StepFailure::NoTty),
+        SudoOutcome::CommandFailed(s) | SudoOutcome::Other(s) => Err(StepFailure::Recoverable(
+            format!("sandbox-network.sh setup failed: {}", s),
+        )),
+    }
+}
+
+/// Step 4: ensure the unleash container image is locally available.
+///
+/// Tries `docker pull` first, then falls back to a local `docker build`
+/// when the unleash repo source tree is reachable from `docker_dir`.
+pub fn step_container_image(docker_dir: &Path) -> Result<String, StepFailure> {
+    if image_exists() {
+        return Ok(format!("Image {} present.", image_name()));
+    }
+    let full_image = format!("{}:{}", DOCKER_IMAGE, DOCKER_TAG);
+    if run_command("docker", &["pull", &full_image]).unwrap_or(false) {
+        return Ok(format!("Pulled {}.", full_image));
+    }
+    let dockerfile = docker_dir.join("Dockerfile");
+    let context = docker_dir
+        .parent()
+        .map(|p| p.to_path_buf())
+        .unwrap_or_else(|| PathBuf::from("."));
+    let repo_sources_present = dockerfile.exists()
+        && context.join("Cargo.toml").exists()
+        && context.join("src").is_dir()
+        && context.join("scripts/unleash-exit").exists();
+    if !repo_sources_present {
+        return Err(StepFailure::PullFailedNoSource(full_image));
+    }
+    let ok = run_command(
+        "docker",
+        &[
+            "build",
+            "-f",
+            &path_str(&dockerfile),
+            "-t",
+            &full_image,
+            &context.to_string_lossy(),
+        ],
+    )
+    .unwrap_or(false);
+    if ok {
+        Ok(format!("Built {} locally.", full_image))
+    } else {
+        Err(StepFailure::Recoverable(
+            "docker build failed — see output above.".into(),
+        ))
+    }
+}
+
+/// Step 5 (CLI variant): copy `example.env` → `.env` if missing.
+/// The TUI wizard handles env config interactively instead.
+pub fn step_env_seed(docker_dir: &Path) -> Result<String, StepFailure> {
+    if env_file_exists(docker_dir) {
+        return Ok(".env already exists.".into());
+    }
+    let example = docker_dir.join("example.env");
+    let dotenv = docker_dir.join(".env");
+    if example.exists() {
+        std::fs::copy(&example, &dotenv).map_err(|e| {
+            StepFailure::Recoverable(format!("Failed to copy example.env: {}", e))
+        })?;
+        Ok(format!(
+            "Created {} from example.env. Edit it with your API keys before running agents.",
+            dotenv.display()
+        ))
+    } else {
+        Ok("No example.env found. Create docker/.env manually.".into())
+    }
+}
+
+// ─── Env passthrough config ─────────────────────────────────
+
+/// Path to the JSON file listing keys to passthrough at `docker run` time.
+/// Lives in the user's config dir so it survives reinstalls.
+pub fn passthrough_config_path() -> Option<PathBuf> {
+    let base = dirs::config_dir()?;
+    Some(base.join("unleash").join("sandbox-passthrough.toml"))
+}
+
+/// Persist the list of env-var keys that should be propagated from the host
+/// at `docker run` time. The file format is a tiny TOML document:
+/// ```toml
+/// passthrough = ["ANTHROPIC_API_KEY", "GEMINI_API_KEY"]
+/// ```
+pub fn save_passthrough_keys(path: &Path, keys: &[String]) -> io::Result<()> {
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent)?;
+    }
+    let mut buf = String::from("# Generated by `unleash sandbox` wizard.\n");
+    buf.push_str("# Lists env-var keys whose values are propagated from the host\n");
+    buf.push_str("# into the sandbox container at runtime via `docker run -e <KEY>`.\n");
+    buf.push_str("passthrough = [\n");
+    for k in keys {
+        buf.push_str(&format!("  \"{}\",\n", k.replace('"', "\\\"")));
+    }
+    buf.push_str("]\n");
+    std::fs::write(path, buf)
+}
+
+/// Load the passthrough key list. Returns an empty Vec if the file is missing
+/// or malformed (with a debug-only warning) — this is best-effort config.
+pub fn load_passthrough_keys(path: &Path) -> Vec<String> {
+    let text = match std::fs::read_to_string(path) {
+        Ok(t) => t,
+        Err(_) => return Vec::new(),
+    };
+    #[derive(serde::Deserialize)]
+    struct Doc {
+        passthrough: Option<Vec<String>>,
+    }
+    toml::from_str::<Doc>(&text)
+        .ok()
+        .and_then(|d| d.passthrough)
+        .unwrap_or_default()
+}
+
+/// Walk `example.env` and return the canonical key names mentioned (commented
+/// or uncommented). Used by the wizard to show *just* the keys this user is
+/// likely to care about, alongside `CANONICAL_ENV_KEYS`.
+pub fn canonical_keys_from_example(docker_dir: &Path) -> Vec<String> {
+    let mut keys: Vec<String> = CANONICAL_ENV_KEYS
+        .iter()
+        .map(|s| (*s).to_string())
+        .collect();
+    let example = docker_dir.join("example.env");
+    if let Ok(text) = std::fs::read_to_string(&example) {
+        for line in text.lines() {
+            let trimmed = line.trim().trim_start_matches('#').trim_start();
+            if let Some(eq) = trimmed.find('=') {
+                let key = trimmed[..eq].trim();
+                if !key.is_empty()
+                    && key.chars().all(|c| c.is_ascii_uppercase() || c.is_ascii_digit() || c == '_')
+                    && !keys.contains(&key.to_string())
+                {
+                    keys.push(key.to_string());
+                }
+            }
+        }
+    }
+    keys
+}
+
+/// Inject `-e KEY` flags into a `docker run` (or `docker compose run`) command
+/// for every key in the passthrough config that's actually present in the
+/// host env. Idempotent and safe to call when no config exists.
+pub fn apply_passthrough_env(cmd: &mut Command) {
+    let path = match passthrough_config_path() {
+        Some(p) => p,
+        None => return,
+    };
+    let keys = load_passthrough_keys(&path);
+    for key in keys {
+        if std::env::var(&key).is_ok() {
+            cmd.args(["-e", &key]);
+        }
+    }
+}
+
+/// Write a `docker/.env` file from explicit-value entries. Existing file is
+/// overwritten — callers that want to merge should read first.
+pub fn write_dotenv(docker_dir: &Path, entries: &[(String, String)]) -> io::Result<()> {
+    let dotenv = docker_dir.join(".env");
+    let mut buf = String::from("# Generated by `unleash sandbox` wizard.\n");
+    buf.push_str("# Explicit values for keys you chose NOT to passthrough from the host.\n");
+    for (k, v) in entries {
+        if v.is_empty() {
+            continue;
+        }
+        buf.push_str(&format!("{}={}\n", k, v));
+    }
+    std::fs::write(dotenv, buf)
 }
 
 // ─── Subcommands ────────────────────────────────────────────
 
 pub fn run_setup(docker_dir: &Path) -> io::Result<()> {
-    needs_sudo("setup")?;
+    if is_root() {
+        eprintln!(
+            "\x1b[33mwarning:\x1b[0m unleash should be run as your normal user. \
+             The wizard handles privilege escalation per-step internally."
+        );
+    }
 
     println!("\x1b[1m=== Sandbox Setup ===\x1b[0m\n");
 
     // Step 1: Check Docker
     print!("  Docker daemon... ");
-    if docker_running() {
-        println!("\x1b[32m✓\x1b[0m running");
-    } else {
-        println!("\x1b[31m✗\x1b[0m not running");
-        eprintln!("\nPlease start Docker first: sudo systemctl start docker");
-        return Err(io::Error::other("Docker not running"));
+    match step_check_docker() {
+        Ok(_) => println!("\x1b[32m✓\x1b[0m running"),
+        Err(e) => {
+            println!("\x1b[31m✗\x1b[0m {}", e.message());
+            for hint in e.next_actions() {
+                eprintln!("    {}", hint);
+            }
+            return Err(e.into());
+        }
     }
 
     // Step 2: Check/install gVisor
@@ -283,130 +736,69 @@ pub fn run_setup(docker_dir: &Path) -> io::Result<()> {
     if gvisor_installed() {
         println!("\x1b[32m✓\x1b[0m installed");
     } else {
-        println!("\x1b[33m!\x1b[0m not found — installing...");
-        let arch = if cfg!(target_arch = "x86_64") {
-            "amd64"
-        } else if cfg!(target_arch = "aarch64") {
-            "arm64"
-        } else {
-            return Err(io::Error::other("Unsupported architecture for gVisor"));
-        };
-
-        // Download and install gVisor
-        let url = format!(
-            "https://storage.googleapis.com/gvisor/releases/release/latest/{}/runsc",
-            arch
-        );
-        let ok = run_command("bash", &[
-            "-c",
-            &format!(
-                "curl -fsSL -o /tmp/runsc '{}' && chmod +x /tmp/runsc && mv /tmp/runsc /usr/local/bin/runsc && runsc install && systemctl restart docker",
-                url
-            ),
-        ])?;
-        if ok {
-            println!("  \x1b[32m✓\x1b[0m gVisor installed and Docker restarted");
-        } else {
-            eprintln!("  \x1b[31m✗\x1b[0m gVisor installation failed");
-            eprintln!("    See https://gvisor.dev/docs/user_guide/install/");
-            return Err(io::Error::other("gVisor install failed"));
+        println!("\x1b[33m!\x1b[0m not found — installing (may prompt for sudo password)...");
+        match step_gvisor(true) {
+            Ok(msg) => println!("  \x1b[32m✓\x1b[0m {}", msg),
+            Err(e) => {
+                eprintln!("  \x1b[31m✗\x1b[0m {}", e.message());
+                for hint in e.next_actions() {
+                    eprintln!("     {}", hint);
+                }
+                return Err(e.into());
+            }
         }
     }
 
     // Step 3: Create sandbox network + iptables rules
     print!("  Sandbox network... ");
-    let script = sandbox_network_script(docker_dir);
-    if script.exists() {
-        let ok = run_command("bash", &[&path_str(&script), "setup"])?;
-        if ok {
-            println!("\x1b[32m✓\x1b[0m");
-        } else {
-            println!("\x1b[31m✗\x1b[0m sandbox-network.sh setup failed");
-            return Err(io::Error::other("network setup failed"));
-        }
+    if iptables_rules_active() && network_exists() {
+        println!("\x1b[32m✓\x1b[0m already active");
     } else {
-        println!("\x1b[31m✗\x1b[0m sandbox-network.sh not found at {}", script.display());
-        return Err(io::Error::other("script not found"));
-    }
-
-    // Step 4: Pull Docker image (or build if --build flag)
-    print!("  Docker image... ");
-    if image_exists() {
-        let name = image_name();
-        println!("\x1b[32m✓\x1b[0m {} exists", name);
-        println!("    (to update: docker pull {}:{})", DOCKER_IMAGE, DOCKER_TAG);
-    } else {
-        let full_image = format!("{}:{}", DOCKER_IMAGE, DOCKER_TAG);
-        println!("\x1b[33m!\x1b[0m not found — pulling from Docker Hub...");
-        let ok = run_command("docker", &["pull", &full_image])?;
-        if ok {
-            println!("  \x1b[32m✓\x1b[0m Image pulled");
-        } else {
-            // Fall back to local build only when the full repo source is in reach —
-            // the Dockerfile is a multi-stage build that compiles unleash from source.
-            let dockerfile = docker_dir.join("Dockerfile");
-            let context = docker_dir
-                .parent()
-                .map(|p| p.to_path_buf())
-                .unwrap_or_else(|| PathBuf::from("."));
-            let repo_sources_present = dockerfile.exists()
-                && context.join("Cargo.toml").exists()
-                && context.join("src").is_dir()
-                && context.join("scripts/unleash-exit").exists();
-            if repo_sources_present {
-                println!("  \x1b[33m!\x1b[0m Pull failed — building locally from repo source...");
-                let ok = run_command("docker", &[
-                    "build",
-                    "-f",
-                    &path_str(&dockerfile),
-                    "-t",
-                    &full_image,
-                    &context.to_string_lossy(),
-                ])?;
-                if ok {
-                    println!("  \x1b[32m✓\x1b[0m Image built locally");
-                } else {
-                    eprintln!("  \x1b[31m✗\x1b[0m Local `docker build` failed — see output above.");
-                    return Err(io::Error::other(
-                        "docker build failed (see output above)",
-                    ));
+        println!("(may prompt for sudo password)");
+        match step_sandbox_network(docker_dir) {
+            Ok(msg) => println!("  \x1b[32m✓\x1b[0m {}", msg),
+            Err(e) => {
+                eprintln!("  \x1b[31m✗\x1b[0m {}", e.message());
+                for hint in e.next_actions() {
+                    eprintln!("     {}", hint);
                 }
-            } else {
-                eprintln!(
-                    "  \x1b[31m✗\x1b[0m `docker pull {}` failed and the repo source is not \
-                     available for a local build.",
-                    full_image
-                );
-                eprintln!("     Fix one of:");
-                eprintln!(
-                    "       1) check network / `docker login` and retry: docker pull {}",
-                    full_image
-                );
-                eprintln!(
-                    "       2) run `unleash sandbox setup` from inside the unleash repo so a local build has src/, Cargo.toml, scripts/"
-                );
-                return Err(io::Error::other(format!(
-                    "could not obtain image {}: pull failed and no repo source for local build",
-                    full_image
-                )));
+                return Err(e.into());
             }
         }
     }
 
-    // Step 5: Check .env
+    // Step 4: Pull / build container image
+    print!("  Docker image... ");
+    if image_exists() {
+        println!("\x1b[32m✓\x1b[0m {} exists", image_name());
+        println!("    (to update: docker pull {}:{})", DOCKER_IMAGE, DOCKER_TAG);
+    } else {
+        println!("\x1b[33m!\x1b[0m not found — pulling from Docker Hub...");
+        match step_container_image(docker_dir) {
+            Ok(msg) => println!("  \x1b[32m✓\x1b[0m {}", msg),
+            Err(e) => {
+                eprintln!("  \x1b[31m✗\x1b[0m {}", e.message());
+                for hint in e.next_actions() {
+                    eprintln!("     {}", hint);
+                }
+                return Err(e.into());
+            }
+        }
+    }
+
+    // Step 5: Seed .env if absent (CLI mode — TUI wizard does interactive config)
     print!("  API keys (.env)... ");
     if env_file_exists(docker_dir) {
         println!("\x1b[32m✓\x1b[0m found");
     } else {
-        println!("\x1b[33m!\x1b[0m not found");
-        let example = docker_dir.join("example.env");
-        let dotenv = docker_dir.join(".env");
-        if example.exists() {
-            std::fs::copy(&example, &dotenv)?;
-            println!("    Created {} from example.env", dotenv.display());
-            println!("    \x1b[33mEdit it with your API keys before running agents.\x1b[0m");
-        } else {
-            println!("    Create docker/.env with your API keys (see docker/example.env)");
+        match step_env_seed(docker_dir) {
+            Ok(msg) => {
+                println!("\x1b[33m!\x1b[0m");
+                println!("    {}", msg);
+            }
+            Err(e) => {
+                println!("\x1b[31m✗\x1b[0m {}", e.message());
+            }
         }
     }
 
@@ -597,8 +989,12 @@ pub fn run_agent(docker_dir: Option<&Path>, agent: &str, name: &str, extra_args:
             "run", "--rm",
             "-e", &format!("SANDBOX_NAME={}", name),
             "-e", &format!("HOSTNAME={}", name),
-            agent,
         ]);
+
+        // Inject any wizard-configured passthrough keys.
+        apply_passthrough_env(&mut cmd);
+
+        cmd.arg(agent);
     } else {
         // Direct docker run (no compose files available — e.g., installed via binary only)
         let container_name = format!("unleash-{}", name);
@@ -616,16 +1012,8 @@ pub fn run_agent(docker_dir: Option<&Path>, agent: &str, name: &str, extra_args:
             "-w", "/workspace",
         ]);
 
-        // Pass through API keys from environment
-        for key in &[
-            "ANTHROPIC_API_KEY", "CLAUDE_CODE_OAUTH_TOKEN",
-            "OPENAI_API_KEY", "GEMINI_API_KEY", "LOCAL_API_BASE",
-            "OPENAI_BASE_URL",
-        ] {
-            if std::env::var(key).is_ok() {
-                cmd.args(["-e", key]);
-            }
-        }
+        // Wizard-configured passthrough keys (replaces the previous hard-coded list).
+        apply_passthrough_env(&mut cmd);
 
         // Pass through .env file if present
         if let Some(dir) = docker_dir {
@@ -657,50 +1045,43 @@ pub fn run_agent(docker_dir: Option<&Path>, agent: &str, name: &str, extra_args:
     Ok(())
 }
 
-pub fn run_teardown(docker_dir: &Path) -> io::Result<()> {
-    needs_sudo("teardown")?;
-
-    println!("\x1b[1m=== Sandbox Teardown ===\x1b[0m\n");
-
-    let script = sandbox_network_script(docker_dir);
-    if script.exists() {
-        run_command("bash", &[&path_str(&script), "teardown"])?;
+/// Shared helper: run `<bash> <abs-script-path> <args...>` under sudo.
+fn run_sudo_script(script: &Path, args: &[&str]) -> io::Result<()> {
+    if !script.exists() {
+        eprintln!("\x1b[31merror:\x1b[0m sandbox-network.sh not found at {}", script.display());
+        return Err(io::Error::other("script not found"));
     }
+    let bash = which::which("bash")
+        .map(|p| p.to_string_lossy().to_string())
+        .unwrap_or_else(|_| "/bin/bash".to_string());
+    let abs_script = path_str(script);
+    let mut full_args: Vec<&str> = vec![abs_script.as_str()];
+    full_args.extend_from_slice(args);
+    match run_sudo(&bash, &full_args)? {
+        SudoOutcome::Ok => Ok(()),
+        SudoOutcome::SudoMissing => Err(StepFailure::SudoMissing.into()),
+        SudoOutcome::AuthFailed => Err(StepFailure::SudoAuth.into()),
+        SudoOutcome::NoTty => Err(StepFailure::NoTty.into()),
+        SudoOutcome::CommandFailed(s) | SudoOutcome::Other(s) => Err(io::Error::other(s)),
+    }
+}
 
+pub fn run_teardown(docker_dir: &Path) -> io::Result<()> {
+    println!("\x1b[1m=== Sandbox Teardown ===\x1b[0m\n");
+    println!("(may prompt for sudo password)");
+    run_sudo_script(&sandbox_network_script(docker_dir), &["teardown"])?;
     println!("\n\x1b[32mTeardown complete.\x1b[0m");
     Ok(())
 }
 
 pub fn run_allow_ip(docker_dir: &Path, ip: &str) -> io::Result<()> {
-    needs_sudo("allow-ip")?;
-
-    let script = sandbox_network_script(docker_dir);
-    if !script.exists() {
-        eprintln!("\x1b[31merror:\x1b[0m sandbox-network.sh not found");
-        return Err(io::Error::other("script not found"));
-    }
-
-    let ok = run_command("bash", &[&path_str(&script), "allow-ip", ip])?;
-    if !ok {
-        return Err(io::Error::other("allow-ip failed"));
-    }
-    Ok(())
+    println!("(may prompt for sudo password)");
+    run_sudo_script(&sandbox_network_script(docker_dir), &["allow-ip", ip])
 }
 
 pub fn run_revoke_ip(docker_dir: &Path, ip: &str) -> io::Result<()> {
-    needs_sudo("revoke-ip")?;
-
-    let script = sandbox_network_script(docker_dir);
-    if !script.exists() {
-        eprintln!("\x1b[31merror:\x1b[0m sandbox-network.sh not found");
-        return Err(io::Error::other("script not found"));
-    }
-
-    let ok = run_command("bash", &[&path_str(&script), "revoke-ip", ip])?;
-    if !ok {
-        return Err(io::Error::other("revoke-ip failed"));
-    }
-    Ok(())
+    println!("(may prompt for sudo password)");
+    run_sudo_script(&sandbox_network_script(docker_dir), &["revoke-ip", ip])
 }
 
 pub fn run_list() -> io::Result<()> {
@@ -805,16 +1186,20 @@ pub fn run_enter(target: &str, shell: &str) -> io::Result<()> {
     Ok(())
 }
 
-/// Main dispatch for `unleash sandbox <action>`
-pub fn handle_sandbox(action: &SandboxAction) -> io::Result<()> {
+/// Main dispatch for `unleash sandbox <action>` (or bare `unleash sandbox`).
+///
+/// `None` action means "launch the interactive wizard" — the wizard lives in
+/// the TUI (see `tui::app`). For the TUI-less build we fall back to the linear
+/// CLI setup flow.
+pub fn handle_sandbox(action: Option<&SandboxAction>) -> io::Result<()> {
     let docker_dir = find_docker_dir();
 
     // These work without docker dir
     match action {
-        SandboxAction::Status => return run_status(docker_dir.as_deref()),
-        SandboxAction::List => return run_list(),
-        SandboxAction::Enter { target, shell } => return run_enter(target, shell),
-        SandboxAction::Run { name, agent, args } => {
+        Some(SandboxAction::Status) => return run_status(docker_dir.as_deref()),
+        Some(SandboxAction::List) => return run_list(),
+        Some(SandboxAction::Enter { target, shell }) => return run_enter(target, shell),
+        Some(SandboxAction::Run { name, agent, args }) => {
             return run_agent(docker_dir.as_deref(), agent, name, args.as_slice())
         }
         _ => {}
@@ -837,12 +1222,22 @@ pub fn handle_sandbox(action: &SandboxAction) -> io::Result<()> {
     };
 
     match action {
-        SandboxAction::Setup => run_setup(&docker_dir),
-        SandboxAction::Teardown => run_teardown(&docker_dir),
-        SandboxAction::AllowIp { ip } => run_allow_ip(&docker_dir, ip),
-        SandboxAction::RevokeIp { ip } => run_revoke_ip(&docker_dir, ip),
-        SandboxAction::Status | SandboxAction::List | SandboxAction::Enter { .. }
-        | SandboxAction::Run { .. } => unreachable!(),
+        Some(SandboxAction::Setup) => run_setup(&docker_dir),
+        Some(SandboxAction::Teardown) => run_teardown(&docker_dir),
+        Some(SandboxAction::AllowIp { ip }) => run_allow_ip(&docker_dir, ip),
+        Some(SandboxAction::RevokeIp { ip }) => run_revoke_ip(&docker_dir, ip),
+        // Bare `unleash sandbox` → launch the TUI wizard. If TUI feature is off,
+        // fall back to the CLI setup flow.
+        None => {
+            #[cfg(feature = "tui")]
+            return crate::tui::run_sandbox_wizard();
+            #[cfg(not(feature = "tui"))]
+            return run_setup(&docker_dir);
+        }
+        Some(SandboxAction::Status)
+        | Some(SandboxAction::List)
+        | Some(SandboxAction::Enter { .. })
+        | Some(SandboxAction::Run { .. }) => unreachable!(),
     }
 }
 
@@ -913,4 +1308,102 @@ pub enum SandboxAction {
         #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
         args: Vec<String>,
     },
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use tempfile::TempDir;
+
+    #[test]
+    fn test_save_and_load_passthrough_keys_roundtrip() {
+        let dir = TempDir::new().unwrap();
+        let path = dir.path().join("passthrough.toml");
+        let keys = vec![
+            "ANTHROPIC_API_KEY".to_string(),
+            "OPENAI_API_KEY".to_string(),
+        ];
+        save_passthrough_keys(&path, &keys).unwrap();
+        let loaded = load_passthrough_keys(&path);
+        assert_eq!(loaded, keys);
+    }
+
+    #[test]
+    fn test_load_passthrough_missing_file_is_empty() {
+        let dir = TempDir::new().unwrap();
+        let path = dir.path().join("nonexistent.toml");
+        assert_eq!(load_passthrough_keys(&path), Vec::<String>::new());
+    }
+
+    #[test]
+    fn test_load_passthrough_malformed_file_is_empty() {
+        let dir = TempDir::new().unwrap();
+        let path = dir.path().join("bad.toml");
+        std::fs::write(&path, "this isn't = valid toml @@@").unwrap();
+        assert_eq!(load_passthrough_keys(&path), Vec::<String>::new());
+    }
+
+    #[test]
+    fn test_apply_passthrough_env_no_config_is_noop() {
+        // We can't easily mock passthrough_config_path() since it reads
+        // dirs::config_dir(); but we can prove the function doesn't panic
+        // when there's no key in env / no config.
+        let mut cmd = Command::new("true");
+        apply_passthrough_env(&mut cmd);
+        // No assertion — we just want this to not panic.
+    }
+
+    #[test]
+    fn test_canonical_keys_includes_known() {
+        let dir = TempDir::new().unwrap();
+        // No example.env — should still return the canonical set.
+        let keys = canonical_keys_from_example(dir.path());
+        assert!(keys.contains(&"ANTHROPIC_API_KEY".to_string()));
+        assert!(keys.contains(&"OPENAI_API_KEY".to_string()));
+        assert!(keys.contains(&"GEMINI_API_KEY".to_string()));
+    }
+
+    #[test]
+    fn test_canonical_keys_includes_extras_from_example_env() {
+        let dir = TempDir::new().unwrap();
+        let example = dir.path().join("example.env");
+        std::fs::write(&example, "WEIRD_CUSTOM_KEY=\nANTHROPIC_API_KEY=\n").unwrap();
+        let keys = canonical_keys_from_example(dir.path());
+        assert!(keys.contains(&"WEIRD_CUSTOM_KEY".to_string()));
+        // Canonical entries should NOT be duplicated.
+        let dupes = keys.iter().filter(|k| *k == "ANTHROPIC_API_KEY").count();
+        assert_eq!(dupes, 1);
+    }
+
+    #[test]
+    fn test_write_dotenv_skips_empty_values() {
+        let dir = TempDir::new().unwrap();
+        let entries = vec![
+            ("KEY_A".to_string(), "valueA".to_string()),
+            ("KEY_B".to_string(), "".to_string()),
+            ("KEY_C".to_string(), "valueC".to_string()),
+        ];
+        write_dotenv(dir.path(), &entries).unwrap();
+        let written = std::fs::read_to_string(dir.path().join(".env")).unwrap();
+        assert!(written.contains("KEY_A=valueA"));
+        assert!(!written.contains("KEY_B="));
+        assert!(written.contains("KEY_C=valueC"));
+    }
+
+    #[test]
+    fn test_step_failure_messages_are_nonempty() {
+        for f in [
+            StepFailure::DockerNotRunning,
+            StepFailure::UnsupportedArch,
+            StepFailure::SudoMissing,
+            StepFailure::SudoAuth,
+            StepFailure::NoTty,
+            StepFailure::ScriptMissing(PathBuf::from("/nope")),
+            StepFailure::PullFailedNoSource("img".into()),
+            StepFailure::Recoverable("boom".into()),
+        ] {
+            assert!(!f.message().is_empty());
+            assert!(!f.next_actions().is_empty());
+        }
+    }
 }

@@ -1148,7 +1148,7 @@ pub fn run() -> io::Result<()> {
             Ok(())
         }
         Some(Commands::Sandbox { action }) => {
-            sandbox::handle_sandbox(&action)
+            sandbox::handle_sandbox(action.as_ref())
         }
         Some(Commands::TokenCount { file, tokenizer }) => {
             token_count::handle_token_count(&file, tokenizer.as_deref())
