@@ -9,6 +9,12 @@ on:
 permissions:
   contents: write
   pull-requests: write
+  # Needed so the auto-merge job can dispatch a follow-up run of this same
+  # workflow after merging the release PR (see "Re-trigger after auto-merge"
+  # step below). Without that follow-up, GHA suppresses the trigger that would
+  # normally fire from the merge push (loop prevention for GITHUB_TOKEN-driven
+  # pushes), and the build/upload-release jobs never run.
+  actions: write
 
 jobs:
   release-please:
@@ -89,6 +95,22 @@ jobs:
           PR_NUMBER=$(jq -r '.number' <<<"$PR_JSON")
           echo "Auto-merging PR #$PR_NUMBER (minor/patch release)"
           gh pr merge "$PR_NUMBER" --squash || echo "Auto-merge failed, PR may need manual merge"
+
+      # GHA suppresses workflow triggers from pushes made with the default
+      # GITHUB_TOKEN (loop prevention). The merge above therefore won't
+      # re-trigger this workflow on the new HEAD, which means release-please
+      # never runs the second pass that detects the merged PR and creates the
+      # release tag — leaving the release pipeline stuck without the actual
+      # release. workflow_dispatch is allowed even from GITHUB_TOKEN, so we
+      # explicitly kick the workflow off again here.
+      - name: Re-trigger workflow to publish release after auto-merge
+        if: steps.check-major.outputs.is_major == 'false'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          echo "Dispatching release-please.yml to publish the release"
+          gh workflow run release-please.yml --ref main \
+              || echo "Self-dispatch failed — run gh workflow run release-please.yml --ref main manually"
 
   # Build binaries for all platforms when a release is created
   build-release:
