@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.19](https://github.com/heiervang-technologies/unleash/compare/v0.1.18...v0.1.19) (2026-05-06)
+
+
+### Bug Fixes
+
+* **ci:** self-dispatch release-please after auto-merge so release publishes ([#120](https://github.com/heiervang-technologies/unleash/issues/120)) ([61059db](https://github.com/heiervang-technologies/unleash/commit/61059db19fa38152ec65ceed03bb5090ef3a79d1))
+
 ## [0.1.18](https://github.com/heiervang-technologies/unleash/compare/v0.1.17...v0.1.18) (2026-05-06)
 
 
