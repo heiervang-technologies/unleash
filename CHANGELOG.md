@@ -1,5 +1,23 @@
 # Changelog
 
+## [0.1.18](https://github.com/heiervang-technologies/unleash/compare/v0.1.17...v0.1.18) (2026-05-06)
+
+
+### Features
+
+* **interchange:** block-level _ucf_hub.message passthrough for lossless cross-CLI round-trips ([#110](https://github.com/heiervang-technologies/unleash/issues/110)) ([63d0b6b](https://github.com/heiervang-technologies/unleash/commit/63d0b6bc551b1a8778a09d5528f008dd9ac5c97d))
+* **tui:** cycle picker for profile Agent CLI ([#109](https://github.com/heiervang-technologies/unleash/issues/109)) ([#111](https://github.com/heiervang-technologies/unleash/issues/111)) ([22baa99](https://github.com/heiervang-technologies/unleash/commit/22baa99c9133751d2cc6dd5df546456d44c00ed0))
+
+
+### Bug Fixes
+
+* **agents:** use musl asset name for Codex Linux installs ([#114](https://github.com/heiervang-technologies/unleash/issues/114)) ([6f86c99](https://github.com/heiervang-technologies/unleash/commit/6f86c9917921adcd940177f5a9e9362b6486a3dc))
+* **ci:** pass release-please PR JSON via env to avoid shell injection ([#119](https://github.com/heiervang-technologies/unleash/issues/119)) ([ed1293c](https://github.com/heiervang-technologies/unleash/commit/ed1293c15042177353199500cab7b52901ce4c81))
+* **crossload:** pi parser + empty-timestamp + codex resume/headless ([#105](https://github.com/heiervang-technologies/unleash/issues/105)) ([5f3d3dc](https://github.com/heiervang-technologies/unleash/commit/5f3d3dc24cf8772237e71ca8b0959173801ff12b))
+* **crossload:** rebind AGENT_CMD + restore headless for flag-style resume ([3e79e0d](https://github.com/heiervang-technologies/unleash/commit/3e79e0d838462d0ec55997db28c8345c36347143))
+* **supercompact:** self-disable guard so disabled plugin can't fire stale hooks ([#103](https://github.com/heiervang-technologies/unleash/issues/103)) ([aa0c0f4](https://github.com/heiervang-technologies/unleash/commit/aa0c0f41c9758426ec989c93dde43f9a2ee4ad61))
+* **supercompact:** separate THRESHOLD from BUDGET, lower trigger to 180k ([#102](https://github.com/heiervang-technologies/unleash/issues/102)) ([c9c7b72](https://github.com/heiervang-technologies/unleash/commit/c9c7b7278a4c141bc825bec8390bc32e0160a64e))
+
 ## [0.1.17](https://github.com/heiervang-technologies/unleash/compare/v0.1.16...v0.1.17) (2026-04-24)
 
 
