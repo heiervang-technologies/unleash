@@ -9,6 +9,14 @@ name: Lint workflows
 #    and would have allowed RCE on the runner from a malicious commit body)
 #  - Wrong action `uses:` versions, missing inputs, and other static checks
 #
+# We invoke actionlint directly (no reviewdog wrapper) so we can:
+#   1. Exclude pre-existing shellcheck nits (SC2086 etc.) without churning
+#      every other workflow
+#   2. Avoid GitHub's annotation limit (50/job) — the reviewdog wrapper
+#      annotates every finding and crashes once there are too many, even if
+#      none are actually error-level (the entire #131 round-trip on this
+#      workflow was that bug)
+#
 # Background: https://github.com/rhysd/actionlint
 
 on:
@@ -32,20 +40,22 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Install actionlint
+        id: install
+        run: |
+          # Official download script from rhysd/actionlint
+          bash <(curl -fsSL https://raw.githubusercontent.com/rhysd/actionlint/main/scripts/download-actionlint.bash)
+          echo "actionlint=$PWD/actionlint" >> "$GITHUB_OUTPUT"
+
       - name: Run actionlint
-        uses: reviewdog/action-actionlint@v1
-        with:
-          # Only REPORT findings at `error` severity. `level: error` is needed
-          # in addition to `fail_level: error` because reviewdog annotates every
-          # reported finding, and GitHub caps annotations per run (50/job,
-          # 10/step). With the default `level: info`, reviewdog tried to
-          # annotate ~40 pre-existing shellcheck `info:` / `warning:` quoting
-          # nits across other workflows and hit "Too many results (annotations)
-          # in diff" as a fatal error — even though none of the findings were
-          # actually error-level. The two fields combined mean: report only
-          # error findings, fail only on error findings.
-          level: error
-          fail_level: error
-          # Annotate problems on the PR diff via reviewdog rather than only
-          # in the run log; makes the failures discoverable inline.
-          reporter: github-pr-check
+        env:
+          ACTIONLINT: ${{ steps.install.outputs.actionlint }}
+        run: |
+          # -shellcheck arg is forwarded as `shellcheck <these args>`. We
+          # exclude pre-existing nits so the linter only blocks merge on real
+          # bugs (script-injection, GHA syntax errors, expression typos).
+          # The excluded codes:
+          #   SC2086: Double quote to prevent globbing and word splitting
+          #   SC2155: Declare and assign separately to avoid masking return
+          # Both are style/info; worth cleaning up eventually but not gating CI.
+          "$ACTIONLINT" -color -shellcheck "shellcheck -e SC2086,SC2155"
