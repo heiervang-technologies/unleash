@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.20](https://github.com/heiervang-technologies/unleash/compare/v0.1.19...v0.1.20) (2026-05-08)
+
+
+### Bug Fixes
+
+* **config:** reserve `run`, `exec`, `sandbox`, `token-count` as profile names ([#63](https://github.com/heiervang-technologies/unleash/issues/63)) ([#117](https://github.com/heiervang-technologies/unleash/issues/117)) ([ee16053](https://github.com/heiervang-technologies/unleash/commit/ee16053d3f8c30a63b5233e8258c613540a94768))
+
 ## [0.1.19](https://github.com/heiervang-technologies/unleash/compare/v0.1.18...v0.1.19) (2026-05-06)
 
 
