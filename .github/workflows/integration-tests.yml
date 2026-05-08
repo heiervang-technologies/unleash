@@ -252,17 +252,27 @@ jobs:
 
     steps:
       - name: Generate test report
+        env:
+          SHELLCHECK_RESULT: ${{ needs.shellcheck.result }}
+          HEADLESS_RESULT: ${{ needs.test-headless.result }}
+          PLUGINS_RESULT: ${{ needs.test-plugins.result }}
+          AUTOMODE_RESULT: ${{ needs.test-auto-mode.result }}
+          INSTALL_RESULT: ${{ needs.test-install-script.result }}
+          AUTH_RESULT: ${{ needs.test-auth-comprehensive.result }}
         run: |
-          echo "# Test Results Summary" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "| Job | Status |" >> $GITHUB_STEP_SUMMARY
-          echo "|-----|--------|" >> $GITHUB_STEP_SUMMARY
-          echo "| ShellCheck Linting | ${{ needs.shellcheck.result == 'success' && '✅ Passed' || '❌ Failed' }} |" >> $GITHUB_STEP_SUMMARY
-          echo "| Headless Commands | ${{ needs.test-headless.result == 'success' && '✅ Passed' || '❌ Failed' }} |" >> $GITHUB_STEP_SUMMARY
-          echo "| Plugin Tests | ${{ needs.test-plugins.result == 'success' && '✅ Passed' || '❌ Failed' }} |" >> $GITHUB_STEP_SUMMARY
-          echo "| Auto Mode Hook | ${{ needs.test-auto-mode.result == 'success' && '✅ Passed' || '❌ Failed' }} |" >> $GITHUB_STEP_SUMMARY
-          echo "| Install Script | ${{ needs.test-install-script.result == 'success' && '✅ Passed' || '❌ Failed' }} |" >> $GITHUB_STEP_SUMMARY
-          echo "| Auth Comprehensive | ${{ needs.test-auth-comprehensive.result == 'success' && '✅ Passed' || '❌ Failed' }} |" >> $GITHUB_STEP_SUMMARY
+          status() { [[ "$1" == "success" ]] && echo "✅ Passed" || echo "❌ Failed"; }
+          {
+            echo "# Test Results Summary"
+            echo ""
+            echo "| Job | Status |"
+            echo "|-----|--------|"
+            echo "| ShellCheck Linting | $(status "$SHELLCHECK_RESULT") |"
+            echo "| Headless Commands | $(status "$HEADLESS_RESULT") |"
+            echo "| Plugin Tests | $(status "$PLUGINS_RESULT") |"
+            echo "| Auto Mode Hook | $(status "$AUTOMODE_RESULT") |"
+            echo "| Install Script | $(status "$INSTALL_RESULT") |"
+            echo "| Auth Comprehensive | $(status "$AUTH_RESULT") |"
+          } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Check test results
         run: |
