@@ -7,6 +7,18 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 
+# Self-disable guard: claude --plugin-dir keeps stale plugins loaded across
+# unleash-refresh restarts even after the user disables them in the TUI.
+# Exit 0 (continue) without firing the rest of the hook if disabled.
+if ! "$SCRIPT_DIR/scripts/check-enabled.sh" hyprland-focus 2>/dev/null; then
+    cat <<'EOF'
+{
+  "continue": true
+}
+EOF
+    exit 0
+fi
+
 # Restore window to fully opaque (timeout to prevent hook from hanging forever)
 timeout 3 "$SCRIPT_DIR/scripts/hypr-window-opacity.sh" reset 2>/dev/null || true
 
