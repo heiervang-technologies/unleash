@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.24](https://github.com/heiervang-technologies/unleash/compare/v0.1.23...v0.1.24) (2026-05-08)
+
+
+### Features
+
+* **crossload:** pi parser preserves unknown record types as opaque events ([#107](https://github.com/heiervang-technologies/unleash/issues/107)) ([6f0e674](https://github.com/heiervang-technologies/unleash/commit/6f0e674405ff82f80b7dc8902400e90a76a714f6))
+
 ## [0.1.23](https://github.com/heiervang-technologies/unleash/compare/v0.1.22...v0.1.23) (2026-05-08)
 
 
