@@ -148,7 +148,16 @@ pub fn run(config: UpdateConfig) -> io::Result<()> {
     // ------------------------------------------------------------------
     // Phase 3 – summary
     // ------------------------------------------------------------------
-    print_summary(&check_results, &outcomes);
+    let failed = print_summary(&check_results, &outcomes);
+
+    if failed > 0 {
+        return Err(io::Error::other(format!(
+            "{} agent{} failed to {}",
+            failed,
+            if failed == 1 { "" } else { "s" },
+            if config.install_only { "install" } else { "update" },
+        )));
+    }
 
     Ok(())
 }
@@ -318,7 +327,11 @@ fn phase_update(
 // Phase 3: Summary
 // ---------------------------------------------------------------------------
 
-fn print_summary(check_results: &[CheckResult], outcomes: &[UpdateOutcome]) {
+/// Print the post-run summary and return the count of failed agents.
+/// Caller maps a non-zero count to a non-zero process exit so silent install
+/// failures can't cascade (e.g. the Docker image expecting `codex --version`
+/// to work after install).
+fn print_summary(check_results: &[CheckResult], outcomes: &[UpdateOutcome]) -> u32 {
     println!();
 
     let mut updated = 0u32;
@@ -383,6 +396,8 @@ fn print_summary(check_results: &[CheckResult], outcomes: &[UpdateOutcome]) {
         parts.push(format!("{} failed", errors));
     }
     println!("{}", parts.join(", "));
+
+    errors
 }
 
 // ---------------------------------------------------------------------------
