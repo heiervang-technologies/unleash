@@ -885,13 +885,16 @@ impl AgentManager {
 
     /// Detect the platform triple for prebuilt binary downloads
     fn detect_platform_triple() -> Option<&'static str> {
+        // Codex's Linux releases are statically-linked musl builds; the gnu
+        // targets were dropped upstream around rust-v0.118. The musl binaries
+        // run fine on glibc systems thanks to static linking.
         #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
         {
-            return Some("x86_64-unknown-linux-gnu");
+            return Some("x86_64-unknown-linux-musl");
         }
         #[cfg(all(target_os = "linux", target_arch = "aarch64"))]
         {
-            return Some("aarch64-unknown-linux-gnu");
+            return Some("aarch64-unknown-linux-musl");
         }
         #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
         {
