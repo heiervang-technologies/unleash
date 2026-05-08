@@ -108,10 +108,15 @@ jobs:
           done
 
       - name: Summary
+        env:
+          VERSION: ${{ steps.meta.outputs.version }}
+          TAGS: ${{ steps.meta.outputs.tags }}
         run: |
-          echo "## Docker Image Published" >> $GITHUB_STEP_SUMMARY
-          echo "- Version: ${{ steps.meta.outputs.version }}" >> $GITHUB_STEP_SUMMARY
-          echo "- Tags: ${{ steps.meta.outputs.tags }}" >> $GITHUB_STEP_SUMMARY
+          {
+            echo "## Docker Image Published"
+            echo "- Version: $VERSION"
+            echo "- Tags: $TAGS"
+          } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Cleanup
         if: always()
