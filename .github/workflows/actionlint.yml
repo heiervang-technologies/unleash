@@ -35,11 +35,16 @@ jobs:
       - name: Run actionlint
         uses: reviewdog/action-actionlint@v1
         with:
-          # Fail the check on `error`-severity findings (e.g. real GHA syntax
-          # errors and the `expression`-injection lint that flags
-          # `${{ github.event.* }}` going into a `run:` block — the exact
-          # class of bug #119 fixed). `info`/`warning` shellcheck noise like
-          # SC2086/SC2155 is left to land as PR comments without blocking.
+          # Only REPORT findings at `error` severity. `level: error` is needed
+          # in addition to `fail_level: error` because reviewdog annotates every
+          # reported finding, and GitHub caps annotations per run (50/job,
+          # 10/step). With the default `level: info`, reviewdog tried to
+          # annotate ~40 pre-existing shellcheck `info:` / `warning:` quoting
+          # nits across other workflows and hit "Too many results (annotations)
+          # in diff" as a fatal error — even though none of the findings were
+          # actually error-level. The two fields combined mean: report only
+          # error findings, fail only on error findings.
+          level: error
           fail_level: error
           # Annotate problems on the PR diff via reviewdog rather than only
           # in the run log; makes the failures discoverable inline.
