@@ -59,6 +59,26 @@ pub fn to_hub<R: BufRead>(reader: R) -> Result<Vec<HubRecord>, ConvertError> {
                     records.push(HubRecord::Session(default_session(&timestamp)));
                     session_emitted = true;
                 }
+                // If the line carries a full HubMessage stash via
+                // `_ucf_hub.message`, restore it verbatim — Codex's response
+                // shape can't represent every hub content variant losslessly,
+                // but the stashed blob captures everything.
+                if let Some(stashed) = ucf_hub
+                    .and_then(|u| u.get("message"))
+                    .cloned()
+                {
+                    if let Ok(mut msg) = serde_json::from_value::<HubMessage>(stashed) {
+                        // Codex has no native `tool` role — its tool results
+                        // ride on user-role response_items. Coerce so cross-CLI
+                        // sources whose hub uses role="tool" still produce a
+                        // codex-shaped hub on the way out.
+                        if msg.role == "tool" {
+                            msg.role = "user".to_string();
+                        }
+                        records.push(HubRecord::Message(msg));
+                        continue;
+                    }
+                }
                 let mut msg = response_item_to_hub(&payload, &timestamp)?;
                 if foreign_originated {
                     // Synthesized codex extensions are not real claims about
@@ -169,6 +189,12 @@ pub fn to_hub<R: BufRead>(reader: R) -> Result<Vec<HubRecord>, ConvertError> {
 pub fn from_hub(records: &[HubRecord]) -> Result<Vec<Value>, ConvertError> {
     let mut lines = Vec::new();
     let mut session_passthrough: Option<Value> = None;
+    // Whether to stash the entire HubMessage on each emitted line for
+    // cross-CLI lossless round-trip. Native Codex sources don't need this
+    // (their `_original_payload` already captures everything). Foreign
+    // sources do — Codex's `response_item.content` flattens mixed content
+    // blocks (Thinking + Text + ToolUse) into output_text.
+    let mut stash_messages = false;
 
     for record in records {
         match record {
@@ -178,6 +204,7 @@ pub fn from_hub(records: &[HubRecord]) -> Result<Vec<Value>, ConvertError> {
                 // title, slug, parent_session_id natively.
                 if s.source_cli != "codex" {
                     session_passthrough = Some(serde_json::to_value(s)?);
+                    stash_messages = true;
                 }
                 let line = hub_session_to_codex(s)?;
                 if !line.is_null() {
@@ -194,6 +221,13 @@ pub fn from_hub(records: &[HubRecord]) -> Result<Vec<Value>, ConvertError> {
                     // round trips preserve the hub's dual-timestamp semantics.
                     if let Some(ref ca) = msg.completed_at {
                         attach_ucf_hub_field(&mut line, "completed_at", Value::String(ca.clone()));
+                    }
+                    if stash_messages {
+                        attach_ucf_hub_field(
+                            &mut line,
+                            "message",
+                            serde_json::to_value(msg)?,
+                        );
                     }
                     lines.push(line);
                 }

@@ -6,8 +6,12 @@
 #   # curl -fsSL unleash.software/install | bash -s -- --boring   # non-interactive
 #
 # Options (via environment variables):
-#   GH_TOKEN / GH_PAT / GITHUB_TOKEN - GitHub token for private repo access (any of these work)
-#   UNLEASH_VERSION - Specific version to install (default: latest)
+#   GH_TOKEN / GH_PAT / GITHUB_TOKEN - GitHub token for private repo access (any of these work).
+#                                      Auto-detected from env. If the token is stale/revoked,
+#                                      it's probed and discarded with a warning before use
+#                                      (unleash itself is a public repo, anon access works).
+#   UNLEASH_NO_TOKEN         - Set to "1" to ignore any GitHub token in env and use anon access
+#   UNLEASH_VERSION          - Specific version to install (default: latest)
 #   CLAUDE_CODE_VERSION      - Specific Claude Code version (default: latest)
 #   INSTALL_DIR              - Installation directory (default: ~/.local/bin)
 #   BUILD_FROM_SOURCE        - Set to "1" to build from source instead of downloading binary
@@ -31,8 +35,25 @@ for arg in "$@"; do
     esac
 done
 
-# Support common GitHub token variable names
+# Support common GitHub token variable names. Users often have one of these
+# set globally for unrelated tools (gh CLI, CI runners, dotfiles); a stale or
+# expired value silently broke the installer with a "401 Unauthorized" from
+# the very first API call. We probe the token below and fall back to anon
+# access if it's bad — the unleash repo is public, so anon works fine.
+# Set UNLEASH_NO_TOKEN=1 to skip token usage entirely.
 GITHUB_TOKEN="${GH_TOKEN:-${GH_PAT:-${GITHUB_TOKEN:-}}}"
+GITHUB_TOKEN_SOURCE=""
+if [[ -n "${GH_TOKEN:-}" ]]; then
+    GITHUB_TOKEN_SOURCE="GH_TOKEN"
+elif [[ -n "${GH_PAT:-}" ]]; then
+    GITHUB_TOKEN_SOURCE="GH_PAT"
+elif [[ -n "${GITHUB_TOKEN:-}" ]]; then
+    GITHUB_TOKEN_SOURCE="GITHUB_TOKEN"
+fi
+if [[ "${UNLEASH_NO_TOKEN:-0}" == "1" ]]; then
+    GITHUB_TOKEN=""
+    GITHUB_TOKEN_SOURCE=""
+fi
 
 # Configuration
 REPO_OWNER="heiervang-technologies"
@@ -104,6 +125,48 @@ check_prerequisites() {
         exit 1
     fi
     success "Prerequisites check passed"
+}
+
+# Probe the GitHub token (if any) against a cheap public API endpoint. If it
+# returns 401, the token is stale/expired/revoked — clear it and warn the
+# user. We always fall back to anonymous access since this repo is public.
+# Without this guard, a bad token in env (very common: gh CLI, CI runners,
+# dotfiles) silently broke the installer with curl: (22) ... 401 from the
+# very first releases/latest call.
+probe_github_token() {
+    if [[ -z "$GITHUB_TOKEN" ]]; then
+        return 0
+    fi
+    local probe_url="https://api.github.com/repos/${REPO_OWNER}/${REPO_NAME}"
+    local http_code=""
+    if command -v curl &> /dev/null; then
+        http_code=$(curl -sS -o /dev/null -w "%{http_code}" \
+            -H "Authorization: token $GITHUB_TOKEN" \
+            "$probe_url" 2>/dev/null || echo "000")
+    elif command -v wget &> /dev/null; then
+        # wget doesn't have a clean way to capture HTTP code; treat any failure as bad
+        if wget --header="Authorization: token $GITHUB_TOKEN" -q -O /dev/null "$probe_url"; then
+            http_code="200"
+        else
+            http_code="401"
+        fi
+    fi
+    case "$http_code" in
+        2*)
+            # Token works (or repo is public and token still authenticates).
+            ;;
+        401|403)
+            warn "Your \$$GITHUB_TOKEN_SOURCE returned $http_code from GitHub — the token appears stale or revoked."
+            warn "Falling back to anonymous access (the unleash repo is public, no token needed)."
+            warn "To silence this, unset the token or run with UNLEASH_NO_TOKEN=1 bash <(curl -fsSL unleash.software/install)"
+            GITHUB_TOKEN=""
+            GITHUB_TOKEN_SOURCE=""
+            ;;
+        *)
+            # Network blip, captive portal, etc. Leave the token alone — the
+            # real fetch will surface a clearer error if anything's wrong.
+            ;;
+    esac
 }
 
 # Download file using curl or wget (supports private repos via GITHUB_TOKEN)
@@ -720,6 +783,7 @@ main() {
 
     detect_platform
     check_prerequisites
+    probe_github_token
 
     # Create install directory
     mkdir -p "$INSTALL_DIR"
@@ -729,6 +793,9 @@ main() {
         UNLEASH_VERSION=$(get_latest_version)
         if [[ -z "$UNLEASH_VERSION" ]]; then
             error "Could not determine latest release version."
+            if [[ -n "$GITHUB_TOKEN" ]]; then
+                error "Your \$$GITHUB_TOKEN_SOURCE may be invalid; retry with UNLEASH_NO_TOKEN=1."
+            fi
             error "Check https://github.com/${REPO_OWNER}/${REPO_NAME}/releases"
             exit 1
         fi

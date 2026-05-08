@@ -30,7 +30,7 @@ mod version;
 
 use crate::agents::AgentType;
 use clap::Parser;
-use cli::{Cli, Commands};
+use cli::{Cli, Commands, ConfigAction};
 use config::ProfileManager;
 use std::env;
 use std::io;
@@ -93,6 +93,31 @@ fn parse_wrapper_launch_args(
 fn detect_agent_type_from_cmd_path(cmd: &str) -> Option<AgentType> {
     let cmd_name = Path::new(cmd).file_name().and_then(|n| n.to_str())?;
     AgentType::from_str(cmd_name)
+}
+
+/// Resolve the binary path/name for a target CLI used by the wrapper-reentry
+/// crossload path. Prefers the user's profile (`agent_cli_path`) so that
+/// custom binary paths (e.g., a per-machine pi build) are honored, and falls
+/// back to the agent definition's default binary name when no profile exists.
+/// For unknown target names, returns the name itself as the binary.
+fn resolve_target_binary(target_cli: &str) -> String {
+    if let Ok(manager) = ProfileManager::new() {
+        if let Ok(profile) = manager.load_profile(target_cli) {
+            return profile.agent_cli_path;
+        }
+    }
+    let canonical = match target_cli {
+        "claude" | "claude-code" => Some(AgentType::Claude),
+        "codex" => Some(AgentType::Codex),
+        "gemini" | "gemini-cli" => Some(AgentType::Gemini),
+        "opencode" => Some(AgentType::OpenCode),
+        "pi" | "pi-coding-agent" => Some(AgentType::Pi),
+        _ => None,
+    };
+    match canonical {
+        Some(agent_type) => agents::AgentDefinition::from_type(agent_type).binary,
+        None => target_cli.to_string(),
+    }
 }
 
 fn codex_history_path() -> Option<std::path::PathBuf> {
@@ -247,7 +272,7 @@ fn print_profile_help(profile_name: &str) {
 fn run_agent_with_polyfill(
     profile_name: &str,
     polyfill_args: cli::PolyfillArgs,
-    mut extra_args: Vec<String>,
+    extra_args: Vec<String>,
 ) -> io::Result<()> {
     let manager = ProfileManager::new()?;
     let profile = manager.load_profile(profile_name).map_err(|e| {
@@ -290,29 +315,6 @@ fn run_agent_with_polyfill(
         _ => agents::AgentDefinition::from_type(agent_type.clone()),
     };
 
-    // Resolve polyfill flags into agent-specific args (CLI overrides profile defaults).
-    // Mutable because subcommand-style resume agents (codex) need re-resolution
-    // after crossload/UCF injection feeds back the injected session id.
-    let flags = polyfill_args.to_polyfill_flags(&profile.defaults);
-    let mut resolved = polyfill::resolve(&agent_def.polyfill, &flags, &profile.agent_cli_args);
-
-    // --dry-run: print the resolved command and exit without executing
-    if polyfill_args.dry_run {
-        let binary = &profile.agent_cli_path;
-        let mut full_args = resolved.subcommand_prefix.clone();
-        full_args.extend(resolved.args.clone());
-        full_args.extend(profile.agent_cli_args.clone());
-        full_args.extend(extra_args.clone());
-        println!("Would execute: {} {}", binary, full_args.join(" "));
-        if !resolved.env.is_empty() {
-            for (k, v) in &resolved.env {
-                println!("  env: {}={}", k, v);
-            }
-        }
-        return Ok(());
-    }
-
-    // --crossload: inject a foreign session before launching
     let target_cli_owned;
     let target_cli = match &agent_type {
         AgentType::Claude => "claude",
@@ -326,37 +328,19 @@ fn run_agent_with_polyfill(
         }
     };
 
-    // For subcommand-style resume agents (codex), the injected session id replaces
-    // the headless `exec` subcommand: instead of `codex exec PROMPT resume <id>`
-    // (which codex parses as positional args to `exec` and fails), we want
-    // `codex resume <id> PROMPT`. Patch `resolved.subcommand_prefix` directly so
-    // the launch builds the correct invocation. For flag-style agents, keep the
-    // existing path of appending the resume args to `extra_args`.
-    let inject_into_resume = |extra_args: &mut Vec<String>,
-                              resolved: &mut polyfill::ResolvedInvocation,
-                              session_id: &str,
-                              resume_args: Vec<String>| {
-        if agent_def.polyfill.session.resume_is_subcommand {
-            resolved.subcommand_prefix =
-                vec![agent_def.polyfill.session.resume_arg.clone(), session_id.to_string()];
-        } else {
-            extra_args.extend(resume_args);
-        }
-    };
-
+    let mut flags = polyfill_args.to_polyfill_flags(&profile.defaults);
     let mut ucf_active = None;
+
     if let Some(ucf_name) = polyfill_args.ucf.clone() {
         if ucf_name.is_empty() {
             eprintln!("\x1b[31m✗\x1b[0m --ucf requires a session name (e.g. --ucf my-project)");
             return Ok(());
         }
-        let (session_id, resume_args) = setup_ucf_session(&ucf_name, target_cli)?;
-        inject_into_resume(&mut extra_args, &mut resolved, &session_id, resume_args);
+        let (session_id, _resume_args) = setup_ucf_session(&ucf_name, target_cli)?;
+        flags.resume = Some(Some(session_id.clone()));
         ucf_active = Some((ucf_name, target_cli.to_string(), session_id));
     } else if let Some(crossload_query) = polyfill_args.crossload.clone() {
-
         let query = if crossload_query.is_empty() {
-            // Interactive picker
             #[cfg(feature = "tui")]
             {
                 match tui::session_picker::pick_session()? {
@@ -380,18 +364,30 @@ fn run_agent_with_polyfill(
         match interchange::inject::inject_session(&query, target_cli) {
             Ok(result) => {
                 eprintln!("\x1b[32m✓\x1b[0m {}", result.message);
-                inject_into_resume(
-                    &mut extra_args,
-                    &mut resolved,
-                    &result.session_id,
-                    result.resume_args,
-                );
+                flags.resume = Some(Some(result.session_id.clone()));
             }
             Err(e) => {
                 eprintln!("\x1b[31m✗\x1b[0m Crossload failed: {e}");
                 return Err(io::Error::other(e.to_string()));
             }
         }
+    }
+
+    let resolved = polyfill::resolve(&agent_def.polyfill, &flags, &profile.agent_cli_args);
+
+    if polyfill_args.dry_run {
+        let binary = &profile.agent_cli_path;
+        let mut full_args = resolved.subcommand_prefix.clone();
+        full_args.extend(resolved.args.clone());
+        full_args.extend(profile.agent_cli_args.clone());
+        full_args.extend(extra_args.clone());
+        println!("Would execute: {} {}", binary, full_args.join(" "));
+        if !resolved.env.is_empty() {
+            for (k, v) in &resolved.env {
+                println!("  env: {}={}", k, v);
+            }
+        }
+        return Ok(());
     }
 
     // Build the launch args: subcommand prefix + polyfill args + profile args + extra args
@@ -457,6 +453,7 @@ pub(crate) fn is_known_subcommand(first_arg: &str) -> bool {
             | "convert"
             | "sandbox"
             | "token-count"
+            | "config"
             | "help"
     )
 }
@@ -590,6 +587,16 @@ pub fn run() -> io::Result<()> {
                         .unwrap_or("claude")
                 }
             };
+
+            // Re-bind AGENT_CMD to the target CLI's binary. The wrapper-reentry
+            // path inherits AGENT_CMD from the parent unleash session, which may
+            // point at a different agent than the crossload target. Without this,
+            // launcher::run would launch the parent's binary against
+            // target-specific resume args — e.g., claude rejecting `--session`
+            // when crossloading from claude into pi. Profile path does the
+            // equivalent set in run_agent_with_polyfill before launcher::run.
+            let target_binary = resolve_target_binary(target_cli);
+            env::set_var("AGENT_CMD", &target_binary);
 
             let mut ucf_session_id = None;
 
@@ -1141,11 +1148,12 @@ pub fn run() -> io::Result<()> {
             Ok(())
         }
         Some(Commands::Sandbox { action }) => {
-            sandbox::handle_sandbox(&action)
+            sandbox::handle_sandbox(action.as_ref())
         }
         Some(Commands::TokenCount { file, tokenizer }) => {
             token_count::handle_token_count(&file, tokenizer.as_deref())
         }
+        Some(Commands::Config { action }) => handle_config(action),
         None => {
             #[cfg(feature = "tui")]
             return tui::run();
@@ -1209,6 +1217,27 @@ mod tests {
     }
 
     #[test]
+    fn test_resolve_target_binary_uses_agent_default_when_no_profile() {
+        // When no profile is registered for the target, fall back to the
+        // agent definition's canonical binary name. Guards the wrapper-reentry
+        // crossload path against silently inheriting the parent's AGENT_CMD.
+        // Use a target name that is unlikely to have a user profile on disk.
+        let resolved = resolve_target_binary("pi-coding-agent");
+        assert_eq!(resolved, "pi");
+
+        let resolved = resolve_target_binary("claude-code");
+        assert_eq!(resolved, "claude");
+    }
+
+    #[test]
+    fn test_resolve_target_binary_custom_falls_back_to_target_name() {
+        // Unknown target → AgentType::Custom → AgentDefinition::from_type
+        // returns a definition whose `binary` matches the custom name.
+        let resolved = resolve_target_binary("totally-nonexistent-agent-xyz");
+        assert_eq!(resolved, "totally-nonexistent-agent-xyz");
+    }
+
+    #[test]
     fn test_wrapper_command_detection() {
         assert!(is_wrapper_command("unleash"));
         assert!(!is_wrapper_command("unleashed"));
@@ -1263,6 +1292,7 @@ mod tests {
             "convert",
             "sandbox",
             "token-count",
+            "config",
             "help",
         ] {
             assert!(
@@ -1289,6 +1319,26 @@ mod tests {
         assert!(!is_known_subcommand("invalid-subcommand"));
         assert!(!is_known_subcommand(""));
         assert!(!is_known_subcommand("VERSION")); // case sensitive
+    }
+}
+
+fn handle_config(action: ConfigAction) -> io::Result<()> {
+    match action {
+        ConfigAction::IsPluginEnabled { name } => {
+            let manager = ProfileManager::new()?;
+            let path = manager.config_dir().join("config.toml");
+            // No config file = first run before TUI write = treat as all enabled.
+            if !path.exists() {
+                return Ok(());
+            }
+            let cfg = manager.load_app_config()?;
+            // Empty enabled_plugins = "all enabled" (backwards compat).
+            if cfg.enabled_plugins.is_empty() || cfg.enabled_plugins.contains(&name) {
+                Ok(())
+            } else {
+                std::process::exit(1);
+            }
+        }
     }
 }
 

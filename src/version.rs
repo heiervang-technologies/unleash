@@ -5,6 +5,7 @@
 
 use crate::json_output::{self, VersionListItem, VersionListOutput, VersionOutput};
 use std::collections::HashMap;
+use std::ffi::OsString;
 use std::fs;
 use std::io::{self, BufRead};
 use std::path::PathBuf;
@@ -125,7 +126,7 @@ pub struct InstallResult {
 }
 
 /// Version manager for code agents
-#[derive(Default, Clone, Copy)]
+#[derive(Default, Clone)]
 pub struct VersionManager {
     /// When true, `install_version()` and related paths skip native binary
     /// downloads (and fall back to npm-only when applicable). Used exclusively
@@ -134,6 +135,14 @@ pub struct VersionManager {
     /// lets tests opt in without mutating process-global state (which is
     /// `unsafe` in modern Rust and racy under parallel test execution).
     skip_native_download: bool,
+
+    /// Optional `PATH` override applied to every subprocess this manager
+    /// spawns. Used by tests to inject mock `npm` / `claude` binaries from a
+    /// `tempdir` without mutating the parent process's environment (which
+    /// would race with other tests under `cargo test`'s parallel scheduler).
+    /// Production paths leave this `None`, preserving the previous behavior of
+    /// inheriting the parent's `PATH` verbatim.
+    command_path_override: Option<OsString>,
 }
 
 impl VersionManager {
@@ -145,9 +154,24 @@ impl VersionManager {
     /// don't overwrite the developer's installed agent CLIs. Prefer this over
     /// setting UNLEASH_SKIP_NATIVE_INSTALL from a test body.
     #[cfg(test)]
+    #[allow(dead_code)]
     pub fn new_for_test() -> Self {
         Self {
             skip_native_download: true,
+            command_path_override: None,
+        }
+    }
+
+    /// Test constructor that ALSO injects a custom `PATH` for every subprocess
+    /// this manager spawns. Use to point `npm` / `claude` lookups at a mock
+    /// directory inside a `tempdir`. The override is per-`Command` (via
+    /// `Command::env`), so it never mutates the parent process's environment
+    /// and never races other parallel tests.
+    #[cfg(test)]
+    pub fn new_for_test_with_path(path: impl Into<OsString>) -> Self {
+        Self {
+            skip_native_download: true,
+            command_path_override: Some(path.into()),
         }
     }
 
@@ -155,11 +179,22 @@ impl VersionManager {
         self.skip_native_download || std::env::var("UNLEASH_SKIP_NATIVE_INSTALL").is_ok()
     }
 
+    /// Build a `Command` for the given program, applying the test-only `PATH`
+    /// override (if any). In production builds the override is always `None`
+    /// and this is functionally identical to `Command::new(program)`.
+    fn command(&self, program: &str) -> Command {
+        let mut cmd = Command::new(program);
+        if let Some(path) = self.command_path_override.as_ref() {
+            cmd.env("PATH", path);
+        }
+        cmd
+    }
+
     // ── Claude Code ──────────────────────────────────────────────
 
     /// Get the currently installed Claude Code version
     pub fn get_installed_version(&self) -> Option<String> {
-        let output = Command::new("claude").arg("--version").output().ok()?;
+        let output = self.command("claude").arg("--version").output().ok()?;
 
         if output.status.success() {
             let version_str = String::from_utf8_lossy(&output.stdout);
@@ -443,9 +478,18 @@ impl VersionManager {
         format!("{}-{}", gcs_os, gcs_arch)
     }
 
-    /// Check if npm is available
+    /// Check if npm is available (static — uses the inherited PATH).
+    /// Equivalent to `VersionManager::default().has_npm_for_self()`.
     pub fn has_npm() -> bool {
-        Command::new("npm")
+        Self::default().has_npm_for_self()
+    }
+
+    /// Instance variant of [`has_npm`] that respects the manager's optional
+    /// `PATH` override. Production callers see identical behavior to the
+    /// static method; tests can point this at a mock-`npm` `tempdir` without
+    /// mutating the process environment.
+    pub fn has_npm_for_self(&self) -> bool {
+        self.command("npm")
             .arg("--version")
             .output()
             .is_ok_and(|o| o.status.success())
@@ -498,6 +542,17 @@ impl VersionManager {
     /// The result is cached for the lifetime of the process since the npm
     /// prefix won't change mid-run.
     pub fn npm_global_needs_sudo() -> bool {
+        Self::default().npm_global_needs_sudo_for_self()
+    }
+
+    /// Instance variant. When the manager has a test-only `PATH` override,
+    /// the sudo probe is skipped entirely (mock `npm` shims in tempdirs are
+    /// always owned by the test user). Otherwise behaves identically to the
+    /// static [`npm_global_needs_sudo`] (including the process-wide cache).
+    pub fn npm_global_needs_sudo_for_self(&self) -> bool {
+        if self.command_path_override.is_some() {
+            return false;
+        }
         use std::sync::OnceLock;
         static NEEDS_SUDO: OnceLock<bool> = OnceLock::new();
         *NEEDS_SUDO.get_or_init(|| {
@@ -530,12 +585,19 @@ impl VersionManager {
     /// silent hangs when called from background threads where no TTY is
     /// available for a password prompt.
     pub fn npm_global_command() -> Command {
-        if Self::npm_global_needs_sudo() {
-            let mut cmd = Command::new("sudo");
+        Self::default().npm_global_command_for_self()
+    }
+
+    /// Instance variant of [`npm_global_command`]. When the manager carries a
+    /// test-only `PATH` override, the returned `Command` always points at
+    /// plain `npm` (resolved against that override) and skips sudo.
+    pub fn npm_global_command_for_self(&self) -> Command {
+        if self.npm_global_needs_sudo_for_self() {
+            let mut cmd = self.command("sudo");
             cmd.args(["-n", "npm"]);
             cmd
         } else {
-            Command::new("npm")
+            self.command("npm")
         }
     }
 
@@ -723,8 +785,9 @@ impl VersionManager {
     /// Install via npm only (skips native binary download).
     /// Used by tests to avoid overwriting real installations.
     fn install_version_npm_only(&self, version: &str) -> io::Result<InstallResult> {
-        if Self::has_npm() {
-            let output = Self::npm_global_command()
+        if self.has_npm_for_self() {
+            let output = self
+                .npm_global_command_for_self()
                 .args([
                     "install",
                     "-g",
@@ -2005,16 +2068,13 @@ mod tests {
         // Create mock claude that takes 50ms to respond
         let (_temp, mock_path) = create_mock_claude(50);
 
-        // Prepend mock to PATH
+        // Build a PATH that prepends the mock dir, but inject it per-Command
+        // via VersionManager::new_for_test_with_path — no `unsafe set_var` and
+        // no race with parallel tests.
         let original_path = std::env::var("PATH").unwrap_or_default();
         let new_path = format!("{}:{}", mock_path.display(), original_path);
 
-        // SAFETY: This test runs single-threaded and restores PATH before returning
-        unsafe {
-            std::env::set_var("PATH", &new_path);
-        }
-
-        let vm = VersionManager::new();
+        let vm = VersionManager::new_for_test_with_path(new_path);
         const ITERATIONS: u32 = 10;
 
         // Measure time for subprocess calls (old behavior - calling on every frame)
@@ -2031,12 +2091,6 @@ mod tests {
             let _ = cached_version.clone();
         }
         let cached_time = start.elapsed();
-
-        // Restore PATH
-        // SAFETY: Restoring original PATH value
-        unsafe {
-            std::env::set_var("PATH", original_path);
-        }
 
         // Verify a version was returned (don't check specific version as it may vary)
         assert!(cached_version.is_some(), "Should have a cached version");
@@ -2104,24 +2158,13 @@ mod tests {
     fn test_install_version_uses_force_flag() {
         let (_temp, mock_path, args_file) = create_mock_npm();
 
+        // Build PATH with mock_path prepended and inject it per-Command via
+        // the manager — no unsafe env mutation, no parallel-test races.
         let original_path = std::env::var("PATH").unwrap_or_default();
         let new_path = format!("{}:{}", mock_path.display(), original_path);
 
-        // SAFETY: This test runs single-threaded and restores env vars before returning
-        // PATH still needs env mutation so install_version_npm_only finds the
-        // mock `npm` shim. The previously-unsafe UNLEASH_SKIP_NATIVE_INSTALL
-        // flag is now replaced by VersionManager::new_for_test().
-        unsafe {
-            std::env::set_var("PATH", &new_path);
-        }
-
-        let vm = VersionManager::new_for_test();
+        let vm = VersionManager::new_for_test_with_path(new_path);
         let result = vm.install_version("2.1.4");
-
-        // SAFETY: Restoring original PATH
-        unsafe {
-            std::env::set_var("PATH", original_path);
-        }
 
         assert!(result.is_ok(), "install_version should not return an error");
         let install_result = result.unwrap();

@@ -639,13 +639,14 @@ pub enum Commands {
     /// Run agents in a sandboxed Docker container with gVisor + LAN isolation
     ///
     /// Examples:
-    ///   unleash sandbox setup          # One-time: install gVisor, create network, build image
-    ///   unleash sandbox claude          # Run Claude Code in the sandbox
+    ///   unleash sandbox                 # Launch the interactive setup wizard
+    ///   unleash sandbox setup           # Same wizard (alias for back-compat)
+    ///   unleash sandbox run claude      # Run Claude Code in the sandbox
     ///   unleash sandbox status          # Check sandbox health
     ///   unleash sandbox allow-ip X      # Open a LAN IP for local API access
     Sandbox {
         #[command(subcommand)]
-        action: crate::sandbox::SandboxAction,
+        action: Option<crate::sandbox::SandboxAction>,
     },
 
     /// Count tokens in a file using tiktoken (cl100k_base) or a HuggingFace tokenizer
@@ -663,9 +664,27 @@ pub enum Commands {
         tokenizer: Option<String>,
     },
 
+    /// Query unleash configuration state (used by hooks and scripts)
+    Config {
+        #[command(subcommand)]
+        action: ConfigAction,
+    },
+
     /// Run a profile by name (catches any unknown subcommand as a profile name)
     #[command(external_subcommand)]
     Profile(Vec<String>),
+}
+
+#[derive(Subcommand, Debug)]
+pub enum ConfigAction {
+    /// Exit 0 if the named plugin is enabled (or enabled_plugins is empty), 1 otherwise.
+    ///
+    /// Empty `enabled_plugins` means "all enabled" for backwards compatibility.
+    /// Missing config file is treated the same way (first run before TUI write).
+    IsPluginEnabled {
+        /// Plugin name to check (e.g. "supercompact")
+        name: String,
+    },
 }
 
 #[derive(Subcommand, Debug)]

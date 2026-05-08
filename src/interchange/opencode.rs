@@ -61,6 +61,28 @@ pub fn to_hub(input: &OpenCodeInput) -> Result<Vec<HubRecord>, ConvertError> {
             input.messages.len(),
         );
 
+        // If a full HubMessage was stashed via `_ucf_hub.message`, restore it
+        // verbatim — OpenCode parts/messages cannot represent every hub
+        // content variant losslessly (mixed thinking/text/tool blocks,
+        // standalone tool_results on user messages, foreign metadata), but
+        // the stashed blob captures everything the foreign source produced.
+        if let Some(stashed) = msg
+            .get("_ucf_hub")
+            .and_then(|u| u.get("message"))
+            .cloned()
+        {
+            if let Ok(mut hub_msg) = serde_json::from_value::<HubMessage>(stashed) {
+                // OpenCode has no native `tool` role — tool results live on
+                // user-role messages. Coerce so cross-CLI sources whose hub
+                // uses role="tool" still produce an opencode-shaped hub.
+                if hub_msg.role == "tool" {
+                    hub_msg.role = "user".to_string();
+                }
+                records.push(HubRecord::Message(hub_msg));
+                continue;
+            }
+        }
+
         let content = parts_to_content_blocks(&msg_parts)?;
         let metadata = extract_metadata(msg);
 
@@ -203,6 +225,7 @@ pub fn from_hub(records: &[HubRecord]) -> Result<OpenCodeOutput, ConvertError> {
         }
         None
     });
+    let foreign_source = session_passthrough.is_some();
 
     if is_native_roundtrip {
         // Native round-trip: use original messages and parts directly
@@ -236,6 +259,9 @@ pub fn from_hub(records: &[HubRecord]) -> Result<OpenCodeOutput, ConvertError> {
                     }
                     if let Some(foreign) = foreign_extensions(&msg.extensions) {
                         attach_ucf_hub_ext(&mut oc_msg, foreign);
+                    }
+                    if foreign_source {
+                        attach_ucf_hub_message(&mut oc_msg, serde_json::to_value(msg)?);
                     }
                     messages.push(oc_msg);
                     parts.extend(oc_parts);
@@ -297,6 +323,20 @@ fn attach_ucf_hub_session(node: &mut Value, session: Value) {
         return;
     };
     inner.insert("session".to_string(), session);
+}
+
+/// Attach a serialized HubMessage to `node._ucf_hub.message`.
+fn attach_ucf_hub_message(node: &mut Value, message: Value) {
+    let Value::Object(ref mut obj) = node else {
+        return;
+    };
+    let entry = obj
+        .entry("_ucf_hub".to_string())
+        .or_insert_with(|| Value::Object(serde_json::Map::new()));
+    let Value::Object(ref mut inner) = entry else {
+        return;
+    };
+    inner.insert("message".to_string(), message);
 }
 
 // === Helpers ===

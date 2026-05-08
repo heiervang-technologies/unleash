@@ -105,20 +105,37 @@ pub enum SandboxStrategy {
     Unsupported,
 }
 
+/// Strategy for resuming a session
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum ResumeStrategy {
+    /// Use a flag (e.g., --resume)
+    Flag(String),
+    /// Use a subcommand (e.g., resume)
+    Subcommand(String),
+}
+
+impl ResumeStrategy {
+    pub fn get_args(&self, session_id: Option<&str>) -> Vec<String> {
+        let mut args: Vec<String> = match self {
+            ResumeStrategy::Flag(s) | ResumeStrategy::Subcommand(s) => {
+                s.split_whitespace().map(|x| x.to_string()).collect()
+            }
+        };
+        if let Some(id) = session_id {
+            args.push(id.to_string());
+        }
+        args
+    }
+}
+
 /// Session management strategy
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SessionStrategy {
-    /// Argument for continuing last session (e.g., "-c", "resume --last")
-    pub continue_arg: String,
-    /// Argument for resuming specific session (e.g., "-r", "resume")
-    pub resume_arg: String,
-    /// True when resume/continue are subcommands (codex), not flags. When set,
-    /// they take over `subcommand_prefix` instead of being appended as args.
-    /// This matters when combined with a subcommand-style headless mode: without
-    /// this distinction, codex would receive `exec PROMPT resume <id>`, which
-    /// codex parses as positional args to `exec` rather than a `resume` invocation.
-    #[serde(default)]
-    pub resume_is_subcommand: bool,
+    /// Strategy for continuing last session
+    pub continue_strategy: ResumeStrategy,
+    /// Strategy for resuming specific session
+    pub resume_strategy: ResumeStrategy,
 }
 
 /// Polyfill configuration for an agent
@@ -191,25 +208,12 @@ impl AgentPolyfillConfig {
 
     /// Get args for continuing the latest session
     pub fn get_continue_args(&self) -> Vec<String> {
-        self.session
-            .continue_arg
-            .split_whitespace()
-            .map(|s| s.to_string())
-            .collect()
+        self.session.continue_strategy.get_args(None)
     }
 
     /// Get args for resuming a specific session
     pub fn get_resume_args(&self, session_id: Option<&str>) -> Vec<String> {
-        let mut args: Vec<String> = self
-            .session
-            .resume_arg
-            .split_whitespace()
-            .map(|s| s.to_string())
-            .collect();
-        if let Some(id) = session_id {
-            args.push(id.to_string());
-        }
-        args
+        self.session.resume_strategy.get_args(session_id)
     }
 
     /// Get headless strategy and associated args/subcommand
@@ -299,9 +303,8 @@ impl AgentDefinition {
             polyfill: AgentPolyfillConfig {
                 headless: HeadlessStrategy::Flag("-p".to_string()),
                 session: SessionStrategy {
-                    continue_arg: "--continue".to_string(),
-                    resume_arg: "--resume".to_string(),
-                    resume_is_subcommand: false,
+                    continue_strategy: ResumeStrategy::Flag("--continue".to_string()),
+                    resume_strategy: ResumeStrategy::Flag("--resume".to_string()),
                 },
                 fork: ForkStrategy::Flag("--fork-session".to_string()),
                 yolo_flag: Some("--dangerously-skip-permissions".to_string()),
@@ -334,9 +337,8 @@ impl AgentDefinition {
             polyfill: AgentPolyfillConfig {
                 headless: HeadlessStrategy::Subcommand("exec".to_string()),
                 session: SessionStrategy {
-                    continue_arg: "resume --last".to_string(),
-                    resume_arg: "resume".to_string(),
-                    resume_is_subcommand: true,
+                    continue_strategy: ResumeStrategy::Subcommand("resume --last".to_string()),
+                    resume_strategy: ResumeStrategy::Subcommand("resume".to_string()),
                 },
                 fork: ForkStrategy::Subcommand("fork".to_string()),
                 yolo_flag: Some("--dangerously-bypass-approvals-and-sandbox".to_string()),
@@ -369,9 +371,8 @@ impl AgentDefinition {
             polyfill: AgentPolyfillConfig {
                 headless: HeadlessStrategy::Flag("-p".to_string()),
                 session: SessionStrategy {
-                    continue_arg: "--resume latest".to_string(),
-                    resume_arg: "--resume".to_string(),
-                    resume_is_subcommand: false,
+                    continue_strategy: ResumeStrategy::Flag("--resume latest".to_string()),
+                    resume_strategy: ResumeStrategy::Flag("--resume".to_string()),
                 },
                 fork: ForkStrategy::Unsupported,
                 yolo_flag: Some("--yolo".to_string()),
@@ -404,9 +405,8 @@ impl AgentDefinition {
             polyfill: AgentPolyfillConfig {
                 headless: HeadlessStrategy::Subcommand("run".to_string()),
                 session: SessionStrategy {
-                    continue_arg: "--continue".to_string(),
-                    resume_arg: "--session".to_string(),
-                    resume_is_subcommand: false,
+                    continue_strategy: ResumeStrategy::Flag("--continue".to_string()),
+                    resume_strategy: ResumeStrategy::Flag("-s".to_string()),
                 },
                 fork: ForkStrategy::Flag("--fork".to_string()),
                 yolo_flag: None,
@@ -439,9 +439,8 @@ impl AgentDefinition {
             polyfill: AgentPolyfillConfig {
                 headless: HeadlessStrategy::Flag("-p".to_string()),
                 session: SessionStrategy {
-                    continue_arg: "--continue".to_string(),
-                    resume_arg: "--resume".to_string(),
-                    resume_is_subcommand: false,
+                    continue_strategy: ResumeStrategy::Flag("--continue".to_string()),
+                    resume_strategy: ResumeStrategy::Flag("--session".to_string()),
                 },
                 fork: ForkStrategy::Flag("--fork".to_string()),
                 yolo_flag: None,
@@ -886,13 +885,16 @@ impl AgentManager {
 
     /// Detect the platform triple for prebuilt binary downloads
     fn detect_platform_triple() -> Option<&'static str> {
+        // Codex's Linux releases are statically-linked musl builds; the gnu
+        // targets were dropped upstream around rust-v0.118. The musl binaries
+        // run fine on glibc systems thanks to static linking.
         #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
         {
-            return Some("x86_64-unknown-linux-gnu");
+            return Some("x86_64-unknown-linux-musl");
         }
         #[cfg(all(target_os = "linux", target_arch = "aarch64"))]
         {
-            return Some("aarch64-unknown-linux-gnu");
+            return Some("aarch64-unknown-linux-musl");
         }
         #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
         {
