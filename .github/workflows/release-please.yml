@@ -9,6 +9,12 @@ on:
 permissions:
   contents: write
   pull-requests: write
+  # Needed so the auto-merge job can dispatch a follow-up run of this same
+  # workflow after merging the release PR (see "Re-trigger after auto-merge"
+  # step below). Without that follow-up, GHA suppresses the trigger that would
+  # normally fire from the merge push (loop prevention for GITHUB_TOKEN-driven
+  # pushes), and the build/upload-release jobs never run.
+  actions: write
 
 jobs:
   release-please:
@@ -40,47 +46,71 @@ jobs:
 
       - name: Check if major release
         id: check-major
+        # PR_JSON is passed via env (not inline ${{ }} substitution into the
+        # shell body) because the PR body contains user-supplied changelog
+        # text — apostrophes (e.g. "can't"), backticks, parens, and `$()` would
+        # otherwise either break the shell parser (current bug) or execute as
+        # commands (script-injection vector). See GHA security hardening:
+        # https://docs.github.com/en/actions/security-guides/security-hardening-for-github-actions#using-an-intermediate-environment-variable
+        env:
+          PR_JSON: ${{ needs.release-please.outputs.pr }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           # Get current version from manifest
           CURRENT_VERSION=$(jq -r '.[]' .release-please-manifest.json | head -1)
-          CURRENT_MAJOR=$(echo $CURRENT_VERSION | cut -d. -f1)
+          CURRENT_MAJOR=$(echo "$CURRENT_VERSION" | cut -d. -f1)
 
-          # Get the PR number
-          PR_NUMBER=$(echo '${{ needs.release-please.outputs.pr }}' | jq -r '.number')
+          # Get the PR number — read from $PR_JSON, never inline the JSON
+          PR_NUMBER=$(jq -r '.number' <<<"$PR_JSON")
 
           # Get the proposed version from the PR title (format: "chore(main): release X.Y.Z")
-          PR_TITLE=$(gh pr view $PR_NUMBER --json title -q '.title')
+          PR_TITLE=$(gh pr view "$PR_NUMBER" --json title -q '.title')
           PROPOSED_VERSION=$(echo "$PR_TITLE" | grep -oP '\d+\.\d+\.\d+' || echo "")
 
           if [ -z "$PROPOSED_VERSION" ]; then
             echo "Could not determine proposed version from PR title: $PR_TITLE"
-            echo "is_major=true" >> $GITHUB_OUTPUT
+            echo "is_major=true" >> "$GITHUB_OUTPUT"
             exit 0
           fi
 
-          PROPOSED_MAJOR=$(echo $PROPOSED_VERSION | cut -d. -f1)
+          PROPOSED_MAJOR=$(echo "$PROPOSED_VERSION" | cut -d. -f1)
 
           echo "Current version: $CURRENT_VERSION (major: $CURRENT_MAJOR)"
           echo "Proposed version: $PROPOSED_VERSION (major: $PROPOSED_MAJOR)"
 
           if [ "$PROPOSED_MAJOR" -gt "$CURRENT_MAJOR" ]; then
             echo "This is a MAJOR release - requires manual merge"
-            echo "is_major=true" >> $GITHUB_OUTPUT
+            echo "is_major=true" >> "$GITHUB_OUTPUT"
           else
             echo "This is a minor/patch release - will auto-merge"
-            echo "is_major=false" >> $GITHUB_OUTPUT
+            echo "is_major=false" >> "$GITHUB_OUTPUT"
           fi
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Auto-merge release PR
         if: steps.check-major.outputs.is_major == 'false'
+        env:
+          PR_JSON: ${{ needs.release-please.outputs.pr }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          PR_NUMBER=$(echo '${{ needs.release-please.outputs.pr }}' | jq -r '.number')
+          PR_NUMBER=$(jq -r '.number' <<<"$PR_JSON")
           echo "Auto-merging PR #$PR_NUMBER (minor/patch release)"
-          gh pr merge $PR_NUMBER --squash || echo "Auto-merge failed, PR may need manual merge"
+          gh pr merge "$PR_NUMBER" --squash || echo "Auto-merge failed, PR may need manual merge"
+
+      # GHA suppresses workflow triggers from pushes made with the default
+      # GITHUB_TOKEN (loop prevention). The merge above therefore won't
+      # re-trigger this workflow on the new HEAD, which means release-please
+      # never runs the second pass that detects the merged PR and creates the
+      # release tag — leaving the release pipeline stuck without the actual
+      # release. workflow_dispatch is allowed even from GITHUB_TOKEN, so we
+      # explicitly kick the workflow off again here.
+      - name: Re-trigger workflow to publish release after auto-merge
+        if: steps.check-major.outputs.is_major == 'false'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          echo "Dispatching release-please.yml to publish the release"
+          gh workflow run release-please.yml --ref main \
+              || echo "Self-dispatch failed — run gh workflow run release-please.yml --ref main manually"
 
   # Build binaries for all platforms when a release is created
   build-release:
