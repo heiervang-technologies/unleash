@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.21](https://github.com/heiervang-technologies/unleash/compare/v0.1.20...v0.1.21) (2026-05-08)
+
+
+### Bug Fixes
+
+* **updater:** exit non-zero when any agent install/update fails ([#115](https://github.com/heiervang-technologies/unleash/issues/115)) ([50e5860](https://github.com/heiervang-technologies/unleash/commit/50e5860cb27441c56fde12366b209e0e09b010ac))
+
 ## [0.1.20](https://github.com/heiervang-technologies/unleash/compare/v0.1.19...v0.1.20) (2026-05-08)
 
 
