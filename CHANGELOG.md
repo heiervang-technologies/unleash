@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.22](https://github.com/heiervang-technologies/unleash/compare/v0.1.21...v0.1.22) (2026-05-08)
+
+
+### Bug Fixes
+
+* **installer:** probe and fall back when GitHub token in env is stale ([#118](https://github.com/heiervang-technologies/unleash/issues/118)) ([f623a1e](https://github.com/heiervang-technologies/unleash/commit/f623a1e3adf7a44f48fc91142d1b5a51f823a30e))
+
 ## [0.1.21](https://github.com/heiervang-technologies/unleash/compare/v0.1.20...v0.1.21) (2026-05-08)
 
 
