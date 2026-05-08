@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.23](https://github.com/heiervang-technologies/unleash/compare/v0.1.22...v0.1.23) (2026-05-08)
+
+
+### Features
+
+* **sandbox:** TUI setup wizard with env / passthrough picker, user-mode sudo ([#113](https://github.com/heiervang-technologies/unleash/issues/113)) ([8323511](https://github.com/heiervang-technologies/unleash/commit/83235112a864b7dd52171815d064ea480c01c1d2))
+
 ## [0.1.22](https://github.com/heiervang-technologies/unleash/compare/v0.1.21...v0.1.22) (2026-05-08)
 
 
