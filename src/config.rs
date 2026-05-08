@@ -505,7 +505,10 @@ impl ProfileManager {
             .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e.to_string()))
     }
 
-    /// Names reserved for unleash subcommands — cannot be used as profile names
+    /// Names reserved for unleash subcommands — cannot be used as profile names.
+    /// Must stay in sync with `is_known_subcommand` in `lib.rs` (plus the
+    /// generic-profile-runner verbs `run` / `exec`, which aren't dispatched
+    /// as subcommands but are too ambiguous to allow as profile names).
     const RESERVED_NAMES: &[&str] = &[
         "version",
         "auth",
@@ -519,6 +522,10 @@ impl ProfileManager {
         "sessions",
         "convert",
         "config",
+        "sandbox",
+        "token-count",
+        "run",
+        "exec",
         "plugins",
     ];
 
@@ -957,7 +964,20 @@ theme = "#ffff00"
             "sessions",
             "convert",
             "help",
+            "sandbox",
+            "token-count",
         ] {
+            let profile = Profile::new(name);
+            assert!(
+                manager.save_profile(&profile).is_err(),
+                "Expected save to fail for reserved name '{name}'"
+            );
+        }
+
+        // Generic profile-runner verbs (not subcommands themselves, but
+        // too ambiguous to allow as profile names — `unleash run` would
+        // be indistinguishable from a generic "run an agent" entrypoint).
+        for name in &["run", "exec"] {
             let profile = Profile::new(name);
             assert!(
                 manager.save_profile(&profile).is_err(),
