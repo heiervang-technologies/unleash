@@ -110,14 +110,15 @@ fn normalize_target_cli(target: &str) -> &str {
 }
 
 fn resume_args_for(target: &str, session_id: &str) -> Vec<String> {
-    match target {
-        "claude" => vec!["--resume".into(), session_id.into()],
-        "codex" => vec!["resume".into(), session_id.into()],
-        "gemini" => vec!["--resume".into(), session_id.into()],
-        "opencode" => vec!["-s".into(), session_id.into()],
-        "pi" => vec!["--session".into(), session_id.into()],
-        _ => vec!["--resume".into(), session_id.into()],
-    }
+    let agent_type = match target {
+        "claude" | "claude-code" => crate::agents::AgentType::Claude,
+        "codex" => crate::agents::AgentType::Codex,
+        "gemini" | "gemini-cli" => crate::agents::AgentType::Gemini,
+        "opencode" => crate::agents::AgentType::OpenCode,
+        "pi" | "pi-coding-agent" => crate::agents::AgentType::Pi,
+        _ => crate::agents::AgentType::Custom(target.to_string()),
+    };
+    crate::agents::AgentDefinition::from_type(agent_type).polyfill.get_resume_args(Some(session_id))
 }
 
 pub fn source_to_hub(session: &SessionInfo) -> Result<Vec<HubRecord>, ConvertError> {

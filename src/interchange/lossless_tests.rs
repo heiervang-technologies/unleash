@@ -143,25 +143,21 @@ mod tests {
     }
 
     #[test]
-    #[ignore = "lossless target"]
     fn lossless_through_claude() {
         assert_strict_lossless("claude", via_claude);
     }
 
     #[test]
-    #[ignore = "lossless target"]
     fn lossless_through_codex() {
         assert_strict_lossless("codex", via_codex);
     }
 
     #[test]
-    #[ignore = "lossless target"]
     fn lossless_through_gemini() {
         assert_strict_lossless("gemini", via_gemini);
     }
 
     #[test]
-    #[ignore = "lossless target"]
     fn lossless_through_opencode() {
         assert_strict_lossless("opencode", via_opencode);
     }
@@ -194,19 +190,16 @@ mod tests {
     // All 12 cross-CLI pairs.
 
     #[test]
-    #[ignore = "lossless target"]
     fn cross_claude_via_codex() {
         assert_cross_lossless("claude", "codex", via_claude, via_codex);
     }
 
     #[test]
-    #[ignore = "lossless target"]
     fn cross_claude_via_gemini() {
         assert_cross_lossless("claude", "gemini", via_claude, via_gemini);
     }
 
     #[test]
-    #[ignore = "lossless target"]
     fn cross_claude_via_opencode() {
         assert_cross_lossless("claude", "opencode", via_claude, via_opencode);
     }
@@ -217,7 +210,6 @@ mod tests {
     }
 
     #[test]
-    #[ignore = "lossless target"]
     fn cross_codex_via_gemini() {
         assert_cross_lossless("codex", "gemini", via_codex, via_gemini);
     }
@@ -228,37 +220,31 @@ mod tests {
     }
 
     #[test]
-    #[ignore = "lossless target"]
     fn cross_gemini_via_claude() {
         assert_cross_lossless("gemini", "claude", via_gemini, via_claude);
     }
 
     #[test]
-    #[ignore = "lossless target"]
     fn cross_gemini_via_codex() {
         assert_cross_lossless("gemini", "codex", via_gemini, via_codex);
     }
 
     #[test]
-    #[ignore = "lossless target"]
     fn cross_gemini_via_opencode() {
         assert_cross_lossless("gemini", "opencode", via_gemini, via_opencode);
     }
 
     #[test]
-    #[ignore = "lossless target"]
     fn cross_opencode_via_claude() {
         assert_cross_lossless("opencode", "claude", via_opencode, via_claude);
     }
 
     #[test]
-    #[ignore = "lossless target"]
     fn cross_opencode_via_codex() {
         assert_cross_lossless("opencode", "codex", via_opencode, via_codex);
     }
 
     #[test]
-    #[ignore = "lossless target"]
     fn cross_opencode_via_gemini() {
         assert_cross_lossless("opencode", "gemini", via_opencode, via_gemini);
     }

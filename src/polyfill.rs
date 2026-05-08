@@ -117,17 +117,26 @@ pub fn resolve(
     // Subcommand-style agents (codex) put resume/continue into `subcommand_prefix`
     // instead of args, so the resume subcommand replaces the headless `exec`
     // subcommand cleanly. Flag-style agents append into args as before.
+    let resume_is_subcommand = if flags.resume.is_some() {
+        matches!(config.session.resume_strategy, crate::agents::ResumeStrategy::Subcommand(_))
+    } else if flags.continue_session {
+        matches!(config.session.continue_strategy, crate::agents::ResumeStrategy::Subcommand(_))
+    } else {
+        false
+    };
+
     let resume_or_continue_active = flags.resume.is_some() || flags.continue_session;
+    
     if let Some(ref resume_id) = flags.resume {
         let resume_args = config.get_resume_args(resume_id.as_deref());
-        if config.session.resume_is_subcommand {
+        if resume_is_subcommand {
             subcommand_prefix.extend(resume_args);
         } else {
             args.extend(resume_args);
         }
     } else if flags.continue_session {
         let continue_args = config.get_continue_args();
-        if config.session.resume_is_subcommand {
+        if resume_is_subcommand {
             subcommand_prefix.extend(continue_args);
         } else {
             args.extend(continue_args);
@@ -143,9 +152,13 @@ pub fn resolve(
     // *after* polyfill resolution and we want the headless flag/prompt to land
     // alongside it.
     if let Some(ref prompt) = flags.headless {
-        if resume_or_continue_active && config.session.resume_is_subcommand {
+        if resume_or_continue_active && resume_is_subcommand {
+            // Subcommand-style resume (codex): resume subcommand owns
+            // subcommand_prefix; append prompt as a positional arg.
             args.push(prompt.clone());
-        } else if !resume_or_continue_active {
+        } else {
+            // Flag-style agents (claude, pi, gemini) or no resume active:
+            // add headless flag/subcommand normally.
             let (h_args, h_sub) = config.get_headless_invocation(prompt);
             args.extend(h_args);
             subcommand_prefix.extend(h_sub);

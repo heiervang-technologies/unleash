@@ -505,7 +505,10 @@ impl ProfileManager {
             .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e.to_string()))
     }
 
-    /// Names reserved for unleash subcommands — cannot be used as profile names
+    /// Names reserved for unleash subcommands — cannot be used as profile names.
+    /// Must stay in sync with `is_known_subcommand` in `lib.rs` (plus the
+    /// generic-profile-runner verbs `run` / `exec`, which aren't dispatched
+    /// as subcommands but are too ambiguous to allow as profile names).
     const RESERVED_NAMES: &[&str] = &[
         "version",
         "auth",
@@ -519,6 +522,10 @@ impl ProfileManager {
         "sessions",
         "convert",
         "config",
+        "sandbox",
+        "token-count",
+        "run",
+        "exec",
         "plugins",
     ];
 
@@ -957,7 +964,20 @@ theme = "#ffff00"
             "sessions",
             "convert",
             "help",
+            "sandbox",
+            "token-count",
         ] {
+            let profile = Profile::new(name);
+            assert!(
+                manager.save_profile(&profile).is_err(),
+                "Expected save to fail for reserved name '{name}'"
+            );
+        }
+
+        // Generic profile-runner verbs (not subcommands themselves, but
+        // too ambiguous to allow as profile names — `unleash run` would
+        // be indistinguishable from a generic "run an agent" entrypoint).
+        for name in &["run", "exec"] {
             let profile = Profile::new(name);
             assert!(
                 manager.save_profile(&profile).is_err(),
@@ -1023,7 +1043,7 @@ github_repo = "paul-gauthier/aider"
 
 [custom_agents.polyfill]
 headless = { flag = "--message" }
-session = { continue_arg = "--restore-chat-history", resume_arg = "--restore-chat-history" }
+session = { continue_strategy = { flag = "--restore-chat-history" }, resume_strategy = { flag = "--restore-chat-history" } }
 fork = "unsupported"
 model_flag = "--model"
 yolo_flag = "--yes"
@@ -1070,7 +1090,7 @@ name = "aider"
 binary = "aider"
 [custom_agents.polyfill]
 headless = { flag = "--message" }
-session = { continue_arg = "--c", resume_arg = "--r" }
+session = { continue_strategy = { flag = "--c" }, resume_strategy = { flag = "--r" } }
 fork = "unsupported"
 model_flag = "--model"
 
@@ -1080,7 +1100,7 @@ binary = "cursor-cli"
 enabled = false
 [custom_agents.polyfill]
 headless = { flag = "-p" }
-session = { continue_arg = "--continue", resume_arg = "--resume" }
+session = { continue_strategy = { flag = "--continue" }, resume_strategy = { flag = "--resume" } }
 fork = "unsupported"
 model_flag = "--model"
 "#;

@@ -22,6 +22,53 @@ fn is_tty() -> bool {
     std::io::stdin().is_terminal()
 }
 
+/// Launch the unleash TUI directly into the sandbox wizard.
+///
+/// Used by `unleash sandbox` (no subcommand). Falls back to the linear CLI
+/// flow if no TTY is available — same as `tui::run()`.
+pub fn run_sandbox_wizard() -> io::Result<()> {
+    if !is_tty() {
+        // Without a TTY there's no way to drive a wizard — drop to the CLI.
+        let docker_dir = match crate::sandbox::find_docker_dir() {
+            Some(d) => d,
+            None => crate::sandbox::find_or_install_docker_dir()?,
+        };
+        return crate::sandbox::run_setup(&docker_dir);
+    }
+    if crate::sandbox::is_root() {
+        eprintln!(
+            "Detected running as root — unleash should be run as your normal user. \
+             The wizard handles privilege escalation per-step internally."
+        );
+        return Err(io::Error::other("refusing to run wizard as root"));
+    }
+
+    enable_raw_mode()?;
+    let mut stdout = stdout();
+    execute!(stdout, EnterAlternateScreen, EnableMouseCapture)?;
+    let backend = CrosstermBackend::new(stdout);
+    let mut terminal = Terminal::new(backend)?;
+
+    let mut app = App::new()?;
+    app.open_sandbox_wizard();
+    app.screen = app::Screen::Sandbox;
+
+    let result = run_app(&mut terminal, &mut app);
+
+    disable_raw_mode()?;
+    execute!(
+        terminal.backend_mut(),
+        LeaveAlternateScreen,
+        DisableMouseCapture
+    )?;
+    terminal.show_cursor()?;
+
+    match result {
+        Ok(_) => Ok(()),
+        Err(e) => Err(e),
+    }
+}
+
 /// Run the TUI application
 pub fn run() -> io::Result<()> {
     // Verify we have a TTY before attempting terminal operations
@@ -167,11 +214,51 @@ fn run_external_editor(content: &str) -> io::Result<String> {
     Ok(edited.trim_end().to_string())
 }
 
+/// Run an arbitrary external command, suspending the TUI alternate screen so
+/// stdout/stderr (e.g. a sudo password prompt or `docker pull` progress) is
+/// visible to the user. Re-enters the alternate screen and clears it on return.
+fn run_with_terminal_suspended(
+    terminal: &mut Terminal<CrosstermBackend<io::Stdout>>,
+    f: impl FnOnce() -> io::Result<()>,
+) -> io::Result<()> {
+    disable_raw_mode()?;
+    execute!(
+        terminal.backend_mut(),
+        LeaveAlternateScreen,
+        DisableMouseCapture
+    )?;
+
+    let result = f();
+
+    enable_raw_mode()?;
+    execute!(
+        terminal.backend_mut(),
+        EnterAlternateScreen,
+        EnableMouseCapture
+    )?;
+    terminal.clear()?;
+
+    result
+}
+
 fn run_app(
     terminal: &mut Terminal<CrosstermBackend<io::Stdout>>,
     app: &mut App,
 ) -> io::Result<Option<AppAction>> {
     loop {
+        // Sandbox wizard external actions: a step asked us to suspend the TUI
+        // and run a privileged or interactive command, then resume.
+        if let Some(pending) = app
+            .sandbox_wizard
+            .as_mut()
+            .and_then(|w| w.pending_external.take())
+        {
+            handle_sandbox_pending_external(terminal, app, pending)?;
+            // Force a redraw immediately so the user sees the new step status.
+            terminal.draw(|f| app.render(f))?;
+            continue;
+        }
+
         // Check for pending external edit
         if let Some(content) = app.pending_external_edit.take() {
             // Leave alternate screen and disable raw mode for editor
@@ -185,13 +272,16 @@ fn run_app(
             // Run external editor
             let result = run_external_editor(&content);
 
-            // Re-enable terminal
+            // Re-enable terminal. clear() is required after returning from the
+            // editor — without it, ratatui draws over leftover editor scrollback
+            // (issue #112).
             enable_raw_mode()?;
             execute!(
                 terminal.backend_mut(),
                 EnterAlternateScreen,
                 EnableMouseCapture
             )?;
+            terminal.clear()?;
 
             // Handle result
             match result {
@@ -218,6 +308,61 @@ fn run_app(
             continue;
         }
 
+        // Check for pending custom agent TOML edit (issue #109).
+        // Open $EDITOR on the temp template, then parse the result and persist
+        // the custom agent. Any parse error is surfaced via status_message and
+        // the user is returned to the picker so they can retry.
+        if let Some(path) = app.pending_custom_agent_edit.take() {
+            disable_raw_mode()?;
+            execute!(
+                terminal.backend_mut(),
+                LeaveAlternateScreen,
+                DisableMouseCapture
+            )?;
+
+            let result = run_external_editor_file(&path);
+
+            enable_raw_mode()?;
+            execute!(
+                terminal.backend_mut(),
+                EnterAlternateScreen,
+                EnableMouseCapture
+            )?;
+
+            match result {
+                Ok(()) => match std::fs::read_to_string(&path) {
+                    Ok(text) => match app::parse_custom_agent_toml(&text) {
+                        Ok(cfg) => {
+                            app.install_custom_agent(cfg);
+                        }
+                        Err(e) => {
+                            // Re-queue the file so the user can fix it.
+                            app.status_message =
+                                Some(format!("Custom agent TOML invalid: {}", e));
+                            app.pending_custom_agent_edit = Some(path.clone());
+                            app.edit_field = app::EditField::AgentCliPicker;
+                        }
+                    },
+                    Err(e) => {
+                        app.status_message = Some(format!("Failed to read template: {}", e));
+                        app.edit_field = app::EditField::AgentCliPicker;
+                    }
+                },
+                Err(e) => {
+                    app.status_message = Some(format!("Editor error: {}", e));
+                    app.edit_field = app::EditField::AgentCliPicker;
+                }
+            }
+
+            // Cleanup if the user did not request a retry.
+            if app.pending_custom_agent_edit.is_none() {
+                let _ = std::fs::remove_file(&path);
+            }
+
+            terminal.draw(|f| app.render(f))?;
+            continue;
+        }
+
         // Check for pending profile file edit (open TOML in editor)
         if let Some(path) = app.pending_profile_file_edit.take() {
             // Leave alternate screen and disable raw mode for editor
@@ -231,13 +376,16 @@ fn run_app(
             // Run external editor on the profile file directly
             let result = run_external_editor_file(&path);
 
-            // Re-enable terminal
+            // Re-enable terminal. clear() is required after returning from the
+            // editor — without it, ratatui draws over leftover editor scrollback
+            // (issue #112).
             enable_raw_mode()?;
             execute!(
                 terminal.backend_mut(),
                 EnterAlternateScreen,
                 EnableMouseCapture
             )?;
+            terminal.clear()?;
 
             // Reload profile from disk after editing
             match result {
@@ -292,4 +440,76 @@ fn run_app(
             return Ok(None);
         }
     }
+}
+
+/// Execute a wizard-requested external action (sudo step, $EDITOR, docker pull),
+/// suspending the alternate screen as needed and recording the result back into
+/// the wizard state.
+fn handle_sandbox_pending_external(
+    terminal: &mut Terminal<CrosstermBackend<io::Stdout>>,
+    app: &mut App,
+    pending: app::SandboxPendingExternal,
+) -> io::Result<()> {
+    use app::SandboxPendingExternal as P;
+    use app::SandboxStep;
+
+    match pending {
+        P::EditDotEnv(path) => {
+            // Make sure the file exists so $EDITOR has something to open.
+            if !path.exists() {
+                if let Some(parent) = path.parent() {
+                    let _ = std::fs::create_dir_all(parent);
+                }
+                let _ = std::fs::write(&path, "# Filled in by the unleash sandbox wizard.\n");
+            }
+            run_with_terminal_suspended(terminal, || run_external_editor_file(&path))?;
+        }
+        P::RunStep(step_idx) | P::RunStepInline(step_idx) => {
+            // Both variants suspend the TUI to surface stdout (sudo prompts /
+            // docker pull progress). They differ only in messaging; both
+            // currently use the same suspend dance.
+            let docker_dir = app
+                .sandbox_wizard
+                .as_ref()
+                .and_then(|w| w.docker_dir.clone());
+            let step = SandboxStep::ALL[step_idx];
+
+            let mut result: Result<String, crate::sandbox::StepFailure> =
+                Err(crate::sandbox::StepFailure::Recoverable(
+                    "step did not run".into(),
+                ));
+            run_with_terminal_suspended(terminal, || {
+                eprintln!("\n--- {} ---\n", step.title());
+                if step.needs_sudo() {
+                    eprintln!(
+                        "This step needs root. You'll be prompted for your sudo password.\n"
+                    );
+                }
+                result = match step {
+                    SandboxStep::Docker => crate::sandbox::step_check_docker(),
+                    SandboxStep::GVisor => crate::sandbox::step_gvisor(true),
+                    SandboxStep::Network => match docker_dir.as_deref() {
+                        Some(d) => crate::sandbox::step_sandbox_network(d),
+                        None => Err(crate::sandbox::StepFailure::Recoverable(
+                            "docker/ directory not located".into(),
+                        )),
+                    },
+                    SandboxStep::Image => match docker_dir.as_deref() {
+                        Some(d) => crate::sandbox::step_container_image(d),
+                        None => Err(crate::sandbox::StepFailure::Recoverable(
+                            "docker/ directory not located".into(),
+                        )),
+                    },
+                    SandboxStep::Env | SandboxStep::Summary => Err(
+                        crate::sandbox::StepFailure::Recoverable(
+                            "this step is not externally runnable".into(),
+                        ),
+                    ),
+                };
+                Ok(())
+            })?;
+            app.sandbox_record_result(step_idx, result);
+        }
+    }
+    Ok(())
 }
