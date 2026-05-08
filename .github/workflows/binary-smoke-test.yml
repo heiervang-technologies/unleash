@@ -99,12 +99,17 @@ jobs:
           echo "--- sessions list OK ---"
 
       - name: Summary
+        env:
+          ARTIFACT: ${{ matrix.artifact }}
+          TAG: ${{ steps.tag.outputs.tag }}
         run: |
-          echo "## Smoke Test: ${{ matrix.artifact }}" >> $GITHUB_STEP_SUMMARY
-          echo "- Platform: $(uname -s) $(uname -m)" >> $GITHUB_STEP_SUMMARY
-          echo "- Binary: ${{ matrix.artifact }}" >> $GITHUB_STEP_SUMMARY
-          echo "- Tag: ${{ steps.tag.outputs.tag }}" >> $GITHUB_STEP_SUMMARY
-          echo "- Status: All checks passed" >> $GITHUB_STEP_SUMMARY
+          {
+            echo "## Smoke Test: $ARTIFACT"
+            echo "- Platform: $(uname -s) $(uname -m)"
+            echo "- Binary: $ARTIFACT"
+            echo "- Tag: $TAG"
+            echo "- Status: All checks passed"
+          } >> "$GITHUB_STEP_SUMMARY"
 
   alpine-smoke-test:
     name: unleash-linux-x86_64 (Alpine musl)
@@ -165,9 +170,13 @@ jobs:
           echo "--- sessions list OK ---"
 
       - name: Summary
+        env:
+          TAG: ${{ steps.tag.outputs.tag }}
         run: |
-          echo "## Smoke Test: unleash-linux-x86_64 (Alpine)" >> $GITHUB_STEP_SUMMARY
-          echo "- Platform: Alpine Linux (musl)" >> $GITHUB_STEP_SUMMARY
-          echo "- Binary: unleash-linux-x86_64" >> $GITHUB_STEP_SUMMARY
-          echo "- Tag: ${{ steps.tag.outputs.tag }}" >> $GITHUB_STEP_SUMMARY
-          echo "- Status: All checks passed" >> $GITHUB_STEP_SUMMARY
+          {
+            echo "## Smoke Test: unleash-linux-x86_64 (Alpine)"
+            echo "- Platform: Alpine Linux (musl)"
+            echo "- Binary: unleash-linux-x86_64"
+            echo "- Tag: $TAG"
+            echo "- Status: All checks passed"
+          } >> "$GITHUB_STEP_SUMMARY"
