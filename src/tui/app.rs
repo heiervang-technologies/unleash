@@ -127,6 +127,8 @@ pub enum Screen {
     ConfirmDelete,
     VersionManagement,
     Features,
+    /// Interactive sandbox setup wizard (issue #112+)
+    Sandbox,
 }
 
 /// Main menu items — order here defines display order in the TUI.
@@ -136,6 +138,7 @@ pub enum MainMenuItem {
     Profiles,
     Versions,
     Features,
+    Sandbox,
     Help,
     Quit,
 }
@@ -161,6 +164,11 @@ const MAIN_MENU: &[(MainMenuItem, &str, &str)] = &[
         MainMenuItem::Features,
         "Features & Plugins",
         "Toggle plugins and experimental features",
+    ),
+    (
+        MainMenuItem::Sandbox,
+        "Sandbox",
+        "Set up the gVisor + Docker sandbox",
     ),
     (MainMenuItem::Help, "Help", "Keyboard shortcuts and tips"),
     (MainMenuItem::Quit, "Quit", "Exit the launcher"),
@@ -211,6 +219,8 @@ pub enum EditField {
     ClaudeArgs,
     StopPrompt,
     ThemeHex,
+    /// Sandbox wizard env-config: typing an explicit value for an API key.
+    SandboxEnvValue,
 }
 
 /// One entry in the agent CLI picker cycle (issue #109).
@@ -288,6 +298,219 @@ pub struct CustomAgentDraft {
     pub resume_flag: String,
     pub model_flag: String,
     pub yolo_flag: String,
+}
+
+// ─── Sandbox wizard (issue #112+) ───────────────────────────
+
+/// Per-step status indicator in the sandbox wizard.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum SandboxStepStatus {
+    Pending,
+    Running,
+    /// Awaiting a sudo password prompt — UI should hint at the lock icon.
+    AwaitingSudo,
+    Success(String),
+    /// Recoverable failure — Retry is offered.
+    FailedRecoverable(String, Vec<String>),
+    Skipped,
+}
+
+impl SandboxStepStatus {
+    pub fn is_done(&self) -> bool {
+        matches!(self, SandboxStepStatus::Success(_) | SandboxStepStatus::Skipped)
+    }
+}
+
+/// What the user picked for a single env-var key in the wizard.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum EnvKeyChoice {
+    /// Don't store; pass `-e KEY` at `docker run` time so the host value flows in.
+    Passthrough,
+    /// Store an explicit value in `docker/.env`.
+    Explicit,
+    /// Open `$EDITOR` on `docker/.env` when the user hits Enter.
+    Editor,
+    /// Neither — skip this key entirely.
+    Skip,
+}
+
+impl EnvKeyChoice {
+    pub fn cycle_next(&self) -> Self {
+        match self {
+            EnvKeyChoice::Passthrough => EnvKeyChoice::Explicit,
+            EnvKeyChoice::Explicit => EnvKeyChoice::Editor,
+            EnvKeyChoice::Editor => EnvKeyChoice::Skip,
+            EnvKeyChoice::Skip => EnvKeyChoice::Passthrough,
+        }
+    }
+    pub fn cycle_prev(&self) -> Self {
+        match self {
+            EnvKeyChoice::Passthrough => EnvKeyChoice::Skip,
+            EnvKeyChoice::Explicit => EnvKeyChoice::Passthrough,
+            EnvKeyChoice::Editor => EnvKeyChoice::Explicit,
+            EnvKeyChoice::Skip => EnvKeyChoice::Editor,
+        }
+    }
+    pub fn label(&self) -> &'static str {
+        match self {
+            EnvKeyChoice::Passthrough => "passthrough",
+            EnvKeyChoice::Explicit => "explicit",
+            EnvKeyChoice::Editor => "editor",
+            EnvKeyChoice::Skip => "skip",
+        }
+    }
+}
+
+impl Default for EnvKeyChoice {
+    fn default() -> Self {
+        // Default to passthrough when the host env already has the key set
+        // (decided per-row at draft creation); fall back to Skip otherwise.
+        EnvKeyChoice::Skip
+    }
+}
+
+/// One row in the env-config step.
+#[derive(Debug, Clone)]
+pub struct SandboxEnvRow {
+    pub key: String,
+    pub choice: EnvKeyChoice,
+    /// Explicit value when `choice == Explicit`. Hidden in the UI.
+    pub value: String,
+    /// Whether this key was already set on the host at wizard-launch time.
+    pub host_present: bool,
+}
+
+/// Mutable scratch space for the env-config step.
+#[derive(Debug, Clone, Default)]
+pub struct SandboxEnvDraft {
+    pub rows: Vec<SandboxEnvRow>,
+    /// Index of the currently focused row.
+    pub selected: usize,
+}
+
+impl SandboxEnvDraft {
+    pub fn new(keys: &[String]) -> Self {
+        let rows = keys
+            .iter()
+            .map(|k| {
+                let host_present = std::env::var(k).is_ok();
+                SandboxEnvRow {
+                    key: k.clone(),
+                    choice: if host_present {
+                        EnvKeyChoice::Passthrough
+                    } else {
+                        EnvKeyChoice::Skip
+                    },
+                    value: String::new(),
+                    host_present,
+                }
+            })
+            .collect();
+        SandboxEnvDraft { rows, selected: 0 }
+    }
+}
+
+/// Top-level state for the sandbox wizard.
+#[derive(Debug, Clone)]
+pub struct SandboxWizardState {
+    /// Index into `SandboxStep::ALL` of the current step the user is on.
+    pub step: usize,
+    /// Status of each step in `SandboxStep::ALL` order.
+    pub statuses: Vec<SandboxStepStatus>,
+    /// Env-config draft (only the env step uses it).
+    pub env_draft: SandboxEnvDraft,
+    /// Resolved docker/ directory (filled lazily when the wizard runs an action).
+    pub docker_dir: Option<std::path::PathBuf>,
+    /// Set when the wizard wants the run loop to suspend the TUI, run an
+    /// external command (sudo / docker pull), and re-enter at the same step.
+    pub pending_external: Option<SandboxPendingExternal>,
+}
+
+/// External commands the wizard hands off to the run loop in tui::mod.
+#[derive(Debug, Clone)]
+pub enum SandboxPendingExternal {
+    /// Open `$EDITOR` on `docker/.env`. After exit, the wizard refreshes.
+    EditDotEnv(std::path::PathBuf),
+    /// Run a sandbox step that needs the alternate screen suspended (sudo).
+    RunStep(usize),
+    /// Run a step without suspending — non-interactive (e.g. docker pull).
+    RunStepInline(usize),
+}
+
+/// Logical step in the wizard. The order here determines the wizard flow.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SandboxStep {
+    Docker,
+    GVisor,
+    Network,
+    Image,
+    Env,
+    Summary,
+}
+
+impl SandboxStep {
+    pub const ALL: &'static [SandboxStep] = &[
+        SandboxStep::Docker,
+        SandboxStep::GVisor,
+        SandboxStep::Network,
+        SandboxStep::Image,
+        SandboxStep::Env,
+        SandboxStep::Summary,
+    ];
+
+    pub fn title(&self) -> &'static str {
+        match self {
+            SandboxStep::Docker => "Docker daemon",
+            SandboxStep::GVisor => "gVisor (runsc)",
+            SandboxStep::Network => "Sandbox network + iptables",
+            SandboxStep::Image => "Container image",
+            SandboxStep::Env => "Env / API keys",
+            SandboxStep::Summary => "Summary",
+        }
+    }
+
+    pub fn description(&self) -> &'static str {
+        match self {
+            SandboxStep::Docker => "Verify that the Docker daemon is reachable.",
+            SandboxStep::GVisor => {
+                "Detect or install gVisor (runsc) — a userspace kernel that contains the agent."
+            }
+            SandboxStep::Network => {
+                "Create the unleash-sandbox network and apply iptables rules to block LAN access."
+            }
+            SandboxStep::Image => {
+                "Pull the unleash container image from Docker Hub (falls back to local build)."
+            }
+            SandboxStep::Env => {
+                "Configure how API keys reach the container (passthrough vs. explicit)."
+            }
+            SandboxStep::Summary => "Review and finish.",
+        }
+    }
+
+    /// Whether the step typically needs sudo (purely advisory for the UI).
+    pub fn needs_sudo(&self) -> bool {
+        matches!(self, SandboxStep::GVisor | SandboxStep::Network)
+    }
+}
+
+impl SandboxWizardState {
+    pub fn new(env_keys: &[String]) -> Self {
+        SandboxWizardState {
+            step: 0,
+            statuses: SandboxStep::ALL
+                .iter()
+                .map(|_| SandboxStepStatus::Pending)
+                .collect(),
+            env_draft: SandboxEnvDraft::new(env_keys),
+            docker_dir: None,
+            pending_external: None,
+        }
+    }
+
+    pub fn current_step(&self) -> SandboxStep {
+        SandboxStep::ALL[self.step.min(SandboxStep::ALL.len() - 1)]
+    }
 }
 
 /// State for async version installation
@@ -622,6 +845,10 @@ pub struct App {
     /// Set when the editor flow needs the TUI to suspend itself and run $EDITOR
     /// on a TOML template — handled by the run_app loop in tui/mod.rs.
     pub pending_custom_agent_edit: Option<std::path::PathBuf>,
+
+    // ── Sandbox wizard (issue #112+) ────────────────────────────────────────
+    /// Active wizard state when `screen == Screen::Sandbox`.
+    pub sandbox_wizard: Option<SandboxWizardState>,
 }
 
 impl App {
@@ -772,6 +999,7 @@ impl App {
             agent_picker_custom_choice: 0,
             custom_agent_draft: None,
             pending_custom_agent_edit: None,
+            sandbox_wizard: None,
         })
     }
 
@@ -1094,6 +1322,7 @@ impl App {
             | Screen::Theme
             | Screen::Help
             | Screen::Features
+            | Screen::Sandbox
             | Screen::ConfirmDelete => {}
         }
     }
@@ -1762,6 +1991,7 @@ impl App {
                 Screen::ConfirmDelete => self.handle_confirm_delete_input(action),
                 Screen::VersionManagement => return self.handle_version_input(action, key),
                 Screen::Features => self.handle_features_input(action),
+                Screen::Sandbox => self.handle_sandbox_input(action, key),
             }
         }
         Ok(None)
@@ -1784,6 +2014,7 @@ impl App {
             | EditField::CustomAgentResumeFlag
             | EditField::CustomAgentModelFlag
             | EditField::CustomAgentYoloFlag => &mut self.key_input,
+            EditField::SandboxEnvValue => &mut self.value_input,
             EditField::AgentCliPicker | EditField::AgentCliCustomChoice => return None,
             EditField::None => return None,
         };
@@ -2025,6 +2256,19 @@ impl App {
                         self.sync_editing_to_selected();
                         self.edit_field = EditField::None;
                     }
+                    EditField::SandboxEnvValue => {
+                        // Commit explicit value into the focused row.
+                        let trimmed = self.value_input.value.clone();
+                        if let Some(ref mut wiz) = self.sandbox_wizard {
+                            if let Some(row) = wiz.env_draft.rows.get_mut(wiz.env_draft.selected) {
+                                row.value = trimmed;
+                                row.choice = EnvKeyChoice::Explicit;
+                            }
+                        }
+                        self.value_input.clear();
+                        self.value_input.hidden = false;
+                        self.edit_field = EditField::None;
+                    }
                     _ => {
                         self.edit_field = EditField::None;
                     }
@@ -2045,6 +2289,11 @@ impl App {
                 ) {
                     self.custom_agent_draft = None;
                     self.status_message = Some("Custom agent setup cancelled".into());
+                }
+                if self.edit_field == EditField::SandboxEnvValue {
+                    // Discard the half-typed value and stay on the row.
+                    self.value_input.clear();
+                    self.value_input.hidden = false;
                 }
                 self.edit_field = EditField::None;
                 if self.screen == Screen::EnvVarEdit {
@@ -2134,6 +2383,11 @@ impl App {
                         self.feature_menu = MenuState::new(self.discovered_plugins.len());
                         self.trigger_screen_animation(true, Screen::Features);
                         self.pending_screen = Some(Screen::Features);
+                    }
+                    Some(MainMenuItem::Sandbox) => {
+                        self.open_sandbox_wizard();
+                        self.trigger_screen_animation(true, Screen::Sandbox);
+                        self.pending_screen = Some(Screen::Sandbox);
                     }
                     Some(MainMenuItem::Help) => {
                         self.help_return_screen = Some(Screen::Main);
@@ -3035,6 +3289,597 @@ impl App {
         }
     }
 
+    // ─── Sandbox wizard (issue #112+) ────────────────────────────────────
+
+    /// Open the sandbox wizard. Resets state to step 0 and re-derives the
+    /// canonical key list from the discovered docker/ directory.
+    pub fn open_sandbox_wizard(&mut self) {
+        // Resolve docker dir lazily — we don't *install* embedded assets here,
+        // we just look them up. The wizard can show a step that handles install
+        // of assets if needed in a future iteration. For now we use the lookup
+        // result purely to seed the canonical-keys list.
+        let docker_dir = crate::sandbox::find_docker_dir();
+        let keys = match docker_dir.as_ref() {
+            Some(d) => crate::sandbox::canonical_keys_from_example(d),
+            None => crate::sandbox::CANONICAL_ENV_KEYS
+                .iter()
+                .map(|s| (*s).to_string())
+                .collect(),
+        };
+        let mut state = SandboxWizardState::new(&keys);
+        state.docker_dir = docker_dir;
+        // Pre-fill the Docker step status with a quick check so the UI shows
+        // a green tick when Docker is already running.
+        if crate::sandbox::docker_running() {
+            state.statuses[0] = SandboxStepStatus::Success("Docker daemon is running.".into());
+        }
+        if crate::sandbox::gvisor_installed() {
+            state.statuses[1] = SandboxStepStatus::Success("gVisor (runsc) installed.".into());
+        }
+        if crate::sandbox::iptables_rules_active() && crate::sandbox::network_exists() {
+            state.statuses[2] =
+                SandboxStepStatus::Success("Sandbox network and iptables already active.".into());
+        }
+        if crate::sandbox::image_exists() {
+            state.statuses[3] = SandboxStepStatus::Success("Container image present.".into());
+        }
+        self.sandbox_wizard = Some(state);
+        self.edit_field = EditField::None;
+    }
+
+    /// Number of logical wizard steps. Used by tests and the renderer.
+    #[allow(dead_code)]
+    pub fn sandbox_step_count() -> usize {
+        SandboxStep::ALL.len()
+    }
+
+    fn handle_sandbox_input(&mut self, action: NavAction, key: KeyEvent) {
+        // While typing an explicit env value, the text input handler owns input.
+        if self.edit_field == EditField::SandboxEnvValue {
+            return;
+        }
+        let wiz = match self.sandbox_wizard.as_mut() {
+            Some(w) => w,
+            None => {
+                // Defensive: if state was lost, just bail back to main.
+                self.screen = Screen::Main;
+                return;
+            }
+        };
+
+        let on_env_step = wiz.current_step() == SandboxStep::Env;
+        let on_summary = wiz.current_step() == SandboxStep::Summary;
+
+        match action {
+            NavAction::Back | NavAction::Quit => {
+                self.trigger_screen_animation(false, Screen::Main);
+                self.pending_screen = Some(Screen::Main);
+                self.sandbox_wizard = None;
+                if self.art_animation.is_none() {
+                    self.screen = Screen::Main;
+                    self.refresh_screen_data();
+                }
+                return;
+            }
+            NavAction::Up | NavAction::Down if on_env_step => {
+                let len = wiz.env_draft.rows.len();
+                if len > 0 {
+                    if matches!(action, NavAction::Up) {
+                        wiz.env_draft.selected = if wiz.env_draft.selected == 0 {
+                            len - 1
+                        } else {
+                            wiz.env_draft.selected - 1
+                        };
+                    } else {
+                        wiz.env_draft.selected = (wiz.env_draft.selected + 1) % len;
+                    }
+                }
+                return;
+            }
+            _ => {}
+        }
+
+        // Per-step keyboard
+        match key.code {
+            // Cycle picker for env-config rows
+            KeyCode::Left | KeyCode::Char('h') if on_env_step => {
+                if let Some(row) = wiz.env_draft.rows.get_mut(wiz.env_draft.selected) {
+                    row.choice = row.choice.cycle_prev();
+                }
+            }
+            KeyCode::Right | KeyCode::Char('l') if on_env_step => {
+                if let Some(row) = wiz.env_draft.rows.get_mut(wiz.env_draft.selected) {
+                    row.choice = row.choice.cycle_next();
+                }
+            }
+            // Enter on env step: "edit value" if Explicit, "open editor" if Editor,
+            // otherwise no-op.
+            KeyCode::Enter if on_env_step => {
+                if let Some(row) = wiz.env_draft.rows.get(wiz.env_draft.selected).cloned() {
+                    match row.choice {
+                        EnvKeyChoice::Explicit => {
+                            self.value_input = TextInput::new()
+                                .with_value(&row.value)
+                                .with_placeholder(&format!("paste {} value", row.key));
+                            self.value_input.hidden = is_sensitive_key(&row.key);
+                            self.edit_field = EditField::SandboxEnvValue;
+                        }
+                        EnvKeyChoice::Editor => {
+                            // Hand off to the run loop to suspend the TUI and run $EDITOR.
+                            if let Some(dir) = wiz.docker_dir.clone() {
+                                wiz.pending_external =
+                                    Some(SandboxPendingExternal::EditDotEnv(dir.join(".env")));
+                            } else {
+                                self.status_message = Some(
+                                    "docker/ directory not found — cannot open .env in editor"
+                                        .into(),
+                                );
+                            }
+                        }
+                        EnvKeyChoice::Passthrough | EnvKeyChoice::Skip => {}
+                    }
+                }
+            }
+            // Tab / 'n' = next step
+            KeyCode::Tab | KeyCode::Char('n') => {
+                self.sandbox_advance_step();
+            }
+            // Shift-Tab / 'p' = previous step
+            KeyCode::BackTab | KeyCode::Char('p') => {
+                if let Some(wiz) = self.sandbox_wizard.as_mut() {
+                    if wiz.step > 0 {
+                        wiz.step -= 1;
+                    }
+                }
+            }
+            // 'r' = retry the current step
+            KeyCode::Char('r') if !on_env_step && !on_summary => {
+                self.sandbox_run_current_step();
+            }
+            // 's' = skip the current step
+            KeyCode::Char('s') if !on_env_step && !on_summary => {
+                if let Some(wiz) = self.sandbox_wizard.as_mut() {
+                    let i = wiz.step;
+                    if i < wiz.statuses.len() {
+                        wiz.statuses[i] = SandboxStepStatus::Skipped;
+                    }
+                }
+                self.sandbox_advance_step();
+            }
+            // Enter on summary = finish + write env config
+            KeyCode::Enter if on_summary => {
+                self.sandbox_finish_wizard();
+            }
+            // Enter on a non-env step = run the current step.
+            KeyCode::Enter => {
+                self.sandbox_run_current_step();
+            }
+            _ => {}
+        }
+    }
+
+    /// Advance to the next wizard step. If we're already on the last step, no-op.
+    fn sandbox_advance_step(&mut self) {
+        if let Some(wiz) = self.sandbox_wizard.as_mut() {
+            if wiz.step + 1 < wiz.statuses.len() {
+                wiz.step += 1;
+            }
+        }
+    }
+
+    /// Run the current step inline (for non-sudo) or queue an external run
+    /// (for sudo steps that need the alternate screen suspended).
+    fn sandbox_run_current_step(&mut self) {
+        let step_idx = match self.sandbox_wizard.as_ref() {
+            Some(w) => w.step,
+            None => return,
+        };
+        let step = SandboxStep::ALL[step_idx];
+
+        // Mark running.
+        if let Some(wiz) = self.sandbox_wizard.as_mut() {
+            wiz.statuses[step_idx] = if step.needs_sudo() {
+                SandboxStepStatus::AwaitingSudo
+            } else {
+                SandboxStepStatus::Running
+            };
+        }
+
+        match step {
+            // Sudo-touching steps go through the external-run channel so we can
+            // suspend/restore the alternate screen around them.
+            SandboxStep::GVisor | SandboxStep::Network => {
+                if let Some(wiz) = self.sandbox_wizard.as_mut() {
+                    wiz.pending_external = Some(SandboxPendingExternal::RunStep(step_idx));
+                }
+            }
+            // Image pull is non-interactive but can be slow; queue inline run
+            // so the TUI suspends to show the docker pull stream.
+            SandboxStep::Image => {
+                if let Some(wiz) = self.sandbox_wizard.as_mut() {
+                    wiz.pending_external = Some(SandboxPendingExternal::RunStepInline(step_idx));
+                }
+            }
+            // Pure check — run synchronously.
+            SandboxStep::Docker => {
+                let result = crate::sandbox::step_check_docker();
+                self.sandbox_record_result(step_idx, result);
+            }
+            SandboxStep::Env | SandboxStep::Summary => {
+                // Nothing to "run" — the env step is interactive, summary is review.
+                if let Some(wiz) = self.sandbox_wizard.as_mut() {
+                    wiz.statuses[step_idx] = SandboxStepStatus::Pending;
+                }
+            }
+        }
+    }
+
+    /// Record the result of a finished step into wizard state.
+    pub fn sandbox_record_result(
+        &mut self,
+        step_idx: usize,
+        result: Result<String, crate::sandbox::StepFailure>,
+    ) {
+        if let Some(wiz) = self.sandbox_wizard.as_mut() {
+            if step_idx >= wiz.statuses.len() {
+                return;
+            }
+            wiz.statuses[step_idx] = match result {
+                Ok(msg) => SandboxStepStatus::Success(msg),
+                Err(f) => SandboxStepStatus::FailedRecoverable(f.message(), f.next_actions()),
+            };
+        }
+    }
+
+    /// Persist the wizard's env-config decisions: write `docker/.env` for
+    /// explicit values and `~/.config/unleash/sandbox-passthrough.toml` for
+    /// passthrough keys. Then bounce back to the main screen.
+    fn sandbox_finish_wizard(&mut self) {
+        let wiz = match self.sandbox_wizard.as_ref() {
+            Some(w) => w,
+            None => return,
+        };
+        let mut explicit: Vec<(String, String)> = Vec::new();
+        let mut passthrough: Vec<String> = Vec::new();
+        for row in &wiz.env_draft.rows {
+            match row.choice {
+                EnvKeyChoice::Explicit => {
+                    if !row.value.is_empty() {
+                        explicit.push((row.key.clone(), row.value.clone()));
+                    }
+                }
+                EnvKeyChoice::Passthrough => passthrough.push(row.key.clone()),
+                EnvKeyChoice::Editor | EnvKeyChoice::Skip => {}
+            }
+        }
+
+        if let Some(dir) = wiz.docker_dir.clone() {
+            if !explicit.is_empty() {
+                if let Err(e) = crate::sandbox::write_dotenv(&dir, &explicit) {
+                    self.status_message = Some(format!("Failed to write docker/.env: {}", e));
+                    return;
+                }
+            }
+        }
+        if let Some(path) = crate::sandbox::passthrough_config_path() {
+            if let Err(e) = crate::sandbox::save_passthrough_keys(&path, &passthrough) {
+                self.status_message = Some(format!("Failed to save passthrough config: {}", e));
+                return;
+            }
+        }
+
+        self.status_message = Some("Sandbox setup saved.".into());
+        self.sandbox_wizard = None;
+        self.trigger_screen_animation(false, Screen::Main);
+        self.pending_screen = Some(Screen::Main);
+        if self.art_animation.is_none() {
+            self.screen = Screen::Main;
+            self.refresh_screen_data();
+        }
+    }
+
+    /// Render the sandbox wizard.
+    fn render_sandbox_wizard(&mut self, frame: &mut Frame, area: Rect) {
+        use ratatui::widgets::{Block, Borders, Paragraph};
+
+        let wiz = match self.sandbox_wizard.as_ref() {
+            Some(w) => w.clone(),
+            None => return,
+        };
+
+        // Layout: list of steps on the left, details pane on the right.
+        let outer_chunks = Layout::default()
+            .direction(Direction::Horizontal)
+            .constraints([Constraint::Length(34), Constraint::Min(0)])
+            .split(area);
+
+        let left_lines: Vec<Line> = SandboxStep::ALL
+            .iter()
+            .enumerate()
+            .map(|(i, s)| {
+                let icon = match &wiz.statuses[i] {
+                    SandboxStepStatus::Pending => "·",
+                    SandboxStepStatus::Running => "…",
+                    SandboxStepStatus::AwaitingSudo => "🔑",
+                    SandboxStepStatus::Success(_) => "✓",
+                    SandboxStepStatus::FailedRecoverable(_, _) => "✗",
+                    SandboxStepStatus::Skipped => "—",
+                };
+                let style = if i == wiz.step {
+                    Style::default()
+                        .fg(self.accent_color())
+                        .add_modifier(Modifier::BOLD)
+                } else if wiz.statuses[i].is_done() {
+                    Style::default().fg(Color::Green)
+                } else {
+                    Style::default().fg(Color::Gray)
+                };
+                Line::from(Span::styled(
+                    format!(" {} {}. {}", icon, i + 1, s.title()),
+                    style,
+                ))
+            })
+            .collect();
+
+        let left = Paragraph::new(left_lines).block(
+            Block::default()
+                .borders(Borders::ALL)
+                .border_style(Style::default().fg(self.accent_color()))
+                .title(" Sandbox Setup "),
+        );
+        frame.render_widget(left, outer_chunks[0]);
+
+        // Right pane: details for the currently-focused step.
+        let step = wiz.current_step();
+        let mut detail_lines: Vec<Line> = Vec::new();
+        detail_lines.push(Line::from(Span::styled(
+            format!(" {}", step.title()),
+            Style::default()
+                .fg(self.accent_color())
+                .add_modifier(Modifier::BOLD),
+        )));
+        detail_lines.push(Line::from(""));
+        detail_lines.push(Line::from(Span::styled(
+            format!(" {}", step.description()),
+            Style::default().fg(Color::Gray),
+        )));
+
+        if step.needs_sudo() {
+            detail_lines.push(Line::from(""));
+            detail_lines.push(Line::from(Span::styled(
+                "  This step needs root. You'll be prompted for your password.",
+                Style::default().fg(Color::Yellow),
+            )));
+        }
+        detail_lines.push(Line::from(""));
+
+        // Status line + action affordances.
+        let status_line = match &wiz.statuses[wiz.step] {
+            SandboxStepStatus::Pending => Line::from(Span::styled(
+                " Status: pending — press Enter to run.",
+                Style::default().fg(Color::Gray),
+            )),
+            SandboxStepStatus::Running => Line::from(Span::styled(
+                " Status: running…",
+                Style::default().fg(Color::Yellow),
+            )),
+            SandboxStepStatus::AwaitingSudo => Line::from(Span::styled(
+                " Status: 🔑 waiting for sudo password (check your terminal)",
+                Style::default().fg(Color::Yellow),
+            )),
+            SandboxStepStatus::Success(msg) => Line::from(Span::styled(
+                format!(" Status: ✓ {}", msg),
+                Style::default().fg(Color::Green),
+            )),
+            SandboxStepStatus::Skipped => Line::from(Span::styled(
+                " Status: — skipped",
+                Style::default().fg(Color::DarkGray),
+            )),
+            SandboxStepStatus::FailedRecoverable(msg, _) => Line::from(Span::styled(
+                format!(" Status: ✗ {}", msg),
+                Style::default().fg(Color::Red),
+            )),
+        };
+        detail_lines.push(status_line);
+
+        // Suggested next actions for failed steps.
+        if let SandboxStepStatus::FailedRecoverable(_, hints) = &wiz.statuses[wiz.step] {
+            for h in hints {
+                detail_lines.push(Line::from(Span::styled(
+                    format!("   • {}", h),
+                    Style::default().fg(Color::Yellow),
+                )));
+            }
+        }
+
+        // Step-specific body.
+        if step == SandboxStep::Env {
+            detail_lines.push(Line::from(""));
+            detail_lines.push(Line::from(Span::styled(
+                " Per-key choice — ◀ ▶ to cycle, Enter to set value/open editor:",
+                Style::default().fg(Color::Gray),
+            )));
+            for (i, row) in wiz.env_draft.rows.iter().enumerate() {
+                let highlight = if i == wiz.env_draft.selected {
+                    Style::default()
+                        .fg(self.accent_color())
+                        .add_modifier(Modifier::BOLD)
+                } else {
+                    Style::default().fg(Color::White)
+                };
+                let host_marker = if row.host_present { "★" } else { " " };
+                let displayed_value = match row.choice {
+                    EnvKeyChoice::Explicit => {
+                        if row.value.is_empty() {
+                            "<empty — Enter to set>".to_string()
+                        } else if is_sensitive_key(&row.key) {
+                            "*".repeat(8)
+                        } else {
+                            row.value.clone()
+                        }
+                    }
+                    EnvKeyChoice::Passthrough => {
+                        if row.host_present {
+                            "(from host env)".into()
+                        } else {
+                            "(from host env — NOT SET)".into()
+                        }
+                    }
+                    EnvKeyChoice::Editor => "(edit docker/.env)".into(),
+                    EnvKeyChoice::Skip => "—".into(),
+                };
+                detail_lines.push(Line::from(vec![
+                    Span::styled(format!("  {} ", host_marker), Style::default().fg(Color::Yellow)),
+                    Span::styled(format!("{:<28}", row.key), highlight),
+                    Span::styled(" ◀ ", Style::default().fg(Color::DarkGray)),
+                    Span::styled(format!("{:<12}", row.choice.label()), highlight),
+                    Span::styled(" ▶  ", Style::default().fg(Color::DarkGray)),
+                    Span::styled(displayed_value, Style::default().fg(Color::Cyan)),
+                ]));
+            }
+            detail_lines.push(Line::from(""));
+            detail_lines.push(Line::from(Span::styled(
+                " ★ = key already set in your host env",
+                Style::default().fg(Color::DarkGray),
+            )));
+        } else if step == SandboxStep::Summary {
+            let explicit_count = wiz
+                .env_draft
+                .rows
+                .iter()
+                .filter(|r| r.choice == EnvKeyChoice::Explicit && !r.value.is_empty())
+                .count();
+            let passthrough_count = wiz
+                .env_draft
+                .rows
+                .iter()
+                .filter(|r| r.choice == EnvKeyChoice::Passthrough)
+                .count();
+            detail_lines.push(Line::from(""));
+            detail_lines.push(Line::from(format!(
+                " Explicit values to write to docker/.env: {}",
+                explicit_count
+            )));
+            detail_lines.push(Line::from(format!(
+                " Host env keys to passthrough at runtime: {}",
+                passthrough_count
+            )));
+            detail_lines.push(Line::from(""));
+            detail_lines.push(Line::from(Span::styled(
+                " Next steps after finishing:",
+                Style::default().fg(Color::Gray),
+            )));
+            detail_lines.push(Line::from("   • unleash sandbox run claude"));
+            detail_lines.push(Line::from("   • unleash sandbox status"));
+            detail_lines.push(Line::from(""));
+            detail_lines.push(Line::from(Span::styled(
+                " [Enter] finish & save — [Tab] previous step — [Esc] back",
+                Style::default().fg(Color::DarkGray),
+            )));
+        }
+
+        // Footer affordances.
+        if step != SandboxStep::Summary {
+            detail_lines.push(Line::from(""));
+            let footer = if step == SandboxStep::Env {
+                " [↑↓] row  [◀▶] choice  [Enter] set  [Tab] next step  [Esc] back"
+            } else {
+                " [Enter] run  [r] retry  [s] skip  [Tab] next  [p] prev  [Esc] back"
+            };
+            detail_lines.push(Line::from(Span::styled(
+                footer,
+                Style::default().fg(Color::DarkGray),
+            )));
+        }
+
+        let right = Paragraph::new(detail_lines)
+            .block(
+                Block::default()
+                    .borders(Borders::ALL)
+                    .border_style(Style::default().fg(self.accent_color())),
+            )
+            .wrap(Wrap { trim: false });
+        frame.render_widget(right, outer_chunks[1]);
+    }
+
+    /// Modal: prompt for an explicit env value during the sandbox wizard.
+    fn render_sandbox_env_value_dialog(&self, frame: &mut Frame, area: Rect) {
+        let wiz = match self.sandbox_wizard.as_ref() {
+            Some(w) => w,
+            None => return,
+        };
+        let row = match wiz.env_draft.rows.get(wiz.env_draft.selected) {
+            Some(r) => r,
+            None => return,
+        };
+        let dialog_width = 70.min(area.width.saturating_sub(4));
+        let dialog_height = 9;
+        let dialog_x = (area.width.saturating_sub(dialog_width)) / 2;
+        let dialog_y = (area.height.saturating_sub(dialog_height)) / 2;
+        let dialog_area = Rect::new(dialog_x, dialog_y, dialog_width, dialog_height);
+        frame.render_widget(Clear, dialog_area);
+
+        let cursor_style = Style::default().fg(Color::Black).bg(Color::Yellow);
+        let value_style = Style::default()
+            .fg(Color::Yellow)
+            .add_modifier(Modifier::BOLD);
+
+        let mut input_spans = vec![Span::styled(
+            format!("  {}: ", row.key),
+            Style::default().fg(self.accent_color()),
+        )];
+        let (before, at_cursor, after) = self.value_input.render_parts();
+        if before.is_empty() && at_cursor.is_none() && self.value_input.is_empty() {
+            input_spans.push(Span::styled(" ", cursor_style));
+            input_spans.push(Span::styled(
+                self.value_input.placeholder.clone(),
+                Style::default().fg(Color::DarkGray),
+            ));
+        } else {
+            input_spans.push(Span::styled(before.to_string(), value_style));
+            match at_cursor {
+                Some(c) => input_spans.push(Span::styled(c.to_string(), cursor_style)),
+                None => input_spans.push(Span::styled(" ", cursor_style)),
+            }
+            input_spans.push(Span::styled(after.to_string(), value_style));
+        }
+
+        let lines = vec![
+            Line::from(Span::styled(
+                "  Set explicit value",
+                Style::default()
+                    .fg(self.accent_color())
+                    .add_modifier(Modifier::BOLD),
+            )),
+            Line::from(""),
+            Line::from(Span::styled(
+                if self.value_input.hidden {
+                    "  Sensitive key — typed characters are hidden."
+                } else {
+                    "  Value is written to docker/.env on finish."
+                },
+                Style::default().fg(Color::DarkGray),
+            )),
+            Line::from(""),
+            Line::from(input_spans),
+            Line::from(""),
+            Line::from(Span::styled(
+                "  [Enter=save] [Esc=cancel]",
+                Style::default().fg(Color::DarkGray),
+            )),
+        ];
+
+        let dialog = Paragraph::new(lines)
+            .block(
+                Block::default()
+                    .borders(Borders::ALL)
+                    .border_style(Style::default().fg(self.accent_color()))
+                    .style(Style::default().bg(Color::Black)),
+            )
+            .wrap(Wrap { trim: false });
+        frame.render_widget(dialog, dialog_area);
+    }
+
     /// Check if a plugin is enabled based on current config
     fn is_plugin_enabled(&self, name: &str) -> bool {
         if self.app_config.enabled_plugins.is_empty() {
@@ -3143,6 +3988,7 @@ impl App {
                 50
             }
             Screen::Features => 50,
+            Screen::Sandbox => 80,
         }
     }
 
@@ -3293,6 +4139,12 @@ impl App {
                 }
             }
             Screen::Features => self.render_features(frame, area),
+            Screen::Sandbox => {
+                self.render_sandbox_wizard(frame, area);
+                if self.edit_field == EditField::SandboxEnvValue {
+                    self.render_sandbox_env_value_dialog(frame, frame.area());
+                }
+            }
         }
     }
 
@@ -5209,6 +6061,7 @@ mod tests {
             agent_picker_custom_choice: 0,
             custom_agent_draft: None,
             pending_custom_agent_edit: None,
+            sandbox_wizard: None,
         };
 
         (app, temp)
@@ -6355,5 +7208,189 @@ yolo_flag = "--yes"
         );
         // Cleanup so we don't leave files in /tmp
         let _ = std::fs::remove_file(path);
+    }
+
+    // ── Sandbox wizard ─────────────────────────────────────────────
+
+    #[test]
+    fn test_open_sandbox_wizard_initializes_state() {
+        let (mut app, _temp) = test_app();
+        app.open_sandbox_wizard();
+        let wiz = app.sandbox_wizard.as_ref().expect("wizard active");
+        assert_eq!(wiz.step, 0);
+        assert_eq!(wiz.statuses.len(), SandboxStep::ALL.len());
+        assert!(!wiz.env_draft.rows.is_empty());
+        // Canonical keys are always present
+        let keys: Vec<_> = wiz.env_draft.rows.iter().map(|r| r.key.clone()).collect();
+        assert!(keys.contains(&"ANTHROPIC_API_KEY".to_string()));
+    }
+
+    #[test]
+    fn test_env_choice_cycle_picker() {
+        let initial = EnvKeyChoice::Skip;
+        // Round-trip in both directions ends where it started.
+        let f1 = initial.cycle_next().cycle_next().cycle_next().cycle_next();
+        assert_eq!(f1, initial);
+        let f2 = initial.cycle_prev().cycle_prev().cycle_prev().cycle_prev();
+        assert_eq!(f2, initial);
+        // Forward then back is a no-op.
+        assert_eq!(initial.cycle_next().cycle_prev(), initial);
+    }
+
+    #[test]
+    fn test_sandbox_record_result_failure_includes_hints() {
+        let (mut app, _temp) = test_app();
+        app.open_sandbox_wizard();
+        app.sandbox_record_result(
+            0,
+            Err(crate::sandbox::StepFailure::SudoMissing),
+        );
+        match &app.sandbox_wizard.as_ref().unwrap().statuses[0] {
+            SandboxStepStatus::FailedRecoverable(_msg, hints) => {
+                assert!(!hints.is_empty(), "failure should ship next-action hints");
+            }
+            other => panic!("expected FailedRecoverable, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn test_sandbox_handle_input_advances_with_tab() {
+        let (mut app, _temp) = test_app();
+        app.open_sandbox_wizard();
+        app.screen = Screen::Sandbox;
+        let tab = KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE);
+        app.handle_sandbox_input(NavAction::Tab, tab);
+        assert_eq!(app.sandbox_wizard.as_ref().unwrap().step, 1);
+        let backtab = KeyEvent::new(KeyCode::BackTab, KeyModifiers::NONE);
+        app.handle_sandbox_input(NavAction::BackTab, backtab);
+        assert_eq!(app.sandbox_wizard.as_ref().unwrap().step, 0);
+    }
+
+    #[test]
+    fn test_sandbox_skip_marks_status_skipped_and_advances() {
+        let (mut app, _temp) = test_app();
+        app.open_sandbox_wizard();
+        app.screen = Screen::Sandbox;
+        // Move to gVisor step (step 1) so 's' can fire.
+        app.sandbox_wizard.as_mut().unwrap().step = 1;
+        let s = KeyEvent::new(KeyCode::Char('s'), KeyModifiers::NONE);
+        app.handle_sandbox_input(NavAction::None, s);
+        let wiz = app.sandbox_wizard.as_ref().unwrap();
+        assert_eq!(wiz.statuses[1], SandboxStepStatus::Skipped);
+        assert_eq!(wiz.step, 2);
+    }
+
+    #[test]
+    fn test_sandbox_env_step_cycle_changes_choice() {
+        let (mut app, _temp) = test_app();
+        app.open_sandbox_wizard();
+        app.screen = Screen::Sandbox;
+        // Move to env step.
+        app.sandbox_wizard.as_mut().unwrap().step = 4;
+        let initial = app
+            .sandbox_wizard
+            .as_ref()
+            .unwrap()
+            .env_draft
+            .rows
+            .first()
+            .cloned()
+            .unwrap()
+            .choice;
+        let right = KeyEvent::new(KeyCode::Right, KeyModifiers::NONE);
+        app.handle_sandbox_input(NavAction::None, right);
+        let after = app
+            .sandbox_wizard
+            .as_ref()
+            .unwrap()
+            .env_draft
+            .rows
+            .first()
+            .unwrap()
+            .choice
+            .clone();
+        assert_ne!(after, initial);
+    }
+
+    #[test]
+    fn test_sandbox_finish_writes_passthrough_config() {
+        // We can't override the passthrough config dir via the public API, so
+        // this test only exercises the wizard's *decision* step — write_dotenv
+        // is exercised by sandbox.rs unit tests.
+        let (mut app, _temp) = test_app();
+        app.open_sandbox_wizard();
+        app.screen = Screen::Sandbox;
+        let wiz = app.sandbox_wizard.as_mut().unwrap();
+        wiz.step = 5; // Summary
+        // Mark every row as Skip so finishing produces an empty config (safe).
+        for row in &mut wiz.env_draft.rows {
+            row.choice = EnvKeyChoice::Skip;
+        }
+        let enter = KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE);
+        app.handle_sandbox_input(NavAction::Select, enter);
+        // After finishing the wizard state is dropped.
+        assert!(app.sandbox_wizard.is_none());
+    }
+
+    #[test]
+    fn test_sandbox_back_returns_to_main() {
+        let (mut app, _temp) = test_app();
+        app.animations_enabled = false;
+        app.open_sandbox_wizard();
+        app.screen = Screen::Sandbox;
+        let esc = KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE);
+        app.handle_sandbox_input(NavAction::Back, esc);
+        assert!(app.sandbox_wizard.is_none());
+        // With animations off, the screen flips immediately.
+        assert_eq!(app.screen, Screen::Main);
+    }
+
+    #[test]
+    fn test_sandbox_step_metadata() {
+        // Sanity: titles non-empty, sudo flag matches expectation.
+        for s in SandboxStep::ALL {
+            assert!(!s.title().is_empty());
+            assert!(!s.description().is_empty());
+        }
+        assert!(SandboxStep::Network.needs_sudo());
+        assert!(SandboxStep::GVisor.needs_sudo());
+        assert!(!SandboxStep::Docker.needs_sudo());
+        assert!(!SandboxStep::Image.needs_sudo());
+        assert!(!SandboxStep::Env.needs_sudo());
+    }
+
+    #[test]
+    fn test_explicit_value_dialog_round_trip() {
+        let (mut app, _temp) = test_app();
+        app.open_sandbox_wizard();
+        app.screen = Screen::Sandbox;
+        let wiz = app.sandbox_wizard.as_mut().unwrap();
+        wiz.step = 4;
+        wiz.env_draft.selected = 0;
+        wiz.env_draft.rows[0].choice = EnvKeyChoice::Explicit;
+
+        // Enter on an Explicit row opens the modal.
+        let enter = KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE);
+        app.handle_sandbox_input(NavAction::Select, enter);
+        assert_eq!(app.edit_field, EditField::SandboxEnvValue);
+
+        // Type a value and commit with Enter.
+        for c in "secret".chars() {
+            app.value_input.insert(c);
+        }
+        let commit = KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE);
+        app.handle_text_input(commit);
+        let row = &app.sandbox_wizard.as_ref().unwrap().env_draft.rows[0];
+        assert_eq!(row.value, "secret");
+        assert_eq!(row.choice, EnvKeyChoice::Explicit);
+        assert_eq!(app.edit_field, EditField::None);
+    }
+
+    #[test]
+    fn test_sensitive_keys_are_hidden_in_input() {
+        // The SandboxEnvValue dialog hides the buffer iff the key is sensitive.
+        // We just verify the rule: ANTHROPIC_API_KEY is sensitive, FOO is not.
+        assert!(crate::text_input::is_sensitive_key("ANTHROPIC_API_KEY"));
+        assert!(!crate::text_input::is_sensitive_key("LOCAL_API_BASE"));
     }
 }
