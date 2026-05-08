@@ -1,0 +1,46 @@
+name: Lint workflows
+
+# Run actionlint on every change to .github/workflows/ to catch:
+#  - YAML / GHA expression syntax errors
+#  - Script-injection patterns (${{ }} interpolated into `run:` blocks where
+#    the value is user-controlled — see PR #119 for a real example where
+#    `${{ needs.release-please.outputs.pr }}` going into bash via inline
+#    substitution let an apostrophe in a commit message break the parser
+#    and would have allowed RCE on the runner from a malicious commit body)
+#  - Wrong action `uses:` versions, missing inputs, and other static checks
+#
+# Background: https://github.com/rhysd/actionlint
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/**'
+      - '.github/actionlint.yaml'
+  pull_request:
+    paths:
+      - '.github/workflows/**'
+      - '.github/actionlint.yaml'
+
+permissions:
+  contents: read
+
+jobs:
+  actionlint:
+    name: actionlint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Run actionlint
+        uses: reviewdog/action-actionlint@v1
+        with:
+          # Fail the check on `error`-severity findings (e.g. real GHA syntax
+          # errors and the `expression`-injection lint that flags
+          # `${{ github.event.* }}` going into a `run:` block — the exact
+          # class of bug #119 fixed). `info`/`warning` shellcheck noise like
+          # SC2086/SC2155 is left to land as PR comments without blocking.
+          fail_level: error
+          # Annotate problems on the PR diff via reviewdog rather than only
+          # in the run log; makes the failures discoverable inline.
+          reporter: github-pr-check
