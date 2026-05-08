@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.25](https://github.com/heiervang-technologies/unleash/compare/v0.1.24...v0.1.25) (2026-05-08)
+
+
+### Bug Fixes
+
+* **hyprland-focus, omnihook:** self-disable guard for stale plugin loads ([#108](https://github.com/heiervang-technologies/unleash/issues/108)) ([add59ef](https://github.com/heiervang-technologies/unleash/commit/add59efae84173348c1cceac5c0fbc98069b5cd3))
+
 ## [0.1.24](https://github.com/heiervang-technologies/unleash/compare/v0.1.23...v0.1.24) (2026-05-08)
 
 
