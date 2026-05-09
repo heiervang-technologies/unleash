@@ -7393,4 +7393,248 @@ yolo_flag = "--yes"
         assert!(crate::text_input::is_sensitive_key("ANTHROPIC_API_KEY"));
         assert!(!crate::text_input::is_sensitive_key("LOCAL_API_BASE"));
     }
+
+    // ── TUI snapshot-test infrastructure ───────────────────────────────────
+    //
+    // The state-machine tests above verify that key handlers mutate App fields
+    // correctly, but they do NOT verify what a user actually *sees*. Render
+    // functions are 5000+ lines of `Span::styled(...)` calls — a typo, a wrong
+    // row, or a missing arrow ships undetected because nothing exercises the
+    // render path itself.
+    //
+    // The helpers below let tests render a real frame against a `TestBackend`
+    // and assert against the resulting cell buffer. Pattern, in order of
+    // preference:
+    //
+    //   1. **Narrow the Rect.** Pass a tight `Rect` to a specific render
+    //      function (e.g. `render_profile_edit`) so the snapshot only covers
+    //      the row(s) the test actually cares about. Whole-screen snapshots
+    //      are brittle — they break on theme tweaks, art-sidebar edits,
+    //      status-bar wording, animation frames, etc.
+    //
+    //   2. **Assert *content*, not styling.** `assert_buffer_contains` flattens
+    //      the buffer to plain text per-line and substring-matches. Don't
+    //      assert exact column positions or colors unless the test is
+    //      specifically about layout.
+    //
+    //   3. **Each test owns its `App` and `TempDir`.** Build with `test_app()`
+    //      — never reuse state across tests (see PR #116 for the install_state
+    //      flake fix that motivated this rule).
+    //
+    // When to add a snapshot test: any new render function, any user-visible
+    // string change in a render function, any bug fix where the bug was
+    // "wrong text on screen". When *not* to add one: pure state transitions
+    // already covered by handler tests.
+    //
+    // ── Helpers ────────────────────────────────────────────────────────────
+    use ratatui::backend::TestBackend;
+    use ratatui::buffer::Buffer;
+    use ratatui::Terminal;
+
+    /// Render `app` to a fresh `Buffer` of the given size by driving the same
+    /// path the live TUI uses (`app.render(frame)` via a `TestBackend`).
+    ///
+    /// Returns the post-draw buffer so callers can assert against its contents.
+    /// For tests that only care about a sub-region of the screen, prefer
+    /// [`render_region_to_buffer`] — it lets you call a specific `render_*`
+    /// method against a narrow `Rect` without paying for the art sidebar
+    /// or status bar.
+    #[allow(dead_code)]
+    fn render_to_buffer(app: &mut App, width: u16, height: u16) -> Buffer {
+        let backend = TestBackend::new(width, height);
+        let mut terminal = Terminal::new(backend).expect("create test terminal");
+        terminal
+            .draw(|frame| app.render(frame))
+            .expect("render full app");
+        terminal.backend().buffer().clone()
+    }
+
+    /// Render a single screen-region by calling the supplied closure with a
+    /// `Frame` pointed at a fresh `Buffer` of the requested size.
+    ///
+    /// This is the preferred snapshot helper for picker / row / dialog tests:
+    /// pass a tight `Rect` so the snapshot covers just the rows under test
+    /// and won't break when unrelated screen regions are tweaked.
+    ///
+    /// ```ignore
+    /// let buf = render_region_to_buffer(80, 8, |frame, area| {
+    ///     app.render_profile_edit(frame, area);
+    /// });
+    /// assert_buffer_contains(&buf, "◀ Claude Code ▶");
+    /// ```
+    fn render_region_to_buffer<F>(width: u16, height: u16, draw: F) -> Buffer
+    where
+        F: FnOnce(&mut Frame, Rect),
+    {
+        let backend = TestBackend::new(width, height);
+        let mut terminal = Terminal::new(backend).expect("create test terminal");
+        terminal
+            .draw(|frame| {
+                let area = Rect::new(0, 0, width, height);
+                draw(frame, area);
+            })
+            .expect("render region");
+        terminal.backend().buffer().clone()
+    }
+
+    /// Flatten a buffer to one string per line (cell symbols joined, trailing
+    /// whitespace trimmed). Useful for substring assertions and diff output.
+    fn buffer_to_lines(buffer: &Buffer) -> Vec<String> {
+        let area = buffer.area;
+        let mut lines = Vec::with_capacity(area.height as usize);
+        for y in 0..area.height {
+            let mut line = String::with_capacity(area.width as usize);
+            for x in 0..area.width {
+                line.push_str(buffer[(area.x + x, area.y + y)].symbol());
+            }
+            lines.push(line.trim_end().to_string());
+        }
+        lines
+    }
+
+    /// Assert that the flattened buffer text contains `needle` somewhere.
+    /// On failure, dumps every line of the buffer so the diff is obvious.
+    fn assert_buffer_contains(buffer: &Buffer, needle: &str) {
+        let lines = buffer_to_lines(buffer);
+        if !lines.iter().any(|l| l.contains(needle)) {
+            panic!(
+                "buffer did not contain {:?}\n--- buffer ({} x {}) ---\n{}\n--- end ---",
+                needle,
+                buffer.area.width,
+                buffer.area.height,
+                lines.join("\n")
+            );
+        }
+    }
+
+    /// Assert that NONE of the buffer's lines contain `needle`.
+    /// Used to catch debug strings or removed UI accidentally re-appearing.
+    fn assert_buffer_does_not_contain(buffer: &Buffer, needle: &str) {
+        let lines = buffer_to_lines(buffer);
+        if let Some(bad) = lines.iter().find(|l| l.contains(needle)) {
+            panic!(
+                "buffer unexpectedly contained {:?} in line {:?}\n--- buffer ({} x {}) ---\n{}\n--- end ---",
+                needle,
+                bad,
+                buffer.area.width,
+                buffer.area.height,
+                lines.join("\n")
+            );
+        }
+    }
+
+    /// Build an App + editing profile in the state where the agent CLI cycle
+    /// picker is open. Returned with the `env_menu.selected` already pointing
+    /// at the Agent CLI row so the picker UI is the one being rendered.
+    fn picker_open_app(initial_agent_path: &str) -> (App, TempDir) {
+        let (mut app, temp) = test_app();
+        let mut profile = Profile::new("snapshot-test");
+        profile.agent_cli_path = initial_agent_path.to_string();
+        app.load_profile_for_editing(profile);
+        app.screen = Screen::ProfileEdit;
+        app.env_menu.selected = 1; // Agent CLI row
+        app.open_agent_cli_picker();
+        (app, temp)
+    }
+
+    // ── Picker snapshot tests (issue #109 / PR #111) ───────────────────────
+
+    /// Picker open at index 0 should render `◀ Claude Code ▶` on the
+    /// Agent CLI row. Verifies the live render path produces the literal
+    /// string the user sees, not just that the state machine is at index 0.
+    #[test]
+    fn test_picker_snapshot_default_index_renders_claude() {
+        let (mut app, _temp) = picker_open_app("claude");
+        assert_eq!(app.agent_picker_index, 0);
+
+        // 80 cols is wide enough for the row; 8 rows fits hints + 5 settings + sep.
+        let buf = render_region_to_buffer(80, 8, |frame, area| {
+            app.render_profile_edit(frame, area);
+        });
+
+        assert_buffer_contains(&buf, "◀ Claude Code ▶");
+        // Picker row should not still show the bare path.
+        assert_buffer_does_not_contain(&buf, "claude/bin");
+    }
+
+    /// Cycling right twice from Claude lands on Gemini CLI; the row text
+    /// must reflect that.
+    #[test]
+    fn test_picker_snapshot_cycle_right_to_gemini() {
+        let (mut app, _temp) = picker_open_app("claude");
+        // Right twice: Claude -> Codex -> Gemini
+        app.handle_agent_cli_picker_key(KeyEvent::new(KeyCode::Right, KeyModifiers::NONE));
+        app.handle_agent_cli_picker_key(KeyEvent::new(KeyCode::Right, KeyModifiers::NONE));
+        assert_eq!(app.agent_picker_index, 2);
+
+        let buf = render_region_to_buffer(80, 8, |frame, area| {
+            app.render_profile_edit(frame, area);
+        });
+
+        assert_buffer_contains(&buf, "◀ Gemini CLI ▶");
+        // Make sure the previous label isn't lingering in the buffer.
+        assert_buffer_does_not_contain(&buf, "Claude Code ▶");
+    }
+
+    /// Cycling to the final entry (AddCustom sentinel) renders the
+    /// `+ Add Custom...` label between the arrows.
+    #[test]
+    fn test_picker_snapshot_add_custom_sentinel_label() {
+        let (mut app, _temp) = picker_open_app("claude");
+        let entries = app.agent_cli_picker_entries();
+        app.agent_picker_index = entries.len() - 1; // AddCustom
+
+        let buf = render_region_to_buffer(80, 8, |frame, area| {
+            app.render_profile_edit(frame, area);
+        });
+
+        assert_buffer_contains(&buf, "+ Add Custom...");
+        assert_buffer_contains(&buf, "◀");
+        assert_buffer_contains(&buf, "▶");
+    }
+
+    /// Empty-custom-agent state: the picker must not leak debug text like
+    /// "(0 custom)" or any internal counter. Catches regressions where a
+    /// future contributor adds a debug span inside the render path.
+    #[test]
+    fn test_picker_snapshot_empty_custom_list_no_debug_text() {
+        let (mut app, _temp) = picker_open_app("claude");
+        assert!(app.app_config.custom_agents.is_empty());
+
+        let buf = render_region_to_buffer(80, 8, |frame, area| {
+            app.render_profile_edit(frame, area);
+        });
+
+        // Common debug patterns that should never appear in the rendered row.
+        assert_buffer_does_not_contain(&buf, "(0 custom)");
+        assert_buffer_does_not_contain(&buf, "len=");
+        assert_buffer_does_not_contain(&buf, "Debug");
+        assert_buffer_does_not_contain(&buf, "Some(");
+    }
+
+    /// With the picker closed, the Agent CLI row must show the saved binary
+    /// path (the static value), not the cycle-picker arrows. Guards against
+    /// the picker UI accidentally rendering when `edit_field != AgentCliPicker`.
+    #[test]
+    fn test_picker_snapshot_closed_shows_path_not_arrows() {
+        let (mut app, _temp) = test_app();
+        let mut profile = Profile::new("snapshot-test");
+        profile.agent_cli_path = "/usr/local/bin/claude".to_string();
+        app.load_profile_for_editing(profile);
+        app.screen = Screen::ProfileEdit;
+        app.env_menu.selected = 1;
+        // Explicitly closed (not opened).
+        assert_eq!(app.edit_field, EditField::None);
+
+        let buf = render_region_to_buffer(80, 8, |frame, area| {
+            app.render_profile_edit(frame, area);
+        });
+
+        assert_buffer_contains(&buf, "/usr/local/bin/claude");
+        // The picker arrow glyphs should not be on the Agent CLI row when
+        // the picker is closed. (They may appear elsewhere in the future,
+        // but the key insight is the *path* must render.)
+        assert_buffer_does_not_contain(&buf, "◀ Claude Code ▶");
+        assert_buffer_does_not_contain(&buf, "+ Add Custom...");
+    }
 }
