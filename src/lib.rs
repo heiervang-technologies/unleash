@@ -12,9 +12,9 @@ mod hooks;
 mod hyprland;
 #[cfg(feature = "tui")]
 mod input;
-mod interchange;
+pub mod interchange;
 mod json_output;
-mod launcher;
+pub mod launcher;
 pub mod pixel_art;
 pub mod polyfill;
 mod sandbox;
