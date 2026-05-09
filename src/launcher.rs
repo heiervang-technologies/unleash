@@ -43,70 +43,63 @@ fn detect_agent_type(cmd: &Path) -> Option<AgentType> {
     AgentType::from_str(name)
 }
 
-/// Run an agent with wrapper features
-pub fn run(auto_mode: bool, prompt: Option<String>, extra_args: Vec<String>) -> io::Result<()> {
-    // Sync hooks: install defaults + merge plugin hooks into settings.json
-    // Plugin hooks must be in settings.json because Claude Code may not reliably
-    // load hooks from --plugin-dir when settings.json already has the event key.
-    match HookManager::new() {
-        Ok(manager) => {
-            // Install default hooks if not already installed
-            if let Ok(hooks) = manager.list_hooks() {
-                if !hooks.contains_key("PreCompact") {
-                    if let Err(e) = manager.install_default_hooks() {
-                        eprintln!("Warning: Failed to install default hooks: {}", e);
-                    }
-                }
-            }
-            // Always sync plugin hooks into settings.json on launch.
-            // Prune first so that plugins toggled off have their hooks removed,
-            // then re-register hooks for currently-enabled plugins.
-            let plugin_dirs = find_plugin_dirs();
-            let all_plugin_dirs = find_all_plugin_dirs();
-            if let Err(e) =
-                manager.prune_hooks_for_disabled_plugins(&all_plugin_dirs, &plugin_dirs)
-            {
-                eprintln!("Warning: Failed to prune disabled plugin hooks: {}", e);
-            }
-            if let Err(e) = manager.sync_plugin_hooks(&plugin_dirs) {
-                eprintln!("Warning: Failed to sync plugin hooks: {}", e);
-            }
-        }
-        Err(e) => {
-            eprintln!("Warning: Failed to initialize hook manager: {}", e);
-        }
-    }
+/// Configuration for [`run_loop`]: bundles the inputs the auto-mode restart
+/// state machine needs without having to read from the user's profile, env,
+/// or `dirs::cache_dir()`. Production callers build this from real config in
+/// [`run`]; integration tests construct one pointing at a tempdir and a fake
+/// agent binary so the loop can be exercised end-to-end without side effects.
+pub struct LauncherConfig {
+    /// Path to the agent binary to spawn each iteration.
+    pub agent_cmd: PathBuf,
+    /// Detected agent type (controls Claude-specific flag injection).
+    pub agent_type: Option<AgentType>,
+    /// Directory holding `restart-trigger-<pid>` / `restart-message-<pid>`.
+    /// Tests should point this at a tempdir; production uses [`cache_dir`].
+    pub cache_dir: PathBuf,
+    /// Whether to enable auto-mode (writes the auto-mode marker file).
+    pub auto_mode: bool,
+    /// Headless prompt to pass via `-p <prompt>` (Claude semantics).
+    pub prompt: Option<String>,
+    /// User-supplied passthrough args appended each iteration.
+    pub extra_args: Vec<String>,
+    /// Profile-derived env vars exported to the child.
+    pub profile_env: HashMap<String, String>,
+    /// Whether to discover and pass `--plugin-dir` args (Claude only).
+    /// Tests typically set this to `false` to avoid touching the real
+    /// `plugins/` directory tree.
+    pub include_plugin_args: bool,
+}
 
-    // Find agent command
-    let agent_cmd = find_agent_command()?;
-    let agent_type = detect_agent_type(&agent_cmd);
+/// Run the wrapper restart loop. Returns the exit code the caller should
+/// surface. Production [`run`] forwards this to `std::process::exit`; tests
+/// assert on the return value directly.
+///
+/// On each iteration the loop:
+/// 1. Removes any stale trigger file for our pid.
+/// 2. Builds the next argv (adding `--continue` + agent-appropriate yolo
+///    flag + restart message on iterations after the first).
+/// 3. Spawns the agent and waits.
+/// 4. On exit, checks the trigger file: if present → restart; else → return.
+pub fn run_loop(config: LauncherConfig) -> io::Result<i32> {
+    let LauncherConfig {
+        agent_cmd,
+        agent_type,
+        cache_dir,
+        auto_mode,
+        prompt,
+        extra_args,
+        profile_env,
+        include_plugin_args,
+    } = config;
+
     let is_claude = agent_type == Some(AgentType::Claude);
-
-    // Setup wrapper environment
     let wrapper_pid = std::process::id();
-    let trigger_file = cache_dir().join(format!("restart-trigger-{}", wrapper_pid));
-    let message_file = cache_dir().join(format!("restart-message-{}", wrapper_pid));
+    let trigger_file = cache_dir.join(format!("restart-trigger-{}", wrapper_pid));
+    let message_file = cache_dir.join(format!("restart-message-{}", wrapper_pid));
 
-    // Ensure cache directory exists
-    fs::create_dir_all(cache_dir())?;
-
-    // Clean up stale trigger files
+    fs::create_dir_all(&cache_dir)?;
     let _ = fs::remove_file(&trigger_file);
     let _ = fs::remove_file(&message_file);
-
-    // Load profile environment variables
-    let profile_env = load_profile_env()?;
-
-    // Check authentication on first run
-    check_authentication();
-
-    // Hyprland integration: set window rules and notify on start (only if plugin enabled)
-    if hyprland::is_focus_enabled() {
-        if let Err(e) = hyprland::apply_agent_window_rules() {
-            eprintln!("Warning: Failed to apply Hyprland window rules: {}", e);
-        }
-        let _ = hyprland::notify_info("unleash started");
-    }
 
     let mut restart_count = 0;
 
@@ -149,7 +142,11 @@ pub fn run(auto_mode: bool, prompt: Option<String>, extra_args: Vec<String>) -> 
         }
 
         // Find plugin directories (only used for Claude Code)
-        let plugin_args = if is_claude { find_plugins() } else { vec![] };
+        let plugin_args = if is_claude && include_plugin_args {
+            find_plugins()
+        } else {
+            vec![]
+        };
 
         // For non-Claude agents, set window transparent before launch
         // (Claude handles this via its own UserPromptSubmit hook)
@@ -177,7 +174,7 @@ pub fn run(auto_mode: bool, prompt: Option<String>, extra_args: Vec<String>) -> 
                 hyprland::focus_cleanup(wrapper_pid);
                 let _ = hyprland::notify_info("unleash stopped");
             }
-            std::process::exit(128 + sig);
+            return Ok(128 + sig);
         }
 
         // Reset to opaque + play sound after agent exit
@@ -204,7 +201,7 @@ pub fn run(auto_mode: bool, prompt: Option<String>, extra_args: Vec<String>) -> 
                 hyprland::focus_cleanup(wrapper_pid);
                 let _ = hyprland::notify_info("unleash stopped");
             }
-            return Ok(());
+            return Ok(0);
         }
 
         // Reset focus and clean up on exit (safety net for all agents)
@@ -221,7 +218,77 @@ pub fn run(auto_mode: bool, prompt: Option<String>, extra_args: Vec<String>) -> 
             }
         }
 
-        // Normal exit
+        return Ok(exit_code);
+    }
+}
+
+/// Run an agent with wrapper features
+pub fn run(auto_mode: bool, prompt: Option<String>, extra_args: Vec<String>) -> io::Result<()> {
+    // Sync hooks: install defaults + merge plugin hooks into settings.json
+    // Plugin hooks must be in settings.json because Claude Code may not reliably
+    // load hooks from --plugin-dir when settings.json already has the event key.
+    match HookManager::new() {
+        Ok(manager) => {
+            // Install default hooks if not already installed
+            if let Ok(hooks) = manager.list_hooks() {
+                if !hooks.contains_key("PreCompact") {
+                    if let Err(e) = manager.install_default_hooks() {
+                        eprintln!("Warning: Failed to install default hooks: {}", e);
+                    }
+                }
+            }
+            // Always sync plugin hooks into settings.json on launch.
+            // Prune first so that plugins toggled off have their hooks removed,
+            // then re-register hooks for currently-enabled plugins.
+            let plugin_dirs = find_plugin_dirs();
+            let all_plugin_dirs = find_all_plugin_dirs();
+            if let Err(e) =
+                manager.prune_hooks_for_disabled_plugins(&all_plugin_dirs, &plugin_dirs)
+            {
+                eprintln!("Warning: Failed to prune disabled plugin hooks: {}", e);
+            }
+            if let Err(e) = manager.sync_plugin_hooks(&plugin_dirs) {
+                eprintln!("Warning: Failed to sync plugin hooks: {}", e);
+            }
+        }
+        Err(e) => {
+            eprintln!("Warning: Failed to initialize hook manager: {}", e);
+        }
+    }
+
+    // Find agent command
+    let agent_cmd = find_agent_command()?;
+    let agent_type = detect_agent_type(&agent_cmd);
+
+    // Load profile environment variables
+    let profile_env = load_profile_env()?;
+
+    // Check authentication on first run
+    check_authentication();
+
+    // Hyprland integration: set window rules and notify on start (only if plugin enabled)
+    if hyprland::is_focus_enabled() {
+        if let Err(e) = hyprland::apply_agent_window_rules() {
+            eprintln!("Warning: Failed to apply Hyprland window rules: {}", e);
+        }
+        let _ = hyprland::notify_info("unleash started");
+    }
+
+    let exit_code = run_loop(LauncherConfig {
+        agent_cmd,
+        agent_type,
+        cache_dir: cache_dir(),
+        auto_mode,
+        prompt,
+        extra_args,
+        profile_env,
+        include_plugin_args: true,
+    })?;
+
+    // SIGTERM clean exit was already mapped to 0 by run_loop.
+    if exit_code == 0 {
+        Ok(())
+    } else {
         std::process::exit(exit_code);
     }
 }

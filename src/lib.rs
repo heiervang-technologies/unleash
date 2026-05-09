@@ -14,7 +14,7 @@ mod hyprland;
 mod input;
 mod interchange;
 mod json_output;
-mod launcher;
+pub mod launcher;
 pub mod pixel_art;
 pub mod polyfill;
 mod sandbox;
