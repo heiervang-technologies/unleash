@@ -1,0 +1,188 @@
+name: Coverage
+
+# Measure test coverage with cargo-llvm-cov.
+#
+# Goals (v1):
+#   - Generate an LCOV report for every PR and on every push to main.
+#   - Upload the raw lcov.info as a build artifact so reviewers can inspect or
+#     feed it into local tooling (genhtml, llvm-cov show, etc.).
+#   - Post a small coverage summary comment on PRs so the number is visible
+#     without leaving the PR review UI.
+#
+# Non-goals (v1):
+#   - No threshold gating. We want to see the baseline first; gating gets
+#     added in a follow-up PR once we know what number we're starting from.
+#   - No diff-coverage. Same reason.
+#
+# Notes:
+#   - We run on every PR (no path filter): coverage is sensitive to *any*
+#     code change, not just files matching a glob. A docs-only PR will just
+#     report ~the same number, which is fine and cheap.
+#   - cargo-llvm-cov is installed via taiki-e/install-action which downloads
+#     a prebuilt binary (much faster than `cargo install`, which would build
+#     from source on every run).
+#   - Comment posting builds the body in a script, writes it to a file, and
+#     passes the path to `gh pr comment --body-file` so we never expand
+#     untrusted ${{ }} expressions inside a shell `run:` block (cf. PR #119).
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+  pull-requests: write  # for the coverage comment
+
+concurrency:
+  group: coverage-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  coverage:
+    name: cargo-llvm-cov
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      # Keep build output deterministic and avoid incremental artifacts that
+      # would bloat the cache; coverage instrumentation invalidates incremental
+      # anyway so this is just being explicit.
+      CARGO_INCREMENTAL: "0"
+      CARGO_TERM_COLOR: always
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: llvm-tools-preview
+
+      - name: Install cargo-llvm-cov
+        uses: taiki-e/install-action@cargo-llvm-cov
+
+      - name: Cache cargo registry & build
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: coverage-${{ runner.os }}-${{ hashFiles('Cargo.lock', 'Cargo.toml') }}
+          restore-keys: |
+            coverage-${{ runner.os }}-
+
+      - name: Run coverage (lib tests)
+        # --lib scopes to library unit tests, which is where the ~470 tests
+        # live. Adding integration/binary tests later will broaden this.
+        run: cargo llvm-cov --lib --lcov --output-path lcov.info
+
+      - name: Generate summary text
+        id: summary
+        run: |
+          # Re-run report against existing profile data; this is cheap (no
+          # recompile) and gives us the human-readable per-file table.
+          cargo llvm-cov report --summary-only | tee coverage-summary.txt
+
+          # Also emit JSON form for robust parsing of the headline number.
+          # The text table has a "TOTAL" row but its column count and column
+          # order have shifted between cargo-llvm-cov releases, so we don't
+          # parse it with awk; we use the JSON `totals` object instead.
+          cargo llvm-cov report --json --summary-only > coverage-summary.json
+
+          # Pull line/function/region coverage from totals and round to 2dp.
+          line_pct=$(jq -r '.data[0].totals.lines.percent | (. * 100 | round) / 100' coverage-summary.json)
+          func_pct=$(jq -r '.data[0].totals.functions.percent | (. * 100 | round) / 100' coverage-summary.json)
+          region_pct=$(jq -r '.data[0].totals.regions.percent | (. * 100 | round) / 100' coverage-summary.json)
+          if [ -z "$line_pct" ] || [ "$line_pct" = "null" ]; then
+            line_pct="unknown"
+          fi
+          # Consolidate writes (avoids SC2129).
+          {
+            echo "line_pct=$line_pct"
+            echo "func_pct=$func_pct"
+            echo "region_pct=$region_pct"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Upload lcov.info artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-lcov
+          path: lcov.info
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Append coverage to job summary
+        env:
+          LINE_PCT: ${{ steps.summary.outputs.line_pct }}
+          FUNC_PCT: ${{ steps.summary.outputs.func_pct }}
+          REGION_PCT: ${{ steps.summary.outputs.region_pct }}
+        run: |
+          {
+            echo "# Coverage"
+            echo ""
+            echo "| Metric | Coverage |"
+            echo "|--------|----------|"
+            echo "| Lines | ${LINE_PCT}% |"
+            echo "| Functions | ${FUNC_PCT}% |"
+            echo "| Regions | ${REGION_PCT}% |"
+            echo ""
+            echo '```'
+            cat coverage-summary.txt
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Build PR comment body
+        if: github.event_name == 'pull_request'
+        env:
+          LINE_PCT: ${{ steps.summary.outputs.line_pct }}
+          FUNC_PCT: ${{ steps.summary.outputs.func_pct }}
+          REGION_PCT: ${{ steps.summary.outputs.region_pct }}
+        run: |
+          # Construct the comment body in a file. We deliberately do NOT
+          # interpolate untrusted GHA expressions into shell — values arrive
+          # via env vars and the file is passed to `gh pr comment --body-file`.
+          {
+            echo "<!-- unleash-coverage-comment -->"
+            echo "## Coverage report"
+            echo ""
+            echo "| Metric | Coverage |"
+            echo "|--------|----------|"
+            echo "| Lines | ${LINE_PCT}% |"
+            echo "| Functions | ${FUNC_PCT}% |"
+            echo "| Regions | ${REGION_PCT}% |"
+            echo ""
+            echo "<details><summary>Per-file breakdown</summary>"
+            echo ""
+            echo '```'
+            cat coverage-summary.txt
+            echo '```'
+            echo ""
+            echo "</details>"
+            echo ""
+            echo "_Raw \`lcov.info\` is attached as a workflow artifact._"
+            echo "_Generated by \`cargo llvm-cov --lib\`._"
+          } > coverage-comment.md
+
+      - name: Post / update PR comment
+        if: github.event_name == 'pull_request'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          REPO: ${{ github.repository }}
+        run: |
+          # Find an existing coverage comment (matched by HTML marker on the
+          # first line) and edit it in place; otherwise post a new one. This
+          # avoids spamming the PR with one comment per push.
+          existing_id=$(gh api "repos/$REPO/issues/$PR_NUMBER/comments" --paginate \
+            --jq '[.[] | select(.body | contains("<!-- unleash-coverage-comment -->")) | .id] | first // empty')
+
+          if [ -n "$existing_id" ]; then
+            gh api -X PATCH "repos/$REPO/issues/comments/$existing_id" \
+              -F "body=@coverage-comment.md" >/dev/null
+            echo "Updated existing coverage comment id=$existing_id"
+          else
+            gh pr comment "$PR_NUMBER" --repo "$REPO" --body-file coverage-comment.md
+            echo "Posted new coverage comment"
+          fi
