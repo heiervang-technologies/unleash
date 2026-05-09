@@ -1,0 +1,70 @@
+# Dependabot configuration
+#
+# Keeps the toolchain side of the project current without flooding the queue:
+# updates run weekly, are grouped per-ecosystem, and PR limits are sane.
+#
+# Ecosystems covered:
+#   - cargo            (root Cargo.toml / Cargo.lock)
+#   - github-actions   (all workflows under .github/workflows)
+#
+# No npm ecosystem — there is no package.json anywhere in the tree as of this
+# commit. Add it back if/when a Node sub-project lands (plugins/* are pure
+# shell + Python today).
+#
+# Reference: https://docs.github.com/en/code-security/dependabot/dependabot-version-updates/configuration-options-for-the-dependabot.yml-file
+
+version: 2
+updates:
+  # Rust crates (root crate)
+  - package-ecosystem: "cargo"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "06:00"
+      timezone: "Etc/UTC"
+    open-pull-requests-limit: 5
+    labels:
+      - "dependencies"
+      - "rust"
+    commit-message:
+      prefix: "chore(deps)"
+      include: "scope"
+    groups:
+      # Roll up patch + minor bumps into one PR per group so the queue stays
+      # small. Major bumps still get their own PRs (default behaviour).
+      cargo-minor-patch:
+        applies-to: version-updates
+        update-types:
+          - "minor"
+          - "patch"
+      cargo-security:
+        applies-to: security-updates
+        patterns:
+          - "*"
+
+  # GitHub Actions (workflow `uses:` pins)
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "06:00"
+      timezone: "Etc/UTC"
+    open-pull-requests-limit: 5
+    labels:
+      - "dependencies"
+      - "github-actions"
+    commit-message:
+      prefix: "ci(deps)"
+      include: "scope"
+    groups:
+      actions-minor-patch:
+        applies-to: version-updates
+        update-types:
+          - "minor"
+          - "patch"
+      actions-security:
+        applies-to: security-updates
+        patterns:
+          - "*"

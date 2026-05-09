@@ -1,0 +1,93 @@
+# cargo-deny configuration
+#
+# Goal: catch supply-chain regressions early without making the dep tree
+# painful to evolve. The first run must be green; tighten over time.
+#
+# Reference: https://embarkstudios.github.io/cargo-deny/
+
+[graph]
+# Check the resolved graph for the host targets we actually ship binaries for.
+# (CI matrix builds Linux + macOS; aarch64 is shipped via release workflow.)
+targets = [
+    { triple = "x86_64-unknown-linux-gnu" },
+    { triple = "aarch64-unknown-linux-gnu" },
+    { triple = "x86_64-apple-darwin" },
+    { triple = "aarch64-apple-darwin" },
+]
+all-features = false
+no-default-features = false
+
+# ---------------------------------------------------------------------------
+# Security advisories (RustSec)
+# ---------------------------------------------------------------------------
+[advisories]
+db-path = "~/.cargo/advisory-db"
+db-urls = ["https://github.com/rustsec/advisory-db"]
+# Any yanked crate fails the build. Vulnerability/unmaintained/unsound
+# advisories fail by default in current cargo-deny — no explicit knob needed.
+# Use `ignore = ["RUSTSEC-YYYY-NNNN"]` to whitelist with a justification.
+yanked = "deny"
+ignore = [
+    # RUSTSEC-2024-0436: `paste` is unmaintained (archived upstream). It is
+    # pulled in transitively by `ratatui` and `tokenizers`; both still ship it
+    # as of this commit. Not a vulnerability — only an "unmaintained" notice.
+    # Revisit once ratatui/tokenizers migrate to `pastey` or drop the dep.
+    "RUSTSEC-2024-0436",
+]
+
+# ---------------------------------------------------------------------------
+# Licenses
+# ---------------------------------------------------------------------------
+[licenses]
+# Permissive OSS licenses common across the Rust ecosystem. Add to this list
+# (with a comment) when a transitive dep introduces something new and benign.
+allow = [
+    "MIT",
+    "Apache-2.0",
+    "Apache-2.0 WITH LLVM-exception",
+    "BSD-2-Clause",
+    "BSD-3-Clause",
+    "ISC",
+    "Unicode-3.0",
+    "Unicode-DFS-2016",
+    "Zlib",
+    "MPL-2.0",
+    "CC0-1.0",
+    "CDLA-Permissive-2.0",
+    "Unlicense",
+    "0BSD",
+    "BSL-1.0",
+    "OpenSSL",
+]
+confidence-threshold = 0.8
+exceptions = []
+
+# ---------------------------------------------------------------------------
+# Bans (duplicate versions, wildcard deps, specific crates)
+# ---------------------------------------------------------------------------
+[bans]
+# `warn` rather than `deny` for now: the dep tree has the usual smattering of
+# duplicate versions (winapi-0.x vs windows-sys, etc). Promote to `deny` once
+# the noise is cleaned up.
+multiple-versions = "warn"
+wildcards = "deny"
+highlight = "all"
+allow = []
+deny = []
+skip = []
+skip-tree = []
+
+# ---------------------------------------------------------------------------
+# Sources
+# ---------------------------------------------------------------------------
+[sources]
+# Reject anything that isn't crates.io or a pinned git source over HTTPS.
+unknown-registry = "deny"
+unknown-git = "deny"
+allow-registry = ["https://github.com/rust-lang/crates.io-index"]
+allow-git = []
+
+[sources.allow-org]
+# No org-wide git allowlists yet; add here if we ever pull from an org we
+# control (e.g. heiervang-technologies) instead of crates.io.
+github = []
