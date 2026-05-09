@@ -149,17 +149,23 @@ pub fn run(config: UpdateConfig) -> io::Result<()> {
     // Phase 3 – summary
     // ------------------------------------------------------------------
     let failed = print_summary(&check_results, &outcomes);
+    summary_to_result(failed, config.install_only)
+}
 
-    if failed > 0 {
-        return Err(io::Error::other(format!(
-            "{} agent{} failed to {}",
-            failed,
-            if failed == 1 { "" } else { "s" },
-            if config.install_only { "install" } else { "update" },
-        )));
+/// Map the failed-agent count from `print_summary` into the `Result` that
+/// `run` returns to its caller. Extracted so the silent-failure-propagation
+/// behavior (added in #115 to fix the masked codex regression from #114)
+/// is exercisable without spawning real install threads.
+fn summary_to_result(failed: u32, install_only: bool) -> io::Result<()> {
+    if failed == 0 {
+        return Ok(());
     }
-
-    Ok(())
+    Err(io::Error::other(format!(
+        "{} agent{} failed to {}",
+        failed,
+        if failed == 1 { "" } else { "s" },
+        if install_only { "install" } else { "update" },
+    )))
 }
 
 // ---------------------------------------------------------------------------
@@ -1186,3 +1192,158 @@ fn parse_version(output: &str) -> Option<String> {
 }
 
 // version_less_than and version_compare are imported from crate::version
+
+// ---------------------------------------------------------------------------
+// Tests
+// ---------------------------------------------------------------------------
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Build a successful `UpdateOutcome` for a given agent.
+    fn ok_outcome(agent_type: AgentType, from: &str, to: &str) -> UpdateOutcome {
+        UpdateOutcome {
+            agent_type,
+            from_version: Some(from.into()),
+            to_version: Some(to.into()),
+            duration: Duration::from_millis(10),
+            error: None,
+        }
+    }
+
+    /// Build a failed `UpdateOutcome` (the case that #115 must not let slip
+    /// through silently — it had been swallowed before, masking #114's
+    /// codex regression in Docker CI for over a day).
+    fn err_outcome(agent_type: AgentType, from: &str, err: &str) -> UpdateOutcome {
+        UpdateOutcome {
+            agent_type,
+            from_version: Some(from.into()),
+            to_version: None,
+            duration: Duration::from_millis(5),
+            error: Some(err.into()),
+        }
+    }
+
+    // ── summary_to_result: the Err mapping added in #115 ──────────────
+
+    #[test]
+    fn summary_to_result_zero_failures_is_ok() {
+        // Positive control: no failures -> Ok(()), regardless of mode.
+        assert!(summary_to_result(0, false).is_ok());
+        assert!(summary_to_result(0, true).is_ok());
+    }
+
+    #[test]
+    fn summary_to_result_single_failure_returns_err_with_failed() {
+        let err = summary_to_result(1, false).expect_err("should error on failure");
+        let msg = err.to_string();
+        assert!(
+            msg.contains("failed"),
+            "error message must contain 'failed' (was: {msg})"
+        );
+        assert!(msg.contains('1'), "error must mention the count (was: {msg})");
+        // Singular: "1 agent failed", not "1 agents".
+        assert!(
+            msg.contains("agent failed"),
+            "error must use singular form for 1 agent (was: {msg})"
+        );
+        // Update mode -> "update", not "install".
+        assert!(
+            msg.contains("update"),
+            "error must mention 'update' for update mode (was: {msg})"
+        );
+    }
+
+    #[test]
+    fn summary_to_result_multiple_failures_uses_plural() {
+        let err = summary_to_result(3, false).expect_err("should error on failure");
+        let msg = err.to_string();
+        assert!(msg.contains("failed"), "msg lacks 'failed': {msg}");
+        assert!(msg.contains("3 agents failed"), "expected plural agents: {msg}");
+    }
+
+    #[test]
+    fn summary_to_result_install_only_uses_install_verb() {
+        let err = summary_to_result(2, true).expect_err("should error on failure");
+        let msg = err.to_string();
+        assert!(msg.contains("failed"), "msg lacks 'failed': {msg}");
+        assert!(
+            msg.contains("install"),
+            "install_only=true must surface 'install' verb (was: {msg})"
+        );
+        assert!(
+            !msg.contains("update"),
+            "install_only=true must not say 'update' (was: {msg})"
+        );
+    }
+
+    // ── print_summary: count derivation from outcomes ─────────────────
+    //
+    // Drives the same code path that produced the silent-failure regression:
+    // an outcome carrying `error: Some(_)` must contribute to the failed
+    // count that `run()` propagates to its `Err` return.
+
+    #[test]
+    fn print_summary_counts_outcome_error_as_failed() {
+        let check_results = Vec::new();
+        let outcomes = vec![err_outcome(
+            AgentType::Codex,
+            "0.50.0",
+            "download failed: 404 Not Found",
+        )];
+        let failed = print_summary(&check_results, &outcomes);
+        assert_eq!(
+            failed, 1,
+            "outcome with error=Some(_) must be counted as a failure"
+        );
+        // Round-trip through summary_to_result to confirm it propagates.
+        let err = summary_to_result(failed, false).expect_err("should propagate as Err");
+        assert!(err.to_string().contains("failed"));
+    }
+
+    #[test]
+    fn print_summary_counts_unchanged_version_as_failed() {
+        // Bonus regression guard: even without an explicit error, an outcome
+        // whose from_version == to_version is treated as a silent failure
+        // (the install completed but the binary didn't actually upgrade).
+        let outcomes = vec![UpdateOutcome {
+            agent_type: AgentType::Codex,
+            from_version: Some("0.50.0".into()),
+            to_version: Some("0.50.0".into()),
+            duration: Duration::from_millis(5),
+            error: None,
+        }];
+        let failed = print_summary(&[], &outcomes);
+        assert_eq!(failed, 1, "version-unchanged update must count as failure");
+    }
+
+    #[test]
+    fn print_summary_no_errors_returns_zero() {
+        // Negative control: all outcomes succeeded -> failed count is 0.
+        let outcomes = vec![
+            ok_outcome(AgentType::Claude, "2.1.0", "2.1.77"),
+            ok_outcome(AgentType::Codex, "0.50.0", "0.51.0"),
+        ];
+        let failed = print_summary(&[], &outcomes);
+        assert_eq!(failed, 0, "all-ok outcomes must yield zero failures");
+        assert!(summary_to_result(failed, false).is_ok());
+    }
+
+    #[test]
+    fn print_summary_mixed_outcomes_counts_only_failures() {
+        let outcomes = vec![
+            ok_outcome(AgentType::Claude, "2.1.0", "2.1.77"),
+            err_outcome(AgentType::Codex, "0.50.0", "exec format error"),
+            err_outcome(AgentType::Gemini, "1.0.0", "npm install failed"),
+        ];
+        let failed = print_summary(&[], &outcomes);
+        assert_eq!(failed, 2, "exactly two errored outcomes must yield failed=2");
+
+        // And the run() error path must be triggered with the expected message.
+        let err = summary_to_result(failed, false).expect_err("must propagate Err");
+        let msg = err.to_string();
+        assert!(msg.contains("2 agents failed"), "expected '2 agents failed': {msg}");
+        assert!(msg.contains("update"), "expected 'update' verb: {msg}");
+    }
+}
