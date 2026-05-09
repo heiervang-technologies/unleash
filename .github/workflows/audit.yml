@@ -1,0 +1,79 @@
+name: Security Audit
+
+# Supply-chain hardening for the Rust crate:
+#   - cargo-audit: cross-references Cargo.lock against the RustSec advisory DB
+#   - cargo-deny:  enforces deny.toml (licenses, bans, yanked, source allowlist)
+#
+# Lives in its own workflow (separate from integration-tests.yml) so we can:
+#   1. Run on a daily schedule even when no PRs are open — new CVEs land
+#      against pinned versions all the time.
+#   2. Keep the path filter tight on PRs: we only want to gate on changes to
+#      the dep tree or the audit config itself, not on every src/ edit.
+#   3. Skip the heavy build matrix; both tools work from Cargo.lock alone.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'Cargo.toml'
+      - 'Cargo.lock'
+      - 'deny.toml'
+      - '.github/workflows/audit.yml'
+  pull_request:
+    paths:
+      - 'Cargo.toml'
+      - 'Cargo.lock'
+      - 'deny.toml'
+      - '.github/workflows/audit.yml'
+  schedule:
+    # Daily at 06:30 UTC — picks up new RustSec advisories overnight.
+    - cron: '30 6 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  # rustsec/audit-check posts a check-run summary; needs checks:write.
+  checks: write
+  issues: write
+
+concurrency:
+  group: audit-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  cargo-audit:
+    name: cargo-audit (RustSec)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Run cargo-audit
+        # Official RustSec action — wraps `cargo audit` against the latest
+        # advisory DB. On schedule runs it will open/update an issue when a
+        # new CVE matches; on PRs it fails the check.
+        uses: rustsec/audit-check@v2.0.0
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+  cargo-deny:
+    name: cargo-deny (bans / licenses / sources)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Run cargo-deny
+        # The official EmbarkStudios action installs cargo-deny from a
+        # prebuilt binary release, so this stays under ~30s.
+        uses: EmbarkStudios/cargo-deny-action@v2
+        with:
+          # `check` with no args runs all enabled checks: advisories, bans,
+          # licenses, sources. Matches `cargo deny check` locally.
+          command: check
+          # Keep arguments empty so the action picks the default summary
+          # output; full output is in the job log if a check fails.
+          arguments: ''
