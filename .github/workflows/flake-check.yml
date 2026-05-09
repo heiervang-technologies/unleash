@@ -1,0 +1,184 @@
+name: Flaky Test Detection
+
+# Runs `cargo test --lib` 5 times in a row at 06:00 UTC daily and fails if any
+# of the 5 runs has a different per-test pass/fail/ignore set than the first.
+#
+# Why: chronic flakes (e.g. test_gemini_install_sets_install_state, fixed in
+# PR #116 after weeks of intermittent red CI) are hard to spot because most PR
+# runs hit the green path. A single 5x repetition catches non-determinism in
+# under 20 minutes per day, and surfaces the offending test name in the job
+# summary so the next maintainer can act within a day instead of a sprint.
+#
+# Implementation notes:
+#   - We parse `cargo test`'s text output for `^test <name> ... <STATUS>` lines
+#     where STATUS in {ok, FAILED, ignored}. This includes #[ignore]'d tests
+#     (e.g. interchange::lossless_tests::diagnostic_all_pairs) so their state
+#     contributes to the per-run signature; if their ignored-vs-run state ever
+#     drifts between runs we want to know.
+#   - Each iteration's results are sorted and SHA-256'd. If any hash differs
+#     from the first run, the job fails with a markdown diff in the summary.
+#   - Test outcomes are written via env vars / files (never `${{ }}` into shell)
+#     to stay clear of the script-injection class fixed in #119.
+
+on:
+  schedule:
+    # 06:00 UTC daily — quiet hours for our team, plenty of free runner capacity.
+    - cron: '0 6 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  flake-check:
+    name: Run cargo test --lib x5
+    runs-on: ubuntu-latest
+    # 5 iterations × ~3 min build/test + overhead. Cap generously.
+    timeout-minutes: 30
+    env:
+      CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_LINKER: clang
+      CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_RUSTFLAGS: "-C link-arg=-fuse-ld=mold"
+      ITERATIONS: "5"
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install build tools
+        run: |
+          sudo apt-get update && sudo apt-get install -y clang
+          MOLD_VERSION=2.40.1
+          curl -fsSL "https://github.com/rui314/mold/releases/download/v${MOLD_VERSION}/mold-${MOLD_VERSION}-x86_64-linux.tar.gz" \
+            | sudo tar xz -C /usr/local --strip-components=1
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Build tests once
+        # Pre-build so the per-iteration timing reflects test execution, not
+        # compilation. `--no-run` compiles the test harness without executing it.
+        run: cargo test --lib --no-run
+
+      - name: Run cargo test --lib 5 times
+        id: repeat
+        run: |
+          set -uo pipefail
+          mkdir -p flake-results
+          : > flake-results/hashes.txt
+
+          for i in $(seq 1 "$ITERATIONS"); do
+            echo "::group::Iteration $i"
+            log="flake-results/run-${i}.log"
+            sig="flake-results/run-${i}.sig"
+
+            # Capture exit code separately so a failing iteration still
+            # contributes its signature instead of aborting the whole job.
+            set +e
+            cargo test --lib --no-fail-fast 2>&1 | tee "$log"
+            rc="${PIPESTATUS[0]}"
+            set -e
+            echo "iteration $i: cargo exit $rc"
+            echo "$rc" > "flake-results/run-${i}.rc"
+
+            # Pull `^test <name> ... <STATUS>` lines, normalise, sort.
+            # STATUS observed in cargo test text output: ok, FAILED, ignored.
+            # We deliberately keep ignored tests in the signature so a flake
+            # that flips between ignored<->run is still caught.
+            grep -E '^test [^ ]+ \.\.\. (ok|FAILED|ignored)( |$)' "$log" \
+              | awk '{print $2, $4}' \
+              | LC_ALL=C sort -u > "$sig"
+
+            hash=$(sha256sum "$sig" | awk '{print $1}')
+            echo "iteration $i: signature $hash ($(wc -l < "$sig") tests)"
+            echo "${i} ${hash} ${rc}" >> flake-results/hashes.txt
+            echo "::endgroup::"
+          done
+
+          # Compare against iteration 1.
+          first_hash=$(awk 'NR==1{print $2}' flake-results/hashes.txt)
+          differing=""
+          while read -r idx hash rc; do
+            if [ "$hash" != "$first_hash" ]; then
+              differing="${differing}${idx} "
+            fi
+          done < flake-results/hashes.txt
+
+          if [ -n "$differing" ]; then
+            echo "FLAKE_DETECTED=1" >> "$GITHUB_OUTPUT"
+            echo "DIFFERING_ITERS=${differing% }" >> "$GITHUB_OUTPUT"
+          else
+            echo "FLAKE_DETECTED=0" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Build job summary
+        if: always()
+        env:
+          FLAKE_DETECTED: ${{ steps.repeat.outputs.FLAKE_DETECTED }}
+          DIFFERING_ITERS: ${{ steps.repeat.outputs.DIFFERING_ITERS }}
+        run: |
+          set -uo pipefail
+          {
+            echo "# Flaky Test Detection"
+            echo ""
+            echo "Ran \`cargo test --lib\` ${ITERATIONS} times. Each iteration's per-test"
+            echo "outcomes (\`ok\` / \`FAILED\` / \`ignored\`) are sorted and hashed; the"
+            echo "job fails if any iteration differs from iteration 1."
+            echo ""
+            echo "| Iter | Cargo exit | Tests | Signature (sha256, first 12) |"
+            echo "|------|-----------:|------:|------------------------------|"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+          while read -r idx hash rc; do
+            count=$(wc -l < "flake-results/run-${idx}.sig" || echo 0)
+            short="${hash:0:12}"
+            printf '| %s | %s | %s | %s |\n' "$idx" "$rc" "$count" "$short" \
+              >> "$GITHUB_STEP_SUMMARY"
+          done < flake-results/hashes.txt
+
+          if [ "${FLAKE_DETECTED:-0}" = "1" ]; then
+            {
+              echo ""
+              echo "## Flake detected"
+              echo ""
+              echo "Iterations differing from iteration 1: \`${DIFFERING_ITERS}\`"
+              echo ""
+              echo "### Diff vs iteration 1"
+              echo ""
+              echo "\`\`\`diff"
+            } >> "$GITHUB_STEP_SUMMARY"
+
+            for idx in ${DIFFERING_ITERS}; do
+              {
+                echo "--- iteration 1"
+                echo "+++ iteration ${idx}"
+                diff -u "flake-results/run-1.sig" "flake-results/run-${idx}.sig" \
+                  | tail -n +3 || true
+                echo ""
+              } >> "$GITHUB_STEP_SUMMARY"
+            done
+
+            echo '```' >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "" >> "$GITHUB_STEP_SUMMARY"
+            echo "All ${ITERATIONS} iterations produced identical per-test outcomes." \
+              >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      - name: Upload raw logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: flake-check-logs
+          path: flake-results/
+          retention-days: 14
+
+      - name: Fail if flake detected
+        env:
+          FLAKE_DETECTED: ${{ steps.repeat.outputs.FLAKE_DETECTED }}
+          DIFFERING_ITERS: ${{ steps.repeat.outputs.DIFFERING_ITERS }}
+        run: |
+          if [ "${FLAKE_DETECTED:-0}" = "1" ]; then
+            echo "Flake detected: iterations ${DIFFERING_ITERS} differ from iteration 1"
+            exit 1
+          fi
+          echo "No flake detected across ${ITERATIONS} runs"
