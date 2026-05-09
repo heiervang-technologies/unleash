@@ -166,7 +166,7 @@ jobs:
           cp target/${{ matrix.target }}/release/splash splash-${{ matrix.suffix }}
 
       - name: Upload artifacts
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: binaries-${{ matrix.suffix }}
           path: |
