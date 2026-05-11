@@ -274,6 +274,7 @@ pub fn resolve_agent_binary_path(
         AgentType::Gemini => AgentDefinition::gemini().binary,
         AgentType::OpenCode => AgentDefinition::opencode().binary,
         AgentType::Pi => AgentDefinition::pi().binary,
+        AgentType::Hermes => AgentDefinition::hermes().binary,
         AgentType::Custom(name) => custom
             .iter()
             .find(|d| matches!(&d.agent_type, AgentType::Custom(n) if n == name))
@@ -886,6 +887,7 @@ impl App {
             ("gemini", AgentType::Gemini),
             ("opencode", AgentType::OpenCode),
             ("pi", AgentType::Pi),
+            ("hermes", AgentType::Hermes),
         ];
         for (key, agent_type) in agent_keys {
             if let Some(versions) = embedded.get(*key) {
@@ -917,6 +919,7 @@ impl App {
                     AgentType::Gemini,
                     AgentType::OpenCode,
                     AgentType::Pi,
+                    AgentType::Hermes,
                 ] {
                     let v = mgr.get_installed_version(agent_type.clone()).ok().flatten();
                     let _ = version_tx.send((agent_type.clone(), v));
@@ -1477,6 +1480,14 @@ impl App {
                     let versions = vm.get_pi_version_list(installed.as_deref());
                     let conflicts = vm.detect_conflicts("pi");
                     let _ = tx.send((AgentType::Pi, versions, conflicts));
+                });
+            }
+            AgentType::Hermes => {
+                thread::spawn(move || {
+                    let vm = VersionManager::new();
+                    let versions = vm.get_hermes_version_list(installed.as_deref());
+                    let conflicts = vm.detect_conflicts("hermes");
+                    let _ = tx.send((AgentType::Hermes, versions, conflicts));
                 });
             }
             AgentType::Custom(_) => {
@@ -2523,6 +2534,9 @@ impl App {
                             AgentType::Pi => {
                                 vm.install_pi_version_streaming(&version, log_tx)
                             }
+                            AgentType::Hermes => {
+                                vm.install_hermes_version_streaming(&version, log_tx)
+                            }
                             _ => Ok(crate::version::InstallResult {
                                 success: false,
                                 stdout: String::new(),
@@ -2586,6 +2600,7 @@ impl App {
                     AgentType::Gemini => "gemini",
                     AgentType::OpenCode => "opencode",
                     AgentType::Pi => "pi",
+                    AgentType::Hermes => "hermes",
                     AgentType::Custom(name) => {
                         agent_str_owned = name.clone();
                         &agent_str_owned
@@ -2843,6 +2858,9 @@ impl App {
                         vm.install_opencode_version_streaming(&version_clone, log_tx)
                     }
                     AgentType::Pi => vm.install_pi_version_streaming(&version_clone, log_tx),
+                    AgentType::Hermes => {
+                        vm.install_hermes_version_streaming(&version_clone, log_tx)
+                    }
                     AgentType::Custom(_) => Ok(InstallResult {
                         success: false,
                         stdout: String::new(),
@@ -6443,7 +6461,7 @@ mod tests {
         app.version_focus = VersionFocus::AgentPicker;
         assert_eq!(app.version_agent, AgentType::Claude);
 
-        // Navigate down: Claude -> Codex -> Gemini -> OpenCode -> Pi
+        // Navigate down: Claude -> Codex -> Gemini -> OpenCode -> Pi -> Hermes
         let _ = app.handle_version_input(NavAction::Down, key_for(NavAction::Down));
         assert_eq!(app.version_agent, AgentType::Codex);
 
@@ -6456,9 +6474,12 @@ mod tests {
         let _ = app.handle_version_input(NavAction::Down, key_for(NavAction::Down));
         assert_eq!(app.version_agent, AgentType::Pi);
 
+        let _ = app.handle_version_input(NavAction::Down, key_for(NavAction::Down));
+        assert_eq!(app.version_agent, AgentType::Hermes);
+
         // Clamp at bottom (no wrap)
         let _ = app.handle_version_input(NavAction::Down, key_for(NavAction::Down));
-        assert_eq!(app.version_agent, AgentType::Pi);
+        assert_eq!(app.version_agent, AgentType::Hermes);
     }
 
     #[test]
@@ -6726,12 +6747,13 @@ mod tests {
     #[test]
     fn test_all_agent_types_in_cycle() {
         let agents = AgentType::builtin();
-        assert_eq!(agents.len(), 5);
+        assert_eq!(agents.len(), 6);
         assert_eq!(agents[0], AgentType::Claude);
         assert_eq!(agents[1], AgentType::Codex);
         assert_eq!(agents[2], AgentType::Gemini);
         assert_eq!(agents[3], AgentType::OpenCode);
         assert_eq!(agents[4], AgentType::Pi);
+        assert_eq!(agents[5], AgentType::Hermes);
     }
 
     #[test]
@@ -6741,6 +6763,7 @@ mod tests {
         assert_eq!(AgentType::Gemini.display_name(), "Gemini CLI");
         assert_eq!(AgentType::OpenCode.display_name(), "OpenCode");
         assert_eq!(AgentType::Pi.display_name(), "Pi");
+        assert_eq!(AgentType::Hermes.display_name(), "Hermes Agent");
     }
 
     #[test]
@@ -6753,6 +6776,11 @@ mod tests {
         assert_eq!(AgentType::from_str("open-code"), Some(AgentType::OpenCode));
         assert_eq!(AgentType::from_str("pi"), Some(AgentType::Pi));
         assert_eq!(AgentType::from_str("pi-coding-agent"), Some(AgentType::Pi));
+        assert_eq!(AgentType::from_str("hermes"), Some(AgentType::Hermes));
+        assert_eq!(
+            AgentType::from_str("hermes-agent"),
+            Some(AgentType::Hermes)
+        );
         assert_eq!(AgentType::from_str("unknown"), None);
     }
 
@@ -6852,7 +6880,7 @@ mod tests {
         // Press 'G' to jump to bottom
         let big_g_key = KeyEvent::new(KeyCode::Char('G'), KeyModifiers::SHIFT);
         let _ = app.handle_version_input(NavAction::None, big_g_key);
-        assert_eq!(app.version_agent, AgentType::Pi);
+        assert_eq!(app.version_agent, AgentType::Hermes);
     }
 
     #[test]
@@ -6891,13 +6919,14 @@ mod tests {
     #[test]
     fn test_picker_entries_default_order() {
         let entries = build_agent_cli_picker_entries(&[]);
-        assert_eq!(entries.len(), 6);
+        assert_eq!(entries.len(), 7);
         assert_eq!(entries[0], AgentCliPickerEntry::Agent(AgentType::Claude));
         assert_eq!(entries[1], AgentCliPickerEntry::Agent(AgentType::Codex));
         assert_eq!(entries[2], AgentCliPickerEntry::Agent(AgentType::Gemini));
         assert_eq!(entries[3], AgentCliPickerEntry::Agent(AgentType::OpenCode));
         assert_eq!(entries[4], AgentCliPickerEntry::Agent(AgentType::Pi));
-        assert_eq!(entries[5], AgentCliPickerEntry::AddCustom);
+        assert_eq!(entries[5], AgentCliPickerEntry::Agent(AgentType::Hermes));
+        assert_eq!(entries[6], AgentCliPickerEntry::AddCustom);
     }
 
     /// Custom agents appear in the picker between built-ins and AddCustom.
@@ -6908,12 +6937,12 @@ mod tests {
         def.name = "aider".to_string();
         def.binary = "aider".to_string();
         let entries = build_agent_cli_picker_entries(&[def]);
-        assert_eq!(entries.len(), 7);
+        assert_eq!(entries.len(), 8);
         assert_eq!(
-            entries[5],
+            entries[6],
             AgentCliPickerEntry::Agent(AgentType::Custom("aider".to_string()))
         );
-        assert_eq!(entries[6], AgentCliPickerEntry::AddCustom);
+        assert_eq!(entries[7], AgentCliPickerEntry::AddCustom);
     }
 
     /// Right key advances and wraps; left key wraps backwards.
@@ -6938,9 +6967,9 @@ mod tests {
         app.handle_agent_cli_picker_key(KeyEvent::new(KeyCode::Left, KeyModifiers::NONE));
         assert_eq!(app.agent_picker_index, 0);
 
-        // Left from 0 wraps to last (AddCustom = 5 with no custom agents)
+        // Left from 0 wraps to last (AddCustom = 6 with no custom agents)
         app.handle_agent_cli_picker_key(KeyEvent::new(KeyCode::Left, KeyModifiers::NONE));
-        assert_eq!(app.agent_picker_index, 5);
+        assert_eq!(app.agent_picker_index, 6);
 
         // Right from last wraps back to 0
         app.handle_agent_cli_picker_key(KeyEvent::new(KeyCode::Right, KeyModifiers::NONE));
@@ -7020,10 +7049,10 @@ mod tests {
         app.app_config.custom_agents.push(cfg);
 
         let entries = app.agent_cli_picker_entries();
-        // 5 builtins + 1 custom + AddCustom = 7
-        assert_eq!(entries.len(), 7);
+        // 6 builtins + 1 custom + AddCustom = 8
+        assert_eq!(entries.len(), 8);
         assert!(matches!(
-            &entries[5],
+            &entries[6],
             AgentCliPickerEntry::Agent(AgentType::Custom(n)) if n == "aider"
         ));
     }

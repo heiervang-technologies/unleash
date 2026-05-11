@@ -22,6 +22,7 @@ pub enum AgentType {
     Gemini,
     OpenCode,
     Pi,
+    Hermes,
     Custom(String),
 }
 
@@ -34,6 +35,7 @@ impl AgentType {
             AgentType::Gemini,
             AgentType::OpenCode,
             AgentType::Pi,
+            AgentType::Hermes,
         ]
     }
 
@@ -55,6 +57,7 @@ impl AgentType {
             AgentType::Gemini => Cow::Borrowed("Gemini CLI"),
             AgentType::OpenCode => Cow::Borrowed("OpenCode"),
             AgentType::Pi => Cow::Borrowed("Pi"),
+            AgentType::Hermes => Cow::Borrowed("Hermes Agent"),
             AgentType::Custom(name) => Cow::Owned(name.clone()),
         }
     }
@@ -66,6 +69,7 @@ impl AgentType {
             "gemini" | "gemini-cli" => Some(AgentType::Gemini),
             "opencode" | "open-code" => Some(AgentType::OpenCode),
             "pi" | "pi-coding-agent" => Some(AgentType::Pi),
+            "hermes" | "hermes-agent" => Some(AgentType::Hermes),
             _ => None,
         }
     }
@@ -286,6 +290,7 @@ impl AgentDefinition {
             AgentType::Gemini => Self::gemini(),
             AgentType::OpenCode => Self::opencode(),
             AgentType::Pi => Self::pi(),
+            AgentType::Hermes => Self::hermes(),
             AgentType::Custom(ref name) => panic!(
                 "AgentDefinition::from_type() called with Custom(\"{}\"). Use from_custom_config() instead.",
                 name
@@ -462,6 +467,40 @@ impl AgentDefinition {
             enabled: true,
         }
     }
+
+    /// Create Hermes Agent definition
+    pub fn hermes() -> Self {
+        Self {
+            agent_type: AgentType::Hermes,
+            name: "Hermes Agent".to_string(),
+            binary: "hermes".to_string(),
+            description: "NousResearch's autonomous AI agent with persistent memory".to_string(),
+            polyfill: AgentPolyfillConfig {
+                headless: HeadlessStrategy::Flag("-z".to_string()),
+                session: SessionStrategy {
+                    continue_strategy: ResumeStrategy::Flag("--continue".to_string()),
+                    resume_strategy: ResumeStrategy::Flag("--resume".to_string()),
+                },
+                fork: ForkStrategy::Flag("--worktree".to_string()),
+                yolo_flag: Some("--yolo".to_string()),
+                model_flag: "-m".to_string(),
+                effort_flag: None,
+                auto_flag: None,
+                verbose_flag: Some("--verbose".to_string()),
+                output_format_flag: None,
+                system_prompt_flag: None,
+                allowed_tools_flag: None,
+                sandbox: SandboxStrategy::Unsupported,
+                name_flag: None,
+                add_dir_flag: None,
+                approval_mode_flag: None,
+                worktree_flag: Some("--worktree".to_string()),
+            },
+            github_repo: Some("NousResearch/hermes-agent".to_string()),
+            npm_package: None,
+            enabled: true,
+        }
+    }
 }
 
 /// Version information for an agent
@@ -508,6 +547,7 @@ impl AgentManager {
         manager.register_agent(AgentDefinition::gemini());
         manager.register_agent(AgentDefinition::opencode());
         manager.register_agent(AgentDefinition::pi());
+        manager.register_agent(AgentDefinition::hermes());
 
         // Load cached versions
         manager.load_version_cache()?;
@@ -716,6 +756,7 @@ impl AgentManager {
             AgentType::Gemini => self.update_npm_agent("@google/gemini-cli", "Gemini CLI"),
             AgentType::OpenCode => self.update_opencode(),
             AgentType::Pi => self.update_npm_agent("@mariozechner/pi-coding-agent", "Pi"),
+            AgentType::Hermes => self.update_hermes(),
             AgentType::Custom(_) => Err(io::Error::other(
                 "Version management is not yet supported for custom agents",
             )),
@@ -1025,6 +1066,27 @@ impl AgentManager {
         }
     }
 
+    /// Update Hermes via the official curl bash installer.
+    /// Hermes' installer always installs the latest version — there is no
+    /// version pin argument.
+    fn update_hermes(&self) -> io::Result<String> {
+        let output = Command::new("bash")
+            .args([
+                "-c",
+                "curl -fsSL https://raw.githubusercontent.com/NousResearch/hermes-agent/main/scripts/install.sh | bash",
+            ])
+            .output()?;
+
+        if output.status.success() {
+            Ok("Hermes Agent updated successfully".to_string())
+        } else {
+            Err(io::Error::other(format!(
+                "Failed to update Hermes Agent: {}",
+                String::from_utf8_lossy(&output.stderr)
+            )))
+        }
+    }
+
     /// Get version cache file path
     fn version_cache_path(&self) -> PathBuf {
         self.config_dir.join("agent-versions.json")
@@ -1123,6 +1185,32 @@ mod tests {
     }
 
     // Version comparison tests moved to src/version.rs (canonical implementation)
+
+    #[test]
+    fn hermes_has_no_npm_package() {
+        let hermes = AgentDefinition::hermes();
+        assert!(hermes.npm_package.is_none());
+        assert_eq!(hermes.binary, "hermes");
+        assert_eq!(hermes.agent_type, AgentType::Hermes);
+        assert_eq!(hermes.github_repo.as_deref(), Some("NousResearch/hermes-agent"));
+    }
+
+    #[test]
+    fn hermes_is_in_builtin_after_pi() {
+        let builtins = AgentType::builtin();
+        let pi_idx = builtins
+            .iter()
+            .position(|t| *t == AgentType::Pi)
+            .expect("Pi in builtins");
+        let hermes_idx = builtins
+            .iter()
+            .position(|t| *t == AgentType::Hermes)
+            .expect("Hermes in builtins");
+        assert!(
+            hermes_idx > pi_idx,
+            "Hermes must come after Pi to preserve existing builtin-index assertions"
+        );
+    }
 
     #[test]
     fn parse_version_various_formats() {
