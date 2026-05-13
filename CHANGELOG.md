@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.27](https://github.com/heiervang-technologies/unleash/compare/v0.1.26...v0.1.27) (2026-05-13)
+
+
+### Bug Fixes
+
+* **cli:** wrapper-reentry bypasses polyfill parsing for flagged profile invocations ([#159](https://github.com/heiervang-technologies/unleash/issues/159)) ([8353881](https://github.com/heiervang-technologies/unleash/commit/835388154f079af2083d125822dd79951f4c26fb)), closes [#158](https://github.com/heiervang-technologies/unleash/issues/158)
+
 ## [0.1.26](https://github.com/heiervang-technologies/unleash/compare/v0.1.25...v0.1.26) (2026-05-13)
 
 
