@@ -269,10 +269,17 @@ pub fn focus_cleanup(wrapper_pid: u32) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::sync::Mutex;
+
+    // Serializes tests that mutate HYPRLAND_INSTANCE_SIGNATURE. cargo test
+    // runs tests in parallel by default, and process-global env state races
+    // across threads — without this lock, two tests can interleave their
+    // set_var/remove_var calls and one sees the wrong value at assertion time.
+    static HYPR_ENV_LOCK: Mutex<()> = Mutex::new(());
 
     #[test]
     fn test_is_hyprland_detection() {
-        // Save and clear the env var for a clean test
+        let _guard = HYPR_ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
         let original = env::var("HYPRLAND_INSTANCE_SIGNATURE").ok();
         env::remove_var("HYPRLAND_INSTANCE_SIGNATURE");
 
@@ -290,6 +297,7 @@ mod tests {
 
     #[test]
     fn test_get_info_without_hyprland() {
+        let _guard = HYPR_ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
         let original = env::var("HYPRLAND_INSTANCE_SIGNATURE").ok();
         env::remove_var("HYPRLAND_INSTANCE_SIGNATURE");
 
@@ -303,6 +311,7 @@ mod tests {
 
     #[test]
     fn test_get_info_with_signature() {
+        let _guard = HYPR_ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
         let original = env::var("HYPRLAND_INSTANCE_SIGNATURE").ok();
         env::set_var("HYPRLAND_INSTANCE_SIGNATURE", "test_sig_12345");
 
