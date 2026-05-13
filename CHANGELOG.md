@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.26](https://github.com/heiervang-technologies/unleash/compare/v0.1.25...v0.1.26) (2026-05-13)
+
+
+### Features
+
+* **agents:** add Hermes Agent as built-in harness ([#153](https://github.com/heiervang-technologies/unleash/issues/153)) ([3610a42](https://github.com/heiervang-technologies/unleash/commit/3610a4235fdabe34c7c45f0c8b6abb95013b7666))
+
 ## [0.1.25](https://github.com/heiervang-technologies/unleash/compare/v0.1.24...v0.1.25) (2026-05-08)
 
 
