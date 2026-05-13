@@ -64,12 +64,10 @@ mod tests {
     struct PortableMessage {
         role: String,
         has_text: bool,
-        text_preview: String, // first 100 chars of text content
         tool_use_count: usize,
         tool_result_count: usize,
         thinking_count: usize,
         image_count: usize,
-        has_tokens: bool,
     }
 
     fn extract_portable(records: &[HubRecord]) -> Vec<PortableMessage> {
@@ -77,28 +75,11 @@ mod tests {
             .iter()
             .filter_map(|r| {
                 if let HubRecord::Message(msg) = r {
-                    let text_blocks: Vec<&str> = msg
-                        .content
-                        .iter()
-                        .filter_map(|b| {
-                            if let ContentBlock::Text { text } = b {
-                                Some(text.as_str())
-                            } else {
-                                None
-                            }
-                        })
-                        .collect();
-                    let text_preview = text_blocks.join(" ");
-                    let text_preview = if text_preview.len() > 100 {
-                        text_preview[..100].to_string()
-                    } else {
-                        text_preview
-                    };
+                    let has_text = msg.content.iter().any(|b| matches!(b, ContentBlock::Text { .. }));
 
                     let portable = Some(PortableMessage {
                         role: msg.role.clone(),
-                        has_text: !text_blocks.is_empty(),
-                        text_preview,
+                        has_text,
                         tool_use_count: msg
                             .content
                             .iter()
@@ -119,7 +100,6 @@ mod tests {
                             .iter()
                             .filter(|b| matches!(b, ContentBlock::Image { .. }))
                             .count(),
-                        has_tokens: msg.metadata.tokens.is_some(),
                     });
 
                     // Filter out completely empty messages (no text, tools, thinking, or images)
