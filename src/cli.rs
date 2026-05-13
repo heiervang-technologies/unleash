@@ -138,6 +138,58 @@ pub struct PolyfillArgs {
     pub dry_run: bool,
 }
 
+/// Returns true if `arg` is a polyfill flag that should be parsed by
+/// `PolyfillArgs::parse_from_raw`. Used by the wrapper-reentry shortcut in
+/// `lib.rs` to detect explicit profile invocations and skip the shortcut so
+/// polyfill parsing takes effect instead of forwarding the flag unchanged.
+pub fn is_polyfill_flag(arg: &str) -> bool {
+    matches!(
+        arg,
+        "--safe"
+            | "--yolo"
+            | "--fork"
+            | "-c"
+            | "--continue"
+            | "-a"
+            | "--auto"
+            | "-v"
+            | "--verbose"
+            | "--sandbox"
+            | "--dry-run"
+            | "-p"
+            | "--prompt"
+            | "-m"
+            | "--model"
+            | "-e"
+            | "--effort"
+            | "-r"
+            | "--resume"
+            | "-x"
+            | "--crossload"
+            | "-u"
+            | "--ucf"
+            | "--output-format"
+            | "--system-prompt"
+            | "--allowed-tools"
+            | "--name"
+            | "--add-dir"
+            | "--approval-mode"
+            | "--worktree"
+    ) || arg.starts_with("--prompt=")
+        || arg.starts_with("--model=")
+        || arg.starts_with("--effort=")
+        || arg.starts_with("--resume=")
+        || arg.starts_with("--crossload=")
+        || arg.starts_with("--ucf=")
+        || arg.starts_with("--output-format=")
+        || arg.starts_with("--system-prompt=")
+        || arg.starts_with("--allowed-tools=")
+        || arg.starts_with("--name=")
+        || arg.starts_with("--add-dir=")
+        || arg.starts_with("--approval-mode=")
+        || arg.starts_with("--worktree=")
+}
+
 impl PolyfillArgs {
     /// Parse polyfill flags from raw args (for external_subcommand path).
     /// Returns (polyfill_args, passthrough_args) where passthrough_args are
@@ -855,6 +907,34 @@ mod tests {
         assert!(polyfill.dry_run);
         assert_eq!(polyfill.model, Some("opus".to_string()));
         assert!(passthrough.is_empty());
+    }
+
+    #[test]
+    fn test_is_polyfill_flag_recognizes_common_flags() {
+        // Short and long forms
+        assert!(is_polyfill_flag("--dry-run"));
+        assert!(is_polyfill_flag("-p"));
+        assert!(is_polyfill_flag("--prompt"));
+        assert!(is_polyfill_flag("-m"));
+        assert!(is_polyfill_flag("--model"));
+        assert!(is_polyfill_flag("--yolo"));
+        assert!(is_polyfill_flag("--safe"));
+        assert!(is_polyfill_flag("-c"));
+        assert!(is_polyfill_flag("--continue"));
+        assert!(is_polyfill_flag("-r"));
+        assert!(is_polyfill_flag("--resume"));
+        assert!(is_polyfill_flag("--fork"));
+        assert!(is_polyfill_flag("-x"));
+        assert!(is_polyfill_flag("--crossload"));
+        // = form for value-taking flags
+        assert!(is_polyfill_flag("--model=opus"));
+        assert!(is_polyfill_flag("--prompt=hello"));
+        // Non-polyfill flags should not match
+        assert!(!is_polyfill_flag("--help"));
+        assert!(!is_polyfill_flag("--version"));
+        assert!(!is_polyfill_flag("--unknown"));
+        assert!(!is_polyfill_flag("claude"));
+        assert!(!is_polyfill_flag(""));
     }
 
     #[test]
