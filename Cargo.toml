@@ -37,7 +37,7 @@ libc = "0.2"
 rusqlite = { version = "0.32", features = ["bundled"] }
 
 # Tokenizers
-tiktoken-rs = "0.9"
+tiktoken-rs = "0.11"
 tokenizers = { version = "0.21", default-features = false, features = ["onig"] }
 
 # Embed docker/ assets for binary-only installs
