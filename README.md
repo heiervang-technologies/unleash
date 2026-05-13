@@ -44,6 +44,8 @@ unleash claude   # Start Claude with unleash features
 unleash codex    # Start Codex with unleash features
 unleash gemini   # Start Gemini CLI with unleash features
 unleash opencode # Start OpenCode with unleash features
+unleash pi       # Start Pi with unleash features
+unleash hermes   # Start Hermes Agent with unleash features
 ```
 
 > Run the same install command again to update to the latest version.
@@ -77,12 +79,13 @@ Then launch with `unleash aider` — full polyfill support and TUI integration.
 unleash <profile> [unified flags] [-- agent-specific flags]
 ```
 
-The first argument is always a **profile name**. The four default profiles (`claude`, `codex`, `gemini`, `opencode`) map to their respective agents. Custom profiles can target any agent with custom settings.
+The first argument is always a **profile name**. The six default profiles (`claude`, `codex`, `gemini`, `opencode`, `pi`, `hermes`) map to their respective agents. Custom profiles can target any agent with custom settings.
 
 ```bash
 unleash claude -m opus -c              # Continue last Claude session with Opus
 unleash codex --safe                   # Run Codex with approval prompts
 unleash gemini -p "fix the tests"     # Gemini headless mode
+unleash hermes -m claude-sonnet-4      # Hermes with a model override
 unleash work                           # Run a custom "work" profile
 ```
 
@@ -110,13 +113,13 @@ unleash claude -m opus -- --effort max --verbose
 
 ### How Translation Works
 
-| unleash | Claude | Codex | Gemini | OpenCode |
-|---------|--------|-------|--------|----------|
-| `-p <prompt>` | `-p <prompt>` | `exec <prompt>` | `-p <prompt>` | `run <prompt>` |
-| `-c` | `--continue` | `resume --last` | `--resume latest` | `--continue` |
-| `-r [id]` | `--resume [id]` | `resume [id]` | `--resume [id]` | `--session <id>` |
-| `--fork` | `--fork-session` | `fork` subcommand | *(unsupported)* | `--fork` |
-| *(default)* | `--dangerously-skip-permissions` | `--dangerously-bypass-approvals-and-sandbox` | `--yolo` | *(no-op)* |
+| unleash | Claude | Codex | Gemini | OpenCode | Pi | Hermes |
+|---------|--------|-------|--------|----------|----|--------|
+| `-p <prompt>` | `-p <prompt>` | `exec <prompt>` | `-p <prompt>` | `run <prompt>` | `-p <prompt>` | `-z <prompt>` |
+| `-c` | `--continue` | `resume --last` | `--resume latest` | `--continue` | `--continue` | `--continue` |
+| `-r [id]` | `--resume [id]` | `resume [id]` | `--resume [id]` | `-s <id>` | `--session <id>` | `--resume [id]` |
+| `--fork` | `--fork-session` | `fork` subcommand | *(unsupported)* | `--fork` | `--fork` | `--worktree` |
+| *(default)* | `--dangerously-skip-permissions` | `--dangerously-bypass-approvals-and-sandbox` | `--yolo` | *(no-op)* | *(no-op)* | `--yolo` |
 
 ### Management Commands
 
@@ -133,12 +136,14 @@ unleash agents status      # Show all agent versions and update status
 
 ## Version Management
 
-unleash manages versions for all four agent CLIs:
+unleash manages versions for all six built-in agent CLIs:
 
 - **Claude Code**: Native binary (GCS) or npm install
 - **Codex**: Prebuilt binary from GitHub releases, cargo build fallback
 - **Gemini CLI**: npm install
 - **OpenCode**: Built-in `opencode upgrade` command
+- **Pi**: npm install (`@mariozechner/pi-coding-agent`)
+- **Hermes Agent**: Official curl install script (always installs latest)
 
 Version filtering:
 - **Blacklist mode** (default for Claude): All versions allowed except known-bad ones
