@@ -505,7 +505,10 @@ pub fn run() -> io::Result<()> {
     // If AGENT_CMD is set AND we're running under the wrapper (AGENT_UNLEASH=1),
     // enter wrapper mode directly. This prevents stale AGENT_CMD from a previous
     // session from hijacking a fresh `unleash codex` invocation.
-    // Skip wrapper mode for help/version flags — let clap handle those
+    // Skip wrapper mode for help/version flags — let clap handle those.
+    // Skip wrapper mode when polyfill flags are present — the user is making an
+    // explicit fresh invocation (e.g. `unleash claude --dry-run`) and expects
+    // the Commands::Profile path to translate flags, not bypass parsing.
     let has_meta_flag = args
         .iter()
         .skip(1)
@@ -514,9 +517,15 @@ pub fn run() -> io::Result<()> {
         .get(1)
         .map(|a| is_known_subcommand(a.as_str()))
         .unwrap_or(false);
+    // Only scan args before `--` so passthrough flags don't trigger the bypass.
+    let has_polyfill_flag = args
+        .iter()
+        .skip(1)
+        .take_while(|a| a.as_str() != "--")
+        .any(|a| cli::is_polyfill_flag(a));
     let is_wrapper_reentry = env::var("AGENT_CMD").is_ok()
         && env::var(launcher::UNLEASHED_ENV_VAR).ok().as_deref() == Some("1");
-    if is_wrapper_reentry && !has_meta_flag && !first_arg_is_subcommand {
+    if is_wrapper_reentry && !has_meta_flag && !first_arg_is_subcommand && !has_polyfill_flag {
         let args: Vec<String> = env::args().skip(1).collect();
 
         // Check for --crossload/-x or --ucf/-u in wrapper mode — handle before launch
