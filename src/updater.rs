@@ -873,6 +873,7 @@ fn update_agent(
         AgentType::Gemini => update_gemini(tx, index),
         AgentType::OpenCode => update_opencode(tx, index),
         AgentType::Pi => update_pi(tx, index),
+        AgentType::Hermes => update_hermes(tx, index),
         AgentType::Custom(_) => Err(io::Error::other(
             "Version management is not yet supported for custom agents",
         )),
@@ -1092,6 +1093,35 @@ fn update_pi(tx: &mpsc::Sender<(usize, LineState)>, index: usize) -> io::Result<
     } else {
         Err(io::Error::other(format!(
             "npm install failed: {}",
+            String::from_utf8_lossy(&output.stderr)
+        )))
+    }
+}
+
+/// Update Hermes Agent via the official curl bash installer.
+/// Hermes is not distributed via npm; the installer always pulls latest.
+fn update_hermes(tx: &mpsc::Sender<(usize, LineState)>, index: usize) -> io::Result<String> {
+    let _ = tx.send((
+        index,
+        LineState::Building {
+            version: String::new(),
+            phase: "running install.sh...".into(),
+        },
+    ));
+
+    let output = Command::new("bash")
+        .args([
+            "-c",
+            "curl -fsSL https://raw.githubusercontent.com/NousResearch/hermes-agent/main/scripts/install.sh | bash",
+        ])
+        .output()?;
+
+    if output.status.success() {
+        let version = get_installed_version(AgentType::Hermes).unwrap_or_else(|| "latest".into());
+        Ok(version)
+    } else {
+        Err(io::Error::other(format!(
+            "hermes install failed: {}",
             String::from_utf8_lossy(&output.stderr)
         )))
     }

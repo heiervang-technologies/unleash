@@ -112,6 +112,7 @@ fn resolve_target_binary(target_cli: &str) -> String {
         "gemini" | "gemini-cli" => Some(AgentType::Gemini),
         "opencode" => Some(AgentType::OpenCode),
         "pi" | "pi-coding-agent" => Some(AgentType::Pi),
+        "hermes" | "hermes-agent" => Some(AgentType::Hermes),
         _ => None,
     };
     match canonical {
@@ -322,6 +323,7 @@ fn run_agent_with_polyfill(
         AgentType::Gemini => "gemini",
         AgentType::OpenCode => "opencode",
         AgentType::Pi => "pi",
+        AgentType::Hermes => "hermes",
         AgentType::Custom(name) => {
             target_cli_owned = name.clone();
             &target_cli_owned
@@ -582,6 +584,7 @@ pub fn run() -> io::Result<()> {
                             AgentType::Gemini => "gemini",
                             AgentType::OpenCode => "opencode",
                             AgentType::Pi => "pi",
+                            AgentType::Hermes => "hermes",
                             AgentType::Custom(_) => "claude", // custom agents fall back to claude for crossload
                         })
                         .unwrap_or("claude")

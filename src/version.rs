@@ -58,7 +58,7 @@ pub fn load_embedded_versions() -> HashMap<String, Vec<String>> {
     let content = std::fs::read_to_string(&path).unwrap_or_else(|_| "{}".to_string());
     let parsed: serde_json::Value = serde_json::from_str(&content).unwrap_or_default();
     let mut map = HashMap::new();
-    for key in &["claude", "codex", "gemini", "opencode", "pi"] {
+    for key in &["claude", "codex", "gemini", "opencode", "pi", "hermes"] {
         if let Some(arr) = parsed.get(key).and_then(|v| v.as_array()) {
             let versions: Vec<String> = arr
                 .iter()
@@ -80,6 +80,7 @@ pub fn save_embedded_versions(map: &HashMap<crate::agents::AgentType, Vec<Versio
             crate::agents::AgentType::Gemini => "gemini",
             crate::agents::AgentType::OpenCode => "opencode",
             crate::agents::AgentType::Pi => "pi",
+            crate::agents::AgentType::Hermes => "hermes",
             crate::agents::AgentType::Custom(_) => continue, // skip custom agents in embedded versions
         };
         let arr: Vec<serde_json::Value> = versions
@@ -1145,6 +1146,18 @@ impl VersionManager {
         versions
     }
 
+    // ── Hermes ──────────────────────────────────────────────
+
+    /// Get the Hermes version list. Hermes is installed via a curl bash
+    /// script that always installs latest, so we expose a single "latest"
+    /// entry. The installed flag reflects whether the binary is present.
+    pub fn get_hermes_version_list(&self, installed: Option<&str>) -> Vec<VersionInfo> {
+        vec![VersionInfo {
+            version: "latest".to_string(),
+            is_installed: installed.is_some(),
+        }]
+    }
+
     // ── OpenCode ────────────────────────────────────────────
 
     /// Get available OpenCode versions from npm registry.
@@ -1655,6 +1668,49 @@ impl VersionManager {
                 None
             } else {
                 Some(format!("Failed to install Pi v{}: {}", version, stderr))
+            },
+        })
+    }
+
+    /// Install Hermes Agent with streaming log output.
+    /// Hermes is distributed via a curl bash installer that always installs
+    /// the latest version — there is no version pin argument. If the caller
+    /// requests a non-"latest" version we log a note and proceed with latest.
+    pub fn install_hermes_version_streaming(
+        &self,
+        version: &str,
+        log_tx: mpsc::Sender<String>,
+    ) -> io::Result<InstallResult> {
+        if version != "latest" {
+            let _ = log_tx.send(format!(
+                "Note: Hermes installer always installs the latest version; the requested version '{}' is ignored.",
+                version
+            ));
+        }
+
+        let _ = log_tx.send(
+            "Running: curl -fsSL https://raw.githubusercontent.com/NousResearch/hermes-agent/main/scripts/install.sh | bash".to_string(),
+        );
+
+        let (ok, stdout, stderr) = Self::run_streaming(
+            Command::new("bash").args([
+                "-c",
+                "curl -fsSL https://raw.githubusercontent.com/NousResearch/hermes-agent/main/scripts/install.sh | bash",
+            ]),
+            &log_tx,
+        )?;
+
+        Ok(InstallResult {
+            success: ok,
+            stdout,
+            stderr: stderr.clone(),
+            error: if ok {
+                None
+            } else {
+                Some(format!(
+                    "Failed to install Hermes Agent v{}: {}",
+                    version, stderr
+                ))
             },
         })
     }
