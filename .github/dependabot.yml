@@ -28,8 +28,12 @@ updates:
       - "dependencies"
       - "rust"
     commit-message:
+      # Prefix already encodes the scope. Do NOT add `include: "scope"` —
+      # combining the two produces `chore(deps)(deps): ...` which the
+      # conventional-commits parser used by release-please can't parse,
+      # silently dropping every dependabot merge from the release notes
+      # (and blocking version bumps entirely if no other commit lands).
       prefix: "chore(deps)"
-      include: "scope"
     groups:
       # Roll up patch + minor bumps into one PR per group so the queue stays
       # small. Major bumps still get their own PRs (default behaviour).
@@ -56,8 +60,8 @@ updates:
       - "dependencies"
       - "github-actions"
     commit-message:
+      # See the cargo block above for why `include: "scope"` is omitted.
       prefix: "ci(deps)"
-      include: "scope"
     groups:
       actions-minor-patch:
         applies-to: version-updates
