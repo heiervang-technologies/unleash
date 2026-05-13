@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.28](https://github.com/heiervang-technologies/unleash/compare/v0.1.27...v0.1.28) (2026-05-13)
+
+
+### Bug Fixes
+
+* **ci:** remove double-scope from dependabot commit prefix ([#162](https://github.com/heiervang-technologies/unleash/issues/162)) ([f2f5ada](https://github.com/heiervang-technologies/unleash/commit/f2f5ada470419752cfe1434b819e75df8a5fd773))
+
 ## [0.1.27](https://github.com/heiervang-technologies/unleash/compare/v0.1.26...v0.1.27) (2026-05-13)
 
 
