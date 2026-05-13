@@ -16,7 +16,7 @@ tui = ["ratatui", "crossterm"]
 
 [dependencies]
 # CLI
-clap = { version = "4.5", features = ["derive", "env"] }
+clap = { version = "4.6", features = ["derive", "env"] }
 
 # TUI (optional - disable for headless environments)
 ratatui = { version = "0.29", optional = true }
@@ -44,7 +44,7 @@ tokenizers = { version = "0.21", default-features = false, features = ["onig"] }
 include_dir = "0.7"
 
 [dev-dependencies]
-tempfile = "3.15"
+tempfile = "3.27"
 proptest = "1.5"
 
 [profile.release]
