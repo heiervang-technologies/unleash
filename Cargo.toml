@@ -20,7 +20,7 @@ clap = { version = "4.6", features = ["derive", "env"] }
 
 # TUI (optional - disable for headless environments)
 ratatui = { version = "0.30", optional = true }
-crossterm = { version = "0.28", optional = true }
+crossterm = { version = "0.29", optional = true }
 
 # Config
 serde = { version = "1.0", features = ["derive"] }
