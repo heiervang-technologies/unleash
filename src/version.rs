@@ -1689,14 +1689,18 @@ impl VersionManager {
         }
 
         let _ = log_tx.send(
-            "Running: curl -fsSL https://raw.githubusercontent.com/NousResearch/hermes-agent/main/scripts/install.sh | bash".to_string(),
+            "Running: curl -fsSL https://raw.githubusercontent.com/NousResearch/hermes-agent/main/scripts/install.sh | bash -s -- --skip-setup".to_string(),
         );
 
+        // --skip-setup bypasses the interactive wizard; null stdin prevents
+        // the installer from reading /dev/tty for prompts.
         let (ok, stdout, stderr) = Self::run_streaming(
-            Command::new("bash").args([
-                "-c",
-                "curl -fsSL https://raw.githubusercontent.com/NousResearch/hermes-agent/main/scripts/install.sh | bash",
-            ]),
+            Command::new("bash")
+                .args([
+                    "-c",
+                    "curl -fsSL https://raw.githubusercontent.com/NousResearch/hermes-agent/main/scripts/install.sh | bash -s -- --skip-setup",
+                ])
+                .stdin(Stdio::null()),
             &log_tx,
         )?;
 

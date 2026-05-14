@@ -1109,11 +1109,15 @@ fn update_hermes(tx: &mpsc::Sender<(usize, LineState)>, index: usize) -> io::Res
         },
     ));
 
+    // --skip-setup bypasses the interactive setup wizard. The installer reads
+    // from /dev/tty for prompts even when piped from curl, so just piping does
+    // not suffice; we explicitly opt out of the wizard and null stdin.
     let output = Command::new("bash")
         .args([
             "-c",
-            "curl -fsSL https://raw.githubusercontent.com/NousResearch/hermes-agent/main/scripts/install.sh | bash",
+            "curl -fsSL https://raw.githubusercontent.com/NousResearch/hermes-agent/main/scripts/install.sh | bash -s -- --skip-setup",
         ])
+        .stdin(std::process::Stdio::null())
         .output()?;
 
     if output.status.success() {

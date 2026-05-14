@@ -1068,13 +1068,16 @@ impl AgentManager {
 
     /// Update Hermes via the official curl bash installer.
     /// Hermes' installer always installs the latest version — there is no
-    /// version pin argument.
+    /// version pin argument. `--skip-setup` bypasses the interactive setup
+    /// wizard, which the installer otherwise drives by reading from /dev/tty
+    /// even when piped from curl.
     fn update_hermes(&self) -> io::Result<String> {
         let output = Command::new("bash")
             .args([
                 "-c",
-                "curl -fsSL https://raw.githubusercontent.com/NousResearch/hermes-agent/main/scripts/install.sh | bash",
+                "curl -fsSL https://raw.githubusercontent.com/NousResearch/hermes-agent/main/scripts/install.sh | bash -s -- --skip-setup",
             ])
+            .stdin(std::process::Stdio::null())
             .output()?;
 
         if output.status.success() {
