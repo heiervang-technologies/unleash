@@ -597,6 +597,20 @@ impl AgentManager {
                     version = Self::codex_version_from_git_tag();
                 }
 
+                // Hermes reports both a SemVer ("v0.13.0") and a CalVer date
+                // ("2026.5.7") on the same line. Upstream tags releases by
+                // CalVer, so the GH "latest" comparison only works against the
+                // CalVer — extract it from the parenthesized suffix.
+                if agent_type == AgentType::Hermes {
+                    let stdout_str = String::from_utf8_lossy(&out.stdout);
+                    let stderr_str = String::from_utf8_lossy(&out.stderr);
+                    if let Some(v) = Self::parse_hermes_calver(&stdout_str)
+                        .or_else(|| Self::parse_hermes_calver(&stderr_str))
+                    {
+                        version = Some(v);
+                    }
+                }
+
                 // Update cache
                 let entry = self.versions.entry(agent_type).or_default();
                 entry.installed = version.clone();
@@ -678,6 +692,24 @@ impl AgentManager {
         }
 
         None
+    }
+
+    /// Pull the CalVer date out of `hermes --version` output. The format is
+    /// "Hermes Agent v<semver> (<calver>)" on the first line. We need the
+    /// CalVer to match upstream's GitHub release tags.
+    fn parse_hermes_calver(output: &str) -> Option<String> {
+        let line = output.lines().next()?;
+        let start = line.rfind('(')?;
+        let end = line.rfind(')')?;
+        if end <= start + 1 {
+            return None;
+        }
+        let inner = line[start + 1..end].trim();
+        if inner.chars().next()?.is_ascii_digit() {
+            Some(inner.to_string())
+        } else {
+            None
+        }
     }
 
     /// Get latest version from GitHub
@@ -1068,13 +1100,16 @@ impl AgentManager {
 
     /// Update Hermes via the official curl bash installer.
     /// Hermes' installer always installs the latest version — there is no
-    /// version pin argument.
+    /// version pin argument. `--skip-setup` bypasses the interactive setup
+    /// wizard, which the installer otherwise drives by reading from /dev/tty
+    /// even when piped from curl.
     fn update_hermes(&self) -> io::Result<String> {
         let output = Command::new("bash")
             .args([
                 "-c",
-                "curl -fsSL https://raw.githubusercontent.com/NousResearch/hermes-agent/main/scripts/install.sh | bash",
+                "curl -fsSL https://raw.githubusercontent.com/NousResearch/hermes-agent/main/scripts/install.sh | bash -s -- --skip-setup",
             ])
+            .stdin(std::process::Stdio::null())
             .output()?;
 
         if output.status.success() {
@@ -1225,6 +1260,27 @@ mod tests {
         assert_eq!(
             AgentManager::parse_version("v1.2.3"),
             Some("1.2.3".to_string())
+        );
+    }
+
+    #[test]
+    fn parse_hermes_calver_extracts_date_from_parens() {
+        assert_eq!(
+            AgentManager::parse_hermes_calver("Hermes Agent v0.13.0 (2026.5.7)"),
+            Some("2026.5.7".to_string())
+        );
+        assert_eq!(
+            AgentManager::parse_hermes_calver(
+                "Hermes Agent v0.14.1 (2026.6.12)\nProject: /home/x/.hermes\n"
+            ),
+            Some("2026.6.12".to_string())
+        );
+        // Missing parens
+        assert_eq!(AgentManager::parse_hermes_calver("Hermes Agent v0.13.0"), None);
+        // Non-numeric content in parens
+        assert_eq!(
+            AgentManager::parse_hermes_calver("Hermes Agent v0.13.0 (dev)"),
+            None
         );
     }
 }
