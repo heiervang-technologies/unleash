@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.31](https://github.com/heiervang-technologies/unleash/compare/v0.1.30...v0.1.31) (2026-05-14)
+
+
+### Bug Fixes
+
+* **updater:** fall back to unauthenticated GitHub API on stale gh token ([#176](https://github.com/heiervang-technologies/unleash/issues/176)) ([80c4dc8](https://github.com/heiervang-technologies/unleash/commit/80c4dc894977442e91d034f14b355f50b47f676c))
+
 ## [0.1.30](https://github.com/heiervang-technologies/unleash/compare/v0.1.29...v0.1.30) (2026-05-14)
 
 
