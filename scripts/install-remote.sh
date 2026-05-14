@@ -773,6 +773,70 @@ EOF
     success "Onboarding bypass configured"
 }
 
+# Write the selected agent as default profile in ~/.config/unleash/config.toml.
+# Tolerant of pre-existing configs, dotfile symlinks, and partial setups —
+# returns non-zero on failure so the caller can warn without aborting.
+set_default_profile() {
+    local agent="$1"
+    local config_dir="${HOME}/.config/unleash"
+    local config_file="${config_dir}/config.toml"
+
+    # mkdir -p is fine if config_dir already exists (incl. symlink to dir).
+    # Capture stderr so we can warn meaningfully on weird filesystem states.
+    if ! mkdir -p "$config_dir" 2>/dev/null; then
+        warn "Existing $config_dir could not be prepared (permission or path issue)."
+        warn "Skipping default-profile write; existing config preserved."
+        return 1
+    fi
+
+    if [[ -f "$config_file" ]]; then
+        # Pre-existing config: try to update in place. If it's a read-only
+        # dotfile symlink target (e.g. dotfiles repo on a different fs),
+        # sed -i will fail — we don't want to corrupt the user's repo.
+        if grep -q "^current_profile" "$config_file" 2>/dev/null; then
+            if ! sed -i "s/^current_profile.*/current_profile = \"$agent\"/" "$config_file" 2>/dev/null; then
+                warn "Config at $config_file is read-only or unwritable."
+                warn "Existing current_profile preserved; edit manually to set $agent."
+                return 1
+            fi
+        else
+            if ! echo "current_profile = \"$agent\"" >> "$config_file" 2>/dev/null; then
+                warn "Could not append to $config_file (read-only)."
+                return 1
+            fi
+        fi
+    else
+        if ! echo "current_profile = \"$agent\"" > "$config_file" 2>/dev/null; then
+            warn "Could not create $config_file."
+            return 1
+        fi
+    fi
+    return 0
+}
+
+# Surface prereq gaps for the selected agent so the user knows what they
+# still need to install. Non-fatal — we don't block on missing prereqs, but
+# we do tell the user what to expect when they run `unleash install <agent>`.
+check_agent_prereqs() {
+    local agent="$1"
+    case "$agent" in
+        claude|codex|gemini|opencode|pi)
+            if ! command -v npm &> /dev/null; then
+                warn "npm not found. ${agent} needs npm for install."
+                echo "    Install Node.js first:"
+                echo "      curl -fsSL https://fnm.vercel.app/install | bash"
+                echo "      # then: fnm install --lts && fnm use --lts"
+                echo "    Or via your package manager (pacman -S nodejs npm, apt install nodejs npm, etc)."
+                return 1
+            fi
+            ;;
+        hermes)
+            # hermes installs via curl bash, no npm needed
+            ;;
+    esac
+    return 0
+}
+
 # Main installation
 main() {
     echo ""
@@ -829,19 +893,15 @@ main() {
             SELECTED_AGENT=$("${INSTALL_DIR}/splash") || true
             if [[ -n "${SELECTED_AGENT:-}" ]]; then
                 info "Default profile set to $SELECTED_AGENT"
-                # Set default profile in config
-                local config_dir="${HOME}/.config/unleash"
-                local config_file="${config_dir}/config.toml"
-                mkdir -p "$config_dir"
-                if [[ -f "$config_file" ]]; then
-                    if grep -q "^current_profile" "$config_file"; then
-                        sed -i "s/^current_profile.*/current_profile = \"$SELECTED_AGENT\"/" "$config_file"
-                    else
-                        echo "current_profile = \"$SELECTED_AGENT\"" >> "$config_file"
-                    fi
-                else
-                    echo "current_profile = \"$SELECTED_AGENT\"" > "$config_file"
+                # Best-effort: any failure here (existing config that's a
+                # symlink to a read-only dotfile, weird ownership, etc) must
+                # NOT abort the whole installer. The binary still installed.
+                if ! set_default_profile "$SELECTED_AGENT"; then
+                    warn "Could not write default profile to config. Run 'unleash' to set it via the TUI."
                 fi
+                # If the selected agent needs npm and npm is missing, surface
+                # it now so the user knows the next step.
+                check_agent_prereqs "$SELECTED_AGENT" || true
             fi
         elif [[ -x "${INSTALL_DIR}/unleash" ]]; then
             info "Launching TUI..."
