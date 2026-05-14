@@ -577,27 +577,46 @@ fn get_latest_npm_version(package: &str) -> io::Result<Option<String>> {
 
 fn get_latest_github_version(repo: &str) -> io::Result<Option<String>> {
     let url = format!("https://api.github.com/repos/{}/releases/latest", repo);
+
+    // Try with auth first (needed for private repos), then fall back to
+    // unauthenticated. A stale `gh auth token` returns 401 "Bad credentials"
+    // but curl without -f exits 0, so the auth path can silently shadow a
+    // working public request — we have to detect the error in the JSON.
+    let token = github_token();
+    if let Some(ref t) = token {
+        if let Some(version) = fetch_github_release_tag(&url, Some(t))? {
+            return Ok(Some(version));
+        }
+    }
+    fetch_github_release_tag(&url, None)
+}
+
+/// Make a single GitHub releases-latest API call, optionally authenticated.
+/// Returns Some(tag) on success, None if the response was an error
+/// (e.g. 401 Bad credentials, 404 not found) or had no `tag_name` field.
+fn fetch_github_release_tag(url: &str, token: Option<&str>) -> io::Result<Option<String>> {
     let mut cmd = Command::new("curl");
     cmd.args(["-s", "-H", "Accept: application/vnd.github.v3+json"]);
-
-    // Add auth for private repos — try GH_TOKEN, GITHUB_TOKEN, or `gh auth token`
-    if let Some(token) = github_token() {
-        cmd.arg("-H").arg(format!("Authorization: token {}", token));
+    if let Some(t) = token {
+        cmd.arg("-H").arg(format!("Authorization: token {}", t));
     }
 
-    let output = cmd.arg(&url).output()?;
-
+    let output = cmd.arg(url).output()?;
     if !output.status.success() {
         return Ok(None);
     }
 
-    let json: serde_json::Value = serde_json::from_slice(&output.stdout)
-        .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e.to_string()))?;
+    Ok(parse_release_tag(&output.stdout))
+}
 
-    Ok(json
-        .get("tag_name")
+/// Pull `tag_name` out of a GitHub releases-latest API response body.
+/// Returns None for error bodies (e.g. `{"message":"Bad credentials"}`) and
+/// for malformed JSON, so the caller can retry without auth.
+fn parse_release_tag(body: &[u8]) -> Option<String> {
+    let json: serde_json::Value = serde_json::from_slice(body).ok()?;
+    json.get("tag_name")
         .and_then(|t| t.as_str())
-        .map(sanitize_version))
+        .map(sanitize_version)
 }
 
 /// Get a GitHub token for API auth (needed for private repos).
@@ -1431,5 +1450,45 @@ mod tests {
         let msg = err.to_string();
         assert!(msg.contains("2 agents failed"), "expected '2 agents failed': {msg}");
         assert!(msg.contains("update"), "expected 'update' verb: {msg}");
+    }
+
+    // ── parse_release_tag: stale-gh-token bug from wisp ──────────────
+    // A stale `gh auth token` returns 401 "Bad credentials" but curl without
+    // -f exits 0, so we'd parse the error body. Treating the error body as
+    // "no version available" lets get_latest_github_version retry without
+    // auth instead of silently shadowing the public request.
+
+    #[test]
+    fn parse_release_tag_extracts_tag_from_success_response() {
+        let body = br#"{"tag_name":"v2026.5.7","name":"Release"}"#;
+        assert_eq!(parse_release_tag(body), Some("2026.5.7".to_string()));
+    }
+
+    #[test]
+    fn parse_release_tag_returns_none_for_bad_credentials() {
+        let body = br#"{"message":"Bad credentials","documentation_url":"https://docs.github.com/rest","status":"401"}"#;
+        assert_eq!(
+            parse_release_tag(body),
+            None,
+            "401 response must miss so caller can fall back to unauthenticated"
+        );
+    }
+
+    #[test]
+    fn parse_release_tag_returns_none_for_not_found() {
+        let body = br#"{"message":"Not Found","documentation_url":"https://docs.github.com/rest"}"#;
+        assert_eq!(parse_release_tag(body), None);
+    }
+
+    #[test]
+    fn parse_release_tag_returns_none_for_malformed_json() {
+        let body = b"not json at all";
+        assert_eq!(parse_release_tag(body), None);
+    }
+
+    #[test]
+    fn parse_release_tag_returns_none_for_missing_tag_name() {
+        let body = br#"{"name":"Release","id":12345}"#;
+        assert_eq!(parse_release_tag(body), None);
     }
 }
