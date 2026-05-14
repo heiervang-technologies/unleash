@@ -61,6 +61,28 @@ fn agents() -> Vec<Agent> {
             }),
             accent: Color::Rgb(87, 142, 217),
         },
+        Agent {
+            // Pi: light grey. Desaturate the base mascot (sat_scale 0) and
+            // keep the original hue so the result is a neutral light grey.
+            // Reuses Claude's mascot as placeholder via the existing fallback
+            // in pixel_art::mascots::full_art().
+            name: "pi",
+            theme: AgentTheme::Shift(ThemeShift {
+                hue: 0.0,
+                sat_scale: 0.0,
+            }),
+            accent: Color::Rgb(190, 190, 190),
+        },
+        Agent {
+            // Hermes: yellow/gold. Matches the Hermes profile theme (#ffff00)
+            // and the brand of the upstream Hermes Agent project.
+            name: "hermes",
+            theme: AgentTheme::Shift(ThemeShift {
+                hue: 35.23,
+                sat_scale: 1.0,
+            }),
+            accent: Color::Rgb(217, 195, 87),
+        },
     ]
 }
 
