@@ -257,10 +257,17 @@ fn phase_update(
         if count == 1 { "" } else { "s" }
     );
 
-    let agents: Vec<(usize, AgentType, Option<String>)> = to_update
+    let agents: Vec<(usize, AgentType, Option<String>, Option<String>)> = to_update
         .iter()
         .enumerate()
-        .map(|(i, r)| (i, r.agent_type.clone(), r.installed.clone()))
+        .map(|(i, r)| {
+            (
+                i,
+                r.agent_type.clone(),
+                r.installed.clone(),
+                r.latest.clone(),
+            )
+        })
         .collect();
 
     let (tx, rx) = mpsc::channel::<(usize, LineState)>();
@@ -272,12 +279,12 @@ fn phase_update(
     let mut renderer = ProgressRenderer::new(&names);
 
     let mut handles: Vec<(AgentType, thread::JoinHandle<UpdateOutcome>)> = Vec::new();
-    for (idx, agent_type, from_version) in agents {
+    for (idx, agent_type, from_version, latest_version) in agents {
         let tx = tx.clone();
         let agent_type_for_handle = agent_type.clone();
         let handle = thread::spawn(move || {
             let start = Instant::now();
-            let result = update_agent(agent_type.clone(), &tx, idx);
+            let result = update_agent(agent_type.clone(), &tx, idx, latest_version);
             let duration = start.elapsed();
 
             match result {
@@ -911,18 +918,24 @@ fn sanitize_version(s: &str) -> String {
 
 /// Run the actual update for an agent, sending progress events via the channel.
 /// Returns Ok(version) on success or Err on failure.
+///
+/// `latest_version` is the version resolved during the check phase. It's used
+/// as the fallback label when post-install `--version` probing comes up empty
+/// (e.g. when the freshly installed binary isn't on PATH yet in the current
+/// process), so the summary shows `2026.5.7` instead of the literal `latest`.
 fn update_agent(
     agent_type: AgentType,
     tx: &mpsc::Sender<(usize, LineState)>,
     index: usize,
+    latest_version: Option<String>,
 ) -> io::Result<String> {
     let result = match agent_type {
         AgentType::Claude => update_claude(tx, index),
-        AgentType::Codex => update_codex(tx, index),
-        AgentType::Gemini => update_gemini(tx, index),
+        AgentType::Codex => update_codex(tx, index, latest_version),
+        AgentType::Gemini => update_gemini(tx, index, latest_version),
         AgentType::OpenCode => update_opencode(tx, index),
-        AgentType::Pi => update_pi(tx, index),
-        AgentType::Hermes => update_hermes(tx, index),
+        AgentType::Pi => update_pi(tx, index, latest_version),
+        AgentType::Hermes => update_hermes(tx, index, latest_version),
         AgentType::Custom(_) => Err(io::Error::other(
             "Version management is not yet supported for custom agents",
         )),
@@ -990,11 +1003,15 @@ fn update_claude(tx: &mpsc::Sender<(usize, LineState)>, index: usize) -> io::Res
 
 /// Update Codex — prebuilt binary preferred, source build fallback.
 /// Delegates to AgentManager which handles the download/build logic.
-fn update_codex(tx: &mpsc::Sender<(usize, LineState)>, index: usize) -> io::Result<String> {
+fn update_codex(
+    tx: &mpsc::Sender<(usize, LineState)>,
+    index: usize,
+    latest_version: Option<String>,
+) -> io::Result<String> {
     let _ = tx.send((
         index,
         LineState::Building {
-            version: String::new(),
+            version: latest_version.clone().unwrap_or_default(),
             phase: "downloading prebuilt binary...".into(),
         },
     ));
@@ -1002,7 +1019,9 @@ fn update_codex(tx: &mpsc::Sender<(usize, LineState)>, index: usize) -> io::Resu
     let mut manager = crate::agents::AgentManager::new()?;
     manager.update_agent(AgentType::Codex)?;
 
-    let version = get_installed_version(AgentType::Codex).unwrap_or_else(|| "latest".into());
+    let version = get_installed_version(AgentType::Codex)
+        .or(latest_version)
+        .unwrap_or_else(|| "latest".into());
     Ok(version)
 }
 
@@ -1090,11 +1109,15 @@ fn try_source_nvm() -> bool {
 }
 
 /// Update Gemini CLI via npm.
-fn update_gemini(tx: &mpsc::Sender<(usize, LineState)>, index: usize) -> io::Result<String> {
+fn update_gemini(
+    tx: &mpsc::Sender<(usize, LineState)>,
+    index: usize,
+    latest_version: Option<String>,
+) -> io::Result<String> {
     let _ = tx.send((
         index,
         LineState::Building {
-            version: String::new(),
+            version: latest_version.clone().unwrap_or_default(),
             phase: "installing via npm...".into(),
         },
     ));
@@ -1108,7 +1131,9 @@ fn update_gemini(tx: &mpsc::Sender<(usize, LineState)>, index: usize) -> io::Res
         .output()?;
 
     if output.status.success() {
-        let version = get_installed_version(AgentType::Gemini).unwrap_or_else(|| "latest".into());
+        let version = get_installed_version(AgentType::Gemini)
+            .or(latest_version)
+            .unwrap_or_else(|| "latest".into());
         Ok(version)
     } else {
         Err(io::Error::other(format!(
@@ -1184,11 +1209,15 @@ fn install_result_to_version(
 
 /// Update Pi via npm. Routes through the streaming installer so the user
 /// sees live npm progress instead of a frozen "installing via npm..." line.
-fn update_pi(tx: &mpsc::Sender<(usize, LineState)>, index: usize) -> io::Result<String> {
+fn update_pi(
+    tx: &mpsc::Sender<(usize, LineState)>,
+    index: usize,
+    latest_version: Option<String>,
+) -> io::Result<String> {
     let _ = tx.send((
         index,
         LineState::Building {
-            version: String::new(),
+            version: latest_version.clone().unwrap_or_default(),
             phase: "installing via npm...".into(),
         },
     ));
@@ -1197,31 +1226,37 @@ fn update_pi(tx: &mpsc::Sender<(usize, LineState)>, index: usize) -> io::Result<
         return Err(io::Error::other("npm required to install Pi"));
     }
 
+    let label = latest_version.clone().unwrap_or_else(|| "latest".into());
     let vm = crate::version::VersionManager::new();
-    let result = run_install_with_phase_updates(tx, index, "latest".into(), |log_tx| {
+    let result = run_install_with_phase_updates(tx, index, label.clone(), |log_tx| {
         vm.install_pi_version_streaming("latest", log_tx)
     })?;
 
-    install_result_to_version(result, AgentType::Pi, "latest".into())
+    install_result_to_version(result, AgentType::Pi, label)
 }
 
 /// Update Hermes Agent via the official curl bash installer.
 /// Hermes is not distributed via npm; the installer always pulls latest.
-fn update_hermes(tx: &mpsc::Sender<(usize, LineState)>, index: usize) -> io::Result<String> {
+fn update_hermes(
+    tx: &mpsc::Sender<(usize, LineState)>,
+    index: usize,
+    latest_version: Option<String>,
+) -> io::Result<String> {
     let _ = tx.send((
         index,
         LineState::Building {
-            version: String::new(),
+            version: latest_version.clone().unwrap_or_default(),
             phase: "running install.sh...".into(),
         },
     ));
 
+    let label = latest_version.clone().unwrap_or_else(|| "latest".into());
     let vm = crate::version::VersionManager::new();
-    let result = run_install_with_phase_updates(tx, index, "latest".into(), |log_tx| {
+    let result = run_install_with_phase_updates(tx, index, label.clone(), |log_tx| {
         vm.install_hermes_version_streaming("latest", log_tx)
     })?;
 
-    install_result_to_version(result, AgentType::Hermes, "latest".into())
+    install_result_to_version(result, AgentType::Hermes, label)
 }
 
 /// Update OpenCode via its built-in upgrade command, with npm fallback.
