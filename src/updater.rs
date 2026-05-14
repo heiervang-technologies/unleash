@@ -478,13 +478,43 @@ fn get_installed_version(agent_type: AgentType) -> Option<String> {
     if let AgentType::Custom(_) = &agent_type {
         return None; // custom agents don't support version detection yet
     }
-    let def = AgentDefinition::from_type(agent_type);
+    let def = AgentDefinition::from_type(agent_type.clone());
     let output = Command::new(&def.binary).arg("--version").output().ok()?;
     if !output.status.success() {
         return None;
     }
-    parse_version(&String::from_utf8_lossy(&output.stdout))
-        .or_else(|| parse_version(&String::from_utf8_lossy(&output.stderr)))
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+
+    // Hermes reports two version numbers — the SemVer project version and a
+    // CalVer release date. Upstream tags GitHub releases by the CalVer date
+    // (e.g. v2026.5.7), so we have to compare against that one or the version
+    // check will always think an update is available.
+    //   "Hermes Agent v0.13.0 (2026.5.7)"  ->  "2026.5.7"
+    if agent_type == AgentType::Hermes {
+        if let Some(v) = parse_hermes_calver(&stdout).or_else(|| parse_hermes_calver(&stderr)) {
+            return Some(v);
+        }
+    }
+
+    parse_version(&stdout).or_else(|| parse_version(&stderr))
+}
+
+/// Pull the CalVer date out of hermes --version output. The format is
+/// "Hermes Agent v<semver> (<calver>)" on the first line.
+fn parse_hermes_calver(output: &str) -> Option<String> {
+    let line = output.lines().next()?;
+    let start = line.rfind('(')?;
+    let end = line.rfind(')')?;
+    if end <= start + 1 {
+        return None;
+    }
+    let inner = line[start + 1..end].trim();
+    if inner.chars().next()?.is_ascii_digit() {
+        Some(inner.to_string())
+    } else {
+        None
+    }
 }
 
 /// Get the latest available version from GitHub releases API.
