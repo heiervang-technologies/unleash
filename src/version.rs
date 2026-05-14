@@ -1294,12 +1294,19 @@ impl VersionManager {
         (stdout_acc, stderr_acc)
     }
 
-    /// Run a command with streaming output, returning (success, stdout, stderr)
+    /// Run a command with streaming output, returning (success, stdout, stderr).
+    /// stdin is forced to /dev/null so installers (npm, post-install scripts,
+    /// node-gyp, etc.) never block on inherited TTY input. Users were
+    /// reporting having to spam Enter to get pi/opencode installs to finish.
     fn run_streaming(
         cmd: &mut Command,
         log_tx: &mpsc::Sender<String>,
     ) -> io::Result<(bool, String, String)> {
-        let mut child = cmd.stdout(Stdio::piped()).stderr(Stdio::piped()).spawn()?;
+        let mut child = cmd
+            .stdin(Stdio::null())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()?;
         let (stdout, stderr) = Self::stream_child_output(&mut child, log_tx);
         let status = child.wait()?;
         Ok((status.success(), stdout, stderr))

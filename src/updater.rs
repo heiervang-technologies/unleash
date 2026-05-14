@@ -1099,7 +1099,72 @@ fn update_gemini(tx: &mpsc::Sender<(usize, LineState)>, index: usize) -> io::Res
     }
 }
 
-/// Update Pi via npm.
+/// Run a streaming install, forwarding each log line as a Building phase
+/// update on the progress channel. Without this, npm-driven installs
+/// (pi, opencode) blocked at "installing via npm..." for the entire 30-90s
+/// install with no indication of progress, and the user had no way to know
+/// whether the process was alive.
+fn run_install_with_phase_updates<F>(
+    tx: &mpsc::Sender<(usize, LineState)>,
+    index: usize,
+    version_label: String,
+    install: F,
+) -> io::Result<crate::version::InstallResult>
+where
+    F: FnOnce(mpsc::Sender<String>) -> io::Result<crate::version::InstallResult>,
+{
+    let (log_tx, log_rx) = mpsc::channel::<String>();
+    let tx_clone = tx.clone();
+    let label = version_label.clone();
+
+    let forwarder = thread::spawn(move || {
+        while let Ok(line) = log_rx.recv() {
+            // Take the trimmed line, cap length so the progress display
+            // doesn't blow out the terminal width. The latest line wins —
+            // npm output is verbose and the user just needs to see motion.
+            let trimmed = line.trim();
+            if trimmed.is_empty() {
+                continue;
+            }
+            let phase: String = trimmed.chars().take(80).collect();
+            let _ = tx_clone.send((
+                index,
+                LineState::Building {
+                    version: label.clone(),
+                    phase,
+                },
+            ));
+        }
+    });
+
+    let result = install(log_tx)?;
+    let _ = forwarder.join();
+    Ok(result)
+}
+
+/// Convert an InstallResult into the io::Result<String> shape the updater
+/// dispatcher expects: Ok(version) on success, Err(reason) on failure.
+fn install_result_to_version(
+    result: crate::version::InstallResult,
+    agent_type: AgentType,
+    fallback_version: String,
+) -> io::Result<String> {
+    if result.success {
+        let version = get_installed_version(agent_type).unwrap_or(fallback_version);
+        Ok(version)
+    } else {
+        Err(io::Error::other(result.error.unwrap_or_else(|| {
+            if result.stderr.is_empty() {
+                "install failed (no details)".into()
+            } else {
+                result.stderr.clone()
+            }
+        })))
+    }
+}
+
+/// Update Pi via npm. Routes through the streaming installer so the user
+/// sees live npm progress instead of a frozen "installing via npm..." line.
 fn update_pi(tx: &mpsc::Sender<(usize, LineState)>, index: usize) -> io::Result<String> {
     let _ = tx.send((
         index,
@@ -1113,19 +1178,12 @@ fn update_pi(tx: &mpsc::Sender<(usize, LineState)>, index: usize) -> io::Result<
         return Err(io::Error::other("npm required to install Pi"));
     }
 
-    let output = crate::version::VersionManager::npm_global_command()
-        .args(["install", "-g", "@mariozechner/pi-coding-agent@latest"])
-        .output()?;
+    let vm = crate::version::VersionManager::new();
+    let result = run_install_with_phase_updates(tx, index, "latest".into(), |log_tx| {
+        vm.install_pi_version_streaming("latest", log_tx)
+    })?;
 
-    if output.status.success() {
-        let version = get_installed_version(AgentType::Pi).unwrap_or_else(|| "latest".into());
-        Ok(version)
-    } else {
-        Err(io::Error::other(format!(
-            "npm install failed: {}",
-            String::from_utf8_lossy(&output.stderr)
-        )))
-    }
+    install_result_to_version(result, AgentType::Pi, "latest".into())
 }
 
 /// Update Hermes Agent via the official curl bash installer.
@@ -1139,30 +1197,16 @@ fn update_hermes(tx: &mpsc::Sender<(usize, LineState)>, index: usize) -> io::Res
         },
     ));
 
-    // --skip-setup bypasses the interactive setup wizard. The installer reads
-    // from /dev/tty for prompts even when piped from curl, so just piping does
-    // not suffice; we explicitly opt out of the wizard and null stdin.
-    let output = Command::new("bash")
-        .args([
-            "-c",
-            "curl -fsSL https://raw.githubusercontent.com/NousResearch/hermes-agent/main/scripts/install.sh | bash -s -- --skip-setup",
-        ])
-        .stdin(std::process::Stdio::null())
-        .output()?;
+    let vm = crate::version::VersionManager::new();
+    let result = run_install_with_phase_updates(tx, index, "latest".into(), |log_tx| {
+        vm.install_hermes_version_streaming("latest", log_tx)
+    })?;
 
-    if output.status.success() {
-        let version = get_installed_version(AgentType::Hermes).unwrap_or_else(|| "latest".into());
-        Ok(version)
-    } else {
-        Err(io::Error::other(format!(
-            "hermes install failed: {}",
-            String::from_utf8_lossy(&output.stderr)
-        )))
-    }
+    install_result_to_version(result, AgentType::Hermes, "latest".into())
 }
 
-/// Update OpenCode via its built-in upgrade command.
-/// Gets the target version from npm first, then passes it explicitly to `opencode upgrade`.
+/// Update OpenCode via its built-in upgrade command, with npm fallback.
+/// Both paths stream output via the InstallResult-returning streaming API.
 fn update_opencode(tx: &mpsc::Sender<(usize, LineState)>, index: usize) -> io::Result<String> {
     // Get the target version from npm (source of truth)
     let target = get_latest_npm_version("opencode-ai")?.unwrap_or_else(|| "latest".to_string());
@@ -1170,40 +1214,18 @@ fn update_opencode(tx: &mpsc::Sender<(usize, LineState)>, index: usize) -> io::R
     let _ = tx.send((
         index,
         LineState::Building {
-            version: String::new(),
+            version: target.clone(),
             phase: format!("upgrading to {}...", target),
         },
     ));
 
-    // Try native opencode upgrade first, fall through to npm on any failure (including ENOENT)
-    let upgrade_ok = Command::new("opencode")
-        .args(["upgrade", &target])
-        .output()
-        .ok()
-        .is_some_and(|o| o.status.success());
+    let vm = crate::version::VersionManager::new();
+    let target_for_install = target.clone();
+    let result = run_install_with_phase_updates(tx, index, target.clone(), |log_tx| {
+        vm.install_opencode_version_streaming(&target_for_install, log_tx)
+    })?;
 
-    if upgrade_ok {
-        let version = get_installed_version(AgentType::OpenCode).unwrap_or_else(|| target.clone());
-        Ok(version)
-    } else {
-        // Fallback: npm install (handles both upgrade failure and binary not found)
-        if !ensure_npm()? {
-            return Err(io::Error::other("npm required to install OpenCode"));
-        }
-
-        let npm_output = crate::version::VersionManager::npm_global_command()
-            .args(["install", "-g", &format!("opencode-ai@{}", target)])
-            .output()?;
-
-        if npm_output.status.success() {
-            Ok(target)
-        } else {
-            Err(io::Error::other(format!(
-                "opencode install failed: {}",
-                String::from_utf8_lossy(&npm_output.stderr)
-            )))
-        }
-    }
+    install_result_to_version(result, AgentType::OpenCode, target)
 }
 
 // ---------------------------------------------------------------------------
