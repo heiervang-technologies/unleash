@@ -61,6 +61,27 @@ fn agents() -> Vec<Agent> {
             }),
             accent: Color::Rgb(87, 142, 217),
         },
+        Agent {
+            // Pi: green. Hue shift lands at ~120 in HSL space (BASE_ORANGE_HUE
+            // is ~14.77, so 105 + 14.77 = ~120). Reuses Claude's mascot as
+            // placeholder via pixel_art::mascots::full_art()'s Claude fallback.
+            name: "pi",
+            theme: AgentTheme::Shift(ThemeShift {
+                hue: 105.23,
+                sat_scale: 1.0,
+            }),
+            accent: Color::Rgb(120, 200, 100),
+        },
+        Agent {
+            // Hermes: yellow/gold. Matches the Hermes profile theme (#ffff00)
+            // and the brand of the upstream Hermes Agent project.
+            name: "hermes",
+            theme: AgentTheme::Shift(ThemeShift {
+                hue: 35.23,
+                sat_scale: 1.0,
+            }),
+            accent: Color::Rgb(217, 195, 87),
+        },
     ]
 }
 
