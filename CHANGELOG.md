@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.1.29](https://github.com/heiervang-technologies/unleash/compare/v0.1.28...v0.1.29) (2026-05-14)
+
+
+### Bug Fixes
+
+* **hermes:** pass --skip-setup and null stdin to the installer ([#169](https://github.com/heiervang-technologies/unleash/issues/169)) ([bd152d7](https://github.com/heiervang-technologies/unleash/commit/bd152d7602f342d2164ba5b6a9a207d29c27ee0a))
+* **installer:** tolerate pre-existing config + surface missing npm ([#171](https://github.com/heiervang-technologies/unleash/issues/171)) ([4f11364](https://github.com/heiervang-technologies/unleash/commit/4f113645848a9e593955f5d1b88f7659799272b1))
+
 ## [0.1.28](https://github.com/heiervang-technologies/unleash/compare/v0.1.27...v0.1.28) (2026-05-13)
 
 
