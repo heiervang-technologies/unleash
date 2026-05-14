@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.32](https://github.com/heiervang-technologies/unleash/compare/v0.1.31...v0.1.32) (2026-05-14)
+
+
+### Bug Fixes
+
+* **updater:** use resolved version as fallback in install summary ([#178](https://github.com/heiervang-technologies/unleash/issues/178)) ([01a29ef](https://github.com/heiervang-technologies/unleash/commit/01a29ef63fa898b88965c265ce52fe741b49dd14))
+
 ## [0.1.31](https://github.com/heiervang-technologies/unleash/compare/v0.1.30...v0.1.31) (2026-05-14)
 
 
