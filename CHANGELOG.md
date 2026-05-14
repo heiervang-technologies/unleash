@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.1.30](https://github.com/heiervang-technologies/unleash/compare/v0.1.29...v0.1.30) (2026-05-14)
+
+
+### Features
+
+* **installer:** live progress + null stdin for pi/opencode/hermes ([#175](https://github.com/heiervang-technologies/unleash/issues/175)) ([f1effb5](https://github.com/heiervang-technologies/unleash/commit/f1effb5bf6606ba6000dcfeb03be63d7d101eb85))
+* **splash:** add Pi and Hermes to the install picker ([#170](https://github.com/heiervang-technologies/unleash/issues/170)) ([4ea2870](https://github.com/heiervang-technologies/unleash/commit/4ea28709f5881ca8dca7836414e5d0be63517fdc))
+
 ## [0.1.29](https://github.com/heiervang-technologies/unleash/compare/v0.1.28...v0.1.29) (2026-05-14)
 
 
