@@ -40,6 +40,13 @@ if [[ "${HOOK_NO_SOUND:-}" != "1" && "${AU_HYPRLAND_FOCUS:-}" != "0" && -n "${HY
     disown
 fi
 
+# Surface the agent's terminal window: move it to the user's current
+# workspace (only if elsewhere) and focus it. Async + best-effort.
+if [[ -x /home/me/ht/agent-tools/bin/focus-self && -n "${HYPRLAND_INSTANCE_SIGNATURE:-}" ]]; then
+    /home/me/ht/agent-tools/bin/focus-self >/dev/null 2>&1 &
+    disown
+fi
+
 # Hook output: allow stop to proceed
 cat <<'EOF'
 {
