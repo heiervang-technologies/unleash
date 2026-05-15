@@ -34,7 +34,7 @@ pub struct RunArgs {
     pub top: usize,
 }
 
-#[derive(Debug, serde::Serialize)]
+#[derive(Debug, Clone, serde::Serialize)]
 pub struct Hit {
     pub rank: usize,
     pub score: f32,
@@ -317,7 +317,88 @@ async fn run_async(args: RunArgs) -> Result<(), Box<dyn std::error::Error>> {
         );
     }
     emit(&hits, args.json);
+
+    // Interactive handoff: pick a result + profile, exec into the existing
+    // crossload flow. JSON mode and non-TTY stdin skip this — just print results.
+    if !args.json && std::io::IsTerminal::is_terminal(&std::io::stdin()) && !hits.is_empty() {
+        if let Some((hit, profile)) = prompt_handoff(&hits)? {
+            launch_crossload(&profile, &hit.cli, &hit.source_id);
+            // launch_crossload execs; if we return, exec failed.
+        }
+    }
     Ok(())
+}
+
+/// Prompt the user to pick a search hit + target profile.
+/// Returns Ok(None) when the user cancels (empty input or invalid number).
+fn prompt_handoff(hits: &[Hit]) -> io::Result<Option<(Hit, String)>> {
+    use std::io::Write;
+
+    print!("\nPick # to launch (Enter to skip): ");
+    io::stdout().flush().ok();
+    let mut line = String::new();
+    io::stdin().read_line(&mut line)?;
+    let picked: usize = match line.trim().parse() {
+        Ok(n) if n >= 1 && n <= hits.len() => n,
+        _ => return Ok(None),
+    };
+    let hit = hits[picked - 1].clone();
+
+    let profiles = available_profiles();
+    println!("\nAvailable profiles:");
+    for (i, p) in profiles.iter().enumerate() {
+        println!("  {}. {}", i + 1, p);
+    }
+    print!("Profile # or name (Enter = same CLI as source, '{}'): ", hit.cli);
+    io::stdout().flush().ok();
+    let mut line = String::new();
+    io::stdin().read_line(&mut line)?;
+    let raw = line.trim();
+    let profile = if raw.is_empty() {
+        hit.cli.clone()
+    } else if let Ok(n) = raw.parse::<usize>() {
+        if n >= 1 && n <= profiles.len() {
+            profiles[n - 1].clone()
+        } else {
+            eprintln!("invalid profile number");
+            return Ok(None);
+        }
+    } else {
+        raw.to_string()
+    };
+
+    Ok(Some((hit, profile)))
+}
+
+/// Discover available profiles. Falls back to the built-in agent CLI names
+/// when no per-profile TOML files are configured.
+fn available_profiles() -> Vec<String> {
+    let configured = crate::config::ProfileManager::new()
+        .ok()
+        .and_then(|m| m.list_profiles().ok())
+        .unwrap_or_default();
+    if !configured.is_empty() {
+        return configured;
+    }
+    ["claude", "codex", "gemini", "opencode", "pi", "hermes"]
+        .iter()
+        .map(|s| s.to_string())
+        .collect()
+}
+
+/// Exec into `unleash <profile> -x <cli>:<id>`, which routes through the
+/// existing crossload path in `lib.rs` — no duplication of injection logic.
+fn launch_crossload(profile: &str, source_cli: &str, source_id: &str) {
+    use std::os::unix::process::CommandExt;
+    let handle = format!("{source_cli}:{source_id}");
+    let argv0 = std::env::args().next().unwrap_or_else(|| "unleash".to_string());
+    eprintln!("\n→ exec: {argv0} {profile} -x {handle}");
+    let err = std::process::Command::new(&argv0)
+        .arg(profile)
+        .arg("-x")
+        .arg(&handle)
+        .exec();
+    eprintln!("exec failed: {err}");
 }
 
 // ── DB helpers ──────────────────────────────────────────────────────────
