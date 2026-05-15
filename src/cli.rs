@@ -666,6 +666,36 @@ pub enum Commands {
         find: Option<String>,
     },
 
+    /// Semantic search across all sessions (hybrid BM25 + cosine over local embeddings).
+    ///
+    /// Backed by a Turso DB at ~/.local/share/unleash/search-index.db.
+    /// Uses an OpenAI-compatible local server for embeddings (e.g.
+    /// `llama-server --embeddings -m granite-embed.gguf`). Optionally generates
+    /// 3–6 word titles for un-named sessions via `/v1/chat/completions`.
+    ///
+    /// Environment:
+    ///   OAI_BASE          (default http://localhost:8080/v1)
+    ///   OAI_EMBED_MODEL   (default "granite-embedding")
+    ///   OAI_CHAT_BASE     (defaults to OAI_BASE)
+    ///   OAI_CHAT_MODEL    (unset = skip naming)
+    ///   ALPHA             (0=pure semantic, 1=pure BM25, default 0.4)
+    Search {
+        /// Search query
+        query: Option<String>,
+
+        /// Force re-embed of all sessions (e.g. after switching embedding models)
+        #[arg(long)]
+        reindex: bool,
+
+        /// JSON output (script-friendly)
+        #[arg(long)]
+        json: bool,
+
+        /// Number of results
+        #[arg(long, default_value_t = 15)]
+        top: usize,
+    },
+
     /// Convert conversation history between CLI formats
     Convert {
         /// Source format (claude, codex, gemini, opencode, pi, hub)
