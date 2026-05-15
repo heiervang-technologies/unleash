@@ -46,6 +46,10 @@ include_dir = "0.7"
 [dev-dependencies]
 tempfile = "3.27"
 proptest = "1.5"
+# PoC (plan: search overhaul) — turso + OAI-compat HTTP embedding/naming
+turso = "0.6.0"
+tokio = { version = "1", features = ["rt", "macros"] }
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
 
 [profile.release]
 lto = true
