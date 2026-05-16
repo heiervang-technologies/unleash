@@ -4,6 +4,7 @@ use crate::agents::{AgentDefinition, AgentManager, AgentType};
 use crate::config::{AppConfig, Profile, ProfileManager};
 use crate::input::{key_to_action, MenuState, NavAction};
 use crate::pixel_art::mascots;
+use crate::head_customization::{HeadVariant, get_head_overlay};
 use crate::text_input::{censor_sensitive, is_sensitive_key, TextInput};
 use crate::theme::{ThemeColor, ThemePreset};
 use crate::version::{ConflictEntry, InstallResult, VersionInfo, VersionManager};
@@ -129,6 +130,7 @@ pub enum Screen {
     Features,
     /// Interactive sandbox setup wizard (issue #112+)
     Sandbox,
+    HeadCustomization,
 }
 
 /// Main menu items — order here defines display order in the TUI.
@@ -707,6 +709,7 @@ pub enum ClickTarget {
     VersionListItem(usize),
     ThemeItem(usize),
     FeatureItem(usize),
+    HeadVariantItem(usize),
     /// The Claude mascot / avatar art sidebar
     AvatarArt,
     DialogYes,
@@ -824,6 +827,12 @@ pub struct App {
     /// Currently active color theme (preset or custom RGB)
     pub theme_color: ThemeColor,
 
+    // Head customization
+    /// Currently selected head variant
+    pub head_variant: HeadVariant,
+    /// Menu state for head variant selection
+    pub head_menu: MenuState,
+
     // Features screen
     pub feature_menu: MenuState,
     pub discovered_plugins: Vec<crate::config::PluginMeta>,
@@ -932,6 +941,11 @@ impl App {
             .and_then(|p| ThemeColor::from_config(&p.theme))
             .unwrap_or(ThemeColor::Preset(ThemePreset::Orange));
 
+        let head_variant = selected_profile
+            .as_ref()
+            .and_then(|p| HeadVariant::from_name(&p.head_variant))
+            .unwrap_or(HeadVariant::Default);
+
         let animations_enabled =
             app_config.animations || std::env::var("UNLEASH_ANIMATIONS").is_ok_and(|v| v == "1");
 
@@ -994,6 +1008,8 @@ impl App {
             konami_progress: 0,
             theme_menu: MenuState::new(ThemePreset::all().len() + 1), // presets + Custom
             theme_color,
+            head_variant,
+            head_menu: MenuState::new(HeadVariant::all().len()),
             feature_menu: MenuState::new(0),
             discovered_plugins: Vec::new(),
             clickable_areas: Vec::new(),
@@ -1323,6 +1339,7 @@ impl App {
             | Screen::ProfileEdit
             | Screen::EnvVarEdit
             | Screen::Theme
+            | Screen::HeadCustomization
             | Screen::Help
             | Screen::Features
             | Screen::Sandbox
@@ -1858,6 +1875,13 @@ impl App {
                     self.theme_menu.selected = i;
                 }
             }
+            (ClickTarget::HeadVariantItem(i), Screen::HeadCustomization) => {
+                if self.head_menu.selected == i {
+                    self.handle_head_input(NavAction::Select);
+                } else {
+                    self.head_menu.selected = i;
+                }
+            }
             (ClickTarget::FeatureItem(i), Screen::Features) => {
                 if self.feature_menu.selected == i {
                     self.handle_features_input(NavAction::Select);
@@ -1925,6 +1949,9 @@ impl App {
                         self.version_menu.handle_action(action);
                     }
                 }
+            }
+            Screen::HeadCustomization => {
+                self.head_menu.handle_action(action);
             }
             Screen::Help => match action {
                 NavAction::Up => {
@@ -1998,6 +2025,7 @@ impl App {
                 Screen::ProfileEdit => self.handle_profile_edit_input(action, key),
                 Screen::EnvVarEdit => self.handle_env_var_edit_input(action, key),
                 Screen::Theme => self.handle_theme_input(action),
+                Screen::HeadCustomization => self.handle_head_input(action),
                 Screen::Help => self.handle_help_input(action),
                 Screen::ConfirmDelete => self.handle_confirm_delete_input(action),
                 Screen::VersionManagement => return self.handle_version_input(action, key),
@@ -3031,7 +3059,7 @@ impl App {
     }
 
     /// Number of settings fields shown at the top of profile edit
-    const PROFILE_SETTINGS_COUNT: usize = 5;
+    const PROFILE_SETTINGS_COUNT: usize = 6;
 
     fn handle_profile_edit_input(&mut self, action: NavAction, _key: KeyEvent) {
         let num_settings = Self::PROFILE_SETTINGS_COUNT;
@@ -3098,6 +3126,16 @@ impl App {
                             .and_then(|p| p.stop_prompt.clone())
                             .unwrap_or(default_prompt);
                         self.pending_external_edit = Some(current);
+                    }
+                    5 => {
+                        // Head variant selection — go to Head customization sub-screen
+                        let current = self.head_variant;
+                        let idx = HeadVariant::all()
+                            .iter()
+                            .position(|hv| *hv == current)
+                            .unwrap_or(0);
+                        self.head_menu.selected = idx;
+                        self.screen = Screen::HeadCustomization;
                     }
                     idx if idx >= num_settings && idx < add_new_idx => {
                         // Edit existing env var
@@ -3185,6 +3223,8 @@ impl App {
         if let Some(ref profile) = self.selected_profile {
             self.theme_color = ThemeColor::from_config(&profile.theme)
                 .unwrap_or(ThemeColor::Preset(ThemePreset::Orange));
+            self.head_variant = HeadVariant::from_name(&profile.head_variant)
+                .unwrap_or(HeadVariant::Default);
         }
     }
 
@@ -3228,6 +3268,32 @@ impl App {
                     self.key_input.cursor = self.key_input.value.len();
                     self.key_input.placeholder = "RRGGBB".to_string();
                     self.edit_field = EditField::ThemeHex;
+                }
+            }
+            NavAction::Back | NavAction::Quit => {
+                self.screen = Screen::ProfileEdit;
+            }
+            _ => {}
+        }
+    }
+
+    /// Handle input on the Head Customization screen
+    fn handle_head_input(&mut self, action: NavAction) {
+        match action {
+            NavAction::Up | NavAction::Down => {
+                self.head_menu.handle_action(action);
+            }
+            NavAction::Select => {
+                let variants = HeadVariant::all();
+                if let Some(variant) = variants.get(self.head_menu.selected) {
+                    self.head_variant = *variant;
+                    if let Some(ref mut profile) = self.editing_profile {
+                        profile.head_variant = variant.as_str().to_string();
+                        let _ = self.profile_manager.save_profile(profile);
+                    }
+                    self.sync_editing_to_selected();
+                    self.status_message = Some(format!("Head: {}", variant.display_name()));
+                    self.screen = Screen::ProfileEdit;
                 }
             }
             NavAction::Back | NavAction::Quit => {
@@ -3993,6 +4059,10 @@ impl App {
                 // Theme list with color swatches
                 35
             }
+            Screen::HeadCustomization => {
+                // Head variant list with preview
+                40
+            }
             Screen::Help => {
                 // Help screen has fixed text
                 40
@@ -4079,7 +4149,7 @@ impl App {
             let max_lines = figure_rect.height as usize;
             let agent = self.app_config.current_profile.as_str();
             let shift = self.theme_color.theme_shift();
-            let art_lines: Vec<Line> = if self.is_gemini_profile() {
+            let mut art_lines: Vec<Line> = if self.is_gemini_profile() {
                 let gradient = crate::theme::GradientTheme::gemini();
                 mascots::unleashed_claude_full_ratatui_gradient(max_lines, &gradient)
             } else if !shift.is_identity() {
@@ -4087,6 +4157,12 @@ impl App {
             } else {
                 mascots::full_ratatui(agent, max_lines)
             };
+            // Apply head overlay during animation
+            if let Some(overlay) = get_head_overlay(self.head_variant) {
+                let mut cloned = art_lines.clone();
+                overlay.apply(&mut cloned);
+                art_lines = cloned;
+            }
             let art_widget = Paragraph::new(art_lines).scroll((0, scroll_x));
             frame.render_widget(art_widget, figure_rect);
         } else {
@@ -4157,6 +4233,7 @@ impl App {
                 }
             }
             Screen::Features => self.render_features(frame, area),
+            Screen::HeadCustomization => self.render_head_customization(frame, area),
             Screen::Sandbox => {
                 self.render_sandbox_wizard(frame, area);
                 if self.edit_field == EditField::SandboxEnvValue {
@@ -4174,13 +4251,93 @@ impl App {
             .is_some_and(|t| t == crate::agents::AgentType::Gemini)
     }
 
+    /// Render the Head Customization selection screen
+    fn render_head_customization(&mut self, frame: &mut Frame, area: Rect) {
+        let variants = HeadVariant::all();
+
+        // Show a preview area at the top (compact art preview)
+        let chunks = Layout::default()
+            .direction(Direction::Vertical)
+            .constraints([Constraint::Length(6), Constraint::Min(4)])
+            .split(area);
+
+        // Preview: show a small art sample to indicate current selection effect
+        let preview_text = vec![
+            Line::from(Span::styled(
+                format!(
+                    "  Head Customization — current: {}",
+                    self.head_variant.display_name()
+                ),
+                Style::default()
+                    .fg(self.accent_color())
+                    .add_modifier(Modifier::BOLD),
+            )),
+            Line::from(""),
+            Line::from(Span::raw("  Choose a head style for your Claude mascot:")),
+        ];
+        let preview = Paragraph::new(preview_text);
+        frame.render_widget(preview, chunks[0]);
+
+        let mut items: Vec<ListItem> = variants
+            .iter()
+            .enumerate()
+            .map(|(i, variant)| {
+                let is_selected = i == self.head_menu.selected;
+                let is_active = *variant == self.head_variant;
+
+                let style = if is_selected {
+                    Style::default()
+                        .fg(self.accent_color())
+                        .add_modifier(Modifier::BOLD)
+                } else if is_active {
+                    Style::default().fg(Color::Green)
+                } else {
+                    Style::default()
+                };
+
+                let prefix = if is_selected { "> " } else { "  " };
+                let active_marker = if is_active { " *" } else { "" };
+
+                ListItem::new(Line::from(vec![
+                    Span::styled(prefix, style),
+                    Span::styled(
+                        format!("{}{}", variant.display_name(), active_marker),
+                        style,
+                    ),
+                ]))
+            })
+            .collect();
+
+        // Add a spacer and hint line
+        items.push(ListItem::new(Line::from("")));
+        items.push(ListItem::new(Line::from(Span::styled(
+            "  [Enter=apply] [Esc=back]",
+            Style::default().fg(Color::DarkGray),
+        ))));
+
+        // Register clickable areas
+        for (i, _) in variants.iter().enumerate() {
+            let row = chunks[1].y + i as u16;
+            if row < chunks[1].y + chunks[1].height {
+                self.clickable_areas.push((
+                    Rect::new(chunks[1].x, row, chunks[1].width, 1),
+                    ClickTarget::HeadVariantItem(i),
+                ));
+            }
+        }
+
+        let menu = List::new(items);
+        frame.render_widget(menu, chunks[1]);
+    }
+
     fn render_art_sidebar(&self, frame: &mut Frame, area: Rect) {
         // Render mascot ANSI art (right-facing) for the current agent profile
+        // Apply head overlay if a non-default variant is selected
         // Lava lamp mode is an easter egg triggered by Konami code (idea by cac taurus)
         let max_lines = area.height as usize;
         let agent = self.app_config.current_profile.as_str();
         let shift = self.theme_color.theme_shift();
-        let art_lines: Vec<Line> = if self.lava_mode {
+        let mut art_lines: Vec<Line> = if self.lava_mode {
             mascots::right_ratatui_lava(agent, max_lines, self.animation_frame)
         } else if self.is_gemini_profile() {
             let gradient = crate::theme::GradientTheme::gemini();
@@ -4190,17 +4347,24 @@ impl App {
         } else {
             mascots::right_ratatui(agent, max_lines)
         };
+        // Apply head overlay
+        if let Some(overlay) = get_head_overlay(self.head_variant) {
+            let mut cloned = art_lines.clone();
+            overlay.apply(&mut cloned);
+            art_lines = cloned;
+        }
         let art_widget = Paragraph::new(art_lines);
         frame.render_widget(art_widget, area);
     }
 
     fn render_art_sidebar_left(&self, frame: &mut Frame, area: Rect) {
         // Render mascot ANSI art (left-facing) for the current agent profile
+        // Apply head overlay if a non-default variant is selected
         // Lava lamp mode is an easter egg triggered by Konami code (idea by cac taurus)
         let max_lines = area.height as usize;
         let agent = self.app_config.current_profile.as_str();
         let shift = self.theme_color.theme_shift();
-        let art_lines: Vec<Line> = if self.lava_mode {
+        let mut art_lines: Vec<Line> = if self.lava_mode {
             mascots::left_ratatui_lava(agent, max_lines, self.animation_frame)
         } else if self.is_gemini_profile() {
             let gradient = crate::theme::GradientTheme::gemini();
@@ -4210,6 +4374,12 @@ impl App {
         } else {
             mascots::left_ratatui(agent, max_lines)
         };
+        // Apply head overlay
+        if let Some(overlay) = get_head_overlay(self.head_variant) {
+            let mut cloned = art_lines.clone();
+            overlay.apply(&mut cloned);
+            art_lines = cloned;
+        }
         let art_widget = Paragraph::new(art_lines);
         frame.render_widget(art_widget, area);
     }
@@ -4571,6 +4741,11 @@ impl App {
                         ThemeColor::Custom(r, g, b) => format!("#{:02X}{:02X}{:02X}", r, g, b),
                     })
                     .unwrap_or_else(|| profile.theme.clone())
+            }),
+            ("Head", {
+                HeadVariant::from_name(&profile.head_variant)
+                    .map(|hv| hv.display_name().to_string())
+                    .unwrap_or_else(|| profile.head_variant.clone())
             }),
             (
                 "Stop Prompt",
@@ -6071,6 +6246,8 @@ mod tests {
             konami_progress: 0,
             theme_menu: MenuState::new(ThemePreset::all().len() + 1),
             theme_color: ThemeColor::Preset(ThemePreset::Orange),
+            head_variant: HeadVariant::Default,
+            head_menu: MenuState::new(HeadVariant::all().len()),
             feature_menu: MenuState::new(0),
             discovered_plugins: Vec::new(),
             clickable_areas: Vec::new(),

@@ -21,6 +21,8 @@ mod sandbox;
 pub mod token_count;
 mod progress;
 #[cfg(feature = "tui")]
+mod head_customization;
+#[cfg(feature = "tui")]
 mod text_input;
 pub mod theme;
 #[cfg(feature = "tui")]

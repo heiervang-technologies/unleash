@@ -81,6 +81,9 @@ pub struct Profile {
     /// Color theme name (e.g., "orange", "blue", "green", or "#RRGGBB")
     #[serde(default = "default_theme")]
     pub theme: String,
+    /// Head variant for the mascot sprite (e.g., "default", "crown", "sunglasses", "halo", "cyber-goggles")
+    #[serde(default = "default_head_variant")]
+    pub head_variant: String,
     /// Environment variables to set when launching the agent
     #[serde(default)]
     pub env: HashMap<String, String>,
@@ -97,6 +100,7 @@ impl Default for Profile {
             agents: ProfileOverrides::default(),
             stop_prompt: None,
             theme: default_theme(),
+            head_variant: default_head_variant(),
             env: default_env(),
         }
     }
@@ -113,6 +117,7 @@ impl Profile {
             agents: ProfileOverrides::default(),
             stop_prompt: None,
             theme: default_theme(),
+            head_variant: default_head_variant(),
             env: default_env(),
         }
     }
@@ -131,6 +136,7 @@ impl Profile {
             agents: ProfileOverrides::default(),
             stop_prompt: None,
             theme: default_theme(),
+            head_variant: default_head_variant(),
             env,
         }
     }
@@ -146,7 +152,8 @@ impl Profile {
                 defaults: ProfileDefaults::default(),
                 agents: ProfileOverrides::default(),
                 stop_prompt: None,
-                theme: "orange".to_string(),
+                                head_variant: "default".to_string(),
+theme: "orange".to_string(),
                 env: default_env(),
             },
             Self {
@@ -157,7 +164,8 @@ impl Profile {
                 defaults: ProfileDefaults::default(),
                 agents: ProfileOverrides::default(),
                 stop_prompt: None,
-                theme: "#aaaaaa".to_string(),
+                                head_variant: "default".to_string(),
+theme: "#aaaaaa".to_string(),
                 env: default_env(),
             },
             Self {
@@ -168,7 +176,8 @@ impl Profile {
                 defaults: ProfileDefaults::default(),
                 agents: ProfileOverrides::default(),
                 stop_prompt: None,
-                theme: "#4285f4".to_string(),
+                                head_variant: "default".to_string(),
+theme: "#4285f4".to_string(),
                 env: default_env(),
             },
             Self {
@@ -179,7 +188,8 @@ impl Profile {
                 defaults: ProfileDefaults::default(),
                 agents: ProfileOverrides::default(),
                 stop_prompt: None,
-                theme: "#10b981".to_string(),
+                                head_variant: "default".to_string(),
+theme: "#10b981".to_string(),
                 env: default_env(),
             },
             Self {
@@ -190,7 +200,8 @@ impl Profile {
                 defaults: ProfileDefaults::default(),
                 agents: ProfileOverrides::default(),
                 stop_prompt: None,
-                theme: "#a855f7".to_string(),
+                                head_variant: "default".to_string(),
+theme: "#a855f7".to_string(),
                 env: default_env(),
             },
         ]
@@ -326,6 +337,10 @@ pub fn discover_plugins() -> Vec<PluginMeta> {
 
 fn default_theme() -> String {
     "orange".to_string()
+}
+
+fn default_head_variant() -> String {
+    "default".to_string()
 }
 
 fn default_agent_cli_path() -> String {
