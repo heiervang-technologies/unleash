@@ -24,8 +24,136 @@ use crate::interchange::sessions::{discover_all, SessionInfo};
 
 const MAX_TEXT_CHARS: usize = 600;
 const NAMING_TIMEOUT_SECS: u64 = 60;
-const EMBED_TIMEOUT_SECS: u64 = 10;
+const EMBED_TIMEOUT_SECS: u64 = 30;
 const MAX_NAMES_PER_RUN: usize = 12;
+
+/// Persisted defaults at `~/.config/unleash/search.toml`. Anything the user
+/// sets in env (OAI_BASE, OAI_EMBED_MODEL, …) still wins over the file.
+#[derive(Debug, Default, serde::Deserialize)]
+struct SearchConfig {
+    oai_base: Option<String>,
+    embed_model: Option<String>,
+    chat_base: Option<String>,
+    chat_model: Option<String>,
+    alpha: Option<f32>,
+    /// Optional: when set and `oai_base` is unreachable, print this hint to
+    /// the user (typically the `ssh -L ...` command to bring the tunnel up).
+    tunnel_hint: Option<String>,
+}
+
+/// Resolved configuration after merging env vars, the TOML file, and the
+/// "ship-with-sentinel-defaults" fallbacks.
+#[derive(Debug, Clone)]
+struct ResolvedConfig {
+    oai_base: String,
+    embed_model: String,
+    chat_base: String,
+    chat_model: Option<String>,
+    alpha: f32,
+    tunnel_hint: Option<String>,
+}
+
+fn config_path() -> PathBuf {
+    dirs::config_dir()
+        .unwrap_or_else(|| PathBuf::from(".config"))
+        .join("unleash")
+        .join("search.toml")
+}
+
+fn load_search_config() -> SearchConfig {
+    let path = config_path();
+    let Ok(text) = fs::read_to_string(&path) else {
+        return SearchConfig::default();
+    };
+    toml::from_str(&text).unwrap_or_else(|e| {
+        eprintln!(
+            "warning: failed to parse {}: {e} — using defaults",
+            path.display()
+        );
+        SearchConfig::default()
+    })
+}
+
+/// Ensure ~/.config/unleash/search.toml exists with sane defaults the very
+/// first time the user runs `unleash search` on this machine. Idempotent.
+fn ensure_default_config() {
+    let path = config_path();
+    if path.exists() {
+        return;
+    }
+    if let Some(parent) = path.parent() {
+        let _ = fs::create_dir_all(parent);
+    }
+    let default = r#"# unleash search — local embedding + naming endpoints
+#
+# Defaults below point at the sentinel cluster:
+#   - embeddings via SSH tunnel to the lco-embedding pod (3 B variant)
+#   - chat (for session naming) via the public llm.ht.local ingress
+#
+# Bring the embedding tunnel up first:
+#
+#   ssh -fN -L 18000:10.42.1.11:8000 sentinel
+#
+# Override any of these inline with env vars (OAI_BASE, OAI_EMBED_MODEL,
+# OAI_CHAT_BASE, OAI_CHAT_MODEL, ALPHA).
+
+oai_base    = "http://127.0.0.1:18000/v1"
+embed_model = "lco-omni-3b"
+
+# Naming uses a chat model. Leave chat_model = "" to disable naming.
+# qwen3.5-0.8b is the cheapest always-loadable model on the cluster.
+chat_base   = "http://llm.ht.local/v1"
+chat_model  = "qwen3.5-0.8b"
+
+alpha = 0.4
+
+# Printed when oai_base is unreachable.
+tunnel_hint = "ssh -fN -L 18000:10.42.1.11:8000 sentinel"
+"#;
+    if let Err(e) = fs::write(&path, default) {
+        eprintln!(
+            "warning: could not write default {}: {e}",
+            path.display()
+        );
+    } else {
+        eprintln!("wrote default config: {}", path.display());
+    }
+}
+
+fn resolve_config() -> ResolvedConfig {
+    ensure_default_config();
+    let file = load_search_config();
+    let pick = |env_var: &str, file_val: Option<String>, default: &str| -> String {
+        env::var(env_var)
+            .ok()
+            .or(file_val)
+            .unwrap_or_else(|| default.to_string())
+    };
+
+    let oai_base = pick("OAI_BASE", file.oai_base.clone(), "http://127.0.0.1:18000/v1");
+    let embed_model = pick("OAI_EMBED_MODEL", file.embed_model.clone(), "lco-omni-3b");
+    let chat_base = env::var("OAI_CHAT_BASE")
+        .ok()
+        .or(file.chat_base.clone())
+        .unwrap_or_else(|| oai_base.clone());
+    let chat_model = env::var("OAI_CHAT_MODEL")
+        .ok()
+        .or(file.chat_model.clone())
+        .filter(|s| !s.trim().is_empty());
+    let alpha = env::var("ALPHA")
+        .ok()
+        .and_then(|s| s.parse().ok())
+        .or(file.alpha)
+        .unwrap_or(0.4);
+    ResolvedConfig {
+        oai_base,
+        embed_model,
+        chat_base,
+        chat_model,
+        alpha,
+        tunnel_hint: file.tunnel_hint,
+    }
+}
 
 pub struct RunArgs {
     pub query: Option<String>,
@@ -58,15 +186,15 @@ pub fn run(args: RunArgs) -> Result<(), Box<dyn std::error::Error>> {
 }
 
 async fn run_async(args: RunArgs) -> Result<(), Box<dyn std::error::Error>> {
-    let oai_base = env::var("OAI_BASE").unwrap_or_else(|_| "http://localhost:8080/v1".to_string());
-    let embed_model =
-        env::var("OAI_EMBED_MODEL").unwrap_or_else(|_| "granite-embedding".to_string());
-    let chat_base = env::var("OAI_CHAT_BASE").ok().unwrap_or_else(|| oai_base.clone());
-    let chat_model = env::var("OAI_CHAT_MODEL").ok();
-    let alpha: f32 = env::var("ALPHA")
-        .ok()
-        .and_then(|s| s.parse().ok())
-        .unwrap_or(0.4);
+    let cfg = resolve_config();
+    let ResolvedConfig {
+        oai_base,
+        embed_model,
+        chat_base,
+        chat_model,
+        alpha,
+        tunnel_hint,
+    } = cfg;
 
     if !args.json {
         eprintln!("unleash search");
@@ -88,6 +216,21 @@ async fn run_async(args: RunArgs) -> Result<(), Box<dyn std::error::Error>> {
     }
     if !args.json {
         eprintln!("  store     : {}", db_path.display());
+    }
+
+    // Probe the embeddings endpoint up-front. If it's unreachable we'd rather
+    // fail fast with a copy-pasteable fix than burn 30 s per row on timeouts.
+    let probe = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(3))
+        .build()?;
+    let probe_url = format!("{}/models", oai_base.trim_end_matches('/'));
+    if let Err(e) = probe.get(&probe_url).send().await {
+        eprintln!("\n\x1b[31merror:\x1b[0m embedding endpoint unreachable: {e}");
+        if let Some(hint) = tunnel_hint.as_deref() {
+            eprintln!("hint: bring the tunnel up:\n  {hint}");
+        }
+        eprintln!("(set OAI_BASE or edit {} to point elsewhere)", config_path().display());
+        return Err("endpoint unreachable".into());
     }
 
     let http = reqwest::Client::builder()
@@ -273,7 +416,41 @@ async fn run_async(args: RunArgs) -> Result<(), Box<dyn std::error::Error>> {
         return Ok(());
     }
 
+    // --- Interactive ratatui TUI when stdin is a real terminal -----------
+    let tui_eligible = !args.json
+        && std::io::IsTerminal::is_terminal(&std::io::stdin())
+        && std::io::IsTerminal::is_terminal(&std::io::stdout());
+
+    #[cfg(feature = "tui")]
+    if tui_eligible {
+        let rows = fetch_rows_with_embeddings(&conn).await?;
+        if rows.is_empty() {
+            eprintln!("No sessions indexed.");
+            return Ok(());
+        }
+        let chosen = pick_with_tui(
+            rows,
+            &http,
+            &oai_base,
+            &embed_model,
+            alpha,
+            args.top,
+            query.clone(),
+        )
+        .await?;
+        if let Some((hit, profile)) = chosen {
+            launch_crossload(&profile, &hit.cli, &hit.source_id);
+        }
+        return Ok(());
+    }
+
+    // --- Headless fallback: one-shot query, print, exit ------------------
     let t_q = Instant::now();
+    if query.is_empty() {
+        let hits = recent_listing(&conn, args.top).await?;
+        emit(&hits, args.json);
+        return Ok(());
+    }
     let qvec = embed_one(&http, &oai_base, &embed_model, &query).await?;
     let qlit = vec_to_lit(&qvec);
     let candidates = fetch_candidates(&conn, &qlit).await?;
@@ -317,57 +494,7 @@ async fn run_async(args: RunArgs) -> Result<(), Box<dyn std::error::Error>> {
         );
     }
     emit(&hits, args.json);
-
-    // Interactive handoff: pick a result + profile, exec into the existing
-    // crossload flow. JSON mode and non-TTY stdin skip this — just print results.
-    if !args.json && std::io::IsTerminal::is_terminal(&std::io::stdin()) && !hits.is_empty() {
-        if let Some((hit, profile)) = prompt_handoff(&hits)? {
-            launch_crossload(&profile, &hit.cli, &hit.source_id);
-            // launch_crossload execs; if we return, exec failed.
-        }
-    }
     Ok(())
-}
-
-/// Prompt the user to pick a search hit + target profile.
-/// Returns Ok(None) when the user cancels (empty input or invalid number).
-fn prompt_handoff(hits: &[Hit]) -> io::Result<Option<(Hit, String)>> {
-    use std::io::Write;
-
-    print!("\nPick # to launch (Enter to skip): ");
-    io::stdout().flush().ok();
-    let mut line = String::new();
-    io::stdin().read_line(&mut line)?;
-    let picked: usize = match line.trim().parse() {
-        Ok(n) if n >= 1 && n <= hits.len() => n,
-        _ => return Ok(None),
-    };
-    let hit = hits[picked - 1].clone();
-
-    let profiles = available_profiles();
-    println!("\nAvailable profiles:");
-    for (i, p) in profiles.iter().enumerate() {
-        println!("  {}. {}", i + 1, p);
-    }
-    print!("Profile # or name (Enter = same CLI as source, '{}'): ", hit.cli);
-    io::stdout().flush().ok();
-    let mut line = String::new();
-    io::stdin().read_line(&mut line)?;
-    let raw = line.trim();
-    let profile = if raw.is_empty() {
-        hit.cli.clone()
-    } else if let Ok(n) = raw.parse::<usize>() {
-        if n >= 1 && n <= profiles.len() {
-            profiles[n - 1].clone()
-        } else {
-            eprintln!("invalid profile number");
-            return Ok(None);
-        }
-    } else {
-        raw.to_string()
-    };
-
-    Ok(Some((hit, profile)))
 }
 
 /// Discover available profiles. Falls back to the built-in agent CLI names
@@ -434,6 +561,80 @@ struct Candidate {
     updated_at: Option<String>,
     first_message: String,
     cos_dist: Option<f64>,
+}
+
+/// Like Candidate but with the raw embedding kept in memory so the TUI can
+/// rescore against a fresh query embedding on every blink without going back
+/// to the DB. ≤10k rows × 2048 f32 = ~80 MB worst case, still fine.
+#[derive(Debug, Clone)]
+struct RowCache {
+    cli: String,
+    source_id: String,
+    title: Option<String>,
+    directory: Option<String>,
+    updated_at: Option<String>,
+    first_message: String,
+    embedding: Option<Vec<f32>>,
+}
+
+async fn fetch_rows_with_embeddings(
+    conn: &turso::Connection,
+) -> Result<Vec<RowCache>, turso::Error> {
+    let mut rows = conn
+        .query(
+            "SELECT cli, source_id, coalesce(generated_title, native_title) AS title,
+                    directory, updated_at, first_message, embedding
+             FROM sessions",
+            (),
+        )
+        .await?;
+    let mut out = Vec::new();
+    while let Some(row) = rows.next().await? {
+        let blob: Option<Vec<u8>> = row.get(6).ok();
+        let embedding = blob.and_then(decode_vector32);
+        out.push(RowCache {
+            cli: row.get(0)?,
+            source_id: row.get(1)?,
+            title: row.get(2).ok(),
+            directory: row.get(3).ok(),
+            updated_at: row.get(4).ok(),
+            first_message: row.get::<String>(5).ok().unwrap_or_default(),
+            embedding,
+        });
+    }
+    Ok(out)
+}
+
+/// Turso stores `vector32(...)` BLOBs as a header + little-endian f32 array.
+/// We need the f32s in memory for the live re-ranker. Format is currently
+/// `[u8; 8] header` (type + length) followed by `dim × 4` bytes of LE f32.
+/// If the header doesn't match what we expect, fall back to treating the
+/// whole blob as raw f32 LE.
+fn decode_vector32(blob: Vec<u8>) -> Option<Vec<f32>> {
+    if blob.len() < 4 {
+        return None;
+    }
+    let try_decode = |start: usize| -> Option<Vec<f32>> {
+        let payload = &blob[start..];
+        if !payload.len().is_multiple_of(4) {
+            return None;
+        }
+        let mut out = Vec::with_capacity(payload.len() / 4);
+        for chunk in payload.chunks_exact(4) {
+            out.push(f32::from_le_bytes(chunk.try_into().ok()?));
+        }
+        Some(out)
+    };
+    // Try common header offsets first; fall back to no-header.
+    for off in [8usize, 4, 0] {
+        if let Some(v) = try_decode(off) {
+            // Sanity check: any reasonable embedding has values in roughly [-2, 2]
+            if !v.is_empty() && v.iter().take(8).all(|x| x.abs() < 10.0) {
+                return Some(v);
+            }
+        }
+    }
+    None
 }
 
 async fn fetch_candidates(
@@ -594,11 +795,19 @@ async fn generate_name(
         content: &'a str,
     }
     #[derive(serde::Serialize)]
+    struct ThinkingOff {
+        enable_thinking: bool,
+    }
+    #[derive(serde::Serialize)]
     struct Req<'a> {
         model: &'a str,
         messages: Vec<Msg<'a>>,
         max_tokens: u32,
         temperature: f32,
+        /// Disable thinking-mode for Qwen3+ chat models on llama.cpp — otherwise
+        /// the model spends the entire token budget reasoning and returns empty
+        /// `content`. Harmless on non-thinking models (just ignored by jinja).
+        chat_template_kwargs: ThinkingOff,
     }
     #[derive(serde::Deserialize)]
     struct Choice {
@@ -626,6 +835,9 @@ async fn generate_name(
         }],
         max_tokens: 24,
         temperature: 0.2,
+        chat_template_kwargs: ThinkingOff {
+            enable_thinking: false,
+        },
     };
     let resp: Resp = http
         .post(&url)
@@ -783,6 +995,546 @@ fn truncate(s: &str, max: usize) -> String {
         let mut out: String = s.chars().take(max.saturating_sub(1)).collect();
         out.push('…');
         out
+    }
+}
+
+// ── Ratatui TUI ─────────────────────────────────────────────────────────
+//
+// Cached embeddings live in memory so every keystroke filters instantly.
+// Query embedding is fetched async with a 300 ms debounce after the user
+// stops typing; until it arrives we fall back to pure BM25.
+
+#[cfg(feature = "tui")]
+use ratatui::{prelude::*, widgets::*};
+
+#[cfg(feature = "tui")]
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Mode {
+    Searching,
+    PickingProfile,
+}
+
+#[cfg(feature = "tui")]
+struct TuiState {
+    rows: Vec<RowCache>,
+    bm25_doc_tokens: Vec<Vec<String>>,
+    bm25_doc_lens: Vec<f32>,
+    bm25_avgdl: f32,
+    query: String,
+    qvec: Option<Vec<f32>>,
+    last_embedded_query: String,
+    last_query_change: std::time::Instant,
+    embedding_in_flight: bool,
+    alpha: f32,
+    top: usize,
+    scored: Vec<Hit>,
+    selected: usize,
+    profiles: Vec<String>,
+    profile_selected: usize,
+    mode: Mode,
+}
+
+#[cfg(feature = "tui")]
+async fn pick_with_tui(
+    rows: Vec<RowCache>,
+    http: &reqwest::Client,
+    oai_base: &str,
+    embed_model: &str,
+    initial_alpha: f32,
+    top: usize,
+    initial_query: String,
+) -> io::Result<Option<(Hit, String)>> {
+    use crossterm::{
+        execute,
+        terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
+    };
+
+    let bm25_doc_tokens: Vec<Vec<String>> = rows
+        .iter()
+        .map(|r| {
+            let bag = format!(
+                "{} {} {} {}",
+                r.title.as_deref().unwrap_or(""),
+                r.first_message,
+                r.directory.as_deref().unwrap_or(""),
+                r.cli
+            );
+            tokenize(&bag)
+        })
+        .collect();
+    let bm25_doc_lens: Vec<f32> = bm25_doc_tokens.iter().map(|d| d.len() as f32).collect();
+    let bm25_avgdl: f32 = if bm25_doc_lens.is_empty() {
+        0.0
+    } else {
+        bm25_doc_lens.iter().sum::<f32>() / bm25_doc_lens.len() as f32
+    };
+
+    let profiles = available_profiles();
+
+    let mut state = TuiState {
+        rows,
+        bm25_doc_tokens,
+        bm25_doc_lens,
+        bm25_avgdl,
+        query: initial_query,
+        qvec: None,
+        last_embedded_query: String::new(),
+        last_query_change: std::time::Instant::now(),
+        embedding_in_flight: false,
+        alpha: initial_alpha,
+        top,
+        scored: Vec::new(),
+        selected: 0,
+        profiles,
+        profile_selected: 0,
+        mode: Mode::Searching,
+    };
+    rescore(&mut state);
+
+    enable_raw_mode()?;
+    let mut stdout = io::stdout();
+    execute!(stdout, EnterAlternateScreen)?;
+    let backend = CrosstermBackend::new(stdout);
+    let mut terminal = Terminal::new(backend)?;
+
+    let result = tui_loop(&mut terminal, &mut state, http, oai_base, embed_model).await;
+
+    disable_raw_mode()?;
+    execute!(terminal.backend_mut(), LeaveAlternateScreen)?;
+    terminal.show_cursor().ok();
+    result
+}
+
+#[cfg(feature = "tui")]
+async fn tui_loop<W: io::Write>(
+    terminal: &mut Terminal<ratatui::backend::CrosstermBackend<W>>,
+    state: &mut TuiState,
+    http: &reqwest::Client,
+    oai_base: &str,
+    embed_model: &str,
+) -> io::Result<Option<(Hit, String)>> {
+    use crossterm::event::{self, Event, KeyCode, KeyEventKind, KeyModifiers};
+
+    loop {
+        terminal.draw(|f| render_tui(f, state))?;
+
+        // Auto-embed the query once it's been stable for 300 ms. We embed in
+        // the foreground (block_on inside the current_thread runtime); for
+        // ≤300 ms latency the redraw stutter is invisible.
+        if !state.embedding_in_flight
+            && state.query != state.last_embedded_query
+            && !state.query.trim().is_empty()
+            && state.last_query_change.elapsed() >= std::time::Duration::from_millis(300)
+        {
+            state.embedding_in_flight = true;
+            let q = state.query.clone();
+            let v = embed_one(http, oai_base, embed_model, &q).await;
+            state.embedding_in_flight = false;
+            if let Ok(vec) = v {
+                state.qvec = Some(vec);
+                state.last_embedded_query = q;
+                rescore(state);
+            }
+        }
+        if state.query.trim().is_empty() && state.qvec.is_some() {
+            state.qvec = None;
+            state.last_embedded_query.clear();
+            rescore(state);
+        }
+
+        if !event::poll(std::time::Duration::from_millis(80))? {
+            continue;
+        }
+        let Event::Key(key) = event::read()? else {
+            continue;
+        };
+        if key.kind != KeyEventKind::Press {
+            continue;
+        }
+
+        match state.mode {
+            Mode::Searching => match key.code {
+                KeyCode::Esc => return Ok(None),
+                KeyCode::Char('c') if key.modifiers.contains(KeyModifiers::CONTROL) => {
+                    return Ok(None);
+                }
+                KeyCode::Char('q') if key.modifiers.contains(KeyModifiers::CONTROL) => {
+                    return Ok(None);
+                }
+                KeyCode::Tab => {
+                    state.alpha = match state.alpha {
+                        a if a < 0.05 => 0.4,
+                        a if a < 0.5 => 1.0,
+                        _ => 0.0,
+                    };
+                    rescore(state);
+                }
+                KeyCode::Left if key.modifiers.contains(KeyModifiers::SHIFT) => {
+                    state.alpha = (state.alpha - 0.05).clamp(0.0, 1.0);
+                    rescore(state);
+                }
+                KeyCode::Right if key.modifiers.contains(KeyModifiers::SHIFT) => {
+                    state.alpha = (state.alpha + 0.05).clamp(0.0, 1.0);
+                    rescore(state);
+                }
+                KeyCode::Up => {
+                    state.selected = state.selected.saturating_sub(1);
+                }
+                KeyCode::Down => {
+                    let max = state.scored.len().saturating_sub(1);
+                    if state.selected < max {
+                        state.selected += 1;
+                    }
+                }
+                KeyCode::Enter => {
+                    if !state.scored.is_empty() {
+                        state.mode = Mode::PickingProfile;
+                        state.profile_selected = state
+                            .profiles
+                            .iter()
+                            .position(|p| p == &state.scored[state.selected].cli)
+                            .unwrap_or(0);
+                    }
+                }
+                KeyCode::Backspace => {
+                    state.query.pop();
+                    state.last_query_change = std::time::Instant::now();
+                    state.selected = 0;
+                    rescore(state);
+                }
+                KeyCode::Char(c) => {
+                    state.query.push(c);
+                    state.last_query_change = std::time::Instant::now();
+                    state.selected = 0;
+                    rescore(state);
+                }
+                _ => {}
+            },
+            Mode::PickingProfile => match key.code {
+                KeyCode::Esc => {
+                    state.mode = Mode::Searching;
+                }
+                KeyCode::Up => {
+                    state.profile_selected = state.profile_selected.saturating_sub(1);
+                }
+                KeyCode::Down => {
+                    let max = state.profiles.len().saturating_sub(1);
+                    if state.profile_selected < max {
+                        state.profile_selected += 1;
+                    }
+                }
+                KeyCode::Enter => {
+                    if state.scored.is_empty() || state.profiles.is_empty() {
+                        return Ok(None);
+                    }
+                    let hit = state.scored[state.selected].clone();
+                    let profile = state.profiles[state.profile_selected].clone();
+                    return Ok(Some((hit, profile)));
+                }
+                _ => {}
+            },
+        }
+    }
+}
+
+#[cfg(feature = "tui")]
+fn rescore(state: &mut TuiState) {
+    let q_terms = tokenize(&state.query);
+    let n_docs = state.rows.len() as f32;
+    let k1 = 1.5f32;
+    let b = 0.75f32;
+
+    // df per query term — over the cached tokens.
+    let mut df: HashMap<&str, u32> = HashMap::new();
+    for term in &q_terms {
+        let mut n = 0u32;
+        for doc in &state.bm25_doc_tokens {
+            if doc.iter().any(|t| t == term) {
+                n += 1;
+            }
+        }
+        df.insert(term.as_str(), n);
+    }
+
+    let mut bm25: Vec<f32> = Vec::with_capacity(state.rows.len());
+    for (i, doc) in state.bm25_doc_tokens.iter().enumerate() {
+        let dl = state.bm25_doc_lens[i];
+        let mut score = 0.0f32;
+        for q in &q_terms {
+            let tf = doc.iter().filter(|t| *t == q).count() as f32;
+            if tf == 0.0 {
+                continue;
+            }
+            let n_q = *df.get(q.as_str()).unwrap_or(&0) as f32;
+            let idf = ((n_docs - n_q + 0.5) / (n_q + 0.5) + 1.0).ln();
+            let denom = tf + k1 * (1.0 - b + b * dl / state.bm25_avgdl.max(1.0));
+            score += idf * (tf * (k1 + 1.0) / denom.max(1e-6));
+        }
+        bm25.push(score);
+    }
+    let max_bm25 = bm25.iter().cloned().fold(0.0f32, f32::max).max(1e-6);
+
+    // Cosine vs the (possibly stale) query embedding. Empty query → no
+    // semantic signal at all, just BM25.
+    let cosines: Vec<Option<f32>> = if let Some(qv) = state.qvec.as_ref() {
+        state
+            .rows
+            .iter()
+            .map(|r| r.embedding.as_ref().map(|emb| cosine_distance(qv, emb) as f32))
+            .collect()
+    } else {
+        vec![None; state.rows.len()]
+    };
+
+    let mut scored: Vec<Hit> = state
+        .rows
+        .iter()
+        .enumerate()
+        .map(|(i, r)| {
+            let bm = bm25[i];
+            let bm_norm = bm / max_bm25;
+            let sem_norm = cosines[i].map(|d| 1.0 - d / 2.0).unwrap_or(0.0);
+            let score = state.alpha * bm_norm + (1.0 - state.alpha) * sem_norm;
+            Hit {
+                rank: 0,
+                score,
+                bm25: bm,
+                cos_dist: cosines[i].map(|x| x as f64),
+                cli: r.cli.clone(),
+                source_id: r.source_id.clone(),
+                title: r.title.clone(),
+                directory: r.directory.clone(),
+                updated_at: r.updated_at.clone(),
+                first_message: r.first_message.clone(),
+            }
+        })
+        .collect();
+
+    if state.query.trim().is_empty() {
+        // Empty query: sort by recency (already the order from discover_all).
+        scored.sort_by(|a, b| b.updated_at.cmp(&a.updated_at));
+    } else {
+        scored.sort_by(|a, b| b.score.partial_cmp(&a.score).unwrap_or(std::cmp::Ordering::Equal));
+    }
+    scored.truncate(state.top.max(50));
+    for (i, h) in scored.iter_mut().enumerate() {
+        h.rank = i + 1;
+    }
+    state.scored = scored;
+    if state.selected >= state.scored.len() {
+        state.selected = state.scored.len().saturating_sub(1);
+    }
+}
+
+#[cfg(feature = "tui")]
+fn cosine_distance(a: &[f32], b: &[f32]) -> f64 {
+    if a.is_empty() || b.is_empty() {
+        return 2.0;
+    }
+    let n = a.len().min(b.len());
+    let mut dot = 0.0f64;
+    let mut na = 0.0f64;
+    let mut nb = 0.0f64;
+    for i in 0..n {
+        let x = a[i] as f64;
+        let y = b[i] as f64;
+        dot += x * y;
+        na += x * x;
+        nb += y * y;
+    }
+    let denom = (na.sqrt() * nb.sqrt()).max(1e-12);
+    let cos = dot / denom;
+    1.0 - cos
+}
+
+#[cfg(feature = "tui")]
+fn render_tui(frame: &mut Frame, state: &TuiState) {
+    let area = frame.area();
+    let chunks = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([
+            Constraint::Length(3), // query input
+            Constraint::Min(5),    // results
+            Constraint::Length(3), // status bar (alpha slider + counts)
+            Constraint::Length(1), // help
+        ])
+        .split(area);
+
+    // Query box
+    let q_hint = if state.embedding_in_flight {
+        " embedding…"
+    } else if state.qvec.is_none() && !state.query.trim().is_empty() {
+        " (BM25 only — pause typing for semantic)"
+    } else {
+        ""
+    };
+    let title = format!(" search{} ", q_hint);
+    let q_para = Paragraph::new(state.query.as_str())
+        .style(Style::default().fg(Color::White))
+        .block(
+            Block::default()
+                .borders(Borders::ALL)
+                .title(title)
+                .title_style(Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)),
+        );
+    frame.render_widget(q_para, chunks[0]);
+
+    // Results list
+    let visible = chunks[1].height.saturating_sub(2) as usize;
+    let start = state.selected.saturating_sub(visible.saturating_sub(1));
+    let lines: Vec<Line> = state
+        .scored
+        .iter()
+        .enumerate()
+        .skip(start)
+        .take(visible)
+        .map(|(i, h)| {
+            let selected = i == state.selected;
+            let prefix = if selected { "> " } else { "  " };
+            let style_sel = if selected {
+                Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)
+            } else {
+                Style::default()
+            };
+            let title = display_title(h);
+            let date = h
+                .updated_at
+                .as_deref()
+                .unwrap_or("")
+                .chars()
+                .take(10)
+                .collect::<String>();
+            let cos = h
+                .cos_dist
+                .map(|d| format!("cos={:.2}", d))
+                .unwrap_or_else(|| "cos=∅".into());
+            Line::from(vec![
+                Span::styled(prefix, style_sel),
+                Span::styled(
+                    format!("{:>5.2}  ", h.score),
+                    if selected {
+                        style_sel
+                    } else {
+                        Style::default().fg(Color::Yellow)
+                    },
+                ),
+                Span::styled(format!("{:<6} ", cos), Style::default().fg(Color::DarkGray)),
+                Span::styled(format!("[{:>7}] ", h.cli), Style::default().fg(Color::Magenta)),
+                Span::styled(format!("{:<40} ", truncate(&title, 40)), style_sel),
+                Span::styled(
+                    truncate(h.directory.as_deref().unwrap_or(""), 28),
+                    Style::default().fg(Color::DarkGray),
+                ),
+                Span::raw("  "),
+                Span::styled(date, Style::default().fg(Color::DarkGray)),
+            ])
+        })
+        .collect();
+    let count_title = format!(
+        " {} / {} ",
+        state.scored.len(),
+        state.rows.len()
+    );
+    let list = Paragraph::new(lines).block(
+        Block::default()
+            .borders(Borders::ALL)
+            .title(count_title)
+            .title_style(Style::default().fg(Color::DarkGray)),
+    );
+    frame.render_widget(list, chunks[1]);
+
+    // α slider
+    let bar_width = chunks[2].width.saturating_sub(20) as usize;
+    let filled = ((1.0 - state.alpha) * bar_width as f32).round() as usize;
+    let empty = bar_width.saturating_sub(filled);
+    let slider_str = format!(
+        "[BM25 {}{} SEMANTIC]  α={:.2}",
+        "░".repeat(filled),
+        "▓".repeat(empty),
+        state.alpha
+    );
+    let status = Paragraph::new(slider_str).block(
+        Block::default()
+            .borders(Borders::ALL)
+            .title(" slider ")
+            .title_style(Style::default().fg(Color::DarkGray)),
+    );
+    frame.render_widget(status, chunks[2]);
+
+    // Help line
+    let help = match state.mode {
+        Mode::Searching => "type=filter  ↑↓=move  Enter=pick profile  Tab=cycle α  ⇧←/→=fine α  Esc=quit",
+        Mode::PickingProfile => "↑↓=move  Enter=launch crossload  Esc=back",
+    };
+    let help_p = Paragraph::new(Line::from(vec![Span::styled(
+        help,
+        Style::default().fg(Color::DarkGray),
+    )]));
+    frame.render_widget(help_p, chunks[3]);
+
+    // Profile picker modal — drawn on top
+    if state.mode == Mode::PickingProfile {
+        let modal_h = (state.profiles.len() as u16 + 4).min(area.height.saturating_sub(4));
+        let modal_w = 50u16.min(area.width.saturating_sub(4));
+        let modal = Rect {
+            x: area.x + (area.width.saturating_sub(modal_w)) / 2,
+            y: area.y + (area.height.saturating_sub(modal_h)) / 2,
+            width: modal_w,
+            height: modal_h,
+        };
+        frame.render_widget(Clear, modal);
+        let header = if let Some(hit) = state.scored.get(state.selected) {
+            format!(" launch into profile — {} ", truncate(&display_title(hit), 30))
+        } else {
+            " launch into profile ".to_string()
+        };
+        let lines: Vec<Line> = state
+            .profiles
+            .iter()
+            .enumerate()
+            .map(|(i, p)| {
+                let sel = i == state.profile_selected;
+                let style = if sel {
+                    Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)
+                } else {
+                    Style::default()
+                };
+                Line::from(vec![
+                    Span::styled(if sel { "  ▸ " } else { "    " }, style),
+                    Span::styled(p.as_str(), style),
+                ])
+            })
+            .collect();
+        let modal_p = Paragraph::new(lines).block(
+            Block::default()
+                .borders(Borders::ALL)
+                .title(header)
+                .title_style(
+                    Style::default()
+                        .fg(Color::Cyan)
+                        .add_modifier(Modifier::BOLD),
+                ),
+        );
+        frame.render_widget(modal_p, modal);
+    }
+}
+
+#[cfg(feature = "tui")]
+fn display_title(h: &Hit) -> String {
+    if let Some(t) = h.title.as_deref().filter(|s| !s.trim().is_empty()) {
+        return t.to_string();
+    }
+    let snippet: String = h
+        .first_message
+        .chars()
+        .filter(|c| !c.is_control() && *c != '"' && *c != '{' && *c != '}')
+        .take(40)
+        .collect();
+    let snippet = snippet.trim().to_string();
+    if snippet.len() >= 6 {
+        snippet
+    } else {
+        format!("[{}]", &h.source_id[..h.source_id.len().min(10)])
     }
 }
 
