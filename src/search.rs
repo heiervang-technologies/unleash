@@ -100,10 +100,12 @@ fn ensure_default_config() {
 oai_base    = "http://127.0.0.1:18000/v1"
 embed_model = "lco-omni-3b"
 
-# Naming uses a chat model. Leave chat_model = "" to disable naming.
-# qwen3.5-0.8b is the cheapest always-loadable model on the cluster.
+# Naming uses a chat model — by default we auto-pick whichever model is
+# currently loaded on the chat router so we never trigger a cold swap.
+# Set chat_model = "specific-name" to pin one (risks 503 if it's not active).
+# Set chat_model = "" to disable naming entirely.
 chat_base   = "http://llm.ht.local/v1"
-chat_model  = "qwen3.5-0.8b"
+# chat_model  = "qwen3.5-0.8b"
 
 alpha = 0.4
 
@@ -200,9 +202,9 @@ async fn run_async(args: RunArgs) -> Result<(), Box<dyn std::error::Error>> {
         eprintln!("unleash search");
         eprintln!("  embeddings: {oai_base} model={embed_model}");
         if let Some(ref m) = chat_model {
-            eprintln!("  naming    : {chat_base} model={m}");
+            eprintln!("  naming    : {chat_base} model={m} (pinned)");
         } else {
-            eprintln!("  naming    : disabled (set OAI_CHAT_MODEL to enable)");
+            eprintln!("  naming    : {chat_base} (auto-select from loaded models)");
         }
         eprintln!("  alpha     : {alpha:.2}  (0=semantic, 1=bm25)");
         if args.reindex {
@@ -232,6 +234,22 @@ async fn run_async(args: RunArgs) -> Result<(), Box<dyn std::error::Error>> {
         eprintln!("(set OAI_BASE or edit {} to point elsewhere)", config_path().display());
         return Err("endpoint unreachable".into());
     }
+
+    // If the user didn't pin a chat model, ask the chat endpoint which models
+    // are *currently loaded* and pick one. Avoids 503s when the configured
+    // model needs a cold load (the cluster router only keeps one model resident).
+    let chat_model = match chat_model {
+        Some(m) => Some(m),
+        None => {
+            let detected = detect_loaded_chat_model(&probe, &chat_base).await;
+            if let Some(ref m) = detected {
+                if !args.json {
+                    eprintln!("  naming    : auto-selected loaded model: {m}");
+                }
+            }
+            detected
+        }
+    };
 
     let http = reqwest::Client::builder()
         .timeout(std::time::Duration::from_secs(EMBED_TIMEOUT_SECS))
@@ -747,6 +765,36 @@ fn vec_to_lit(v: &[f32]) -> String {
 }
 
 // ── OAI-compat HTTP ────────────────────────────────────────────────────
+
+/// Query `<base>/models` and pick a chat model that's already loaded so naming
+/// doesn't trigger a cold model swap on the router. Returns None if the call
+/// fails or no chat-capable model is currently resident.
+///
+/// We filter out anything that looks embed-only (alias or path contains
+/// "embed") and prefer the smallest loaded model (by param count if reported,
+/// else by name length as a rough tiebreaker).
+async fn detect_loaded_chat_model(http: &reqwest::Client, base: &str) -> Option<String> {
+    let url = format!("{}/models", base.trim_end_matches('/'));
+    let resp = http.get(&url).send().await.ok()?.error_for_status().ok()?;
+    let val: serde_json::Value = resp.json().await.ok()?;
+    let arr = val.get("data")?.as_array()?;
+    let mut loaded: Vec<&str> = arr
+        .iter()
+        .filter(|m| {
+            m.get("status")
+                .and_then(|s| s.get("value"))
+                .and_then(|v| v.as_str())
+                == Some("loaded")
+        })
+        .filter_map(|m| m.get("id").and_then(|v| v.as_str()))
+        .filter(|id| {
+            let lc = id.to_ascii_lowercase();
+            !lc.contains("embed") && !lc.contains("mmproj") && !lc.contains("rerank")
+        })
+        .collect();
+    loaded.sort_by_key(|id| (id.len(), id.to_string()));
+    loaded.first().map(|s| s.to_string())
+}
 
 async fn embed_one(
     http: &reqwest::Client,
