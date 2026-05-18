@@ -224,9 +224,24 @@ pub fn run_loop(config: LauncherConfig) -> io::Result<i32> {
 
 /// Run an agent with wrapper features
 pub fn run(auto_mode: bool, prompt: Option<String>, extra_args: Vec<String>) -> io::Result<()> {
-    // Sync hooks: install defaults + merge plugin hooks into settings.json
-    // Plugin hooks must be in settings.json because Claude Code may not reliably
-    // load hooks from --plugin-dir when settings.json already has the event key.
+    // Find agent command first — the hook-sync strategy depends on whether
+    // the agent is Claude (which auto-discovers plugin hooks via --plugin-dir).
+    let agent_cmd = find_agent_command()?;
+    let agent_type = detect_agent_type(&agent_cmd);
+    let is_claude = agent_type == Some(AgentType::Claude);
+
+    // Plugin hook sync strategy:
+    //   - Claude auto-loads each `--plugin-dir`'s `hooks/hooks.json` directly,
+    //     so mirroring those same hooks into settings.json would fire every
+    //     handler twice per event (observed: PreCompact firing both the literal
+    //     path AND the ${CLAUDE_PLUGIN_ROOT} expansion for the same script).
+    //     For Claude, we *unsync* mirrored entries instead — auto-discovery is
+    //     the single source of truth.
+    //   - For non-Claude agents we still mirror into settings.json. They don't
+    //     consume `--plugin-dir`, and although they also don't read Claude's
+    //     settings.json today, the mirror preserves prior behavior so anything
+    //     that grew to depend on these entries (e.g. external watchers) keeps
+    //     working until an agent-specific story lands.
     match HookManager::new() {
         Ok(manager) => {
             // Install default hooks if not already installed
@@ -237,9 +252,6 @@ pub fn run(auto_mode: bool, prompt: Option<String>, extra_args: Vec<String>) -> 
                     }
                 }
             }
-            // Always sync plugin hooks into settings.json on launch.
-            // Prune first so that plugins toggled off have their hooks removed,
-            // then re-register hooks for currently-enabled plugins.
             let plugin_dirs = find_plugin_dirs();
             let all_plugin_dirs = find_all_plugin_dirs();
             if let Err(e) =
@@ -247,7 +259,14 @@ pub fn run(auto_mode: bool, prompt: Option<String>, extra_args: Vec<String>) -> 
             {
                 eprintln!("Warning: Failed to prune disabled plugin hooks: {}", e);
             }
-            if let Err(e) = manager.sync_plugin_hooks(&plugin_dirs) {
+            let plugins_have_manifests = plugin_dirs
+                .iter()
+                .any(|d| d.join("hooks/hooks.json").exists());
+            if is_claude && plugins_have_manifests {
+                if let Err(e) = manager.unsync_plugin_hooks(&plugin_dirs) {
+                    eprintln!("Warning: Failed to unsync plugin hooks: {}", e);
+                }
+            } else if let Err(e) = manager.sync_plugin_hooks(&plugin_dirs) {
                 eprintln!("Warning: Failed to sync plugin hooks: {}", e);
             }
         }
@@ -255,10 +274,6 @@ pub fn run(auto_mode: bool, prompt: Option<String>, extra_args: Vec<String>) -> 
             eprintln!("Warning: Failed to initialize hook manager: {}", e);
         }
     }
-
-    // Find agent command
-    let agent_cmd = find_agent_command()?;
-    let agent_type = detect_agent_type(&agent_cmd);
 
     // Load profile environment variables
     let profile_env = load_profile_env()?;

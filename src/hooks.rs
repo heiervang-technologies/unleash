@@ -84,6 +84,16 @@ impl ClaudeInstallation {
     }
 }
 
+/// Whether `sync_plugin_hook_file` should add entries to settings.json or
+/// remove them. Used so the same parsing path serves both `sync_plugin_hooks`
+/// and `unsync_plugin_hooks` (which mirrors and un-mirrors a plugin's
+/// hooks.json into settings.json, respectively).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum SyncMode {
+    Register,
+    Unregister,
+}
+
 /// Hook event types supported by Claude Code
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum HookEvent {
@@ -398,7 +408,21 @@ EOF
         for plugin_dir in plugin_dirs {
             let hooks_json = plugin_dir.join("hooks/hooks.json");
             if hooks_json.exists() {
-                self.sync_plugin_hook_file(&hooks_json, plugin_dir)?;
+                self.sync_plugin_hook_file(&hooks_json, plugin_dir, SyncMode::Register)?;
+            }
+        }
+        Ok(())
+    }
+
+    /// Inverse of [`sync_plugin_hooks`]: walk each plugin's `hooks.json` and
+    /// remove the matching commands from `settings.json`. Used when Claude
+    /// auto-loads the plugin hooks via `--plugin-dir`, so mirroring them into
+    /// settings.json would cause every handler to fire twice per event.
+    pub fn unsync_plugin_hooks(&self, plugin_dirs: &[PathBuf]) -> io::Result<()> {
+        for plugin_dir in plugin_dirs {
+            let hooks_json = plugin_dir.join("hooks/hooks.json");
+            if hooks_json.exists() {
+                self.sync_plugin_hook_file(&hooks_json, plugin_dir, SyncMode::Unregister)?;
             }
         }
         Ok(())
@@ -509,7 +533,12 @@ EOF
     }
 
     /// Sync hooks from a single plugin's hooks.json
-    fn sync_plugin_hook_file(&self, hooks_json: &PathBuf, plugin_dir: &Path) -> io::Result<()> {
+    fn sync_plugin_hook_file(
+        &self,
+        hooks_json: &PathBuf,
+        plugin_dir: &Path,
+        mode: SyncMode,
+    ) -> io::Result<()> {
         let content = fs::read_to_string(hooks_json)?;
         let hooks: Value = serde_json::from_str(&content)
             .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e.to_string()))?;
@@ -528,7 +557,7 @@ EOF
                 // Handle array format
                 if let Some(arr) = event_config.as_array() {
                     for config in arr {
-                        self.process_hook_config(event, config, plugin_dir)?;
+                        self.process_hook_config(event, config, plugin_dir, mode)?;
                     }
                 }
             }
@@ -543,6 +572,7 @@ EOF
         event: HookEvent,
         config: &Value,
         plugin_dir: &Path,
+        mode: SyncMode,
     ) -> io::Result<()> {
         if let Some(hooks) = config.get("hooks").and_then(|h| h.as_array()) {
             for hook in hooks {
@@ -550,8 +580,15 @@ EOF
                     // Expand ${CLAUDE_PLUGIN_ROOT}
                     let expanded_command =
                         command.replace("${CLAUDE_PLUGIN_ROOT}", plugin_dir.to_str().unwrap_or(""));
-                    let matcher = config.get("matcher").and_then(|m| m.as_str());
-                    self.register_hook(event, &expanded_command, matcher)?;
+                    match mode {
+                        SyncMode::Register => {
+                            let matcher = config.get("matcher").and_then(|m| m.as_str());
+                            self.register_hook(event, &expanded_command, matcher)?;
+                        }
+                        SyncMode::Unregister => {
+                            self.unregister_hook(event, &expanded_command)?;
+                        }
+                    }
                 }
             }
         }
@@ -1221,5 +1258,116 @@ mod tests {
             "/repo/plugins/bundled/supercompact/hook.sh",
             ""
         ));
+    }
+
+    // ── unsync_plugin_hooks ─────────────────────────────────
+
+    #[test]
+    fn test_unsync_plugin_hooks_removes_mirrored_entries() {
+        let tmp = tempfile::tempdir().unwrap();
+        let mgr = test_manager(tmp.path());
+
+        let plugin_dir = tmp.path().join("plugins/my-plugin");
+        fs::create_dir_all(plugin_dir.join("hooks")).unwrap();
+        fs::write(
+            plugin_dir.join("hooks/hooks.json"),
+            r#"{
+                "hooks": {
+                    "PreCompact": [{"hooks":[{"type":"command","command":"${CLAUDE_PLUGIN_ROOT}/precompact.sh"}]}],
+                    "Stop": [{"hooks":[{"type":"command","command":"${CLAUDE_PLUGIN_ROOT}/stop.sh"}]}]
+                }
+            }"#,
+        )
+        .unwrap();
+
+        // First mirror them into settings.json
+        mgr.sync_plugin_hooks(&[plugin_dir.clone()]).unwrap();
+        let settings_before = mgr.read_settings().unwrap();
+        assert_eq!(
+            settings_before["hooks"]["PreCompact"].as_array().unwrap().len(),
+            1
+        );
+        assert_eq!(
+            settings_before["hooks"]["Stop"].as_array().unwrap().len(),
+            1
+        );
+
+        // Then unmirror
+        mgr.unsync_plugin_hooks(&[plugin_dir]).unwrap();
+        let settings_after = mgr.read_settings().unwrap();
+        assert_eq!(
+            settings_after["hooks"]["PreCompact"]
+                .as_array()
+                .map(|a| a.len())
+                .unwrap_or(0),
+            0,
+            "PreCompact mirrored entry should be gone"
+        );
+        assert_eq!(
+            settings_after["hooks"]["Stop"]
+                .as_array()
+                .map(|a| a.len())
+                .unwrap_or(0),
+            0,
+            "Stop mirrored entry should be gone"
+        );
+    }
+
+    #[test]
+    fn test_unsync_plugin_hooks_preserves_non_plugin_hooks() {
+        let tmp = tempfile::tempdir().unwrap();
+        let mgr = test_manager(tmp.path());
+
+        // A user-installed hook unrelated to any plugin
+        mgr.register_hook(HookEvent::PreCompact, "/usr/local/bin/my-own-hook.sh", None)
+            .unwrap();
+
+        // A plugin with its own different-named hook
+        let plugin_dir = tmp.path().join("plugins/my-plugin");
+        fs::create_dir_all(plugin_dir.join("hooks")).unwrap();
+        fs::write(
+            plugin_dir.join("hooks/hooks.json"),
+            r#"{"hooks":{"PreCompact":[{"hooks":[{"type":"command","command":"${CLAUDE_PLUGIN_ROOT}/plugin-hook.sh"}]}]}}"#,
+        )
+        .unwrap();
+        mgr.sync_plugin_hooks(&[plugin_dir.clone()]).unwrap();
+
+        // Both entries should now be present
+        let mid = mgr.read_settings().unwrap();
+        assert_eq!(mid["hooks"]["PreCompact"].as_array().unwrap().len(), 2);
+
+        // Unsync should remove only the plugin entry
+        mgr.unsync_plugin_hooks(&[plugin_dir]).unwrap();
+        let after = mgr.read_settings().unwrap();
+        let remaining = after["hooks"]["PreCompact"].as_array().unwrap();
+        assert_eq!(remaining.len(), 1);
+        let cmd = remaining[0]["hooks"][0]["command"].as_str().unwrap();
+        assert_eq!(cmd, "/usr/local/bin/my-own-hook.sh");
+    }
+
+    #[test]
+    fn test_unsync_is_safe_when_nothing_mirrored() {
+        let tmp = tempfile::tempdir().unwrap();
+        let mgr = test_manager(tmp.path());
+
+        let plugin_dir = tmp.path().join("plugins/my-plugin");
+        fs::create_dir_all(plugin_dir.join("hooks")).unwrap();
+        fs::write(
+            plugin_dir.join("hooks/hooks.json"),
+            r#"{"hooks":{"PreCompact":[{"hooks":[{"type":"command","command":"${CLAUDE_PLUGIN_ROOT}/hook.sh"}]}]}}"#,
+        )
+        .unwrap();
+
+        // Never synced — unsync should be a no-op, not an error
+        mgr.unsync_plugin_hooks(&[plugin_dir]).unwrap();
+        let s = mgr.read_settings().unwrap();
+        // Hooks block may not even exist
+        assert!(
+            s.get("hooks")
+                .and_then(|h| h.get("PreCompact"))
+                .and_then(|p| p.as_array())
+                .map(|a| a.is_empty())
+                .unwrap_or(true)
+        );
     }
 }
