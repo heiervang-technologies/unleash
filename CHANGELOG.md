@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.35](https://github.com/heiervang-technologies/unleash/compare/v0.1.34...v0.1.35) (2026-05-18)
+
+
+### Features
+
+* **search:** semantic session search via turso + OAI-compat embeddings ([#181](https://github.com/heiervang-technologies/unleash/issues/181)) ([d728160](https://github.com/heiervang-technologies/unleash/commit/d728160d6c88222ae3fadfda305e9cf63a4ff474))
+
 ## [0.1.34](https://github.com/heiervang-technologies/unleash/compare/v0.1.33...v0.1.34) (2026-05-18)
 
 
