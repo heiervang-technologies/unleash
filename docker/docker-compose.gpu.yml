@@ -1,0 +1,31 @@
+# Override: GPU/Vulkan device passthrough (requires runc — gVisor cannot expose host devices)
+#
+# Usage (sandboxed + GPU):
+#   docker compose -f docker/docker-compose.yml -f docker/docker-compose.gpu.yml run --rm claude
+#
+# Multi-agent + GPU:
+#   docker compose -f docker/docker-compose.yml -f docker/docker-compose.gpu.yml \
+#     -f docker/docker-compose.multi-agent.yml up claude codex
+#
+# Note: Host group IDs for video/render may differ. Check with: getent group video render
+
+x-gpu: &gpu
+  runtime: runc
+  devices:
+    - /dev/dri/card1:/dev/dri/card1
+    - /dev/dri/renderD128:/dev/dri/renderD128
+  group_add:
+    - "983"   # video (host GID — verify with: getent group video)
+    - "987"   # render (host GID — verify with: getent group render)
+
+services:
+  unleash:
+    <<: *gpu
+  claude:
+    <<: *gpu
+  codex:
+    <<: *gpu
+  gemini:
+    <<: *gpu
+  opencode:
+    <<: *gpu

@@ -90,6 +90,7 @@ RUN apt-get update \
        procps \
        file \
        unzip \
+       mesa-vulkan-drivers \
     && rm -rf /var/lib/apt/lists/*
 
 # Create non-root user for sandboxing (with passwordless sudo)
