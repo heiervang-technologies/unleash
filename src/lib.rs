@@ -18,6 +18,7 @@ pub mod launcher;
 pub mod pixel_art;
 pub mod polyfill;
 mod sandbox;
+pub mod search;
 pub mod token_count;
 mod progress;
 #[cfg(feature = "tui")]
@@ -452,6 +453,7 @@ pub(crate) fn is_known_subcommand(first_arg: &str) -> bool {
             | "install"
             | "uninstall"
             | "sessions"
+            | "search"
             | "convert"
             | "sandbox"
             | "token-count"
@@ -1159,6 +1161,18 @@ pub fn run() -> io::Result<()> {
                 .map_err(|e| io::Error::other(e.to_string()))?;
             Ok(())
         }
+        Some(Commands::Search {
+            query,
+            reindex,
+            json,
+            top,
+        }) => search::run(search::RunArgs {
+            query,
+            reindex,
+            json: json || cli.json,
+            top,
+        })
+        .map_err(|e| io::Error::other(e.to_string())),
         Some(Commands::Sandbox { action }) => {
             sandbox::handle_sandbox(action.as_ref())
         }
