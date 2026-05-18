@@ -19,7 +19,7 @@ services:
     build:
       context: ..
       dockerfile: docker/Dockerfile
-    image: unleash:latest
+    image: marksverdhei/unleash:latest
     entrypoint: ["entrypoint.sh", "/bin/bash"]
     runtime: runsc
     stdin_open: true
@@ -43,7 +43,7 @@ services:
     build:
       context: ..
       dockerfile: docker/Dockerfile
-    image: unleash:latest
+    image: marksverdhei/unleash:latest
     runtime: runsc
     stdin_open: true
     tty: true

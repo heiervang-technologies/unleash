@@ -226,37 +226,19 @@ pub fn iptables_rules_active() -> bool {
 /// Check if the unleash Docker image exists (either local or pulled)
 pub fn image_exists() -> bool {
     let full_image = format!("{}:{}", DOCKER_IMAGE, DOCKER_TAG);
-    // Check for both the pulled name and a local "unleash:latest" alias
-    for name in &[full_image.as_str(), "unleash:latest"] {
-        if Command::new("docker")
-            .args(["image", "inspect", name])
-            .stdout(Stdio::null())
-            .stderr(Stdio::null())
-            .status()
-            .map(|s| s.success())
-            .unwrap_or(false)
-        {
-            return true;
-        }
-    }
-    false
-}
-
-/// Get the image name to use (prefer pulled image, fall back to local)
-fn image_name() -> String {
-    let full_image = format!("{}:{}", DOCKER_IMAGE, DOCKER_TAG);
-    if Command::new("docker")
+    Command::new("docker")
         .args(["image", "inspect", &full_image])
         .stdout(Stdio::null())
         .stderr(Stdio::null())
         .status()
         .map(|s| s.success())
         .unwrap_or(false)
-    {
-        full_image
-    } else {
-        "unleash:latest".to_string()
-    }
+}
+
+/// Get the canonical Docker Hub image name (`marksverdhei/unleash:latest`).
+/// Both the pulled image and a `docker compose build` produce this tag.
+fn image_name() -> String {
+    format!("{}:{}", DOCKER_IMAGE, DOCKER_TAG)
 }
 
 /// Check if the .env file exists in the docker directory

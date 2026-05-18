@@ -18,7 +18,7 @@
 
 set -euo pipefail
 
-IMAGE="unleash:latest"
+IMAGE="marksverdhei/unleash:latest"
 NETWORK="unleash-sandbox"
 PASS=0
 FAIL=0
