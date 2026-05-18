@@ -22,7 +22,16 @@ use std::time::Instant;
 
 use crate::interchange::sessions::{discover_all, SessionInfo};
 
-const MAX_TEXT_CHARS: usize = 600;
+/// Max chars of content text we *index* per session (stored in first_message
+/// for BM25 + TUI preview). Big enough to catch interior content in
+/// multi-megabyte sessions.
+const MAX_TEXT_CHARS: usize = 32_000;
+
+/// Max chars we feed to the *embedding* model per request. Embedding models
+/// have small context windows (LCO-Omni-3B is 4K tokens ≈ 6 KB; embeddinggemma
+/// is 512 tokens ≈ 2 KB). We truncate the indexed text to this cap before
+/// POSTing /v1/embeddings so the server doesn't 500 on oversize inputs.
+const MAX_EMBED_CHARS: usize = 6_000;
 const NAMING_TIMEOUT_SECS: u64 = 60;
 const EMBED_TIMEOUT_SECS: u64 = 30;
 const MAX_NAMES_PER_RUN: usize = 12;
@@ -221,18 +230,49 @@ async fn run_async(args: RunArgs) -> Result<(), Box<dyn std::error::Error>> {
     }
 
     // Probe the embeddings endpoint up-front. If it's unreachable we'd rather
-    // fail fast with a copy-pasteable fix than burn 30 s per row on timeouts.
+    // fail fast (and try to self-recover) than burn 30 s per row on timeouts.
     let probe = reqwest::Client::builder()
         .timeout(std::time::Duration::from_secs(3))
         .build()?;
     let probe_url = format!("{}/models", oai_base.trim_end_matches('/'));
-    if let Err(e) = probe.get(&probe_url).send().await {
-        eprintln!("\n\x1b[31merror:\x1b[0m embedding endpoint unreachable: {e}");
+    if probe.get(&probe_url).send().await.is_err() {
+        // If the user has a tunnel_hint configured (typically `ssh -fN -L ...`),
+        // try running it and re-probe. `-fN` means SSH backgrounds itself once
+        // the forwarded port is bound, so a successful exit ≈ ready to serve.
+        let mut recovered = false;
         if let Some(hint) = tunnel_hint.as_deref() {
-            eprintln!("hint: bring the tunnel up:\n  {hint}");
+            if !args.json {
+                eprintln!("  tunnel    : endpoint down — running `{hint}`");
+            }
+            if try_bring_up_tunnel(hint) {
+                // Re-probe; give it a brief moment in case the forward is still
+                // settling.
+                for attempt in 0..6 {
+                    if probe.get(&probe_url).send().await.is_ok() {
+                        recovered = true;
+                        break;
+                    }
+                    tokio::time::sleep(std::time::Duration::from_millis(
+                        200 + attempt * 100,
+                    ))
+                    .await;
+                }
+            }
         }
-        eprintln!("(set OAI_BASE or edit {} to point elsewhere)", config_path().display());
-        return Err("endpoint unreachable".into());
+        if !recovered {
+            eprintln!("\n\x1b[31merror:\x1b[0m embedding endpoint unreachable: {probe_url}");
+            if let Some(hint) = tunnel_hint.as_deref() {
+                eprintln!("hint: bring the tunnel up manually:\n  {hint}");
+            }
+            eprintln!(
+                "(set OAI_BASE or edit {} to point elsewhere)",
+                config_path().display()
+            );
+            return Err("endpoint unreachable".into());
+        }
+        if !args.json {
+            eprintln!("  tunnel    : up");
+        }
     }
 
     // If the user didn't pin a chat model, ask the chat endpoint which models
@@ -280,8 +320,18 @@ async fn run_async(args: RunArgs) -> Result<(), Box<dyn std::error::Error>> {
     let mut needs_embed: Vec<(i64, String)> = Vec::new();
     let mut needs_name: Vec<(i64, String)> = Vec::new();
     let mut indexed = 0usize;
+    let mut skipped_archive = 0usize;
 
     for s in &sessions {
+        // Claude's discovery surfaces `<uuid>.archive` rows alongside the live
+        // session. They're snapshots of pre-compaction state and duplicate the
+        // active session's content — they only bloat the index and dilute
+        // results. Skip them here (the direct `-x <cli>:<id>.archive` path still
+        // works because it goes through find_session, not the search index).
+        if s.id.ends_with(".archive") {
+            skipped_archive += 1;
+            continue;
+        }
         let mtime_ns = file_mtime_ns(&s.path).unwrap_or(0);
         let cur_mtime: Option<i64> = {
             let mut r = conn
@@ -346,7 +396,7 @@ async fn run_async(args: RunArgs) -> Result<(), Box<dyn std::error::Error>> {
     }
     if !args.json {
         eprintln!(
-            "[index] {indexed} rows, {} need embedding, {} need naming",
+            "[index] {indexed} rows, {} need embedding, {} need naming ({skipped_archive} archive rows skipped)",
             needs_embed.len(),
             needs_name.len()
         );
@@ -513,6 +563,26 @@ async fn run_async(args: RunArgs) -> Result<(), Box<dyn std::error::Error>> {
     }
     emit(&hits, args.json);
     Ok(())
+}
+
+/// Run a `tunnel_hint` (typically `ssh -fN -L LPORT:HOST:RPORT TARGET`) so the
+/// embedding endpoint becomes reachable without forcing the user to context-
+/// switch into a shell. `-fN` means SSH backgrounds itself once the forwarded
+/// port is bound, so a 0 exit code means the tunnel is up *and* won't die when
+/// `unleash` exits.
+fn try_bring_up_tunnel(hint: &str) -> bool {
+    let parts: Vec<&str> = hint.split_whitespace().collect();
+    let Some((prog, rest)) = parts.split_first() else {
+        return false;
+    };
+    std::process::Command::new(prog)
+        .args(rest)
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .status()
+        .map(|s| s.success())
+        .unwrap_or(false)
 }
 
 /// Discover available profiles. Falls back to the built-in agent CLI names
@@ -727,28 +797,186 @@ fn file_mtime_ns(p: &Path) -> Option<i64> {
     Some(dur.as_nanos() as i64)
 }
 
-/// Best-effort text extraction. We deliberately don't parse per-CLI here —
-/// session files are JSONL/JSON whose first ~1KB always contains useful
-/// signal (user message, system prompt, working directory). The embedder
-/// tolerates noisy JSON just fine.
+/// Pull user-facing text out of a session file for embedding/BM25.
+///
+/// Naive head-only indexing misses every active topic on long sessions —
+/// "install summary" lives at byte 6.6M of a 10M session that started with
+/// generic context-setting. We sample *both* the head (initial intent /
+/// post-compaction summary live there) AND the tail (most recent topic), and
+/// parse JSON records to skip JSONL boilerplate (`parentUuid`, `sessionId`,
+/// `gitBranch` etc) that would otherwise drown the conversational signal.
 fn extract_text(s: &SessionInfo) -> Option<String> {
-    let bytes = fs::read(&s.path).ok()?;
-    let head_len = bytes.len().min(8192);
-    let head = String::from_utf8_lossy(&bytes[..head_len]);
-    let cleaned: String = head
-        .chars()
-        .filter(|c| !c.is_control() || *c == ' ' || *c == '\n')
-        .collect();
-    let mut snippet = String::new();
-    for ch in cleaned.chars() {
-        if snippet.len() >= MAX_TEXT_CHARS {
+    use std::io::BufRead;
+
+    let file = fs::File::open(&s.path).ok()?;
+    let reader = std::io::BufReader::new(file);
+
+    // Stream the whole JSONL file, pulling content strings out of each parseable
+    // line. We keep a sliding pair: the first ~25% of the budget records the
+    // session's opening exchange (intent, post-compaction summary, system prompt)
+    // and the remaining ~75% rolls forward, so the *latest* content always wins
+    // the tail allocation. Result: small/medium sessions are fully indexed; long
+    // sessions surface both their starting context and their most recent topic.
+    const HEAD_BUDGET: usize = MAX_TEXT_CHARS / 4;
+    const TAIL_BUDGET: usize = MAX_TEXT_CHARS - HEAD_BUDGET;
+
+    let mut head: Vec<String> = Vec::new();
+    let mut head_used = 0usize;
+    let mut tail: std::collections::VecDeque<String> = std::collections::VecDeque::new();
+    let mut tail_used = 0usize;
+
+    let mut first_value: Option<serde_json::Value> = None;
+    let mut saw_jsonl = false;
+
+    for line in reader.lines().take(50_000) {
+        let Ok(line) = line else { break };
+        let trimmed = line.trim();
+        if !trimmed.starts_with('{') {
+            continue;
+        }
+        let Ok(val) = serde_json::from_str::<serde_json::Value>(trimmed) else {
+            continue;
+        };
+        if first_value.is_none() {
+            first_value = Some(val.clone());
+        }
+        saw_jsonl = true;
+        let mut local: Vec<String> = Vec::new();
+        collect_content_strings(&val, &mut local);
+        for chunk_text in local {
+            let len = chunk_text.len();
+            if head_used < HEAD_BUDGET {
+                head_used += len;
+                head.push(chunk_text);
+            } else {
+                tail_used += len;
+                tail.push_back(chunk_text);
+                while tail_used > TAIL_BUDGET {
+                    if let Some(dropped) = tail.pop_front() {
+                        tail_used = tail_used.saturating_sub(dropped.len());
+                    } else {
+                        break;
+                    }
+                }
+            }
+        }
+    }
+
+    // Single-JSON layout (Gemini / UCF): if only the first line parsed (no
+    // newline-separated records), parse the whole file as one document.
+    if !saw_jsonl || (head.is_empty() && tail.is_empty()) {
+        if let Ok(bytes) = fs::read(&s.path) {
+            if let Ok(text) = std::str::from_utf8(&bytes) {
+                if let Ok(val) = serde_json::from_str::<serde_json::Value>(text.trim()) {
+                    collect_content_strings(&val, &mut head);
+                }
+            }
+        }
+    }
+
+    let title_part = s.title.as_deref().or(s.name.as_deref()).unwrap_or("");
+    let mut combined = String::new();
+    combined.push_str(title_part);
+    combined.push(' ');
+    combined.push_str(&s.directory);
+    for t in head.iter().chain(tail.iter()) {
+        if combined.chars().count() >= MAX_TEXT_CHARS {
             break;
         }
-        snippet.push(ch);
+        combined.push(' ');
+        combined.push_str(t);
     }
-    let title_part = s.title.as_deref().or(s.name.as_deref()).unwrap_or("");
-    let dir_part = &s.directory;
-    Some(format!("{title_part} {dir_part} {snippet}").trim().to_string())
+    let snippet: String = combined.chars().take(MAX_TEXT_CHARS).collect();
+    let trimmed = snippet.trim().to_string();
+    if trimmed.is_empty() {
+        None
+    } else {
+        Some(trimmed)
+    }
+}
+
+/// Walk a JSON value and append any string values that live under
+/// content-bearing keys. Skips opaque identifiers and short tokens.
+fn collect_content_strings(val: &serde_json::Value, out: &mut Vec<String>) {
+    use serde_json::Value;
+    const CONTENT_KEYS: &[&str] = &[
+        "content",
+        "text",
+        "message",
+        "summary",
+        "input",
+        "prompt",
+        "messages",
+        "payload",
+    ];
+    match val {
+        Value::Object(map) => {
+            for (k, v) in map {
+                if CONTENT_KEYS.contains(&k.as_str()) {
+                    extract_strings(v, out);
+                } else if matches!(v, Value::Object(_) | Value::Array(_)) {
+                    // Descend, but only one level so we don't pick up metadata
+                    // siblings hiding inside nested objects.
+                    collect_content_strings(v, out);
+                }
+            }
+        }
+        Value::Array(arr) => {
+            for v in arr {
+                collect_content_strings(v, out);
+            }
+        }
+        _ => {}
+    }
+}
+
+/// Extract all "leaf" string values from a JSON subtree, applying noise
+/// filters. Used once we know we're inside a content-bearing key.
+fn extract_strings(val: &serde_json::Value, out: &mut Vec<String>) {
+    use serde_json::Value;
+    match val {
+        Value::String(s) => {
+            let trimmed = s.trim();
+            // Skip very short tokens, opaque ids, and things that are obviously
+            // tool/internal payloads.
+            if trimmed.len() < 8 || trimmed.len() > 8192 {
+                return;
+            }
+            if looks_like_opaque_id(trimmed) {
+                return;
+            }
+            out.push(trimmed.to_string());
+        }
+        Value::Array(arr) => {
+            for v in arr {
+                extract_strings(v, out);
+            }
+        }
+        Value::Object(map) => {
+            // For role/content-block shapes like {"type":"text","text":"..."}.
+            for (k, v) in map {
+                if matches!(
+                    k.as_str(),
+                    "text" | "content" | "message" | "value" | "summary"
+                ) {
+                    extract_strings(v, out);
+                }
+            }
+        }
+        _ => {}
+    }
+}
+
+fn looks_like_opaque_id(s: &str) -> bool {
+    // UUID-ish (8-4-4-4-12)
+    if s.len() == 36 && s.matches('-').count() == 4 {
+        return true;
+    }
+    // toolu_/msg_/sess_ prefixes from API tokens
+    if s.starts_with("toolu_") || s.starts_with("msg_") || s.starts_with("sess_") {
+        return true;
+    }
+    false
 }
 
 fn vec_to_lit(v: &[f32]) -> String {
@@ -802,6 +1030,9 @@ async fn embed_one(
     model: &str,
     text: &str,
 ) -> Result<Vec<f32>, Box<dyn std::error::Error>> {
+    // Cap input length to fit small embedding contexts; BM25 still scores
+    // against the full stored text, so this only narrows the semantic vector.
+    let truncated: String = text.chars().take(MAX_EMBED_CHARS).collect();
     #[derive(serde::Serialize)]
     struct Req<'a> {
         model: &'a str,
@@ -818,7 +1049,10 @@ async fn embed_one(
     let url = format!("{}/embeddings", base.trim_end_matches('/'));
     let resp = http
         .post(&url)
-        .json(&Req { model, input: text })
+        .json(&Req {
+            model,
+            input: &truncated,
+        })
         .send()
         .await?
         .error_for_status()?
