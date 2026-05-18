@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.33](https://github.com/heiervang-technologies/unleash/compare/v0.1.32...v0.1.33) (2026-05-18)
+
+
+### Bug Fixes
+
+* **sandbox:** align image tag with Docker Hub repo (marksverdhei/unleash) ([#186](https://github.com/heiervang-technologies/unleash/issues/186)) ([21db4c4](https://github.com/heiervang-technologies/unleash/commit/21db4c484121d03fdafa98ccb57db321a3d88bf4))
+
 ## [0.1.32](https://github.com/heiervang-technologies/unleash/compare/v0.1.31...v0.1.32) (2026-05-14)
 
 
