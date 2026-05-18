@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.34](https://github.com/heiervang-technologies/unleash/compare/v0.1.33...v0.1.34) (2026-05-18)
+
+
+### Features
+
+* **docker:** optional Vulkan GPU passthrough via docker-compose.gpu.yml ([#188](https://github.com/heiervang-technologies/unleash/issues/188)) ([36a719b](https://github.com/heiervang-technologies/unleash/commit/36a719b811ffe7c3c035b5a7d696afc7e28ea4fa))
+
 ## [0.1.33](https://github.com/heiervang-technologies/unleash/compare/v0.1.32...v0.1.33) (2026-05-18)
 
 
