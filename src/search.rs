@@ -1591,3 +1591,157 @@ fn display_title(h: &Hit) -> String {
 fn _silence_io() {
     let _: io::Result<()> = Ok(());
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn cosine_distance_identical_is_zero() {
+        let v = vec![1.0_f32, 2.0, 3.0, 4.0];
+        let d = cosine_distance(&v, &v);
+        assert!(d.abs() < 1e-9, "expected ~0, got {d}");
+    }
+
+    #[test]
+    fn cosine_distance_orthogonal_is_one() {
+        let a = vec![1.0_f32, 0.0];
+        let b = vec![0.0_f32, 1.0];
+        let d = cosine_distance(&a, &b);
+        assert!((d - 1.0).abs() < 1e-9, "expected 1.0, got {d}");
+    }
+
+    #[test]
+    fn cosine_distance_opposite_is_two() {
+        let a = vec![1.0_f32, 1.0, 1.0];
+        let b = vec![-1.0_f32, -1.0, -1.0];
+        let d = cosine_distance(&a, &b);
+        assert!((d - 2.0).abs() < 1e-9, "expected 2.0, got {d}");
+    }
+
+    #[test]
+    fn cosine_distance_empty_returns_two() {
+        let a: Vec<f32> = vec![];
+        let b = vec![1.0_f32, 2.0];
+        assert_eq!(cosine_distance(&a, &b), 2.0);
+        assert_eq!(cosine_distance(&b, &a), 2.0);
+    }
+
+    #[test]
+    fn decode_vector32_handles_8_byte_header() {
+        // turso emits an 8-byte length/type prefix in front of the f32 payload.
+        // Real embeddings are 256+ dims, so the offset-8 path is what's hit in
+        // practice — test with a realistic-sized vector to exercise it.
+        let v: Vec<f32> = (0..256).map(|i| (i as f32 - 128.0) / 128.0).collect();
+        let mut blob: Vec<u8> = vec![0u8; 8];
+        for x in &v {
+            blob.extend_from_slice(&x.to_le_bytes());
+        }
+        let decoded = decode_vector32(blob).expect("decode");
+        assert_eq!(decoded.len(), v.len());
+        for (a, b) in decoded.iter().zip(v.iter()) {
+            assert!((a - b).abs() < 1e-6, "value mismatch: {a} vs {b}");
+        }
+    }
+
+    #[test]
+    fn decode_vector32_rejects_too_short() {
+        assert!(decode_vector32(vec![0, 1]).is_none());
+    }
+
+    #[test]
+    fn decode_vector32_rejects_garbage() {
+        // Values >> 10.0 fail the sanity check at every offset.
+        let blob: Vec<u8> = (0..32).map(|i| (i * 13 + 7) as u8).collect();
+        let result = decode_vector32(blob);
+        // Either None, or a vec whose first values are within the sanity range;
+        // we just ensure it doesn't panic on adversarial input.
+        if let Some(v) = result {
+            assert!(v.iter().take(8).all(|x| x.abs() < 10.0));
+        }
+    }
+
+    #[test]
+    fn vec_to_lit_roundtrips_bracketed_csv() {
+        let lit = vec_to_lit(&[1.0, 2.5, -0.25]);
+        assert!(lit.starts_with('['));
+        assert!(lit.ends_with(']'));
+        assert!(lit.contains("1"));
+        assert!(lit.contains("2.5"));
+        assert!(lit.contains("-0.25"));
+        assert_eq!(lit.matches(',').count(), 2);
+    }
+
+    #[test]
+    fn tokenize_lowercases_and_drops_short_tokens() {
+        let toks = tokenize("Hello, World! a 42 file_name");
+        assert!(toks.contains(&"hello".to_string()));
+        assert!(toks.contains(&"world".to_string()));
+        assert!(toks.contains(&"42".to_string()));
+        assert!(toks.contains(&"file".to_string()));
+        assert!(toks.contains(&"name".to_string()));
+        assert!(!toks.contains(&"a".to_string()), "single chars dropped");
+    }
+
+    #[test]
+    fn bm25_rewards_query_term_matches() {
+        let docs = vec![
+            Candidate {
+                cli: "claude".into(),
+                source_id: "1".into(),
+                title: Some("refactor auth module".into()),
+                directory: None,
+                updated_at: None,
+                first_message: "rewrite the login flow with PKCE".into(),
+                cos_dist: None,
+            },
+            Candidate {
+                cli: "claude".into(),
+                source_id: "2".into(),
+                title: Some("update dependencies".into()),
+                directory: None,
+                updated_at: None,
+                first_message: "cargo upgrade bump versions".into(),
+                cos_dist: None,
+            },
+        ];
+        let scores = compute_bm25("refactor auth", &docs);
+        assert_eq!(scores.len(), 2);
+        assert!(scores[0] > scores[1], "doc 0 should outscore doc 1");
+        assert!(scores[0] > 0.0);
+    }
+
+    #[test]
+    fn bm25_empty_query_scores_zero() {
+        let docs = vec![Candidate {
+            cli: "x".into(),
+            source_id: "1".into(),
+            title: Some("anything".into()),
+            directory: None,
+            updated_at: None,
+            first_message: String::new(),
+            cos_dist: None,
+        }];
+        let scores = compute_bm25("", &docs);
+        assert_eq!(scores, vec![0.0]);
+    }
+
+    #[test]
+    fn truncate_under_max_unchanged() {
+        assert_eq!(truncate("hello", 10), "hello");
+    }
+
+    #[test]
+    fn truncate_over_max_uses_ellipsis() {
+        let out = truncate("abcdefghij", 5);
+        assert_eq!(out.chars().count(), 5);
+        assert!(out.ends_with('…'));
+    }
+
+    #[test]
+    fn truncate_handles_multibyte() {
+        let out = truncate("αβγδε ζηθικ", 6);
+        assert_eq!(out.chars().count(), 6);
+        assert!(out.ends_with('…'));
+    }
+}
