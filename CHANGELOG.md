@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.36](https://github.com/heiervang-technologies/unleash/compare/v0.1.35...v0.1.36) (2026-05-19)
+
+
+### Features
+
+* **search:** unleash sessions reindex + sessions name subcommands ([#191](https://github.com/heiervang-technologies/unleash/issues/191)) ([8512ca1](https://github.com/heiervang-technologies/unleash/commit/8512ca173061345b142d32560329795e32693853))
+
 ## [0.1.35](https://github.com/heiervang-technologies/unleash/compare/v0.1.34...v0.1.35) (2026-05-18)
 
 
