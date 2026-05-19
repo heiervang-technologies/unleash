@@ -105,6 +105,40 @@ Show all agent versions and update status in a single table.
 
 List sessions across all installed CLIs.
 
+```bash
+unleash sessions                              # List all
+unleash sessions --cli claude                 # Filter by CLI
+unleash sessions --find claude:abc1234        # Lookup one
+unleash sessions reindex                      # Rebuild the search index
+unleash sessions name claude:abc "My Title"   # Override the display title
+unleash sessions name claude:abc              # Regenerate via chat model
+```
+
+`sessions reindex` re-embeds every session and refreshes generated titles using
+the configured OpenAI-compatible endpoint (see `unleash search`).
+
+`sessions name <cli>:<source_id> [TITLE]` updates the `generated_title` column
+in the search index. With an explicit `TITLE` it's a direct write; without one
+the configured chat model is asked for a new 3–6 word title. Useful when an
+auto-generated title is wrong or missing.
+
+### `unleash search`
+
+Semantic + BM25 hybrid search across all indexed sessions.
+
+```bash
+unleash search                          # Open the interactive TUI
+unleash search "fix install summary"    # Pre-fill the TUI with a query
+unleash search --json --top 10 "..."    # Non-interactive ranked JSON output
+unleash search --reindex                # Rebuild before searching
+```
+
+Backed by a Turso DB at `~/.local/share/unleash/search-index.db`. Uses an
+OpenAI-compatible local server for embeddings (e.g.
+`llama-server --embeddings -m embed.gguf`). See `unleash search --help` for
+environment variables (`OAI_BASE`, `OAI_EMBED_MODEL`, `OAI_CHAT_MODEL`,
+`ALPHA`).
+
 ### `unleash convert`
 
 Convert between CLI session formats. Use `--from` to specify the source format and

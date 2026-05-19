@@ -656,14 +656,24 @@ pub enum Commands {
     },
 
     /// List conversation sessions across all agent CLIs
+    ///
+    /// Examples:
+    ///   unleash sessions                          # List all sessions
+    ///   unleash sessions --cli claude             # Filter by CLI
+    ///   unleash sessions --find claude:abc1234    # Lookup one
+    ///   unleash sessions reindex                  # Rebuild the search index
+    ///   unleash sessions name claude:abc "Title"  # Set a session title
     Sessions {
         /// Filter by CLI (claude, codex, gemini, opencode)
-        #[arg(short, long)]
+        #[arg(short, long, global = true)]
         cli: Option<String>,
 
         /// Find a specific session by name/ID (supports cli:name format)
         #[arg(short, long)]
         find: Option<String>,
+
+        #[command(subcommand)]
+        action: Option<SessionsAction>,
     },
 
     /// Semantic search across all sessions (hybrid BM25 + cosine over local embeddings).
@@ -755,6 +765,30 @@ pub enum Commands {
     /// Run a profile by name (catches any unknown subcommand as a profile name)
     #[command(external_subcommand)]
     Profile(Vec<String>),
+}
+
+#[derive(Subcommand, Debug)]
+pub enum SessionsAction {
+    /// Rebuild the search index — re-embed every session and refresh titles
+    ///
+    /// Use after switching embedding models, or if the index gets corrupted.
+    /// Runs the same indexer as `unleash search --reindex` but without opening
+    /// the TUI.
+    Reindex,
+
+    /// Set or regenerate the display title for a session
+    ///
+    /// Targets are written as `<cli>:<source_id>` (the format printed by
+    /// `unleash sessions`). When TITLE is supplied it replaces any existing
+    /// generated/native title for that row. When omitted, the configured chat
+    /// model is asked for a new 3–6 word title.
+    Name {
+        /// Session identifier in `<cli>:<source_id>` form
+        target: String,
+
+        /// New title — if omitted, regenerate via the configured chat model
+        title: Option<String>,
+    },
 }
 
 #[derive(Subcommand, Debug)]
