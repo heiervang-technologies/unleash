@@ -196,6 +196,142 @@ pub fn run(args: RunArgs) -> Result<(), Box<dyn std::error::Error>> {
     rt.block_on(run_async(args))
 }
 
+/// Synchronous entry point for `unleash sessions reindex` / `unleash sessions name`.
+/// Same tokio-containment pattern as `run()`.
+pub fn run_sessions_action(
+    action: crate::cli::SessionsAction,
+    json: bool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let rt = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()?;
+    rt.block_on(run_sessions_action_async(action, json))
+}
+
+async fn run_sessions_action_async(
+    action: crate::cli::SessionsAction,
+    json: bool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    match action {
+        crate::cli::SessionsAction::Reindex => {
+            // Re-use the full search pipeline (probe → schema → discover → upsert
+            // → embed → name) with no query and no TUI. Setting reindex=true
+            // wipes embeddings + generated titles so everything regenerates.
+            run_async(RunArgs {
+                query: Some(String::new()),
+                reindex: true,
+                json,
+                top: 0,
+            })
+            .await
+        }
+        crate::cli::SessionsAction::Name { target, title } => {
+            set_session_title(&target, title.as_deref(), json).await
+        }
+    }
+}
+
+async fn set_session_title(
+    target: &str,
+    title: Option<&str>,
+    json: bool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let (cli, source_id) = target
+        .split_once(':')
+        .ok_or("target must be in <cli>:<source_id> form (e.g. claude:abc12345)")?;
+    if cli.is_empty() || source_id.is_empty() {
+        return Err("target must be in <cli>:<source_id> form (e.g. claude:abc12345)".into());
+    }
+
+    let db_path = index_db_path();
+    if let Some(parent) = db_path.parent() {
+        fs::create_dir_all(parent)?;
+    }
+    let db = turso::Builder::new_local(db_path.to_string_lossy().as_ref())
+        .build()
+        .await?;
+    let conn = db.connect()?;
+    bootstrap_schema(&conn).await?;
+
+    // Confirm the row exists so we can give a useful error rather than silently
+    // updating zero rows.
+    let mut probe = conn
+        .query(
+            "SELECT pk FROM sessions WHERE cli=?1 AND source_id=?2",
+            turso::params![cli.to_string(), source_id.to_string()],
+        )
+        .await?;
+    if probe.next().await?.is_none() {
+        return Err(format!(
+            "no session indexed for {cli}:{source_id} — run `unleash search` or `unleash sessions reindex` first"
+        )
+        .into());
+    }
+
+    let new_title = match title {
+        Some(t) => {
+            let trimmed = t.trim();
+            if trimmed.is_empty() {
+                return Err("title must not be empty".into());
+            }
+            trimmed.to_string()
+        }
+        None => {
+            // Regenerate via the configured chat model.
+            let cfg = resolve_config();
+            let chat_base = cfg.chat_base.clone();
+            let chat_model = match cfg.chat_model.clone() {
+                Some(m) => m,
+                None => {
+                    let probe_http = reqwest::Client::builder()
+                        .timeout(std::time::Duration::from_secs(3))
+                        .build()?;
+                    detect_loaded_chat_model(&probe_http, &chat_base)
+                        .await
+                        .ok_or("no chat model configured or loaded — set OAI_CHAT_MODEL or pass an explicit TITLE")?
+                }
+            };
+
+            let mut content = conn
+                .query(
+                    "SELECT first_message FROM sessions WHERE cli=?1 AND source_id=?2",
+                    turso::params![cli.to_string(), source_id.to_string()],
+                )
+                .await?;
+            let text: String = match content.next().await? {
+                Some(row) => row.get(0)?,
+                None => String::new(),
+            };
+            if text.is_empty() {
+                return Err("session has no indexed text — run `unleash sessions reindex` first".into());
+            }
+
+            let http = reqwest::Client::builder()
+                .timeout(std::time::Duration::from_secs(NAMING_TIMEOUT_SECS))
+                .build()?;
+            generate_name(&http, &chat_base, &chat_model, &text).await?
+        }
+    };
+
+    conn.execute(
+        "UPDATE sessions SET generated_title=?1 WHERE cli=?2 AND source_id=?3",
+        turso::params![new_title.clone(), cli.to_string(), source_id.to_string()],
+    )
+    .await?;
+
+    if json {
+        let out = serde_json::json!({
+            "cli": cli,
+            "source_id": source_id,
+            "title": new_title,
+        });
+        println!("{}", serde_json::to_string(&out)?);
+    } else {
+        println!("{cli}:{source_id} -> {new_title}");
+    }
+    Ok(())
+}
+
 async fn run_async(args: RunArgs) -> Result<(), Box<dyn std::error::Error>> {
     let cfg = resolve_config();
     let ResolvedConfig {

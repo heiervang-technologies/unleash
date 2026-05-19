@@ -1086,8 +1086,13 @@ pub fn run() -> io::Result<()> {
         Some(Commands::Sessions {
             cli: cli_filter,
             find,
+            action,
         }) => {
             let json = cli.json;
+            if let Some(act) = action {
+                return search::run_sessions_action(act, json)
+                    .map_err(|e| io::Error::other(e.to_string()));
+            }
             if let Some(query) = find {
                 match interchange::sessions::find_session(&query) {
                     Some(session) => {
