@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.38](https://github.com/heiervang-technologies/unleash/compare/v0.1.37...v0.1.38) (2026-05-21)
+
+
+### Bug Fixes
+
+* **crossload:** track source_updated_at in idempotency cache ([#196](https://github.com/heiervang-technologies/unleash/issues/196)) ([997d189](https://github.com/heiervang-technologies/unleash/commit/997d18920eb05baf053c54d824b5258876698215))
+
 ## [0.1.37](https://github.com/heiervang-technologies/unleash/compare/v0.1.36...v0.1.37) (2026-05-21)
 
 
