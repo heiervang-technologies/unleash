@@ -27,6 +27,10 @@ pub struct Entry {
     /// Absolute path to the target file/db row we wrote. Empty for DB-backed
     /// targets (OpenCode) where there is no single representative file.
     pub target_path: String,
+    /// The `updated_at` timestamp of the source session at the time of crossload.
+    /// Used to invalidate the cache if the source session receives new messages.
+    #[serde(default)]
+    pub source_updated_at: Option<String>,
 }
 
 fn key(source_cli: &str, source_id: &str, target_cli: &str) -> String {
@@ -80,12 +84,14 @@ impl CrossloadIndex {
         target_cli: &str,
         target_session_id: String,
         target_path: String,
+        source_updated_at: Option<String>,
     ) {
         self.entries.insert(
             key(source_cli, source_id, target_cli),
             Entry {
                 target_session_id,
                 target_path,
+                source_updated_at,
             },
         );
     }
@@ -121,6 +127,7 @@ mod tests {
             "claude",
             "sess-1".into(),
             "/tmp/sess-1.jsonl".into(),
+            None,
         );
         idx.record(
             "pi",
@@ -128,6 +135,7 @@ mod tests {
             "gemini",
             "sess-2".into(),
             "/tmp/chats/sess-2.json".into(),
+            None,
         );
         save_to(&idx, &path).unwrap();
 
@@ -159,22 +167,22 @@ mod tests {
     }
 
     #[test]
-    fn remove_drops_entry() {
+    fn test_remove() {
         let mut idx = CrossloadIndex::default();
-        idx.record("a", "b", "c", "d".into(), String::new());
+        idx.record("a", "b", "c", "d".into(), String::new(), None);
         assert!(idx.lookup("a", "b", "c").is_some());
         idx.remove("a", "b", "c");
         assert!(idx.lookup("a", "b", "c").is_none());
     }
 
     #[test]
-    fn re_record_overwrites_in_place() {
+    fn test_record_overwrites() {
         let mut idx = CrossloadIndex::default();
-        idx.record("a", "b", "c", "first".into(), "/tmp/one".into());
-        idx.record("a", "b", "c", "second".into(), "/tmp/two".into());
-        let e = idx.lookup("a", "b", "c").unwrap();
-        assert_eq!(e.target_session_id, "second");
-        assert_eq!(e.target_path, "/tmp/two");
+        idx.record("a", "b", "c", "first".into(), "/tmp/one".into(), None);
+        idx.record("a", "b", "c", "second".into(), "/tmp/two".into(), None);
+        let entry = idx.lookup("a", "b", "c").unwrap();
+        assert_eq!(entry.target_session_id, "second");
+        assert_eq!(entry.target_path, "/tmp/two");
     }
 
     #[test]
@@ -186,14 +194,17 @@ mod tests {
         let live = Entry {
             target_session_id: "s".into(),
             target_path: real.to_string_lossy().into(),
+            source_updated_at: None,
         };
         let dead = Entry {
             target_session_id: "s".into(),
             target_path: "/nonexistent/ghost.jsonl".into(),
+            source_updated_at: None,
         };
         let db = Entry {
             target_session_id: "s".into(),
             target_path: String::new(),
+            source_updated_at: None,
         };
 
         assert!(entry_is_live(&live));
