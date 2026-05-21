@@ -1,0 +1,65 @@
+name: Memory Profiling
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'src/**'
+      - 'Cargo.toml'
+      - 'scripts/memory_profile.sh'
+      - '.github/workflows/memory-profile.yml'
+  pull_request:
+    branches: [main]
+    paths:
+      - 'src/**'
+      - 'Cargo.toml'
+      - 'scripts/memory_profile.sh'
+      - '.github/workflows/memory-profile.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  profile:
+    name: Memory Profiling
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y time nodejs npm
+          # Install agents
+          npm install -g @google/gemini-cli @mariozechner/pi-coding-agent opencode-ai
+
+      - name: Install Codex and Claude
+        run: |
+          # Install Hermes Agent
+          curl -fsSL https://raw.githubusercontent.com/NousResearch/hermes-agent/main/scripts/install.sh | bash -s -- --skip-setup
+          # Build unleash for profiling
+          cargo build --profile fast
+          # Use unleash to install claude and codex
+          ./target/fast/unleash install claude codex || true
+
+      - name: Make script executable
+        run: chmod +x scripts/memory_profile.sh
+
+      - name: Run Memory Profiling
+        run: |
+          ./scripts/memory_profile.sh | tee memory-profile.txt
+          
+      - name: Add to Step Summary
+        run: |
+          {
+            echo "## Memory Profiling Results"
+            echo '```text'
+            cat memory-profile.txt
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
