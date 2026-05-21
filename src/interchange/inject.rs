@@ -44,22 +44,31 @@ pub fn inject_session(
     if !force {
         if let Some(entry) = index.lookup(&session.cli, &session.id, canonical_target) {
             if entry_is_live(entry) {
-                eprintln!(
-                    "Already crossloaded; reusing target session '{}' (set UNLEASH_CROSSLOAD_FORCE=1 to re-inject)",
-                    entry.target_session_id
-                );
-                return Ok(InjectionResult {
-                    session_id: entry.target_session_id.clone(),
-                    resume_args: resume_args_for(canonical_target, &entry.target_session_id),
-                    message: format!(
-                        "Reused cached crossload of '{}' from {} into {}",
-                        session.name.as_deref().unwrap_or(&session.id),
-                        session.cli,
-                        canonical_target,
-                    ),
-                });
+                // If the cached entry doesn't record the source updated_at or if it doesn't match the current session's updated_at,
+                // the source session has been updated since the crossload. We need to re-crossload.
+                if entry.source_updated_at.as_deref() == Some(&*session.updated_at) {
+                    eprintln!(
+                        "Already crossloaded; reusing target session '{}' (set UNLEASH_CROSSLOAD_FORCE=1 to re-inject)",
+                        entry.target_session_id
+                    );
+                    return Ok(InjectionResult {
+                        session_id: entry.target_session_id.clone(),
+                        resume_args: resume_args_for(canonical_target, &entry.target_session_id),
+                        message: format!(
+                            "Reused cached crossload of '{}' from {} into {}",
+                            session.name.as_deref().unwrap_or(&session.id),
+                            session.cli,
+                            canonical_target,
+                        ),
+                    });
+                } else {
+                    eprintln!(
+                        "Source session has been updated since last crossload; re-injecting into {}",
+                        canonical_target
+                    );
+                }
             }
-            // Cached target is gone; drop the stale entry and fall through.
+            // Cached target is gone or stale; drop the stale entry and fall through.
             index.remove(&session.cli, &session.id, canonical_target);
         }
     }
@@ -88,6 +97,7 @@ pub fn inject_session(
         canonical_target,
         result.session_id.clone(),
         target_path,
+        Some(session.updated_at.clone()),
     );
     if let Err(e) = crossload_index::save(&index) {
         eprintln!(
@@ -803,6 +813,14 @@ fn inject_into_opencode(
     ))
 }
 
+/// Soft cap on injected pi session size. Pi loads sessions via Node's
+/// `readFileSync(path, "utf8")`, which throws `ERR_STRING_TOO_LONG` past
+/// ~512 MB and OOMs the picker well before that. The cap also keeps
+/// the partial-UUID resolver fast — pi reads every file in the project
+/// dir to match a prefix, so one huge file can starve the rest.
+/// Tunable via `UNLEASH_PI_MAX_BYTES`.
+const PI_MAX_BYTES_DEFAULT: usize = 50 * 1024 * 1024;
+
 fn inject_into_pi(
     source: &SessionInfo,
     hub_records: &[HubRecord],
@@ -842,6 +860,15 @@ fn inject_into_pi(
         first.insert("timestamp".into(), serde_json::Value::String(ts.clone()));
         ts
     };
+
+    // Drop oldest records (after the header) until the serialized output fits
+    // pi's byte budget. Foreign source sessions can be hundreds of MB once
+    // converted — far past what pi can readFileSync at startup.
+    let max_bytes = std::env::var("UNLEASH_PI_MAX_BYTES")
+        .ok()
+        .and_then(|s| s.parse::<usize>().ok())
+        .unwrap_or(PI_MAX_BYTES_DEFAULT);
+    let dropped = trim_pi_lines_to_byte_budget(&mut pi_lines, max_bytes);
 
     // Regenerate the parentId chain: each non-session record gets a fresh id,
     // parentId links to the previous record's id (or null for the first).
@@ -890,18 +917,90 @@ fn inject_into_pi(
     );
 
     let target_path = output_path.to_string_lossy().to_string();
+    // Pass the full path as the resume handle. `pi --session <path|id>` accepts
+    // either, but pi's UUID resolver walks every file in the cwd's project dir
+    // to match a prefix — and any one outsized file crashes that walk with
+    // ERR_STRING_TOO_LONG, leaving freshly-injected sessions invisible. The
+    // path bypasses the walk entirely.
     Ok((
         InjectionResult {
-            session_id: session_id.clone(),
-            resume_args: vec!["--session".into(), session_id],
-            message: format!(
-                "Session '{}' from {} injected into Pi",
-                source.name.as_deref().unwrap_or(&source.id),
-                source.cli,
-            ),
+            session_id: target_path.clone(),
+            resume_args: vec!["--session".into(), target_path.clone()],
+            message: if dropped > 0 {
+                format!(
+                    "Session '{}' from {} injected into Pi ({} oldest records trimmed to fit {})",
+                    source.name.as_deref().unwrap_or(&source.id),
+                    source.cli,
+                    dropped,
+                    format_byte_budget(max_bytes),
+                )
+            } else {
+                format!(
+                    "Session '{}' from {} injected into Pi",
+                    source.name.as_deref().unwrap_or(&source.id),
+                    source.cli,
+                )
+            },
         },
         target_path,
     ))
+}
+
+fn format_byte_budget(bytes: usize) -> String {
+    const KB: usize = 1024;
+    const MB: usize = 1024 * KB;
+    if bytes >= MB {
+        format!("~{} MB", bytes / MB)
+    } else if bytes >= KB {
+        format!("~{} KB", bytes / KB)
+    } else {
+        format!("{bytes} B")
+    }
+}
+
+/// Drop oldest non-header records until the serialized output fits `max_bytes`.
+/// Always preserves index 0 (the session header). Returns the number of
+/// records removed from the middle of the list.
+fn trim_pi_lines_to_byte_budget(
+    lines: &mut Vec<serde_json::Value>,
+    max_bytes: usize,
+) -> usize {
+    if lines.len() < 2 {
+        return 0;
+    }
+
+    let sizes: Vec<usize> = lines
+        .iter()
+        .map(|v| serde_json::to_string(v).map(|s| s.len() + 1).unwrap_or(0))
+        .collect();
+    let total: usize = sizes.iter().sum();
+    if total <= max_bytes {
+        return 0;
+    }
+
+    let header_size = sizes[0];
+    let available = max_bytes.saturating_sub(header_size);
+
+    let mut acc = 0usize;
+    let mut keep_from = lines.len();
+    for i in (1..lines.len()).rev() {
+        let next = acc.saturating_add(sizes[i]);
+        if next > available {
+            break;
+        }
+        acc = next;
+        keep_from = i;
+    }
+
+    let dropped = keep_from.saturating_sub(1);
+    if dropped == 0 {
+        return 0;
+    }
+
+    let suffix: Vec<serde_json::Value> = lines.drain(keep_from..).collect();
+    lines.truncate(1);
+    lines.extend(suffix);
+    dropped
 }
 
 /// Read a usable session timestamp from a Pi session header, falling back to
@@ -1698,6 +1797,60 @@ mod tests {
             "2026-04-27T19:00:00.000Z",
             "populated timestamp must be preserved as-is"
         );
+    }
+
+    #[test]
+    fn test_trim_pi_lines_under_budget_keeps_everything() {
+        let mut lines: Vec<serde_json::Value> = (0..10)
+            .map(|i| serde_json::json!({"type": "message", "n": i}))
+            .collect();
+        lines.insert(0, serde_json::json!({"type": "session", "id": "h"}));
+        let before = lines.len();
+        let dropped = trim_pi_lines_to_byte_budget(&mut lines, 10 * 1024 * 1024);
+        assert_eq!(dropped, 0);
+        assert_eq!(lines.len(), before);
+    }
+
+    #[test]
+    fn test_trim_pi_lines_over_budget_drops_oldest_keeps_header_and_tail() {
+        // Header + 50 message records, each ~50 bytes serialized. Budget of
+        // ~600 bytes after the header should keep roughly the last 10 records.
+        let header = serde_json::json!({"type": "session", "id": "h"});
+        let mut lines = vec![header.clone()];
+        for i in 0..50 {
+            lines.push(serde_json::json!({
+                "type": "message",
+                "id": format!("rec-{i:05}"),
+                "parentId": null,
+                "message": {"role": "user", "content": [{"type":"text","text":"x"}]}
+            }));
+        }
+        let total: usize = lines
+            .iter()
+            .map(|v| serde_json::to_string(v).unwrap().len() + 1)
+            .sum();
+        let budget = total / 5; // keep roughly the last 20%
+        let dropped = trim_pi_lines_to_byte_budget(&mut lines, budget);
+        assert!(dropped > 0, "expected some records to be dropped");
+        // Header still present and unchanged
+        assert_eq!(lines[0], header, "header must be preserved as first line");
+        // Tail order preserved
+        let last = lines.last().unwrap();
+        assert_eq!(last["id"], "rec-00049");
+        // Total bytes now under budget
+        let new_total: usize = lines
+            .iter()
+            .map(|v| serde_json::to_string(v).unwrap().len() + 1)
+            .sum();
+        assert!(new_total <= budget, "post-trim {new_total} > budget {budget}");
+    }
+
+    #[test]
+    fn test_trim_pi_lines_single_line_no_op() {
+        let mut lines = vec![serde_json::json!({"type": "session"})];
+        let dropped = trim_pi_lines_to_byte_budget(&mut lines, 1);
+        assert_eq!(dropped, 0);
+        assert_eq!(lines.len(), 1);
     }
 
     #[test]

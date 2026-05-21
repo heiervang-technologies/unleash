@@ -62,14 +62,24 @@ pub fn find_session(query: &str) -> Option<SessionInfo> {
         discover_all()
     };
 
-    // Match by ID, name, slug, or title (case-insensitive partial match)
+    // Match precedence: exact id > id prefix > exact name > substring of id/title.
+    // Two-pass so an exact match in one CLI beats a fuzzy title-contains match
+    // in another — important for pi, whose discovered ids are <TIMESTAMP>_<UUID>
+    // and need substring matching to be resolvable by the UUID alone.
     let name_lower = name.to_lowercase();
-    sessions.into_iter().find(|s| {
+
+    if let Some(s) = sessions.iter().find(|s| {
         s.id.to_lowercase() == name_lower
             || s.id.to_lowercase().starts_with(&name_lower)
             || s.name
                 .as_ref()
                 .is_some_and(|n| n.to_lowercase() == name_lower)
+    }) {
+        return Some(s.clone());
+    }
+
+    sessions.into_iter().find(|s| {
+        s.id.to_lowercase().contains(&name_lower)
             || s.title
                 .as_ref()
                 .is_some_and(|t| t.to_lowercase().contains(&name_lower))
@@ -77,6 +87,16 @@ pub fn find_session(query: &str) -> Option<SessionInfo> {
 }
 
 // === Claude Code discovery ===
+
+/// True if a claude session file's stem identifies a rotated/backup variant
+/// rather than a live session. These appear under `.jsonl` extension but the
+/// stem retains the suffix, e.g. `<uuid>.archive`. Picking them up dumps stale
+/// (often hundreds of MB) history into the picker — and into pi if crossloaded.
+fn is_claude_backup_stem(stem: &str) -> bool {
+    stem.ends_with(".archive")
+        || stem.ends_with(".pre-compact-full")
+        || stem.ends_with(".pre-supercompact")
+}
 
 fn discover_claude() -> Vec<SessionInfo> {
     let mut sessions = Vec::new();
@@ -120,6 +140,10 @@ fn discover_claude() -> Vec<SessionInfo> {
                 .and_then(|s| s.to_str())
                 .unwrap_or("")
                 .to_string();
+
+            if is_claude_backup_stem(&session_id) {
+                continue;
+            }
 
             // Get modified time as updated_at
             let updated_at = file
@@ -450,6 +474,20 @@ mod tests {
         let sessions = discover_all();
         // We can't assert count since it depends on the machine; just verify no panic.
         let _ = sessions.len();
+    }
+
+    #[test]
+    fn test_is_claude_backup_stem() {
+        // Live session UUIDs should pass through.
+        assert!(!is_claude_backup_stem("8de7c62b-e0ba-4485-8af0-15b6912613a7"));
+        assert!(!is_claude_backup_stem(""));
+        // Rotated archive ID — must be skipped or pi crossload eats a 700MB file.
+        assert!(is_claude_backup_stem("8de7c62b-e0ba-4485-8af0-15b6912613a7.archive"));
+        // Pre-compact snapshots claude writes alongside the live file.
+        assert!(is_claude_backup_stem("abc.pre-compact-full"));
+        assert!(is_claude_backup_stem("abc.pre-supercompact"));
+        // Substring match isn't enough — must be a true suffix.
+        assert!(!is_claude_backup_stem("archive-but-not-suffix"));
     }
 
     #[test]
