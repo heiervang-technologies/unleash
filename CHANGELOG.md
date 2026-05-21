@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.37](https://github.com/heiervang-technologies/unleash/compare/v0.1.36...v0.1.37) (2026-05-21)
+
+
+### Features
+
+* **plugins:** add token-usage plugin for cross-CLI token tracking ([#193](https://github.com/heiervang-technologies/unleash/issues/193)) ([cf2fe70](https://github.com/heiervang-technologies/unleash/commit/cf2fe70e1f61e2108100e933895aaa70919e916b))
+
 ## [0.1.36](https://github.com/heiervang-technologies/unleash/compare/v0.1.35...v0.1.36) (2026-05-19)
 
 
