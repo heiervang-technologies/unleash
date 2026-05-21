@@ -1,0 +1,44 @@
+{
+  "name": "token-usage",
+  "description": "Track token usage across all agent CLIs (Claude, Codex, Gemini, OpenCode, Pi) — multiple collection methods, toggleable",
+  "version": "0.1.0",
+  "author": {
+    "name": "Heiervang Technologies",
+    "email": "support@heiervang.com"
+  },
+  "settings": {
+    "method_session_tail": {
+      "type": "boolean",
+      "default": true,
+      "label": "Method: Stop-hook session tail",
+      "description": "After each Claude turn, read the assistant message's usage field from the transcript JSONL and append to the local log. Live, zero-config, no API keys required."
+    },
+    "method_session_scan": {
+      "type": "boolean",
+      "default": true,
+      "label": "Method: On-demand session scan",
+      "description": "When the report is run, walk every CLI's session files (claude/codex/gemini/opencode/pi) and aggregate usage. Catches everything the hook can't (other CLIs, prior sessions)."
+    },
+    "method_provider_api": {
+      "type": "boolean",
+      "default": false,
+      "label": "Method: Anthropic admin API (opt-in)",
+      "description": "Query the Anthropic admin usage endpoint for ground-truth billing data. Requires ANTHROPIC_ADMIN_KEY in the environment. v0.1 stores the toggle only; periodic polling will land in a follow-up."
+    },
+    "estimate_cost_usd": {
+      "type": "boolean",
+      "default": true,
+      "label": "Estimate USD cost",
+      "description": "Apply published per-model price tables (input/output/cache) to convert tokens into approximate USD. Estimates only — not billing-accurate."
+    },
+    "data_retention_days": {
+      "type": "integer",
+      "min": 1,
+      "max": 365,
+      "step": 1,
+      "default": 90,
+      "label": "Retain history (days)",
+      "description": "Records older than N days are pruned on each report run."
+    }
+  }
+}

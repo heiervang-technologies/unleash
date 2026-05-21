@@ -1,0 +1,15 @@
+{
+  "description": "Stop hook: log assistant token usage from the active session transcript",
+  "hooks": {
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "${CLAUDE_PLUGIN_ROOT}/hooks-handlers/token-usage-stop.sh"
+          }
+        ]
+      }
+    ]
+  }
+}
