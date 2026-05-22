@@ -115,6 +115,53 @@ jobs:
             exit 1
           fi
 
+      - name: Build CUDA variant
+        run: |
+          docker build -f docker/Dockerfile.cuda \
+            --label "org.opencontainers.image.version=${{ steps.meta.outputs.version }}" \
+            --label "org.opencontainers.image.source=https://github.com/heiervang-technologies/unleash" \
+            -t unleash:cuda-local .
+
+      - name: Verify CUDA variant CLIs
+        run: |
+          FAILED=0
+
+          for cli in claude codex gemini opencode pi; do
+            echo -n "  $cli: "
+            VERSION=$(docker run --rm unleash:cuda-local $cli --version 2>&1 | grep -iE '[0-9]+\.[0-9]+' | head -1) || true
+            if [ -n "$VERSION" ]; then
+              echo "$VERSION"
+            else
+              echo "FAILED"
+              docker run --rm unleash:cuda-local $cli --version 2>&1 || true
+              FAILED=1
+            fi
+          done
+
+          echo -n "  PyTorch: "
+          PYTORCH_VERSION=$(docker run --rm unleash:cuda-local python3 -c "import torch; print(torch.__version__)" 2>&1) || true
+          if [ -n "$PYTORCH_VERSION" ]; then
+            echo "$PYTORCH_VERSION"
+          else
+            echo "FAILED"
+            FAILED=1
+          fi
+
+          echo -n "  unleash: "
+          VERSION=$(docker run --rm unleash:cuda-local --version 2>&1 | grep -iE '[0-9]+\.[0-9]+' | head -1) || true
+          if [ -n "$VERSION" ]; then
+            echo "$VERSION"
+          else
+            echo "FAILED"
+            docker run --rm unleash:cuda-local --version 2>&1 || true
+            FAILED=1
+          fi
+
+          if [ "$FAILED" -eq 1 ]; then
+            echo "CUDA variant CLI verification failed — not pushing cuda tag"
+            exit 1
+          fi
+
       - name: Tag and push
         if: github.event_name != 'pull_request'
         env:
@@ -125,7 +172,27 @@ jobs:
             docker tag unleash:local "$tag"
             docker push "$tag"
             echo "Pushed: $tag"
+
+            # Also push CUDA variant with +cuda suffix
+            CUDA_TAG="${tag}-cuda"
+            docker tag unleash:cuda-local "$CUDA_TAG"
+            docker push "$CUDA_TAG"
+            echo "Pushed: $CUDA_TAG"
           done
+
+          # Push standalone :cuda tag for the CUDA variant
+          if [[ "${{ github.event_name }}" == "release" ]]; then
+            VERSION="${{ steps.meta.outputs.version }}"
+            for T in "marksverdhei/unleash:cuda" "marksverdhei/unleash:v${VERSION}-cuda"; do
+              docker tag unleash:cuda-local "$T"
+              docker push "$T"
+              echo "Pushed: $T"
+            done
+          else
+            docker tag unleash:cuda-local "marksverdhei/unleash:cuda"
+            docker push "marksverdhei/unleash:cuda"
+            echo "Pushed: marksverdhei/unleash:cuda"
+          fi
 
       - name: Summary
         env:
@@ -137,7 +204,7 @@ jobs:
             {
               echo "## Docker Publish (dry-run)"
               echo "- Version: $VERSION"
-              echo "- Would-be tags: $TAGS"
+              echo "- Would-be tags: $TAGS + cuda variants"
               echo "- Push skipped: pull_request event"
             } >> "$GITHUB_STEP_SUMMARY"
           else
@@ -145,11 +212,12 @@ jobs:
               echo "## Docker Image Published"
               echo "- Version: $VERSION"
               echo "- Tags: $TAGS"
+              echo "- CUDA tags: marksverdhei/unleash:cuda, marksverdhei/unleash:v${VERSION}-cuda"
             } >> "$GITHUB_STEP_SUMMARY"
           fi
 
       - name: Cleanup
         if: always()
         run: |
-          docker rmi unleash:local 2>/dev/null || true
+          docker rmi unleash:local unleash:cuda-local 2>/dev/null || true
           docker builder prune -f --filter "until=1h" 2>/dev/null || true

@@ -1,0 +1,39 @@
+# Override: CUDA GPU passthrough for nvidia containers (requires runc and nvidia-container-toolkit)
+#
+# Usage:
+#   docker compose -f docker/docker-compose.yml -f docker/docker-compose.cuda.yml run --rm claude
+#
+# Build the CUDA image first:
+#   docker compose -f docker/docker-compose.yml -f docker/docker-compose.cuda.yml build
+#
+# Multi-agent + CUDA:
+#   docker compose -f docker/docker-compose.yml -f docker/docker-compose.cuda.yml \
+#     -f docker/docker-compose.multi-agent.yml up claude codex
+#
+# Prerequisites:
+#   - nvidia-container-toolkit installed and configured
+#   - runc runtime (not gVisor — gVisor cannot expose GPU devices)
+
+x-gpu: &gpu
+  runtime: nvidia
+  environment:
+    - NVIDIA_VISIBLE_DEVICES=all
+    - CUDA_HOME=/usr/local/cuda-12
+
+services:
+  unleash:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.cuda
+    image: marksverdhei/unleash:cuda
+    <<: *gpu
+  claude:
+    <<: *gpu
+  codex:
+    <<: *gpu
+  gemini:
+    <<: *gpu
+  opencode:
+    <<: *gpu
+  pi:
+    <<: *gpu

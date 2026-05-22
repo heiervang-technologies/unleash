@@ -111,6 +111,59 @@ Mount your API keys and config directory into the container. The compose files
 handle this by default -- check `docker/docker-compose.yml` for the volume
 mappings and adjust paths as needed.
 
+## CUDA / GPU Cloud
+
+For GPU workloads (AI training, inference), use the CUDA variant:
+
+```bash
+docker run --gpus all -it --rm marksverdhei/unleash:cuda
+```
+
+This image adds CUDA 12.8 toolkit, PyTorch with GPU support, and Python 3 on
+top of the standard unleash image with all agent CLIs.
+
+### Build Locally
+
+```bash
+docker build -f docker/Dockerfile.cuda -t marksverdhei/unleash:cuda .
+```
+
+### Docker Compose with GPU
+
+```bash
+docker compose \
+  -f docker/docker-compose.yml \
+  -f docker/docker-compose.cuda.yml \
+  run --rm claude
+```
+
+> **Note:** GPU passthrough requires `nvidia-container-toolkit` and the `runc`
+> runtime. gVisor cannot expose GPU devices — do not combine with
+> `docker-compose.gpu.yml` (Vulkan) or gVisor overrides.
+
+### Vast.ai Deployment
+
+A setup script creates a Vast.ai template from the CUDA image:
+
+```bash
+export VAST_API_KEY="your-key"
+bash docker/setup-vast-template.sh
+```
+
+This creates a template with SSH + Jupyter access. Then launch instances:
+
+```bash
+vastai search offers 'gpu_ram>=24 cuda_vers>=12.0' --limit 5
+vastai create instance <template-id> <offer-id> --disk 50
+```
+
+Inside the instance, all agent CLIs and PyTorch are ready:
+
+```bash
+unleash claude                                    # start coding
+python3 -c "import torch; print(torch.cuda.is_available())"  # verify GPU
+```
+
 ## Further Reading
 
 - [docker/README.md](../docker/README.md) -- full Docker reference
