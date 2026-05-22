@@ -812,7 +812,7 @@ pub mod mascots {
     pub fn full_art(agent: &str) -> &'static str {
         match agent {
             "codex" => ART_CODEX,
-            "gemini" | "gemini-cli" => ART_GEMINI,
+            "gemini" | "gemini-cli" | "antigravity" | "antigravity-cli" | "agy" => ART_GEMINI,
             "opencode" => ART_OPENCODE,
             // "jules" => ART_JULES,
             _ => ART_CLAUDE,
@@ -900,8 +900,18 @@ pub mod mascots {
         max_lines: usize,
         gradient: &crate::theme::GradientTheme,
     ) -> Vec<RatatuiLine<'static>> {
+        to_ratatui_gradient_with_width(art, max_lines, gradient, crate::pixel_art::mascots::HALF_WIDTH)
+    }
+
+    /// Helper: parse with diagonal gradient and custom width
+    #[cfg(feature = "tui")]
+    fn to_ratatui_gradient_with_width(
+        art: &str,
+        max_lines: usize,
+        gradient: &crate::theme::GradientTheme,
+        width: usize,
+    ) -> Vec<RatatuiLine<'static>> {
         let height = art.lines().count();
-        let width = crate::pixel_art::mascots::HALF_WIDTH;
         let all_lines = super::parse_ansi_to_ratatui_gradient(art, gradient, width, height);
         all_lines
             .into_iter()
@@ -935,6 +945,15 @@ pub mod mascots {
         to_ratatui_themed(&right_half(agent), max_lines, shift)
     }
 
+    #[cfg(feature = "tui")]
+    pub fn right_ratatui_gradient(
+        agent: &str,
+        max_lines: usize,
+        gradient: &crate::theme::GradientTheme,
+    ) -> Vec<RatatuiLine<'static>> {
+        to_ratatui_gradient(&right_half(agent), max_lines, gradient)
+    }
+
     // --- Agent-aware ratatui rendering (left half) ---
 
     #[cfg(feature = "tui")]
@@ -960,6 +979,15 @@ pub mod mascots {
         to_ratatui_themed(&left_half(agent), max_lines, shift)
     }
 
+    #[cfg(feature = "tui")]
+    pub fn left_ratatui_gradient(
+        agent: &str,
+        max_lines: usize,
+        gradient: &crate::theme::GradientTheme,
+    ) -> Vec<RatatuiLine<'static>> {
+        to_ratatui_gradient(&left_half(agent), max_lines, gradient)
+    }
+
     // --- Agent-aware ratatui rendering (full) ---
 
     #[cfg(feature = "tui")]
@@ -974,6 +1002,15 @@ pub mod mascots {
         shift: crate::theme::ThemeShift,
     ) -> Vec<RatatuiLine<'static>> {
         to_ratatui_themed(full_art(agent), max_lines, shift)
+    }
+
+    #[cfg(feature = "tui")]
+    pub fn full_ratatui_gradient(
+        agent: &str,
+        max_lines: usize,
+        gradient: &crate::theme::GradientTheme,
+    ) -> Vec<RatatuiLine<'static>> {
+        to_ratatui_gradient_with_width(full_art(agent), max_lines, gradient, HALF_WIDTH * 2)
     }
 
     // --- Legacy claude-specific aliases (kept for backward compat) ---

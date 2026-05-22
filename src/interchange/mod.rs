@@ -46,7 +46,7 @@ impl std::str::FromStr for CliFormat {
         match s {
             "claude" | "claude-code" => Ok(Self::ClaudeCode),
             "codex" => Ok(Self::Codex),
-            "gemini" | "gemini-cli" | "antigravity" | "antigravity-cli" => Ok(Self::GeminiCli),
+            "gemini" | "gemini-cli" | "antigravity" | "antigravity-cli" | "agy" => Ok(Self::GeminiCli),
             "opencode" => Ok(Self::OpenCode),
             "pi" | "pi-coding-agent" => Ok(Self::Pi),
             "ucf" | "hub" => Ok(Self::Ucf),
@@ -121,7 +121,7 @@ pub fn convert_command(
             let reader = BufReader::new(input_data.as_bytes());
             codex::to_hub(reader)?
         }
-        "gemini" | "gemini-cli" | "antigravity" | "antigravity-cli" => {
+        "gemini" | "gemini-cli" | "antigravity" | "antigravity-cli" | "agy" => {
             gemini::to_hub(input_data.as_bytes())?
         }
         "pi" | "pi-coding-agent" => {
@@ -168,7 +168,7 @@ pub fn convert_command(
             "claude" | "claude-code" => claude::from_hub(&hub_records)?,
             "codex" => codex::from_hub(&hub_records)?,
             "pi" | "pi-coding-agent" => pi::from_hub(&hub_records)?,
-            "gemini" | "gemini-cli" | "antigravity" | "antigravity-cli" => {
+            "gemini" | "gemini-cli" | "antigravity" | "antigravity-cli" | "agy" => {
                 let back_val = gemini::from_hub(&hub_records)?;
                 // Gemini is a single JSON file, compare the whole object
                 let orig_val: serde_json::Value = serde_json::from_str(&input_data)?;
@@ -273,7 +273,7 @@ pub fn convert_command(
             "claude" | "claude-code" => claude::from_hub(&hub_records)?,
             "codex" => codex::from_hub(&hub_records)?,
             "pi" | "pi-coding-agent" => pi::from_hub(&hub_records)?,
-            "gemini" | "gemini-cli" | "antigravity" | "antigravity-cli" => {
+            "gemini" | "gemini-cli" | "antigravity" | "antigravity-cli" | "agy" => {
                 let val = gemini::from_hub(&hub_records)?;
                 let json = serde_json::to_string_pretty(&val)?;
                 match output {

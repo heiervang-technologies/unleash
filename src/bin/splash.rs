@@ -50,11 +50,7 @@ fn agents() -> Vec<Agent> {
         },
         Agent {
             name: "antigravity",
-            theme: AgentTheme::Gradient(unleash::theme::GradientTheme::new(&[
-                (0x9b, 0x51, 0xe0), // purple
-                (0x30, 0x80, 0xe0), // futuristic blue
-                (0x00, 0xc2, 0xff), // neon cyan/teal
-            ])),
+            theme: AgentTheme::Gradient(unleash::theme::GradientTheme::antigravity()),
             accent: Color::Rgb(0x30, 0x80, 0xe0),
         },
         Agent {

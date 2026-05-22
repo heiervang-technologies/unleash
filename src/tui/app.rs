@@ -4099,15 +4099,15 @@ impl App {
             };
 
             let max_lines = figure_rect.height as usize;
-            let agent = self.app_config.current_profile.as_str();
+            let agent_type = self.selected_profile.as_ref().and_then(|p| p.agent_type());
+            let mascot_name = agent_type.as_ref().map(|t| t.mascot_name()).unwrap_or("claude");
             let shift = self.theme_color.theme_shift();
-            let art_lines: Vec<Line> = if self.is_gemini_profile() {
-                let gradient = crate::theme::GradientTheme::gemini();
-                mascots::unleashed_claude_full_ratatui_gradient(max_lines, &gradient)
+            let art_lines: Vec<Line> = if let Some(gradient) = self.profile_gradient() {
+                mascots::full_ratatui_gradient(mascot_name, max_lines, &gradient)
             } else if !shift.is_identity() {
-                mascots::full_ratatui_themed(agent, max_lines, shift)
+                mascots::full_ratatui_themed(mascot_name, max_lines, shift)
             } else {
-                mascots::full_ratatui(agent, max_lines)
+                mascots::full_ratatui(mascot_name, max_lines)
             };
             let art_widget = Paragraph::new(art_lines).scroll((0, scroll_x));
             frame.render_widget(art_widget, figure_rect);
@@ -4188,29 +4188,32 @@ impl App {
         }
     }
 
-    /// Check if the current profile is a Gemini agent (uses gradient)
-    fn is_gemini_profile(&self) -> bool {
-        self.selected_profile
-            .as_ref()
-            .and_then(|p| p.agent_type())
-            .is_some_and(|t| t == crate::agents::AgentType::Gemini)
+
+    /// Get the gradient theme for the current profile if it uses a gradient
+    fn profile_gradient(&self) -> Option<crate::theme::GradientTheme> {
+        let t = self.selected_profile.as_ref().and_then(|p| p.agent_type())?;
+        match t {
+            crate::agents::AgentType::Gemini => Some(crate::theme::GradientTheme::gemini()),
+            crate::agents::AgentType::Antigravity => Some(crate::theme::GradientTheme::antigravity()),
+            _ => None,
+        }
     }
 
     fn render_art_sidebar(&self, frame: &mut Frame, area: Rect) {
         // Render mascot ANSI art (right-facing) for the current agent profile
         // Lava lamp mode is an easter egg triggered by Konami code (idea by cac taurus)
         let max_lines = area.height as usize;
-        let agent = self.app_config.current_profile.as_str();
+        let agent_type = self.selected_profile.as_ref().and_then(|p| p.agent_type());
+        let mascot_name = agent_type.as_ref().map(|t| t.mascot_name()).unwrap_or("claude");
         let shift = self.theme_color.theme_shift();
         let art_lines: Vec<Line> = if self.lava_mode {
-            mascots::right_ratatui_lava(agent, max_lines, self.animation_frame)
-        } else if self.is_gemini_profile() {
-            let gradient = crate::theme::GradientTheme::gemini();
-            mascots::unleashed_claude_ratatui_gradient(max_lines, &gradient)
+            mascots::right_ratatui_lava(mascot_name, max_lines, self.animation_frame)
+        } else if let Some(gradient) = self.profile_gradient() {
+            mascots::right_ratatui_gradient(mascot_name, max_lines, &gradient)
         } else if !shift.is_identity() {
-            mascots::right_ratatui_themed(agent, max_lines, shift)
+            mascots::right_ratatui_themed(mascot_name, max_lines, shift)
         } else {
-            mascots::right_ratatui(agent, max_lines)
+            mascots::right_ratatui(mascot_name, max_lines)
         };
         let art_widget = Paragraph::new(art_lines);
         frame.render_widget(art_widget, area);
@@ -4220,17 +4223,17 @@ impl App {
         // Render mascot ANSI art (left-facing) for the current agent profile
         // Lava lamp mode is an easter egg triggered by Konami code (idea by cac taurus)
         let max_lines = area.height as usize;
-        let agent = self.app_config.current_profile.as_str();
+        let agent_type = self.selected_profile.as_ref().and_then(|p| p.agent_type());
+        let mascot_name = agent_type.as_ref().map(|t| t.mascot_name()).unwrap_or("claude");
         let shift = self.theme_color.theme_shift();
         let art_lines: Vec<Line> = if self.lava_mode {
-            mascots::left_ratatui_lava(agent, max_lines, self.animation_frame)
-        } else if self.is_gemini_profile() {
-            let gradient = crate::theme::GradientTheme::gemini();
-            mascots::unleashed_claude_left_ratatui_gradient(max_lines, &gradient)
+            mascots::left_ratatui_lava(mascot_name, max_lines, self.animation_frame)
+        } else if let Some(gradient) = self.profile_gradient() {
+            mascots::left_ratatui_gradient(mascot_name, max_lines, &gradient)
         } else if !shift.is_identity() {
-            mascots::left_ratatui_themed(agent, max_lines, shift)
+            mascots::left_ratatui_themed(mascot_name, max_lines, shift)
         } else {
-            mascots::left_ratatui(agent, max_lines)
+            mascots::left_ratatui(mascot_name, max_lines)
         };
         let art_widget = Paragraph::new(art_lines);
         frame.render_widget(art_widget, area);

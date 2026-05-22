@@ -55,8 +55,14 @@ pub fn get_versions_file_path() -> PathBuf {
 /// Returns a map of agent key -> list of version strings (newest first).
 pub fn load_embedded_versions() -> HashMap<String, Vec<String>> {
     let path = get_versions_file_path();
-    let content = std::fs::read_to_string(&path).unwrap_or_else(|_| "{}".to_string());
-    let parsed: serde_json::Value = serde_json::from_str(&content).unwrap_or_default();
+    let content = std::fs::read_to_string(&path).unwrap_or_else(|_| "".to_string());
+    let parsed_disk: serde_json::Value = if content.trim().is_empty() {
+        serde_json::Value::Null
+    } else {
+        serde_json::from_str(&content).unwrap_or(serde_json::Value::Null)
+    };
+    let parsed_fallback: serde_json::Value = serde_json::from_str(include_str!("../data/versions.json")).unwrap_or_default();
+
     let mut map = HashMap::new();
     for key in &[
         "claude",
@@ -67,13 +73,22 @@ pub fn load_embedded_versions() -> HashMap<String, Vec<String>> {
         "pi",
         "hermes",
     ] {
-        if let Some(arr) = parsed.get(key).and_then(|v| v.as_array()) {
-            let versions: Vec<String> = arr
+        let mut versions: Vec<String> = Vec::new();
+        if let Some(arr) = parsed_disk.get(key).and_then(|v| v.as_array()) {
+            versions = arr
                 .iter()
                 .filter_map(|v| v.as_str().map(String::from))
                 .collect();
-            map.insert(key.to_string(), versions);
         }
+        if versions.is_empty() {
+            if let Some(arr) = parsed_fallback.get(key).and_then(|v| v.as_array()) {
+                versions = arr
+                    .iter()
+                    .filter_map(|v| v.as_str().map(String::from))
+                    .collect();
+            }
+        }
+        map.insert(key.to_string(), versions);
     }
     map
 }
@@ -699,6 +714,13 @@ impl VersionManager {
         }
 
         if versions.is_empty() {
+            // Fallback to embedded versions
+            let embedded = load_embedded_versions();
+            if let Some(v_list) = embedded.get("claude") {
+                if !v_list.is_empty() {
+                    return Ok(v_list.clone());
+                }
+            }
             return Err(io::Error::other(
                 "Failed to query available versions from GCS and npm",
             ));
@@ -931,7 +953,8 @@ impl VersionManager {
 
     /// Get available Codex versions from GitHub releases (tags matching rust-v*)
     pub fn get_codex_available_versions(&self) -> io::Result<Vec<String>> {
-        let output = Command::new("gh")
+        let mut versions = Vec::new();
+        if let Ok(output) = Command::new("gh")
             .args([
                 "api",
                 "repos/openai/codex/tags",
@@ -939,26 +962,37 @@ impl VersionManager {
                 "--jq",
                 ".[].name",
             ])
-            .output()?;
-
-        if output.status.success() {
-            let tag_output = String::from_utf8_lossy(&output.stdout);
-            let mut versions: Vec<String> = tag_output
-                .lines()
-                .filter(|line| line.starts_with("rust-v"))
-                .filter(|line| !line.contains("alpha"))
-                .map(|line| line.trim_start_matches("rust-v").to_string())
-                .filter(|v| !v.is_empty() && v.starts_with(|c: char| c.is_ascii_digit()))
-                .collect();
-            // Sort newest first, then take top 20
-            versions.sort_by(|a, b| version_compare(b, a));
-            versions.truncate(20);
-            Ok(versions)
-        } else {
-            Err(io::Error::other(
-                "Failed to query GitHub releases for Codex",
-            ))
+            .output()
+        {
+            if output.status.success() {
+                let tag_output = String::from_utf8_lossy(&output.stdout);
+                versions = tag_output
+                    .lines()
+                    .filter(|line| line.starts_with("rust-v"))
+                    .filter(|line| !line.contains("alpha"))
+                    .map(|line| line.trim_start_matches("rust-v").to_string())
+                    .filter(|v| !v.is_empty() && v.starts_with(|c: char| c.is_ascii_digit()))
+                    .collect();
+            }
         }
+
+        if versions.is_empty() {
+            // Fallback to embedded versions
+            let embedded = load_embedded_versions();
+            if let Some(v_list) = embedded.get("codex") {
+                if !v_list.is_empty() {
+                    return Ok(v_list.clone());
+                }
+            }
+            return Err(io::Error::other(
+                "Failed to query GitHub releases for Codex",
+            ));
+        }
+
+        // Sort newest first, then take top 20
+        versions.sort_by(|a, b| version_compare(b, a));
+        versions.truncate(20);
+        Ok(versions)
     }
 
     /// Get combined Codex version list with status
@@ -1077,7 +1111,19 @@ impl VersionManager {
 
     /// Get available Gemini CLI versions from npm registry
     pub fn get_gemini_available_versions(&self) -> io::Result<Vec<String>> {
-        Self::query_npm_registry_versions("@google/gemini-cli", 20)
+        let res = Self::query_npm_registry_versions("@google/gemini-cli", 20);
+        match res {
+            Ok(versions) if !versions.is_empty() => Ok(versions),
+            _ => {
+                let embedded = load_embedded_versions();
+                if let Some(v_list) = embedded.get("gemini") {
+                    if !v_list.is_empty() {
+                        return Ok(v_list.clone());
+                    }
+                }
+                Err(io::Error::other("Failed to query available versions for Gemini CLI"))
+            }
+        }
     }
 
     /// Get combined Gemini CLI version list with status
@@ -1139,7 +1185,19 @@ impl VersionManager {
 
     /// Get available Pi versions from npm registry
     pub fn get_pi_available_versions(&self) -> io::Result<Vec<String>> {
-        Self::query_npm_registry_versions("@mariozechner/pi-coding-agent", 20)
+        let res = Self::query_npm_registry_versions("@mariozechner/pi-coding-agent", 20);
+        match res {
+            Ok(versions) if !versions.is_empty() => Ok(versions),
+            _ => {
+                let embedded = load_embedded_versions();
+                if let Some(v_list) = embedded.get("pi") {
+                    if !v_list.is_empty() {
+                        return Ok(v_list.clone());
+                    }
+                }
+                Err(io::Error::other("Failed to query available versions for Pi"))
+            }
+        }
     }
 
     /// Get combined Pi version list with status
@@ -1177,10 +1235,20 @@ impl VersionManager {
     /// for `opencode-ai/opencode` use a different versioning scheme (0.0.x) and
     /// should not be mixed with npm versions (1.x.x).
     pub fn get_opencode_available_versions(&self) -> io::Result<Vec<String>> {
-        let mut versions = Self::query_npm_registry_versions("opencode-ai", 20)?;
-        versions.retain(|s| s.starts_with(|c: char| c.is_ascii_digit()));
+        let mut versions = Vec::new();
+        if let Ok(mut v) = Self::query_npm_registry_versions("opencode-ai", 20) {
+            v.retain(|s| s.starts_with(|c: char| c.is_ascii_digit()));
+            versions = v;
+        }
 
         if versions.is_empty() {
+            // Fallback to embedded versions
+            let embedded = load_embedded_versions();
+            if let Some(v_list) = embedded.get("opencode") {
+                if !v_list.is_empty() {
+                    return Ok(v_list.clone());
+                }
+            }
             return Err(io::Error::other(
                 "Failed to query available versions for OpenCode",
             ));

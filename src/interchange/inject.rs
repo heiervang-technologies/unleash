@@ -81,7 +81,7 @@ pub fn inject_session(
     let (result, target_path) = match target_cli {
         "claude" | "claude-code" => inject_into_claude(&session, &hub_records)?,
         "codex" => inject_into_codex(&session, &hub_records)?,
-        "gemini" | "gemini-cli" | "antigravity" | "antigravity-cli" => {
+        "gemini" | "gemini-cli" | "antigravity" | "antigravity-cli" | "agy" => {
             inject_into_gemini(&session, &hub_records)?
         }
         "opencode" => inject_into_opencode(&session, &hub_records)?,
@@ -115,7 +115,7 @@ fn normalize_target_cli(target: &str) -> &str {
         "claude" | "claude-code" => "claude",
         "codex" => "codex",
         "gemini" | "gemini-cli" => "gemini",
-        "antigravity" | "antigravity-cli" => "gemini", // Map to gemini since they share storage layout and resume strategy
+        "antigravity" | "antigravity-cli" | "agy" => "gemini", // Map to gemini since they share storage layout and resume strategy
         "opencode" => "opencode",
         "pi" | "pi-coding-agent" => "pi",
         other => other,
@@ -127,7 +127,7 @@ fn resume_args_for(target: &str, session_id: &str) -> Vec<String> {
         "claude" | "claude-code" => crate::agents::AgentType::Claude,
         "codex" => crate::agents::AgentType::Codex,
         "gemini" | "gemini-cli" => crate::agents::AgentType::Gemini,
-        "antigravity" | "antigravity-cli" => crate::agents::AgentType::Antigravity,
+        "antigravity" | "antigravity-cli" | "agy" => crate::agents::AgentType::Antigravity,
         "opencode" => crate::agents::AgentType::OpenCode,
         "pi" | "pi-coding-agent" => crate::agents::AgentType::Pi,
         _ => crate::agents::AgentType::Custom(target.to_string()),
@@ -149,7 +149,7 @@ pub fn source_to_hub(session: &SessionInfo) -> Result<Vec<HubRecord>, ConvertErr
             let reader = std::io::BufReader::new(data.as_bytes());
             codex::to_hub(reader)
         }
-        "gemini" | "antigravity" => {
+        "gemini" | "antigravity" | "agy" => {
             let data = std::fs::read(&session.path)?;
             gemini::to_hub(&data)
         }

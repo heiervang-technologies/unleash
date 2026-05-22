@@ -110,7 +110,7 @@ fn resolve_target_binary(target_cli: &str) -> String {
     let canonical = match target_cli {
         "claude" | "claude-code" => Some(AgentType::Claude),
         "codex" => Some(AgentType::Codex),
-        "antigravity" | "antigravity-cli" => Some(AgentType::Antigravity),
+        "antigravity" | "antigravity-cli" | "agy" => Some(AgentType::Antigravity),
         "gemini" | "gemini-cli" => Some(AgentType::Gemini),
         "opencode" => Some(AgentType::OpenCode),
         "pi" | "pi-coding-agent" => Some(AgentType::Pi),
@@ -261,7 +261,9 @@ fn run_agent_with_polyfill(
         }
     })?;
 
-    ensure_profile_cli_available(&profile.name, &profile.agent_cli_path)?;
+    if !polyfill_args.dry_run {
+        ensure_profile_cli_available(&profile.name, &profile.agent_cli_path)?;
+    }
 
     let mut app_config = manager.load_app_config().unwrap_or_default();
     if app_config.current_profile != profile.name {
@@ -549,7 +551,7 @@ pub fn run() -> io::Result<()> {
             let target_cli = match first_arg {
                 "claude" | "claude-code" => "claude",
                 "codex" => "codex",
-                "antigravity" | "antigravity-cli" => "antigravity",
+                "antigravity" | "antigravity-cli" | "agy" => "antigravity",
                 "gemini" | "gemini-cli" => "gemini",
                 "opencode" => "opencode",
                 "pi" => "pi",

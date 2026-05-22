@@ -69,12 +69,26 @@ impl AgentType {
         match s.to_lowercase().as_str() {
             "claude" | "claude-code" => Some(AgentType::Claude),
             "codex" => Some(AgentType::Codex),
-            "antigravity" | "antigravity-cli" => Some(AgentType::Antigravity),
+            "antigravity" | "antigravity-cli" | "agy" => Some(AgentType::Antigravity),
             "gemini" | "gemini-cli" => Some(AgentType::Gemini),
             "opencode" | "open-code" => Some(AgentType::OpenCode),
             "pi" | "pi-coding-agent" => Some(AgentType::Pi),
             "hermes" | "hermes-agent" => Some(AgentType::Hermes),
             _ => None,
+        }
+    }
+
+    /// Cleanly map each agent type to its mascot file key name
+    pub fn mascot_name(&self) -> &'static str {
+        match self {
+            AgentType::Claude => "claude",
+            AgentType::Codex => "codex",
+            AgentType::Antigravity => "antigravity",
+            AgentType::Gemini => "gemini",
+            AgentType::OpenCode => "opencode",
+            AgentType::Pi => "pi",
+            AgentType::Hermes => "hermes",
+            AgentType::Custom(_) => "claude",
         }
     }
 }

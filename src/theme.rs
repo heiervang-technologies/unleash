@@ -288,6 +288,15 @@ impl GradientTheme {
             (0xC3, 0x67, 0x7F), // #C3677F pink
         ])
     }
+
+    /// The Antigravity CLI gradient: purple → futuristic blue → neon cyan/teal
+    pub fn antigravity() -> Self {
+        Self::new(&[
+            (0x9b, 0x51, 0xe0), // purple
+            (0x30, 0x80, 0xe0), // futuristic blue
+            (0x00, 0xc2, 0xff), // neon cyan/teal
+        ])
+    }
 }
 
 /// Transform a color using a diagonal gradient.
