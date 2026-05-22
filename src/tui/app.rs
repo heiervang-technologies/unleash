@@ -271,6 +271,7 @@ pub fn resolve_agent_binary_path(
     let binary = match agent {
         AgentType::Claude => AgentDefinition::claude().binary,
         AgentType::Codex => AgentDefinition::codex().binary,
+        AgentType::Antigravity => AgentDefinition::antigravity().binary,
         AgentType::Gemini => AgentDefinition::gemini().binary,
         AgentType::OpenCode => AgentDefinition::opencode().binary,
         AgentType::Pi => AgentDefinition::pi().binary,
@@ -884,6 +885,7 @@ impl App {
         let agent_keys: &[(&str, AgentType)] = &[
             ("claude", AgentType::Claude),
             ("codex", AgentType::Codex),
+            ("antigravity", AgentType::Antigravity),
             ("gemini", AgentType::Gemini),
             ("opencode", AgentType::OpenCode),
             ("pi", AgentType::Pi),
@@ -916,6 +918,7 @@ impl App {
             if let Ok(mut mgr) = AgentManager::new() {
                 for agent_type in &[
                     AgentType::Codex,
+                    AgentType::Antigravity,
                     AgentType::Gemini,
                     AgentType::OpenCode,
                     AgentType::Pi,
@@ -1456,6 +1459,14 @@ impl App {
                     let versions = vm.get_codex_version_list(installed.as_deref());
                     let conflicts = vm.detect_conflicts("codex");
                     let _ = tx.send((AgentType::Codex, versions, conflicts));
+                });
+            }
+            AgentType::Antigravity => {
+                thread::spawn(move || {
+                    let vm = VersionManager::new();
+                    let versions = vm.get_antigravity_version_list(installed.as_deref());
+                    let conflicts = vm.detect_conflicts("antigravity");
+                    let _ = tx.send((AgentType::Antigravity, versions, conflicts));
                 });
             }
             AgentType::Gemini => {
@@ -2528,6 +2539,9 @@ impl App {
                             AgentType::Gemini => {
                                 vm.install_gemini_version_streaming(&version, log_tx)
                             }
+                            AgentType::Antigravity => {
+                                vm.install_antigravity_version_streaming(&version, log_tx)
+                            }
                             AgentType::OpenCode => {
                                 vm.install_opencode_version_streaming(&version, log_tx)
                             }
@@ -2598,6 +2612,7 @@ impl App {
                     AgentType::Claude => "claude",
                     AgentType::Codex => "codex",
                     AgentType::Gemini => "gemini",
+                    AgentType::Antigravity => "antigravity",
                     AgentType::OpenCode => "opencode",
                     AgentType::Pi => "pi",
                     AgentType::Hermes => "hermes",
@@ -2853,6 +2868,9 @@ impl App {
                     AgentType::Codex => vm.install_codex_version_streaming(&version_clone, log_tx),
                     AgentType::Gemini => {
                         vm.install_gemini_version_streaming(&version_clone, log_tx)
+                    }
+                    AgentType::Antigravity => {
+                        vm.install_antigravity_version_streaming(&version_clone, log_tx)
                     }
                     AgentType::OpenCode => {
                         vm.install_opencode_version_streaming(&version_clone, log_tx)
@@ -5630,8 +5648,16 @@ impl App {
 
         for agent in self.available_agents.iter() {
             let is_selected = *agent == self.version_agent;
+            let is_depr = agent == &AgentType::Gemini;
 
-            let (prefix, style) = if is_selected {
+            let (prefix, style) = if is_depr {
+                (
+                    if is_selected { "> ⚠️ " } else { "  ⚠️ " },
+                    Style::default()
+                        .fg(Color::DarkGray)
+                        .add_modifier(Modifier::DIM),
+                )
+            } else if is_selected {
                 (
                     "> ",
                     Style::default()
@@ -5650,12 +5676,32 @@ impl App {
                 .map(|v| format!("  v{}", v))
                 .unwrap_or_default();
 
+            let name_str = if is_depr {
+                "Gemini CLI (depr.)".to_string()
+            } else {
+                agent.display_name().to_string()
+            };
+
+            let prefix_span = if is_depr {
+                Span::styled(prefix, Style::default().fg(Color::Yellow))
+            } else {
+                Span::styled(prefix, style)
+            };
+
+            let version_style = if is_depr {
+                Style::default()
+                    .fg(Color::DarkGray)
+                    .add_modifier(Modifier::DIM)
+            } else {
+                Style::default().fg(Color::Green)
+            };
+
             let spans = vec![
-                Span::styled(prefix, style),
-                Span::styled(format!("{:<12}", agent.display_name()), style),
+                prefix_span,
+                Span::styled(format!("{:<20}", name_str), style),
                 Span::styled(
                     format!("{:<12}", version_str),
-                    Style::default().fg(Color::Green),
+                    version_style,
                 ),
             ];
 
@@ -6461,12 +6507,12 @@ mod tests {
         app.version_focus = VersionFocus::AgentPicker;
         assert_eq!(app.version_agent, AgentType::Claude);
 
-        // Navigate down: Claude -> Codex -> Gemini -> OpenCode -> Pi -> Hermes
+        // Navigate down: Claude -> Codex -> Antigravity -> OpenCode -> Pi -> Hermes -> Gemini
         let _ = app.handle_version_input(NavAction::Down, key_for(NavAction::Down));
         assert_eq!(app.version_agent, AgentType::Codex);
 
         let _ = app.handle_version_input(NavAction::Down, key_for(NavAction::Down));
-        assert_eq!(app.version_agent, AgentType::Gemini);
+        assert_eq!(app.version_agent, AgentType::Antigravity);
 
         let _ = app.handle_version_input(NavAction::Down, key_for(NavAction::Down));
         assert_eq!(app.version_agent, AgentType::OpenCode);
@@ -6477,9 +6523,12 @@ mod tests {
         let _ = app.handle_version_input(NavAction::Down, key_for(NavAction::Down));
         assert_eq!(app.version_agent, AgentType::Hermes);
 
+        let _ = app.handle_version_input(NavAction::Down, key_for(NavAction::Down));
+        assert_eq!(app.version_agent, AgentType::Gemini);
+
         // Clamp at bottom (no wrap)
         let _ = app.handle_version_input(NavAction::Down, key_for(NavAction::Down));
-        assert_eq!(app.version_agent, AgentType::Hermes);
+        assert_eq!(app.version_agent, AgentType::Gemini);
     }
 
     #[test]
@@ -6494,9 +6543,9 @@ mod tests {
         app.switch_to_agent_index(3);
         assert_eq!(app.version_agent, AgentType::OpenCode);
 
-        // Navigate up: OpenCode -> Gemini -> Codex -> Claude
+        // Navigate up: OpenCode -> Antigravity -> Codex -> Claude
         let _ = app.handle_version_input(NavAction::Up, key_for(NavAction::Up));
-        assert_eq!(app.version_agent, AgentType::Gemini);
+        assert_eq!(app.version_agent, AgentType::Antigravity);
 
         let _ = app.handle_version_input(NavAction::Up, key_for(NavAction::Up));
         assert_eq!(app.version_agent, AgentType::Codex);
@@ -6685,10 +6734,10 @@ mod tests {
         assert!(app.version_list_receiver.is_some());
         assert_eq!(app.version_agent, AgentType::Codex);
 
-        // Immediately switch to Gemini (should replace receiver)
+        // Immediately switch to Antigravity (should replace receiver)
         let _ = app.handle_version_input(NavAction::Down, key_for(NavAction::Down));
         assert!(app.version_list_receiver.is_some());
-        assert_eq!(app.version_agent, AgentType::Gemini);
+        assert_eq!(app.version_agent, AgentType::Antigravity);
 
         // Switch again to OpenCode
         let _ = app.handle_version_input(NavAction::Down, key_for(NavAction::Down));
@@ -6747,19 +6796,21 @@ mod tests {
     #[test]
     fn test_all_agent_types_in_cycle() {
         let agents = AgentType::builtin();
-        assert_eq!(agents.len(), 6);
+        assert_eq!(agents.len(), 7);
         assert_eq!(agents[0], AgentType::Claude);
         assert_eq!(agents[1], AgentType::Codex);
-        assert_eq!(agents[2], AgentType::Gemini);
+        assert_eq!(agents[2], AgentType::Antigravity);
         assert_eq!(agents[3], AgentType::OpenCode);
         assert_eq!(agents[4], AgentType::Pi);
         assert_eq!(agents[5], AgentType::Hermes);
+        assert_eq!(agents[6], AgentType::Gemini);
     }
 
     #[test]
     fn test_agent_display_names() {
         assert_eq!(AgentType::Claude.display_name(), "Claude Code");
         assert_eq!(AgentType::Codex.display_name(), "Codex");
+        assert_eq!(AgentType::Antigravity.display_name(), "Antigravity CLI");
         assert_eq!(AgentType::Gemini.display_name(), "Gemini CLI");
         assert_eq!(AgentType::OpenCode.display_name(), "OpenCode");
         assert_eq!(AgentType::Pi.display_name(), "Pi");
@@ -6770,6 +6821,8 @@ mod tests {
     fn test_agent_from_str() {
         assert_eq!(AgentType::from_str("claude"), Some(AgentType::Claude));
         assert_eq!(AgentType::from_str("codex"), Some(AgentType::Codex));
+        assert_eq!(AgentType::from_str("antigravity"), Some(AgentType::Antigravity));
+        assert_eq!(AgentType::from_str("antigravity-cli"), Some(AgentType::Antigravity));
         assert_eq!(AgentType::from_str("gemini"), Some(AgentType::Gemini));
         assert_eq!(AgentType::from_str("gemini-cli"), Some(AgentType::Gemini));
         assert_eq!(AgentType::from_str("opencode"), Some(AgentType::OpenCode));
@@ -6880,7 +6933,7 @@ mod tests {
         // Press 'G' to jump to bottom
         let big_g_key = KeyEvent::new(KeyCode::Char('G'), KeyModifiers::SHIFT);
         let _ = app.handle_version_input(NavAction::None, big_g_key);
-        assert_eq!(app.version_agent, AgentType::Hermes);
+        assert_eq!(app.version_agent, AgentType::Gemini);
     }
 
     #[test]
@@ -6919,14 +6972,15 @@ mod tests {
     #[test]
     fn test_picker_entries_default_order() {
         let entries = build_agent_cli_picker_entries(&[]);
-        assert_eq!(entries.len(), 7);
+        assert_eq!(entries.len(), 8);
         assert_eq!(entries[0], AgentCliPickerEntry::Agent(AgentType::Claude));
         assert_eq!(entries[1], AgentCliPickerEntry::Agent(AgentType::Codex));
-        assert_eq!(entries[2], AgentCliPickerEntry::Agent(AgentType::Gemini));
+        assert_eq!(entries[2], AgentCliPickerEntry::Agent(AgentType::Antigravity));
         assert_eq!(entries[3], AgentCliPickerEntry::Agent(AgentType::OpenCode));
         assert_eq!(entries[4], AgentCliPickerEntry::Agent(AgentType::Pi));
         assert_eq!(entries[5], AgentCliPickerEntry::Agent(AgentType::Hermes));
-        assert_eq!(entries[6], AgentCliPickerEntry::AddCustom);
+        assert_eq!(entries[6], AgentCliPickerEntry::Agent(AgentType::Gemini));
+        assert_eq!(entries[7], AgentCliPickerEntry::AddCustom);
     }
 
     /// Custom agents appear in the picker between built-ins and AddCustom.
@@ -6937,12 +6991,12 @@ mod tests {
         def.name = "aider".to_string();
         def.binary = "aider".to_string();
         let entries = build_agent_cli_picker_entries(&[def]);
-        assert_eq!(entries.len(), 8);
+        assert_eq!(entries.len(), 9);
         assert_eq!(
-            entries[6],
+            entries[7],
             AgentCliPickerEntry::Agent(AgentType::Custom("aider".to_string()))
         );
-        assert_eq!(entries[7], AgentCliPickerEntry::AddCustom);
+        assert_eq!(entries[8], AgentCliPickerEntry::AddCustom);
     }
 
     /// Right key advances and wraps; left key wraps backwards.
@@ -6967,9 +7021,9 @@ mod tests {
         app.handle_agent_cli_picker_key(KeyEvent::new(KeyCode::Left, KeyModifiers::NONE));
         assert_eq!(app.agent_picker_index, 0);
 
-        // Left from 0 wraps to last (AddCustom = 6 with no custom agents)
+        // Left from 0 wraps to last (AddCustom = 7 with no custom agents)
         app.handle_agent_cli_picker_key(KeyEvent::new(KeyCode::Left, KeyModifiers::NONE));
-        assert_eq!(app.agent_picker_index, 6);
+        assert_eq!(app.agent_picker_index, 7);
 
         // Right from last wraps back to 0
         app.handle_agent_cli_picker_key(KeyEvent::new(KeyCode::Right, KeyModifiers::NONE));
@@ -7049,10 +7103,10 @@ mod tests {
         app.app_config.custom_agents.push(cfg);
 
         let entries = app.agent_cli_picker_entries();
-        // 6 builtins + 1 custom + AddCustom = 8
-        assert_eq!(entries.len(), 8);
+        // 7 builtins + 1 custom + AddCustom = 9
+        assert_eq!(entries.len(), 9);
         assert!(matches!(
-            &entries[6],
+            &entries[7],
             AgentCliPickerEntry::Agent(AgentType::Custom(n)) if n == "aider"
         ));
     }
@@ -7591,10 +7645,11 @@ yolo_flag = "--yes"
     #[test]
     fn test_picker_snapshot_cycle_right_to_gemini() {
         let (mut app, _temp) = picker_open_app("claude");
-        // Right twice: Claude -> Codex -> Gemini
-        app.handle_agent_cli_picker_key(KeyEvent::new(KeyCode::Right, KeyModifiers::NONE));
-        app.handle_agent_cli_picker_key(KeyEvent::new(KeyCode::Right, KeyModifiers::NONE));
-        assert_eq!(app.agent_picker_index, 2);
+        // Right six times: Claude -> Codex -> Antigravity -> OpenCode -> Pi -> Hermes -> Gemini
+        for _ in 0..6 {
+            app.handle_agent_cli_picker_key(KeyEvent::new(KeyCode::Right, KeyModifiers::NONE));
+        }
+        assert_eq!(app.agent_picker_index, 6);
 
         let buf = render_region_to_buffer(80, 8, |frame, area| {
             app.render_profile_edit(frame, area);

@@ -58,7 +58,7 @@ pub fn load_embedded_versions() -> HashMap<String, Vec<String>> {
     let content = std::fs::read_to_string(&path).unwrap_or_else(|_| "{}".to_string());
     let parsed: serde_json::Value = serde_json::from_str(&content).unwrap_or_default();
     let mut map = HashMap::new();
-    for key in &["claude", "codex", "gemini", "opencode", "pi", "hermes"] {
+    for key in &["claude", "codex", "gemini", "antigravity", "opencode", "pi", "hermes"] {
         if let Some(arr) = parsed.get(key).and_then(|v| v.as_array()) {
             let versions: Vec<String> = arr
                 .iter()
@@ -77,6 +77,7 @@ pub fn save_embedded_versions(map: &HashMap<crate::agents::AgentType, Vec<Versio
         let key = match agent_type {
             crate::agents::AgentType::Claude => "claude",
             crate::agents::AgentType::Codex => "codex",
+            crate::agents::AgentType::Antigravity => "antigravity",
             crate::agents::AgentType::Gemini => "gemini",
             crate::agents::AgentType::OpenCode => "opencode",
             crate::agents::AgentType::Pi => "pi",
@@ -1587,6 +1588,45 @@ impl VersionManager {
             stdout: format!("Codex v{} installed to {}", version, install_path.display()),
             stderr: String::new(),
             error: None,
+        })
+    }
+
+    // ── Antigravity CLI ───────────────────────────────────────
+
+    /// Get available Antigravity CLI versions (reads embedded versions)
+    pub fn get_antigravity_available_versions(&self) -> io::Result<Vec<String>> {
+        let embedded = load_embedded_versions();
+        Ok(embedded.get("antigravity").cloned().unwrap_or_default())
+    }
+
+    /// Get combined Antigravity CLI version list with status
+    pub fn get_antigravity_version_list(&self, installed: Option<&str>) -> Vec<VersionInfo> {
+        let available = self.get_antigravity_available_versions().unwrap_or_default();
+
+        let mut versions: Vec<VersionInfo> = available
+            .into_iter()
+            .map(|v| VersionInfo {
+                is_installed: installed == Some(v.as_str()),
+                version: v,
+            })
+            .collect();
+
+        versions.sort_by(|a, b| version_compare(&b.version, &a.version));
+        versions
+    }
+
+    /// Mock installation of Antigravity CLI (returning an error indicating system-managed status)
+    pub fn install_antigravity_version_streaming(
+        &self,
+        _version: &str,
+        log_tx: mpsc::Sender<String>,
+    ) -> io::Result<InstallResult> {
+        let _ = log_tx.send("Antigravity CLI updates are managed by the system package manager (pacman/yay)".to_string());
+        Ok(InstallResult {
+            success: false,
+            stdout: String::new(),
+            stderr: "System-managed packages cannot be installed via unleash".to_string(),
+            error: Some("Antigravity CLI updates are managed by the system package manager (pacman/yay)".to_string()),
         })
     }
 

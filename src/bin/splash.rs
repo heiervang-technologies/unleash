@@ -49,9 +49,13 @@ fn agents() -> Vec<Agent> {
             accent: Color::Rgb(140, 140, 140),
         },
         Agent {
-            name: "gemini",
-            theme: AgentTheme::Gradient(unleash::theme::GradientTheme::gemini()),
-            accent: Color::Rgb(0x84, 0x7A, 0xCE), // middle of gradient (purple)
+            name: "antigravity",
+            theme: AgentTheme::Gradient(unleash::theme::GradientTheme::new(&[
+                (0x9b, 0x51, 0xe0), // purple
+                (0x30, 0x80, 0xe0), // futuristic blue
+                (0x00, 0xc2, 0xff), // neon cyan/teal
+            ])),
+            accent: Color::Rgb(0x30, 0x80, 0xe0),
         },
         Agent {
             name: "opencode",
@@ -82,6 +86,11 @@ fn agents() -> Vec<Agent> {
                 sat_scale: 1.0,
             }),
             accent: Color::Rgb(217, 195, 87),
+        },
+        Agent {
+            name: "gemini",
+            theme: AgentTheme::Gradient(unleash::theme::GradientTheme::gemini()),
+            accent: Color::Rgb(0x84, 0x7A, 0xCE), // middle of gradient (purple)
         },
     ]
 }

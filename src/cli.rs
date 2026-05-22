@@ -13,27 +13,35 @@ pub fn get_full_version() -> String {
     let agent_label = match agent_cmd.as_str() {
         "codex" => "Codex",
         "gemini" => "Gemini CLI",
+        "antigravity" => "Antigravity CLI",
         "opencode" => "OpenCode",
         _ => "Claude Code",
     };
 
     // Try to get agent CLI version (only runs when --version is actually passed)
-    let agent_version = Command::new(&agent_cmd)
-        .arg("--version")
-        .output()
-        .ok()
-        .and_then(|output| {
-            if output.status.success() {
-                let version_str = String::from_utf8_lossy(&output.stdout);
-                version_str
-                    .lines()
-                    .find(|line| line.contains('.') && line.chars().any(|c| c.is_ascii_digit()))
-                    .map(|line| line.trim().replace(" (Claude Code)", ""))
-            } else {
-                None
-            }
-        })
-        .unwrap_or_else(|| "not installed".to_string());
+    let agent_version = if agent_cmd == "antigravity" {
+        crate::agents::AgentManager::new()
+            .ok()
+            .and_then(|mut mgr| mgr.get_installed_version(crate::agents::AgentType::Antigravity).ok().flatten())
+            .unwrap_or_else(|| "not installed".to_string())
+    } else {
+        Command::new(&agent_cmd)
+            .arg("--version")
+            .output()
+            .ok()
+            .and_then(|output| {
+                if output.status.success() {
+                    let version_str = String::from_utf8_lossy(&output.stdout);
+                    version_str
+                        .lines()
+                        .find(|line| line.contains('.') && line.chars().any(|c| c.is_ascii_digit()))
+                        .map(|line| line.trim().replace(" (Claude Code)", ""))
+                } else {
+                    None
+                }
+            })
+            .unwrap_or_else(|| "not installed".to_string())
+    };
 
     if agent_version == "not installed" {
         format!(
@@ -512,11 +520,11 @@ impl PolyfillArgs {
 #[command(author = "Heiervang Technologies")]
 #[command(version)]
 #[command(
-    about = "unleash - Extended CLI for AI Code Agents\n\nRun a profile:  unleash <profile> [flags] [-- passthrough]\nDefault profiles: claude, codex, gemini, opencode\n\nRun 'unleash <profile> --help' for unified flag details."
+    about = "unleash - Extended CLI for AI Code Agents\n\nRun a profile:  unleash <profile> [flags] [-- passthrough]\nDefault profiles: claude, codex, antigravity, gemini, opencode\n\nRun 'unleash <profile> --help' for unified flag details."
 )]
 #[command(long_about = r#"unleash - Extended CLI for AI Code Agents
 
-A wrapper for AI code agents (Claude, Codex, Gemini, OpenCode) with extended features:
+A wrapper for AI code agents (Claude, Codex, Antigravity, Gemini, OpenCode) with extended features:
   - Unified flags that work across all agents (polyfill layer)
   - Self-restart capability for MCP server reloading
   - Plugin system integration (loads from plugins/bundled/)
@@ -533,7 +541,7 @@ ARGUMENT LAYERS:
 
 USAGE:
   unleash              Opens TUI for profile and version management
-  unleash <profile>    Run a profile (claude, codex, gemini, opencode, or custom)
+  unleash <profile>    Run a profile (claude, codex, antigravity, gemini, opencode, or custom)
 
 UNIFIED FLAGS (before --):
   --safe                       Restore approval prompts (permissions bypassed by default)
@@ -593,7 +601,7 @@ pub enum Commands {
         action: Option<HooksAction>,
     },
 
-    /// Manage code agents (Claude, Codex, Gemini, OpenCode)
+    /// Manage code agents (Claude, Codex, Antigravity, Gemini, OpenCode)
     Agents {
         #[command(subcommand)]
         action: Option<AgentsAction>,
@@ -602,11 +610,12 @@ pub enum Commands {
     /// Install an agent CLI for the first time
     ///
     /// Examples:
+    ///   unleash install antigravity  # Install Antigravity CLI
     ///   unleash install gemini       # Install Gemini CLI
     ///   unleash install codex claude # Install Codex and Claude
     ///   unleash install --all        # Install all agent CLIs
     Install {
-        /// Agents to install (e.g. claude, codex, gemini, opencode)
+        /// Agents to install (e.g. claude, codex, antigravity, gemini, opencode)
         #[arg(conflicts_with = "all")]
         agents: Vec<String>,
 
@@ -619,10 +628,11 @@ pub enum Commands {
     ///
     /// Examples:
     ///   unleash uninstall              # Interactive: uninstall unleash + selected agents
+    ///   unleash uninstall antigravity  # Uninstall Antigravity CLI
     ///   unleash uninstall gemini       # Uninstall Gemini CLI
     ///   unleash uninstall --all        # Uninstall all agent CLIs
     Uninstall {
-        /// Agents to uninstall (e.g. claude, codex, gemini, opencode)
+        /// Agents to uninstall (e.g. claude, codex, antigravity, gemini, opencode)
         #[arg(conflicts_with = "all")]
         agents: Vec<String>,
 
@@ -638,7 +648,7 @@ pub enum Commands {
     /// -a/--all: update unleash + all installed agent CLIs
     /// Positional args: update specific agents (e.g. 'unleash update claude codex')
     Update {
-        /// Specific agents to update (e.g. claude, codex, gemini, opencode)
+        /// Specific agents to update (e.g. claude, codex, antigravity, gemini, opencode)
         #[arg(conflicts_with_all = ["clis", "all"])]
         agents: Vec<String>,
 
@@ -664,7 +674,7 @@ pub enum Commands {
     ///   unleash sessions reindex                  # Rebuild the search index
     ///   unleash sessions name claude:abc "Title"  # Set a session title
     Sessions {
-        /// Filter by CLI (claude, codex, gemini, opencode)
+        /// Filter by CLI (claude, codex, antigravity, gemini, opencode)
         #[arg(short, long, global = true)]
         cli: Option<String>,
 
@@ -708,11 +718,11 @@ pub enum Commands {
 
     /// Convert conversation history between CLI formats
     Convert {
-        /// Source format (claude, codex, gemini, opencode, pi, hub)
+        /// Source format (claude, codex, antigravity, gemini, opencode, pi, hub)
         #[arg(long)]
         from: String,
 
-        /// Target format (claude, codex, gemini, opencode, pi, hub). Defaults to hub.
+        /// Target format (claude, codex, antigravity, gemini, opencode, pi, hub). Defaults to hub.
         #[arg(long, default_value = "hub")]
         to: String,
 
@@ -850,19 +860,19 @@ pub enum AgentsAction {
 
     /// Check for updates
     Check {
-        /// Agent to check (claude, codex, gemini, opencode). If omitted, checks all.
+        /// Agent to check (claude, codex, antigravity, gemini, opencode). If omitted, checks all.
         agent: Option<String>,
     },
 
     /// Update an agent to latest version
     Update {
-        /// Agent to update (claude, codex, gemini, opencode)
+        /// Agent to update (claude, codex, antigravity, gemini, opencode)
         agent: String,
     },
 
     /// Show detailed info about an agent
     Info {
-        /// Agent name (claude, codex, gemini, opencode)
+        /// Agent name (claude, codex, antigravity, gemini, opencode)
         agent: String,
     },
 }

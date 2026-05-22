@@ -110,6 +110,7 @@ fn resolve_target_binary(target_cli: &str) -> String {
     let canonical = match target_cli {
         "claude" | "claude-code" => Some(AgentType::Claude),
         "codex" => Some(AgentType::Codex),
+        "antigravity" | "antigravity-cli" => Some(AgentType::Antigravity),
         "gemini" | "gemini-cli" => Some(AgentType::Gemini),
         "opencode" => Some(AgentType::OpenCode),
         "pi" | "pi-coding-agent" => Some(AgentType::Pi),
@@ -321,6 +322,7 @@ fn run_agent_with_polyfill(
     let target_cli = match &agent_type {
         AgentType::Claude => "claude",
         AgentType::Codex => "codex",
+        AgentType::Antigravity => "antigravity",
         AgentType::Gemini => "gemini",
         AgentType::OpenCode => "opencode",
         AgentType::Pi => "pi",
@@ -581,6 +583,7 @@ pub fn run() -> io::Result<()> {
             let target_cli = match first_arg {
                 "claude" | "claude-code" => "claude",
                 "codex" => "codex",
+                "antigravity" | "antigravity-cli" => "antigravity",
                 "gemini" | "gemini-cli" => "gemini",
                 "opencode" => "opencode",
                 "pi" => "pi",
@@ -592,6 +595,7 @@ pub fn run() -> io::Result<()> {
                         .map(|agent| match agent {
                             AgentType::Claude => "claude",
                             AgentType::Codex => "codex",
+                            AgentType::Antigravity => "antigravity",
                             AgentType::Gemini => "gemini",
                             AgentType::OpenCode => "opencode",
                             AgentType::Pi => "pi",

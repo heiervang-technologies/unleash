@@ -932,6 +932,9 @@ fn update_agent(
     let result = match agent_type {
         AgentType::Claude => update_claude(tx, index),
         AgentType::Codex => update_codex(tx, index, latest_version),
+        AgentType::Antigravity => Err(io::Error::other(
+            "Antigravity CLI updates are managed by the system package manager (pacman/yay)"
+        )),
         AgentType::Gemini => update_gemini(tx, index, latest_version),
         AgentType::OpenCode => update_opencode(tx, index),
         AgentType::Pi => update_pi(tx, index, latest_version),
