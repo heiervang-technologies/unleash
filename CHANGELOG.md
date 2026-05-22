@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.1.39](https://github.com/heiervang-technologies/unleash/compare/v0.1.38...v0.1.39) (2026-05-22)
+
+
+### Features
+
+* **docker:** CUDA Docker image + Vast.ai template for GPU cloud ([61bf943](https://github.com/heiervang-technologies/unleash/commit/61bf943a244075a2157422160988874027340179))
+* **docker:** CUDA Docker image + Vast.ai template for GPU cloud ([#199](https://github.com/heiervang-technologies/unleash/issues/199)) ([61bf943](https://github.com/heiervang-technologies/unleash/commit/61bf943a244075a2157422160988874027340179))
+
 ## [0.1.38](https://github.com/heiervang-technologies/unleash/compare/v0.1.37...v0.1.38) (2026-05-21)
 
 
