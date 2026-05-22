@@ -1805,9 +1805,9 @@ impl VersionManager {
         };
 
         let target_triple = match os {
-            "linux" => format!("{}-unknown-linux-gnu", target_arch),
+            "linux" => format!("{}-unknown-linux-musl", target_arch),
             "macos" => format!("{}-apple-darwin", target_arch),
-            _ => format!("{}-unknown-linux-gnu", target_arch),
+            _ => format!("{}-unknown-linux-musl", target_arch),
         };
 
         format!("codex-{}", target_triple)
