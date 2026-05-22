@@ -297,7 +297,17 @@ Or run the image directly:
 docker run -it --rm -e ANTHROPIC_API_KEY marksverdhei/unleash
 ```
 
-All 4 agent CLIs are pre-installed. See the [Docker + gVisor sandbox guide](docs/docker.md) for hardened setups with LAN isolation and named sandboxes.
+All 5 agent CLIs are pre-installed. See the [Docker + gVisor sandbox guide](docs/docker.md) for hardened setups with LAN isolation and named sandboxes.
+
+#### CUDA / GPU Cloud
+
+For GPU workloads, use the CUDA variant with CUDA 12.8, PyTorch, and all agent CLIs:
+
+```bash
+docker run --gpus all -it --rm marksverdhei/unleash:cuda
+```
+
+See the [Docker guide](docs/docker.md#cuda--gpu-cloud) for Vast.ai deployment and compose overrides.
 
 ### Build from source
 
