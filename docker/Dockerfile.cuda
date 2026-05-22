@@ -129,6 +129,7 @@ USER unleash
 WORKDIR /workspace
 
 # -- Install all 5 agent CLIs --
+# TODO: Once antigravity-cli lands (PR #198), add: npm install -g @google/antigravity-cli
 RUN unleash install claude codex gemini pi \
     && npm install -g opencode-ai@latest
 
