@@ -314,7 +314,7 @@ fn find_agent_command() -> io::Result<PathBuf> {
                         "AGENT_CMD is set to '{}' which resolves to the unleash binary itself.\n\
                          This would cause infinite recursion.\n\
                          Set agent_cli_path in your profile to the actual agent binary \
-                         (e.g. 'claude', 'codex', 'gemini', 'opencode').",
+                         (e.g. 'claude', 'codex', 'antigravity', 'opencode').",
                         cmd
                     ),
                 ));
@@ -506,9 +506,12 @@ fn run_agent(
     if env::var("CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC").is_err() {
         cmd.env("CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC", "1");
     }
-    // Gemini CLI (telemetry off by default, but be explicit)
+    // Gemini/Antigravity CLI (telemetry off by default, but be explicit)
     if env::var("GEMINI_TELEMETRY_ENABLED").is_err() {
         cmd.env("GEMINI_TELEMETRY_ENABLED", "false");
+    }
+    if env::var("ANTIGRAVITY_TELEMETRY_ENABLED").is_err() {
+        cmd.env("ANTIGRAVITY_TELEMETRY_ENABLED", "false");
     }
     // OpenCode
     if env::var("OPENCODE_DISABLE_SHARE").is_err() {

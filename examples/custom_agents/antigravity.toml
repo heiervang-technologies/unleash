@@ -1,0 +1,19 @@
+[[custom_agents]]
+name = "antigravity"
+binary = "antigravity"
+description = "Google's Antigravity CLI"
+npm_package = "@google/antigravity-cli"
+
+[custom_agents.polyfill]
+headless = { flag = "-p" }
+session = { continue_strategy = { flag = "--resume latest" }, resume_strategy = { flag = "--resume" } }
+fork = "unsupported"
+model_flag = "-m"
+yolo_flag = "--yolo"
+verbose_flag = "--debug"
+output_format_flag = "-o"
+allowed_tools_flag = "--allowed-tools"
+sandbox = { boolflag = "--sandbox" }
+add_dir_flag = "--include-directories"
+approval_mode_flag = "--approval-mode"
+worktree_flag = "--worktree"

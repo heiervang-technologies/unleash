@@ -101,7 +101,7 @@ if [[ -z "${BUDGET}" ]]; then
     AGENT="${AGENT_CMD:-claude}"
     AGENT_BASE=$(basename "${AGENT}" 2>/dev/null)
     case "${AGENT_BASE}" in
-      claude*|codex*|gemini*)
+      claude*|codex*|gemini*|antigravity*)
         BUDGET_FLOOR="${PLUGIN_SETTING_BUDGET_FLOOR:-100000}"
         ;;
       *)
