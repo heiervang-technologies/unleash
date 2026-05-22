@@ -122,10 +122,7 @@ alpha = 0.4
 tunnel_hint = "ssh -fN -L 18000:10.42.1.11:8000 sentinel"
 "#;
     if let Err(e) = fs::write(&path, default) {
-        eprintln!(
-            "warning: could not write default {}: {e}",
-            path.display()
-        );
+        eprintln!("warning: could not write default {}: {e}", path.display());
     } else {
         eprintln!("wrote default config: {}", path.display());
     }
@@ -141,7 +138,11 @@ fn resolve_config() -> ResolvedConfig {
             .unwrap_or_else(|| default.to_string())
     };
 
-    let oai_base = pick("OAI_BASE", file.oai_base.clone(), "http://127.0.0.1:18000/v1");
+    let oai_base = pick(
+        "OAI_BASE",
+        file.oai_base.clone(),
+        "http://127.0.0.1:18000/v1",
+    );
     let embed_model = pick("OAI_EMBED_MODEL", file.embed_model.clone(), "lco-omni-3b");
     let chat_base = env::var("OAI_CHAT_BASE")
         .ok()
@@ -303,7 +304,9 @@ async fn set_session_title(
                 None => String::new(),
             };
             if text.is_empty() {
-                return Err("session has no indexed text — run `unleash sessions reindex` first".into());
+                return Err(
+                    "session has no indexed text — run `unleash sessions reindex` first".into(),
+                );
             }
 
             let http = reqwest::Client::builder()
@@ -388,10 +391,7 @@ async fn run_async(args: RunArgs) -> Result<(), Box<dyn std::error::Error>> {
                         recovered = true;
                         break;
                     }
-                    tokio::time::sleep(std::time::Duration::from_millis(
-                        200 + attempt * 100,
-                    ))
-                    .await;
+                    tokio::time::sleep(std::time::Duration::from_millis(200 + attempt * 100)).await;
                 }
             }
         }
@@ -438,8 +438,11 @@ async fn run_async(args: RunArgs) -> Result<(), Box<dyn std::error::Error>> {
     bootstrap_schema(&conn).await?;
 
     if args.reindex {
-        conn.execute("UPDATE sessions SET embedding=NULL, model_id=NULL, generated_title=NULL", ())
-            .await?;
+        conn.execute(
+            "UPDATE sessions SET embedding=NULL, model_id=NULL, generated_title=NULL",
+            (),
+        )
+        .await?;
     }
 
     // ── Discover + upsert ──────────────────────────────────────────────
@@ -742,7 +745,9 @@ fn available_profiles() -> Vec<String> {
 fn launch_crossload(profile: &str, source_cli: &str, source_id: &str) {
     use std::os::unix::process::CommandExt;
     let handle = format!("{source_cli}:{source_id}");
-    let argv0 = std::env::args().next().unwrap_or_else(|| "unleash".to_string());
+    let argv0 = std::env::args()
+        .next()
+        .unwrap_or_else(|| "unleash".to_string());
     eprintln!("\n→ exec: {argv0} {profile} -x {handle}");
     let err = std::process::Command::new(&argv0)
         .arg(profile)
@@ -1036,14 +1041,7 @@ fn extract_text(s: &SessionInfo) -> Option<String> {
 fn collect_content_strings(val: &serde_json::Value, out: &mut Vec<String>) {
     use serde_json::Value;
     const CONTENT_KEYS: &[&str] = &[
-        "content",
-        "text",
-        "message",
-        "summary",
-        "input",
-        "prompt",
-        "messages",
-        "payload",
+        "content", "text", "message", "summary", "input", "prompt", "messages", "payload",
     ];
     match val {
         Value::Object(map) => {
@@ -1698,7 +1696,11 @@ fn rescore(state: &mut TuiState) {
         state
             .rows
             .iter()
-            .map(|r| r.embedding.as_ref().map(|emb| cosine_distance(qv, emb) as f32))
+            .map(|r| {
+                r.embedding
+                    .as_ref()
+                    .map(|emb| cosine_distance(qv, emb) as f32)
+            })
             .collect()
     } else {
         vec![None; state.rows.len()]
@@ -1732,7 +1734,11 @@ fn rescore(state: &mut TuiState) {
         // Empty query: sort by recency (already the order from discover_all).
         scored.sort_by(|a, b| b.updated_at.cmp(&a.updated_at));
     } else {
-        scored.sort_by(|a, b| b.score.partial_cmp(&a.score).unwrap_or(std::cmp::Ordering::Equal));
+        scored.sort_by(|a, b| {
+            b.score
+                .partial_cmp(&a.score)
+                .unwrap_or(std::cmp::Ordering::Equal)
+        });
     }
     scored.truncate(state.top.max(50));
     for (i, h) in scored.iter_mut().enumerate() {
@@ -1793,7 +1799,11 @@ fn render_tui(frame: &mut Frame, state: &TuiState) {
             Block::default()
                 .borders(Borders::ALL)
                 .title(title)
-                .title_style(Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)),
+                .title_style(
+                    Style::default()
+                        .fg(Color::Cyan)
+                        .add_modifier(Modifier::BOLD),
+                ),
         );
     frame.render_widget(q_para, chunks[0]);
 
@@ -1810,7 +1820,9 @@ fn render_tui(frame: &mut Frame, state: &TuiState) {
             let selected = i == state.selected;
             let prefix = if selected { "> " } else { "  " };
             let style_sel = if selected {
-                Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)
+                Style::default()
+                    .fg(Color::Cyan)
+                    .add_modifier(Modifier::BOLD)
             } else {
                 Style::default()
             };
@@ -1837,7 +1849,10 @@ fn render_tui(frame: &mut Frame, state: &TuiState) {
                     },
                 ),
                 Span::styled(format!("{:<6} ", cos), Style::default().fg(Color::DarkGray)),
-                Span::styled(format!("[{:>7}] ", h.cli), Style::default().fg(Color::Magenta)),
+                Span::styled(
+                    format!("[{:>7}] ", h.cli),
+                    Style::default().fg(Color::Magenta),
+                ),
                 Span::styled(format!("{:<40} ", truncate(&title, 40)), style_sel),
                 Span::styled(
                     truncate(h.directory.as_deref().unwrap_or(""), 28),
@@ -1848,11 +1863,7 @@ fn render_tui(frame: &mut Frame, state: &TuiState) {
             ])
         })
         .collect();
-    let count_title = format!(
-        " {} / {} ",
-        state.scored.len(),
-        state.rows.len()
-    );
+    let count_title = format!(" {} / {} ", state.scored.len(), state.rows.len());
     let list = Paragraph::new(lines).block(
         Block::default()
             .borders(Borders::ALL)
@@ -1881,7 +1892,9 @@ fn render_tui(frame: &mut Frame, state: &TuiState) {
 
     // Help line
     let help = match state.mode {
-        Mode::Searching => "type=filter  ↑↓=move  Enter=pick profile  Tab=cycle α  ⇧←/→=fine α  Esc=quit",
+        Mode::Searching => {
+            "type=filter  ↑↓=move  Enter=pick profile  Tab=cycle α  ⇧←/→=fine α  Esc=quit"
+        }
         Mode::PickingProfile => "↑↓=move  Enter=launch crossload  Esc=back",
     };
     let help_p = Paragraph::new(Line::from(vec![Span::styled(
@@ -1902,7 +1915,10 @@ fn render_tui(frame: &mut Frame, state: &TuiState) {
         };
         frame.render_widget(Clear, modal);
         let header = if let Some(hit) = state.scored.get(state.selected) {
-            format!(" launch into profile — {} ", truncate(&display_title(hit), 30))
+            format!(
+                " launch into profile — {} ",
+                truncate(&display_title(hit), 30)
+            )
         } else {
             " launch into profile ".to_string()
         };
@@ -1913,7 +1929,9 @@ fn render_tui(frame: &mut Frame, state: &TuiState) {
             .map(|(i, p)| {
                 let sel = i == state.profile_selected;
                 let style = if sel {
-                    Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)
+                    Style::default()
+                        .fg(Color::Cyan)
+                        .add_modifier(Modifier::BOLD)
                 } else {
                     Style::default()
                 };

@@ -479,10 +479,14 @@ mod tests {
     #[test]
     fn test_is_claude_backup_stem() {
         // Live session UUIDs should pass through.
-        assert!(!is_claude_backup_stem("8de7c62b-e0ba-4485-8af0-15b6912613a7"));
+        assert!(!is_claude_backup_stem(
+            "8de7c62b-e0ba-4485-8af0-15b6912613a7"
+        ));
         assert!(!is_claude_backup_stem(""));
         // Rotated archive ID — must be skipped or pi crossload eats a 700MB file.
-        assert!(is_claude_backup_stem("8de7c62b-e0ba-4485-8af0-15b6912613a7.archive"));
+        assert!(is_claude_backup_stem(
+            "8de7c62b-e0ba-4485-8af0-15b6912613a7.archive"
+        ));
         // Pre-compact snapshots claude writes alongside the live file.
         assert!(is_claude_backup_stem("abc.pre-compact-full"));
         assert!(is_claude_backup_stem("abc.pre-supercompact"));
@@ -622,7 +626,10 @@ fn discover_ucf() -> Vec<SessionInfo> {
             continue;
         }
 
-        let id = file_name.strip_suffix(".ucf.jsonl").unwrap_or(&file_name).to_string();
+        let id = file_name
+            .strip_suffix(".ucf.jsonl")
+            .unwrap_or(&file_name)
+            .to_string();
 
         let Ok(file) = std::fs::File::open(&path) else {
             continue;
@@ -640,7 +647,10 @@ fn discover_ucf() -> Vec<SessionInfo> {
                         .and_then(|t| t.as_str())
                         .unwrap_or("1970-01-01T00:00:00.000Z")
                         .to_string();
-                    let title = val.get("title").and_then(|t| t.as_str()).map(|s| s.to_string());
+                    let title = val
+                        .get("title")
+                        .and_then(|t| t.as_str())
+                        .map(|s| s.to_string());
 
                     // remaining lines after header (messages + events)
                     let message_count = lines.filter(|l| l.is_ok()).count();

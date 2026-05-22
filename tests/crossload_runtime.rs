@@ -73,7 +73,8 @@ fn fixture(name: &str) -> Vec<u8> {
         .join("tests")
         .join("fixtures")
         .join(name);
-    std::fs::read(&path).unwrap_or_else(|e| panic!("failed to read fixture {}: {e}", path.display()))
+    std::fs::read(&path)
+        .unwrap_or_else(|e| panic!("failed to read fixture {}: {e}", path.display()))
 }
 
 // ─────────────────────────────────────────────────────────────────────
@@ -109,7 +110,11 @@ fn place_claude_source(home: &Path, jsonl_bytes: &[u8], session_id: &str) -> Pat
 
 /// Drop a Codex rollout into `$CODEX_HOME/sessions/YYYY/MM/DD/rollout-<ts>-<id>.jsonl`.
 fn place_codex_source(codex_home: &Path, jsonl_bytes: &[u8], session_id: &str) -> PathBuf {
-    let dir = codex_home.join("sessions").join("2026").join("03").join("30");
+    let dir = codex_home
+        .join("sessions")
+        .join("2026")
+        .join("03")
+        .join("30");
     std::fs::create_dir_all(&dir).unwrap();
     // Filename pattern:  rollout-YYYY-MM-DDTHH-MM-SS-<uuid>.jsonl
     // Discovery extracts the id by stripping "rollout-" + 19-char timestamp + "-".
@@ -240,7 +245,12 @@ fn isolated_home(guard: &EnvGuard) -> (tempfile::TempDir, PathBuf, PathBuf) {
 /// expected `sessions/YYYY/MM/DD/` layout with a `session_meta` header.
 #[test]
 fn inject_claude_into_codex() {
-    let guard = EnvGuard::new(&["HOME", "XDG_DATA_HOME", "CODEX_HOME", "UNLEASH_CROSSLOAD_FORCE"]);
+    let guard = EnvGuard::new(&[
+        "HOME",
+        "XDG_DATA_HOME",
+        "CODEX_HOME",
+        "UNLEASH_CROSSLOAD_FORCE",
+    ]);
     let (_tmp, home, _xdg) = isolated_home(&guard);
     let codex_home = home.join(".codex");
     std::fs::create_dir_all(&codex_home).unwrap();
@@ -311,7 +321,12 @@ fn inject_claude_into_codex() {
 /// well-formed `parentUuid` chain.
 #[test]
 fn inject_codex_into_claude() {
-    let guard = EnvGuard::new(&["HOME", "XDG_DATA_HOME", "CODEX_HOME", "UNLEASH_CROSSLOAD_FORCE"]);
+    let guard = EnvGuard::new(&[
+        "HOME",
+        "XDG_DATA_HOME",
+        "CODEX_HOME",
+        "UNLEASH_CROSSLOAD_FORCE",
+    ]);
     let (_tmp, home, _xdg) = isolated_home(&guard);
     let codex_home = home.join(".codex");
     std::fs::create_dir_all(&codex_home).unwrap();
@@ -349,13 +364,19 @@ fn inject_codex_into_claude() {
         lines += 1;
         let v: serde_json::Value = serde_json::from_str(line).unwrap();
         let sid = v.get("sessionId").and_then(|s| s.as_str()).unwrap_or("");
-        assert_eq!(sid, result.session_id, "sessionId must be patched on every line");
+        assert_eq!(
+            sid, result.session_id,
+            "sessionId must be patched on every line"
+        );
         let uuid = v
             .get("uuid")
             .and_then(|u| u.as_str())
             .expect("every claude line must have a uuid")
             .to_string();
-        let parent = v.get("parentUuid").cloned().unwrap_or(serde_json::Value::Null);
+        let parent = v
+            .get("parentUuid")
+            .cloned()
+            .unwrap_or(serde_json::Value::Null);
         match (&prev, parent) {
             (None, serde_json::Value::Null) => {}
             (Some(p), serde_json::Value::String(pu)) => {
@@ -384,7 +405,12 @@ fn inject_codex_into_claude() {
 /// and assert a session JSON file landed in the expected chats layout.
 #[test]
 fn inject_claude_into_antigravity() {
-    let guard = EnvGuard::new(&["HOME", "XDG_DATA_HOME", "CODEX_HOME", "UNLEASH_CROSSLOAD_FORCE"]);
+    let guard = EnvGuard::new(&[
+        "HOME",
+        "XDG_DATA_HOME",
+        "CODEX_HOME",
+        "UNLEASH_CROSSLOAD_FORCE",
+    ]);
     let (_tmp, home, _xdg) = isolated_home(&guard);
 
     let session_id = "5abf6b0c-d3a9-4692-bd17-1507f00cb3f7";
@@ -421,7 +447,12 @@ fn inject_claude_into_antigravity() {
 /// with corresponding messages and parts.
 #[test]
 fn inject_gemini_into_opencode() {
-    let guard = EnvGuard::new(&["HOME", "XDG_DATA_HOME", "CODEX_HOME", "UNLEASH_CROSSLOAD_FORCE"]);
+    let guard = EnvGuard::new(&[
+        "HOME",
+        "XDG_DATA_HOME",
+        "CODEX_HOME",
+        "UNLEASH_CROSSLOAD_FORCE",
+    ]);
     let (_tmp, home, xdg) = isolated_home(&guard);
     let db_path = init_opencode_db(&xdg);
 
@@ -459,7 +490,11 @@ fn inject_gemini_into_opencode() {
             |r| r.get(0),
         )
         .unwrap();
-    assert_eq!(session_count, 1, "session row missing for {}", result.session_id);
+    assert_eq!(
+        session_count, 1,
+        "session row missing for {}",
+        result.session_id
+    );
 
     let msg_count: i64 = conn
         .query_row(

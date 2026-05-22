@@ -121,7 +121,9 @@ pub fn convert_command(
             let reader = BufReader::new(input_data.as_bytes());
             codex::to_hub(reader)?
         }
-        "gemini" | "gemini-cli" | "antigravity" | "antigravity-cli" => gemini::to_hub(input_data.as_bytes())?,
+        "gemini" | "gemini-cli" | "antigravity" | "antigravity-cli" => {
+            gemini::to_hub(input_data.as_bytes())?
+        }
         "pi" | "pi-coding-agent" => {
             let reader = BufReader::new(input_data.as_bytes());
             pi::to_hub(reader)?

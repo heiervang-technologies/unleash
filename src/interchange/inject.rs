@@ -81,7 +81,9 @@ pub fn inject_session(
     let (result, target_path) = match target_cli {
         "claude" | "claude-code" => inject_into_claude(&session, &hub_records)?,
         "codex" => inject_into_codex(&session, &hub_records)?,
-        "gemini" | "gemini-cli" | "antigravity" | "antigravity-cli" => inject_into_gemini(&session, &hub_records)?,
+        "gemini" | "gemini-cli" | "antigravity" | "antigravity-cli" => {
+            inject_into_gemini(&session, &hub_records)?
+        }
         "opencode" => inject_into_opencode(&session, &hub_records)?,
         "pi" | "pi-coding-agent" => inject_into_pi(&session, &hub_records)?,
         _ => {
@@ -113,7 +115,7 @@ fn normalize_target_cli(target: &str) -> &str {
         "claude" | "claude-code" => "claude",
         "codex" => "codex",
         "gemini" | "gemini-cli" => "gemini",
-        "antigravity" | "antigravity-cli" => "antigravity",
+        "antigravity" | "antigravity-cli" => "gemini", // Map to gemini since they share storage layout and resume strategy
         "opencode" => "opencode",
         "pi" | "pi-coding-agent" => "pi",
         other => other,
@@ -130,7 +132,9 @@ fn resume_args_for(target: &str, session_id: &str) -> Vec<String> {
         "pi" | "pi-coding-agent" => crate::agents::AgentType::Pi,
         _ => crate::agents::AgentType::Custom(target.to_string()),
     };
-    crate::agents::AgentDefinition::from_type(agent_type).polyfill.get_resume_args(Some(session_id))
+    crate::agents::AgentDefinition::from_type(agent_type)
+        .polyfill
+        .get_resume_args(Some(session_id))
 }
 
 pub fn source_to_hub(session: &SessionInfo) -> Result<Vec<HubRecord>, ConvertError> {
@@ -525,7 +529,9 @@ fn inject_into_gemini(
     // we must generate a fresh UUID for Gemini to accept it.
     let is_uuid = session_id.len() == 36
         && session_id.split('-').count() == 5
-        && session_id.split('-').all(|seg| seg.chars().all(|c| c.is_ascii_hexdigit()));
+        && session_id
+            .split('-')
+            .all(|seg| seg.chars().all(|c| c.is_ascii_hexdigit()));
 
     let final_records = if !is_uuid {
         session_id = uuid_v4();
@@ -665,7 +671,13 @@ fn sha256_hex(input: &str) -> String {
         .or_else(|| run_sha("shasum", &["-a", "256"], bytes))
         .unwrap_or_else(|| {
             let h = simple_hash(input);
-            format!("{:016x}{:016x}{:016x}{:016x}", h, input.len(), h, input.len())
+            format!(
+                "{:016x}{:016x}{:016x}{:016x}",
+                h,
+                input.len(),
+                h,
+                input.len()
+            )
         })
 }
 
@@ -739,7 +751,11 @@ fn inject_into_opencode(
     // Insert messages and parts
     for (msg_i, oc_msg) in oc_output.messages.iter().enumerate() {
         let msg_id = &msg_ids[msg_i];
-        let parent_msg_id = if msg_i > 0 { Some(&msg_ids[msg_i - 1]) } else { None };
+        let parent_msg_id = if msg_i > 0 {
+            Some(&msg_ids[msg_i - 1])
+        } else {
+            None
+        };
 
         // Patch the message data with proper IDs and parentID chain
         let mut msg_data = oc_msg.clone();
@@ -963,10 +979,7 @@ fn format_byte_budget(bytes: usize) -> String {
 /// Drop oldest non-header records until the serialized output fits `max_bytes`.
 /// Always preserves index 0 (the session header). Returns the number of
 /// records removed from the middle of the list.
-fn trim_pi_lines_to_byte_budget(
-    lines: &mut Vec<serde_json::Value>,
-    max_bytes: usize,
-) -> usize {
+fn trim_pi_lines_to_byte_budget(lines: &mut Vec<serde_json::Value>, max_bytes: usize) -> usize {
     if lines.len() < 2 {
         return 0;
     }
@@ -1038,7 +1051,9 @@ fn short_id() -> String {
     // Mix with a fast counter to disambiguate calls in the same nanosecond.
     static COUNTER: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
     let seq = COUNTER.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-    let mixed = (nanos as u64).wrapping_mul(0x9E3779B97F4A7C15).wrapping_add(seq);
+    let mixed = (nanos as u64)
+        .wrapping_mul(0x9E3779B97F4A7C15)
+        .wrapping_add(seq);
     format!("{:08x}", (mixed as u32))
 }
 
@@ -1180,14 +1195,14 @@ fn sha1_hex(input: &str) -> String {
 fn generate_slug() -> String {
     use std::time::{SystemTime, UNIX_EPOCH};
     let adjectives = [
-        "amber", "bold", "calm", "dark", "eager", "fair", "glad", "hazy",
-        "idle", "keen", "lean", "mild", "neat", "odd", "pale", "quick",
-        "rare", "slim", "tall", "vast", "warm", "wise", "young", "zen",
+        "amber", "bold", "calm", "dark", "eager", "fair", "glad", "hazy", "idle", "keen", "lean",
+        "mild", "neat", "odd", "pale", "quick", "rare", "slim", "tall", "vast", "warm", "wise",
+        "young", "zen",
     ];
     let nouns = [
-        "bear", "crow", "deer", "dove", "eagle", "fawn", "goat", "hawk",
-        "ibis", "jay", "kite", "lark", "mole", "newt", "owl", "pike",
-        "quail", "robin", "seal", "toad", "urchin", "vole", "wolf", "wren",
+        "bear", "crow", "deer", "dove", "eagle", "fawn", "goat", "hawk", "ibis", "jay", "kite",
+        "lark", "mole", "newt", "owl", "pike", "quail", "robin", "seal", "toad", "urchin", "vole",
+        "wolf", "wren",
     ];
     let nanos = SystemTime::now()
         .duration_since(UNIX_EPOCH)
@@ -1573,9 +1588,7 @@ mod tests {
     fn test_base62_encode_only_valid_chars() {
         let encoded = base62_encode(u128::MAX);
         assert!(
-            encoded
-                .chars()
-                .all(|c| c.is_ascii_alphanumeric()),
+            encoded.chars().all(|c| c.is_ascii_alphanumeric()),
             "should only contain alphanumeric chars: {encoded}"
         );
     }
@@ -1610,7 +1623,11 @@ mod tests {
     fn test_generate_slug_format() {
         let slug = generate_slug();
         let parts: Vec<&str> = slug.split('-').collect();
-        assert_eq!(parts.len(), 3, "slug should be adjective-noun-suffix: {slug}");
+        assert_eq!(
+            parts.len(),
+            3,
+            "slug should be adjective-noun-suffix: {slug}"
+        );
         assert!(
             parts[0].chars().all(|c| c.is_ascii_lowercase()),
             "adjective should be lowercase: {}",
@@ -1691,13 +1708,11 @@ mod tests {
         .unwrap();
 
         // Verify find_or_create_opencode_project creates a project
-        let project_id =
-            find_or_create_opencode_project(&conn, "/home/test/project").unwrap();
+        let project_id = find_or_create_opencode_project(&conn, "/home/test/project").unwrap();
         assert!(!project_id.is_empty());
 
         // Second call should return the same project
-        let project_id2 =
-            find_or_create_opencode_project(&conn, "/home/test/project").unwrap();
+        let project_id2 = find_or_create_opencode_project(&conn, "/home/test/project").unwrap();
         assert_eq!(project_id, project_id2);
 
         // Verify project was created
@@ -1777,10 +1792,7 @@ mod tests {
         // The fallback must kick in for missing AND empty values, otherwise
         // the resulting filename starts with '_' and pi rejects the file.
         let mut empty = serde_json::Map::new();
-        empty.insert(
-            "timestamp".into(),
-            serde_json::Value::String(String::new()),
-        );
+        empty.insert("timestamp".into(), serde_json::Value::String(String::new()));
         let ts = pi_session_timestamp_or_now(&empty);
         assert!(!ts.is_empty(), "empty timestamp must fall back to now");
         assert_eq!(ts.len(), 24, "fallback should be ISO-8601: {ts}");
@@ -1844,7 +1856,10 @@ mod tests {
             .iter()
             .map(|v| serde_json::to_string(v).unwrap().len() + 1)
             .sum();
-        assert!(new_total <= budget, "post-trim {new_total} > budget {budget}");
+        assert!(
+            new_total <= budget,
+            "post-trim {new_total} > budget {budget}"
+        );
     }
 
     #[test]

@@ -66,11 +66,7 @@ pub fn to_hub(input: &OpenCodeInput) -> Result<Vec<HubRecord>, ConvertError> {
         // content variant losslessly (mixed thinking/text/tool blocks,
         // standalone tool_results on user messages, foreign metadata), but
         // the stashed blob captures everything the foreign source produced.
-        if let Some(stashed) = msg
-            .get("_ucf_hub")
-            .and_then(|u| u.get("message"))
-            .cloned()
-        {
+        if let Some(stashed) = msg.get("_ucf_hub").and_then(|u| u.get("message")).cloned() {
             if let Ok(mut hub_msg) = serde_json::from_value::<HubMessage>(stashed) {
                 // OpenCode has no native `tool` role — tool results live on
                 // user-role messages. Coerce so cross-CLI sources whose hub
@@ -955,7 +951,11 @@ fn hub_message_to_opencode(msg: &HubMessage) -> Result<(Value, Vec<Value>), Conv
     // incoming tool-role hub message (e.g. from Pi) is coerced to user so
     // the output matches OpenCode's on-the-wire shape and the cross-CLI
     // round-trip produces portable roles.
-    let out_role = if msg.role == "tool" { "user" } else { msg.role.as_str() };
+    let out_role = if msg.role == "tool" {
+        "user"
+    } else {
+        msg.role.as_str()
+    };
 
     let mut message = serde_json::json!({
         "role": out_role,

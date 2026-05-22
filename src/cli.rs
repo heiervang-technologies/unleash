@@ -22,7 +22,11 @@ pub fn get_full_version() -> String {
     let agent_version = if agent_cmd == "antigravity" {
         crate::agents::AgentManager::new()
             .ok()
-            .and_then(|mut mgr| mgr.get_installed_version(crate::agents::AgentType::Antigravity).ok().flatten())
+            .and_then(|mut mgr| {
+                mgr.get_installed_version(crate::agents::AgentType::Antigravity)
+                    .ok()
+                    .flatten()
+            })
             .unwrap_or_else(|| "not installed".to_string())
     } else {
         Command::new(&agent_cmd)

@@ -264,10 +264,7 @@ pub fn build_agent_cli_picker_entries(custom: &[AgentDefinition]) -> Vec<AgentCl
 /// Resolve the binary path for an agent type.
 /// For built-ins, prefer `which::which(<binary>)` so the profile records the
 /// resolved absolute path. Falls back to the bare binary name if `which` fails.
-pub fn resolve_agent_binary_path(
-    agent: &AgentType,
-    custom: &[AgentDefinition],
-) -> String {
+pub fn resolve_agent_binary_path(agent: &AgentType, custom: &[AgentDefinition]) -> String {
     let binary = match agent {
         AgentType::Claude => AgentDefinition::claude().binary,
         AgentType::Codex => AgentDefinition::codex().binary,
@@ -319,7 +316,10 @@ pub enum SandboxStepStatus {
 
 impl SandboxStepStatus {
     pub fn is_done(&self) -> bool {
-        matches!(self, SandboxStepStatus::Success(_) | SandboxStepStatus::Skipped)
+        matches!(
+            self,
+            SandboxStepStatus::Success(_) | SandboxStepStatus::Skipped
+        )
     }
 }
 
@@ -1700,10 +1700,7 @@ impl App {
     /// and ask the run_app loop to open it.
     pub fn start_custom_agent_editor(&mut self) {
         let dir = std::env::temp_dir();
-        let path = dir.join(format!(
-            "unleash-custom-agent-{}.toml",
-            std::process::id()
-        ));
+        let path = dir.join(format!("unleash-custom-agent-{}.toml", std::process::id()));
         if let Err(e) = std::fs::write(&path, custom_agent_toml_template()) {
             self.status_message = Some(format!("Failed to write template: {}", e));
             self.edit_field = EditField::None;
@@ -1735,11 +1732,10 @@ impl App {
         self.refresh_available_agents();
 
         // Point profile at the new custom agent
-        let resolved =
-            which::which(&binary)
-                .ok()
-                .map(|p| p.to_string_lossy().to_string())
-                .unwrap_or(binary);
+        let resolved = which::which(&binary)
+            .ok()
+            .map(|p| p.to_string_lossy().to_string())
+            .unwrap_or(binary);
         if let Some(ref mut profile) = self.editing_profile {
             profile.agent_cli_path = resolved;
             let _ = self.profile_manager.save_profile(profile);
@@ -1750,7 +1746,9 @@ impl App {
         let entries = self.agent_cli_picker_entries();
         self.agent_picker_index = entries
             .iter()
-            .position(|e| matches!(e, AgentCliPickerEntry::Agent(AgentType::Custom(n)) if *n == name))
+            .position(
+                |e| matches!(e, AgentCliPickerEntry::Agent(AgentType::Custom(n)) if *n == name),
+            )
             .unwrap_or(0);
         self.status_message = Some(format!("Custom agent '{}' added", name));
         self.edit_field = EditField::AgentCliPicker;
@@ -1917,7 +1915,8 @@ impl App {
                 match self.version_focus {
                     VersionFocus::Unleash => {} // no scroll in unleash section
                     VersionFocus::AgentPicker => {
-                        let current_idx = self.available_agents
+                        let current_idx = self
+                            .available_agents
                             .iter()
                             .position(|a| *a == self.version_agent)
                             .unwrap_or(0);
@@ -2209,8 +2208,8 @@ impl App {
                         if let Some(draft) = self.custom_agent_draft.as_mut() {
                             draft.model_flag = self.key_input.value.trim().to_string();
                         }
-                        self.key_input = TextInput::new()
-                            .with_placeholder("optional, blank = none");
+                        self.key_input =
+                            TextInput::new().with_placeholder("optional, blank = none");
                         self.edit_field = EditField::CustomAgentYoloFlag;
                     }
                     EditField::CustomAgentYoloFlag => {
@@ -2545,9 +2544,7 @@ impl App {
                             AgentType::OpenCode => {
                                 vm.install_opencode_version_streaming(&version, log_tx)
                             }
-                            AgentType::Pi => {
-                                vm.install_pi_version_streaming(&version, log_tx)
-                            }
+                            AgentType::Pi => vm.install_pi_version_streaming(&version, log_tx),
                             AgentType::Hermes => {
                                 vm.install_hermes_version_streaming(&version, log_tx)
                             }
@@ -2703,12 +2700,15 @@ impl App {
             VersionFocus::AgentPicker => {
                 match action {
                     NavAction::Up | NavAction::Down => {
-                        let current_idx = self.available_agents
+                        let current_idx = self
+                            .available_agents
                             .iter()
                             .position(|a| *a == self.version_agent)
                             .unwrap_or(0);
                         let new_idx = match action {
-                            NavAction::Down => (current_idx + 1).min(self.available_agents.len() - 1),
+                            NavAction::Down => {
+                                (current_idx + 1).min(self.available_agents.len() - 1)
+                            }
                             NavAction::Up => {
                                 if current_idx == 0 {
                                     // At top of agent list, move focus to unleash
@@ -2883,7 +2883,9 @@ impl App {
                         success: false,
                         stdout: String::new(),
                         stderr: String::new(),
-                        error: Some("Version management not yet supported for custom agents".into()),
+                        error: Some(
+                            "Version management not yet supported for custom agents".into(),
+                        ),
                     }),
                 };
 
@@ -3307,8 +3309,7 @@ impl App {
                     if let Ok(manager) = crate::hooks::HookManager::new() {
                         let enabled_dirs = crate::launcher::find_plugin_dirs();
                         let all_dirs = crate::launcher::find_all_plugin_dirs();
-                        let _ =
-                            manager.prune_hooks_for_disabled_plugins(&all_dirs, &enabled_dirs);
+                        let _ = manager.prune_hooks_for_disabled_plugins(&all_dirs, &enabled_dirs);
                         let _ = manager.sync_plugin_hooks(&enabled_dirs);
                     }
                 }
@@ -3765,7 +3766,10 @@ impl App {
                     EnvKeyChoice::Skip => "—".into(),
                 };
                 detail_lines.push(Line::from(vec![
-                    Span::styled(format!("  {} ", host_marker), Style::default().fg(Color::Yellow)),
+                    Span::styled(
+                        format!("  {} ", host_marker),
+                        Style::default().fg(Color::Yellow),
+                    ),
                     Span::styled(format!("{:<28}", row.key), highlight),
                     Span::styled(" ◀ ", Style::default().fg(Color::DarkGray)),
                     Span::styled(format!("{:<12}", row.choice.label()), highlight),
@@ -4977,12 +4981,8 @@ impl App {
         frame.render_widget(Clear, dialog_area);
 
         let (step, total, label, hint) = match self.edit_field {
-            EditField::CustomAgentName => {
-                (1, 8, "Name", "A short identifier (no spaces)")
-            }
-            EditField::CustomAgentBinary => {
-                (2, 8, "Binary", "Executable on PATH or absolute path")
-            }
+            EditField::CustomAgentName => (1, 8, "Name", "A short identifier (no spaces)"),
+            EditField::CustomAgentBinary => (2, 8, "Binary", "Executable on PATH or absolute path"),
             EditField::CustomAgentHeadlessFlag => (
                 3,
                 8,
@@ -5007,9 +5007,12 @@ impl App {
                 "Resume flag",
                 "Flag for resuming a specific session (default: --resume)",
             ),
-            EditField::CustomAgentModelFlag => {
-                (6, 8, "Model flag", "Flag for model selection (default: --model)")
-            }
+            EditField::CustomAgentModelFlag => (
+                6,
+                8,
+                "Model flag",
+                "Flag for model selection (default: --model)",
+            ),
             EditField::CustomAgentYoloFlag => (
                 7,
                 8,
@@ -5652,7 +5655,11 @@ impl App {
 
             let (prefix, style) = if is_depr {
                 (
-                    if is_selected { "> ⚠️ " } else { "  ⚠️ " },
+                    if is_selected {
+                        "> ⚠️ "
+                    } else {
+                        "  ⚠️ "
+                    },
                     Style::default()
                         .fg(Color::DarkGray)
                         .add_modifier(Modifier::DIM),
@@ -5699,10 +5706,7 @@ impl App {
             let spans = vec![
                 prefix_span,
                 Span::styled(format!("{:<20}", name_str), style),
-                Span::styled(
-                    format!("{:<12}", version_str),
-                    version_style,
-                ),
+                Span::styled(format!("{:<12}", version_str), version_style),
             ];
 
             lines.push(Line::from(spans));
@@ -6821,8 +6825,14 @@ mod tests {
     fn test_agent_from_str() {
         assert_eq!(AgentType::from_str("claude"), Some(AgentType::Claude));
         assert_eq!(AgentType::from_str("codex"), Some(AgentType::Codex));
-        assert_eq!(AgentType::from_str("antigravity"), Some(AgentType::Antigravity));
-        assert_eq!(AgentType::from_str("antigravity-cli"), Some(AgentType::Antigravity));
+        assert_eq!(
+            AgentType::from_str("antigravity"),
+            Some(AgentType::Antigravity)
+        );
+        assert_eq!(
+            AgentType::from_str("antigravity-cli"),
+            Some(AgentType::Antigravity)
+        );
         assert_eq!(AgentType::from_str("gemini"), Some(AgentType::Gemini));
         assert_eq!(AgentType::from_str("gemini-cli"), Some(AgentType::Gemini));
         assert_eq!(AgentType::from_str("opencode"), Some(AgentType::OpenCode));
@@ -6830,10 +6840,7 @@ mod tests {
         assert_eq!(AgentType::from_str("pi"), Some(AgentType::Pi));
         assert_eq!(AgentType::from_str("pi-coding-agent"), Some(AgentType::Pi));
         assert_eq!(AgentType::from_str("hermes"), Some(AgentType::Hermes));
-        assert_eq!(
-            AgentType::from_str("hermes-agent"),
-            Some(AgentType::Hermes)
-        );
+        assert_eq!(AgentType::from_str("hermes-agent"), Some(AgentType::Hermes));
         assert_eq!(AgentType::from_str("unknown"), None);
     }
 
@@ -6975,7 +6982,10 @@ mod tests {
         assert_eq!(entries.len(), 8);
         assert_eq!(entries[0], AgentCliPickerEntry::Agent(AgentType::Claude));
         assert_eq!(entries[1], AgentCliPickerEntry::Agent(AgentType::Codex));
-        assert_eq!(entries[2], AgentCliPickerEntry::Agent(AgentType::Antigravity));
+        assert_eq!(
+            entries[2],
+            AgentCliPickerEntry::Agent(AgentType::Antigravity)
+        );
         assert_eq!(entries[3], AgentCliPickerEntry::Agent(AgentType::OpenCode));
         assert_eq!(entries[4], AgentCliPickerEntry::Agent(AgentType::Pi));
         assert_eq!(entries[5], AgentCliPickerEntry::Agent(AgentType::Hermes));
@@ -7067,7 +7077,11 @@ mod tests {
             .file_name()
             .map(|n| n.to_string_lossy().to_string())
             .unwrap_or_default();
-        assert_eq!(file_name, "codex", "agent_cli_path: {}", saved.agent_cli_path);
+        assert_eq!(
+            file_name, "codex",
+            "agent_cli_path: {}",
+            saved.agent_cli_path
+        );
         assert_eq!(saved.agent_type(), Some(AgentType::Codex));
     }
 
@@ -7324,10 +7338,7 @@ yolo_flag = "--yes"
     fn test_sandbox_record_result_failure_includes_hints() {
         let (mut app, _temp) = test_app();
         app.open_sandbox_wizard();
-        app.sandbox_record_result(
-            0,
-            Err(crate::sandbox::StepFailure::SudoMissing),
-        );
+        app.sandbox_record_result(0, Err(crate::sandbox::StepFailure::SudoMissing));
         match &app.sandbox_wizard.as_ref().unwrap().statuses[0] {
             SandboxStepStatus::FailedRecoverable(_msg, hints) => {
                 assert!(!hints.is_empty(), "failure should ship next-action hints");
@@ -7405,7 +7416,7 @@ yolo_flag = "--yes"
         app.screen = Screen::Sandbox;
         let wiz = app.sandbox_wizard.as_mut().unwrap();
         wiz.step = 5; // Summary
-        // Mark every row as Skip so finishing produces an empty config (safe).
+                      // Mark every row as Skip so finishing produces an empty config (safe).
         for row in &mut wiz.env_draft.rows {
             row.choice = EnvKeyChoice::Skip;
         }

@@ -61,11 +61,12 @@ const MAX_NAMES_PER_RUN: usize = 12;
 async fn main() -> Result<(), Box<dyn Error>> {
     let query = env::args().nth(1).unwrap_or_else(|| "test".to_string());
 
-    let oai_base =
-        env::var("OAI_BASE").unwrap_or_else(|_| "http://localhost:8080/v1".to_string());
+    let oai_base = env::var("OAI_BASE").unwrap_or_else(|_| "http://localhost:8080/v1".to_string());
     let embed_model =
         env::var("OAI_EMBED_MODEL").unwrap_or_else(|_| "granite-embedding".to_string());
-    let chat_base = env::var("OAI_CHAT_BASE").ok().unwrap_or_else(|| oai_base.clone());
+    let chat_base = env::var("OAI_CHAT_BASE")
+        .ok()
+        .unwrap_or_else(|| oai_base.clone());
     let chat_model = env::var("OAI_CHAT_MODEL").ok();
     let alpha: f32 = env::var("ALPHA")
         .ok()
@@ -213,20 +214,14 @@ async fn main() -> Result<(), Box<dyn Error>> {
         // Try the batch first. On any error, fall back to one-at-a-time so a
         // single oversize input doesn't tank the rest of the chunk (llama-server
         // returns 500 for the whole batch if any item exceeds the batch budget).
-        let vecs: Vec<Option<Vec<f32>>> = match embed_batch(
-            &http,
-            &oai_base,
-            &embed_model,
-            &texts,
-        )
-        .await
+        let vecs: Vec<Option<Vec<f32>>> = match embed_batch(&http, &oai_base, &embed_model, &texts)
+            .await
         {
             Ok(v) => v.into_iter().map(Some).collect(),
             Err(_) => {
                 let mut out = Vec::with_capacity(texts.len());
                 for t in &texts {
-                    match embed_batch(&http, &oai_base, &embed_model, std::slice::from_ref(t))
-                        .await
+                    match embed_batch(&http, &oai_base, &embed_model, std::slice::from_ref(t)).await
                     {
                         Ok(mut v) => out.push(v.pop()),
                         Err(_) => out.push(None),
@@ -251,7 +246,12 @@ async fn main() -> Result<(), Box<dyn Error>> {
             }
         }
         if (done + failed) % 64 == 0 {
-            eprintln!("  embed progress: {}/{} ({} failed)", done + failed, total, failed);
+            eprintln!(
+                "  embed progress: {}/{} ({} failed)",
+                done + failed,
+                total,
+                failed
+            );
         }
     }
     eprintln!("[embed] {done}/{total} embedded, {failed} failed");
@@ -336,15 +336,16 @@ async fn main() -> Result<(), Box<dyn Error>> {
     }
 
     // Blend
-    let max_bm25 = candidates.iter().map(|c| c.bm25).fold(0.0f32, f32::max).max(1e-6);
+    let max_bm25 = candidates
+        .iter()
+        .map(|c| c.bm25)
+        .fold(0.0f32, f32::max)
+        .max(1e-6);
     let mut scored: Vec<(f32, &Candidate)> = candidates
         .iter()
         .map(|c| {
             let bm_norm = c.bm25 / max_bm25;
-            let sem_norm = c
-                .cos_dist
-                .map(|d| 1.0 - (d as f32) / 2.0)
-                .unwrap_or(0.0);
+            let sem_norm = c.cos_dist.map(|d| 1.0 - (d as f32) / 2.0).unwrap_or(0.0);
             let score = alpha * bm_norm + (1.0 - alpha) * sem_norm;
             (score, c)
         })
@@ -375,7 +376,13 @@ async fn main() -> Result<(), Box<dyn Error>> {
             });
         let title = title_owned.as_str();
         let dir = c.directory.as_deref().unwrap_or("");
-        let date = c.updated_at.as_deref().unwrap_or("").chars().take(10).collect::<String>();
+        let date = c
+            .updated_at
+            .as_deref()
+            .unwrap_or("")
+            .chars()
+            .take(10)
+            .collect::<String>();
         let cos = c
             .cos_dist
             .map(|d| format!("cos={:.3}", d))
@@ -392,7 +399,11 @@ async fn main() -> Result<(), Box<dyn Error>> {
             date
         );
     }
-    eprintln!("\n[query] hybrid scored {} rows in {:?}", candidates.len(), t_q.elapsed());
+    eprintln!(
+        "\n[query] hybrid scored {} rows in {:?}",
+        candidates.len(),
+        t_q.elapsed()
+    );
     Ok(())
 }
 
@@ -447,7 +458,11 @@ fn extract_text(s: &SessionInfo) -> Option<String> {
     }
     let title_part = s.title.as_deref().or(s.name.as_deref()).unwrap_or("");
     let dir_part = &s.directory;
-    Some(format!("{title_part} {dir_part} {snippet}").trim().to_string())
+    Some(
+        format!("{title_part} {dir_part} {snippet}")
+            .trim()
+            .to_string(),
+    )
 }
 
 fn vec_to_lit(v: &[f32]) -> String {
@@ -485,7 +500,10 @@ async fn embed_batch(
     let url = format!("{}/embeddings", base.trim_end_matches('/'));
     let resp = http
         .post(&url)
-        .json(&Req { model, input: texts })
+        .json(&Req {
+            model,
+            input: texts,
+        })
         .send()
         .await?
         .error_for_status()?

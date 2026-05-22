@@ -32,10 +32,7 @@ yolo_flag = "--yes"
     assert_eq!(def.polyfill.model_flag, "--model");
     assert_eq!(def.polyfill.yolo_flag, Some("--yes".to_string()));
     assert_eq!(def.description, "AI pair programming in your terminal");
-    assert_eq!(
-        def.github_repo,
-        Some("paul-gauthier/aider".to_string())
-    );
+    assert_eq!(def.github_repo, Some("paul-gauthier/aider".to_string()));
     assert!(def.enabled);
 }
 

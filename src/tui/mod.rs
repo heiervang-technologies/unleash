@@ -337,8 +337,7 @@ fn run_app(
                         }
                         Err(e) => {
                             // Re-queue the file so the user can fix it.
-                            app.status_message =
-                                Some(format!("Custom agent TOML invalid: {}", e));
+                            app.status_message = Some(format!("Custom agent TOML invalid: {}", e));
                             app.pending_custom_agent_edit = Some(path.clone());
                             app.edit_field = app::EditField::AgentCliPicker;
                         }
@@ -474,16 +473,13 @@ fn handle_sandbox_pending_external(
                 .and_then(|w| w.docker_dir.clone());
             let step = SandboxStep::ALL[step_idx];
 
-            let mut result: Result<String, crate::sandbox::StepFailure> =
-                Err(crate::sandbox::StepFailure::Recoverable(
-                    "step did not run".into(),
-                ));
+            let mut result: Result<String, crate::sandbox::StepFailure> = Err(
+                crate::sandbox::StepFailure::Recoverable("step did not run".into()),
+            );
             run_with_terminal_suspended(terminal, || {
                 eprintln!("\n--- {} ---\n", step.title());
                 if step.needs_sudo() {
-                    eprintln!(
-                        "This step needs root. You'll be prompted for your sudo password.\n"
-                    );
+                    eprintln!("This step needs root. You'll be prompted for your sudo password.\n");
                 }
                 result = match step {
                     SandboxStep::Docker => crate::sandbox::step_check_docker(),
@@ -500,11 +496,11 @@ fn handle_sandbox_pending_external(
                             "docker/ directory not located".into(),
                         )),
                     },
-                    SandboxStep::Env | SandboxStep::Summary => Err(
-                        crate::sandbox::StepFailure::Recoverable(
+                    SandboxStep::Env | SandboxStep::Summary => {
+                        Err(crate::sandbox::StepFailure::Recoverable(
                             "this step is not externally runnable".into(),
-                        ),
-                    ),
+                        ))
+                    }
                 };
                 Ok(())
             })?;

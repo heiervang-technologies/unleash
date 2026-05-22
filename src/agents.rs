@@ -359,7 +359,10 @@ impl AgentDefinition {
                 output_format_flag: None,
                 system_prompt_flag: None,
                 allowed_tools_flag: None,
-                sandbox: SandboxStrategy::ValueFlag("--sandbox".to_string(), "workspace-write".to_string()),
+                sandbox: SandboxStrategy::ValueFlag(
+                    "--sandbox".to_string(),
+                    "workspace-write".to_string(),
+                ),
                 name_flag: None,
                 add_dir_flag: Some("--add-dir".to_string()),
                 approval_mode_flag: Some("-a".to_string()),
@@ -613,15 +616,19 @@ impl AgentManager {
     fn parse_asar_version(content: &[u8]) -> Option<String> {
         let pattern1 = b"\"name\": \"antigravity\"";
         let pattern2 = b"\"name\":\"antigravity\"";
-        let pos = content.windows(pattern1.len()).position(|w| w == pattern1)
+        let pos = content
+            .windows(pattern1.len())
+            .position(|w| w == pattern1)
             .or_else(|| content.windows(pattern2.len()).position(|w| w == pattern2))?;
-        
+
         let search_slice = &content[pos..pos + std::cmp::min(1000, content.len() - pos)];
         let version_pattern = b"\"version\"";
-        let v_pos = search_slice.windows(version_pattern.len()).position(|w| w == version_pattern)?;
-        
+        let v_pos = search_slice
+            .windows(version_pattern.len())
+            .position(|w| w == version_pattern)?;
+
         let val_slice = &search_slice[v_pos + version_pattern.len()..];
-        
+
         let mut start_idx = None;
         let mut colon_found = false;
         for (i, &b) in val_slice.iter().enumerate() {
@@ -632,11 +639,11 @@ impl AgentManager {
                 break;
             }
         }
-        
+
         let start = start_idx?;
         let end_slice = &val_slice[start..];
         let end = end_slice.iter().position(|&b| b == b'"')?;
-        
+
         String::from_utf8(end_slice[..end].to_vec()).ok()
     }
 
@@ -648,11 +655,34 @@ impl AgentManager {
             .ok_or_else(|| io::Error::new(io::ErrorKind::NotFound, "Agent not found"))?;
 
         if agent_type == AgentType::Antigravity {
-            let path = PathBuf::from("/opt/Antigravity/resources/app.asar");
+            // Check Electron app.asar paths for system/packaged installations
+            let paths = [
+                PathBuf::from("/opt/Antigravity/resources/app.asar"), // Arch Linux / pacman default
+                PathBuf::from("/Applications/Antigravity.app/Contents/Resources/app.asar"), // macOS default
+            ];
             let mut version = None;
-            if path.exists() {
-                if let Ok(content) = fs::read(&path) {
-                    version = Self::parse_asar_version(&content);
+            for path in &paths {
+                if path.exists() {
+                    if let Ok(content) = fs::read(path) {
+                        if let Some(v) = Self::parse_asar_version(&content) {
+                            version = Some(v);
+                            break;
+                        }
+                    }
+                }
+            }
+
+            // Fallback for npm-based global installations (@google/antigravity-cli) or custom paths
+            if version.is_none() {
+                if let Ok(bin_path) = which::which(&agent.binary) {
+                    if let Ok(output) = Command::new(&bin_path).arg("--version").output() {
+                        let stdout = String::from_utf8_lossy(&output.stdout);
+                        // Clean up output to extract semver if present
+                        let ver_str = stdout.trim();
+                        if !ver_str.is_empty() {
+                            version = Some(ver_str.to_string());
+                        }
+                    }
                 }
             }
 
@@ -873,7 +903,7 @@ impl AgentManager {
             AgentType::Claude => self.update_claude(),
             AgentType::Codex => self.update_codex(),
             AgentType::Antigravity => Err(io::Error::other(
-                "Antigravity CLI updates are managed by the system package manager (pacman/yay)"
+                "Antigravity CLI updates are managed by the system package manager (pacman/yay)",
             )),
             AgentType::Gemini => self.update_npm_agent("@google/gemini-cli", "Gemini CLI"),
             AgentType::OpenCode => self.update_opencode(),
@@ -1242,7 +1272,10 @@ impl AgentManager {
         let mut results = Vec::new();
 
         for agent_type in agent_types {
-            let installed = self.get_installed_version(agent_type.clone()).ok().flatten();
+            let installed = self
+                .get_installed_version(agent_type.clone())
+                .ok()
+                .flatten();
             let latest = self
                 .versions
                 .get(&agent_type)
@@ -1317,7 +1350,10 @@ mod tests {
         assert!(hermes.npm_package.is_none());
         assert_eq!(hermes.binary, "hermes");
         assert_eq!(hermes.agent_type, AgentType::Hermes);
-        assert_eq!(hermes.github_repo.as_deref(), Some("NousResearch/hermes-agent"));
+        assert_eq!(
+            hermes.github_repo.as_deref(),
+            Some("NousResearch/hermes-agent")
+        );
     }
 
     #[test]
@@ -1366,7 +1402,10 @@ mod tests {
             Some("2026.6.12".to_string())
         );
         // Missing parens
-        assert_eq!(AgentManager::parse_hermes_calver("Hermes Agent v0.13.0"), None);
+        assert_eq!(
+            AgentManager::parse_hermes_calver("Hermes Agent v0.13.0"),
+            None
+        );
         // Non-numeric content in parens
         assert_eq!(
             AgentManager::parse_hermes_calver("Hermes Agent v0.13.0 (dev)"),

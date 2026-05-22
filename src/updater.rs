@@ -761,7 +761,10 @@ pub fn uninstall_interactive() -> io::Result<()> {
     if !installed_bins.is_empty() {
         println!("  Binaries/symlinks in {}:", bin_dir.display());
         for p in &installed_bins {
-            println!("    - {}", p.file_name().and_then(|n| n.to_str()).unwrap_or(""));
+            println!(
+                "    - {}",
+                p.file_name().and_then(|n| n.to_str()).unwrap_or("")
+            );
         }
     }
     if data_dir.exists() {
@@ -933,7 +936,7 @@ fn update_agent(
         AgentType::Claude => update_claude(tx, index),
         AgentType::Codex => update_codex(tx, index, latest_version),
         AgentType::Antigravity => Err(io::Error::other(
-            "Antigravity CLI updates are managed by the system package manager (pacman/yay)"
+            "Antigravity CLI updates are managed by the system package manager (pacman/yay)",
         )),
         AgentType::Gemini => update_gemini(tx, index, latest_version),
         AgentType::OpenCode => update_opencode(tx, index),
@@ -1385,7 +1388,10 @@ mod tests {
             msg.contains("failed"),
             "error message must contain 'failed' (was: {msg})"
         );
-        assert!(msg.contains('1'), "error must mention the count (was: {msg})");
+        assert!(
+            msg.contains('1'),
+            "error must mention the count (was: {msg})"
+        );
         // Singular: "1 agent failed", not "1 agents".
         assert!(
             msg.contains("agent failed"),
@@ -1403,7 +1409,10 @@ mod tests {
         let err = summary_to_result(3, false).expect_err("should error on failure");
         let msg = err.to_string();
         assert!(msg.contains("failed"), "msg lacks 'failed': {msg}");
-        assert!(msg.contains("3 agents failed"), "expected plural agents: {msg}");
+        assert!(
+            msg.contains("3 agents failed"),
+            "expected plural agents: {msg}"
+        );
     }
 
     #[test]
@@ -1481,12 +1490,18 @@ mod tests {
             err_outcome(AgentType::Gemini, "1.0.0", "npm install failed"),
         ];
         let failed = print_summary(&[], &outcomes);
-        assert_eq!(failed, 2, "exactly two errored outcomes must yield failed=2");
+        assert_eq!(
+            failed, 2,
+            "exactly two errored outcomes must yield failed=2"
+        );
 
         // And the run() error path must be triggered with the expected message.
         let err = summary_to_result(failed, false).expect_err("must propagate Err");
         let msg = err.to_string();
-        assert!(msg.contains("2 agents failed"), "expected '2 agents failed': {msg}");
+        assert!(
+            msg.contains("2 agents failed"),
+            "expected '2 agents failed': {msg}"
+        );
         assert!(msg.contains("update"), "expected 'update' verb: {msg}");
     }
 

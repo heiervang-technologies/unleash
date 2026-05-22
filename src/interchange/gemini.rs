@@ -45,11 +45,7 @@ pub fn to_hub(data: &[u8]) -> Result<Vec<HubRecord>, ConvertError> {
                 // restore it verbatim — the Gemini shape can lose mixed
                 // content variants and Hub-only metadata, but the stashed
                 // blob captures everything the foreign source produced.
-                if let Some(stashed) = msg
-                    .get("_ucf_hub")
-                    .and_then(|u| u.get("message"))
-                    .cloned()
-                {
+                if let Some(stashed) = msg.get("_ucf_hub").and_then(|u| u.get("message")).cloned() {
                     if let Ok(hub_msg) = serde_json::from_value::<HubMessage>(stashed) {
                         records.push(HubRecord::Message(hub_msg));
                         continue;
@@ -159,9 +155,7 @@ pub fn from_hub(records: &[HubRecord]) -> Result<Value, ConvertError> {
     // If the hub session came from a non-Gemini source, stash the whole
     // SessionHeader so the hub → gemini → hub round trip is lossless.
     let mut foreign_source = false;
-    if let Some(HubRecord::Session(s)) = records
-        .iter()
-        .find(|r| matches!(r, HubRecord::Session(_)))
+    if let Some(HubRecord::Session(s)) = records.iter().find(|r| matches!(r, HubRecord::Session(_)))
     {
         if s.source_cli != "gemini-cli" {
             session_passthrough = Some(serde_json::to_value(s)?);
@@ -244,11 +238,7 @@ pub fn from_hub(records: &[HubRecord]) -> Result<Value, ConvertError> {
                         attach_ucf_hub_field(&mut gm, "completed_at", Value::String(ca.clone()));
                     }
                     if foreign_source {
-                        attach_ucf_hub_field(
-                            &mut gm,
-                            "message",
-                            serde_json::to_value(msg)?,
-                        );
+                        attach_ucf_hub_field(&mut gm, "message", serde_json::to_value(msg)?);
                     }
                     messages.push(gm);
                 }
@@ -561,7 +551,13 @@ fn build_session_header(root: &Value) -> SessionHeader {
 
     // Stash ALL root-level fields (except messages/sessionId which are mapped)
     // `_ucf_hub` carries cross-CLI passthrough and is handled separately in `to_hub`.
-    let hub_fields: &[&str] = &["sessionId", "messages", "startTime", "lastUpdated", "_ucf_hub"];
+    let hub_fields: &[&str] = &[
+        "sessionId",
+        "messages",
+        "startTime",
+        "lastUpdated",
+        "_ucf_hub",
+    ];
     let mut ext = serde_json::Map::new();
     if let Some(obj) = root.as_object() {
         for (k, v) in obj {
@@ -754,11 +750,7 @@ fn message_to_hub(msg: &Value, foreign_session: bool) -> Result<HubMessage, Conv
         }
     }
 
-    if foreign_originated
-        && ext
-            .as_object()
-            .is_some_and(serde_json::Map::is_empty)
-    {
+    if foreign_originated && ext.as_object().is_some_and(serde_json::Map::is_empty) {
         ext = Value::Null;
     }
 
@@ -824,11 +816,7 @@ fn info_to_hub_event(msg: &Value, foreign_session: bool) -> Result<HubEvent, Con
         }
     }
 
-    if foreign_originated
-        && ext
-            .as_object()
-            .is_some_and(serde_json::Map::is_empty)
-    {
+    if foreign_originated && ext.as_object().is_some_and(serde_json::Map::is_empty) {
         ext = Value::Null;
     }
 
@@ -880,7 +868,7 @@ fn hub_message_to_gemini(msg: &HubMessage) -> Result<Value, ConvertError> {
             .iter()
             .map(|t| serde_json::json!({"text": t}))
             .collect();
-            
+
         // Gemini API will fail if a user message has an empty parts array
         if content_arr.is_empty() {
             content_arr.push(serde_json::json!({"text": " "}));
@@ -1381,7 +1369,10 @@ mod tests {
             let orig = gc.get("_original_message").unwrap();
             assert_eq!(orig.get("id").unwrap().as_str().unwrap(), "msg-5");
             assert_eq!(
-                orig.get("renderOutputAsMarkdown").unwrap().as_bool().unwrap(),
+                orig.get("renderOutputAsMarkdown")
+                    .unwrap()
+                    .as_bool()
+                    .unwrap(),
                 true
             );
         }
