@@ -33,7 +33,7 @@ fn test_agy_profile_dry_run() {
 
     assert!(output.status.success());
     let stdout = String::from_utf8_lossy(&output.stdout);
-    verify_dry_run_output(&stdout, "antigravity");
+    verify_dry_run_output(&stdout, "agy");
 }
 
 #[test]

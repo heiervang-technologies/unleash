@@ -163,7 +163,7 @@ impl Profile {
             Self {
                 name: "agy".to_string(),
                 description: "Antigravity CLI (agy) by Google".to_string(),
-                agent_cli_path: "antigravity".to_string(),
+                agent_cli_path: "agy".to_string(),
                 agent_cli_args: Vec::new(),
                 defaults: ProfileDefaults::default(),
                 agents: ProfileOverrides::default(),

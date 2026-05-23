@@ -393,7 +393,7 @@ impl AgentDefinition {
         Self {
             agent_type: AgentType::Antigravity,
             name: "Antigravity CLI".to_string(),
-            binary: "antigravity".to_string(),
+            binary: "agy".to_string(),
             description: "Google's Antigravity CLI".to_string(),
             polyfill: AgentPolyfillConfig {
                 headless: HeadlessStrategy::Flag("-p".to_string()),

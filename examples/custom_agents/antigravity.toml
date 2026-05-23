@@ -1,6 +1,6 @@
 [[custom_agents]]
 name = "antigravity"
-binary = "antigravity"
+binary = "agy"
 description = "Google's Antigravity CLI"
 npm_package = "@google/antigravity-cli"
 

@@ -290,7 +290,7 @@ fn run_agent_with_polyfill(
     let target_cli = match &agent_type {
         AgentType::Claude => "claude",
         AgentType::Codex => "codex",
-        AgentType::Antigravity => "antigravity",
+        AgentType::Antigravity => "agy",
         AgentType::Gemini => "gemini",
         AgentType::OpenCode => "opencode",
         AgentType::Pi => "pi",
@@ -551,7 +551,7 @@ pub fn run() -> io::Result<()> {
             let target_cli = match first_arg {
                 "claude" | "claude-code" => "claude",
                 "codex" => "codex",
-                "antigravity" | "antigravity-cli" | "agy" => "antigravity",
+                "antigravity" | "antigravity-cli" | "agy" => "agy",
                 "gemini" | "gemini-cli" => "gemini",
                 "opencode" => "opencode",
                 "pi" => "pi",
@@ -563,7 +563,7 @@ pub fn run() -> io::Result<()> {
                         .map(|agent| match agent {
                             AgentType::Claude => "claude",
                             AgentType::Codex => "codex",
-                            AgentType::Antigravity => "antigravity",
+                            AgentType::Antigravity => "agy",
                             AgentType::Gemini => "gemini",
                             AgentType::OpenCode => "opencode",
                             AgentType::Pi => "pi",
