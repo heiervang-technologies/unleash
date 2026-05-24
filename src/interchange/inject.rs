@@ -2,7 +2,7 @@
 
 use crate::interchange::crossload_index::{self, entry_is_live};
 use crate::interchange::sessions::{find_session, SessionInfo};
-use crate::interchange::{claude, codex, gemini, hub::HubRecord, opencode, pi, ConvertError};
+use crate::interchange::{claude, codex, gemini, hermes, hub::HubRecord, opencode, pi, ConvertError};
 
 /// Result of injecting a session: the session ID to resume with and any extra args.
 pub struct InjectionResult {
@@ -84,6 +84,7 @@ pub fn inject_session(
         "gemini" | "gemini-cli" | "antigravity" | "antigravity-cli" | "agy" => {
             inject_into_gemini(&session, &hub_records)?
         }
+        "hermes" | "hermes-agent" => inject_into_hermes(&session, &hub_records)?,
         "opencode" => inject_into_opencode(&session, &hub_records)?,
         "pi" | "pi-coding-agent" => inject_into_pi(&session, &hub_records)?,
         _ => {
@@ -116,6 +117,7 @@ fn normalize_target_cli(target: &str) -> &str {
         "codex" => "codex",
         "gemini" | "gemini-cli" => "gemini",
         "antigravity" | "antigravity-cli" | "agy" => "gemini", // Map to gemini since they share storage layout and resume strategy
+        "hermes" | "hermes-agent" => "hermes",
         "opencode" => "opencode",
         "pi" | "pi-coding-agent" => "pi",
         other => other,
@@ -128,6 +130,7 @@ fn resume_args_for(target: &str, session_id: &str) -> Vec<String> {
         "codex" => crate::agents::AgentType::Codex,
         "gemini" | "gemini-cli" => crate::agents::AgentType::Gemini,
         "antigravity" | "antigravity-cli" | "agy" => crate::agents::AgentType::Antigravity,
+        "hermes" | "hermes-agent" => crate::agents::AgentType::Hermes,
         "opencode" => crate::agents::AgentType::OpenCode,
         "pi" | "pi-coding-agent" => crate::agents::AgentType::Pi,
         _ => crate::agents::AgentType::Custom(target.to_string()),
@@ -158,6 +161,10 @@ pub fn source_to_hub(session: &SessionInfo) -> Result<Vec<HubRecord>, ConvertErr
             let input = export_opencode_session(&session.id)?;
             opencode::to_hub(&input)
         }
+        "hermes" => {
+            let json = export_hermes_session(&session.id)?;
+            hermes::to_hub(&json)
+        }
         "pi" => {
             let data = std::fs::read_to_string(&session.path)?;
             let reader = std::io::BufReader::new(data.as_bytes());
@@ -181,6 +188,65 @@ pub fn source_to_hub(session: &SessionInfo) -> Result<Vec<HubRecord>, ConvertErr
             session.cli
         ))),
     }
+}
+
+fn export_hermes_session(session_id: &str) -> Result<String, ConvertError> {
+    let db_path = dirs::home_dir()
+        .ok_or_else(|| ConvertError::InvalidFormat("No home dir".into()))?
+        .join(".hermes")
+        .join("state.db");
+
+    let conn = rusqlite::Connection::open_with_flags(
+        &db_path,
+        rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY | rusqlite::OpenFlags::SQLITE_OPEN_NO_MUTEX,
+    )?;
+
+    let session: serde_json::Value = conn
+        .query_row(
+            "SELECT id, source, model, title, started_at, ended_at, parent_session_id
+             FROM sessions WHERE id = ?1",
+            rusqlite::params![session_id],
+            |row| {
+                Ok(serde_json::json!({
+                    "id":                row.get::<_, String>(0)?,
+                    "source":            row.get::<_, String>(1)?,
+                    "model":             row.get::<_, Option<String>>(2)?,
+                    "title":             row.get::<_, Option<String>>(3)?,
+                    "started_at":        row.get::<_, f64>(4)?,
+                    "ended_at":          row.get::<_, Option<f64>>(5)?,
+                    "parent_session_id": row.get::<_, Option<String>>(6)?,
+                }))
+            },
+        )
+        .map_err(|e| ConvertError::InvalidFormat(format!("Session not found in Hermes DB: {e}")))?;
+
+    let mut msg_stmt = conn.prepare(
+        "SELECT id, role, content, tool_calls, tool_call_id, tool_name, timestamp
+         FROM messages WHERE session_id = ?1 ORDER BY timestamp, id",
+    )?;
+    let messages: Vec<serde_json::Value> = msg_stmt
+        .query_map(rusqlite::params![session_id], |row| {
+            Ok(serde_json::json!({
+                "id":          row.get::<_, i64>(0)?,
+                "session_id":  session_id,
+                "role":        row.get::<_, String>(1)?,
+                "content":     row.get::<_, Option<String>>(2)?,
+                "tool_calls":  row.get::<_, Option<String>>(3)
+                    .ok()
+                    .flatten()
+                    .and_then(|s| serde_json::from_str::<serde_json::Value>(&s).ok())
+                    .unwrap_or(serde_json::Value::Null),
+                "tool_call_id": row.get::<_, Option<String>>(4)?,
+                "tool_name":   row.get::<_, Option<String>>(5)?,
+                "timestamp":   row.get::<_, f64>(6)?,
+            }))
+        })?
+        .flatten()
+        .collect();
+
+    let mut full = session;
+    full["messages"] = serde_json::Value::Array(messages);
+    Ok(full.to_string())
 }
 
 fn export_opencode_session(session_id: &str) -> Result<opencode::OpenCodeInput, ConvertError> {
@@ -834,6 +900,99 @@ fn inject_into_opencode(
 /// Soft cap on injected pi session size. Pi loads sessions via Node's
 /// `readFileSync(path, "utf8")`, which throws `ERR_STRING_TOO_LONG` past
 /// ~512 MB and OOMs the picker well before that. The cap also keeps
+fn inject_into_hermes(
+    source: &SessionInfo,
+    hub_records: &[HubRecord],
+) -> Result<(InjectionResult, String), ConvertError> {
+    use crate::interchange::hermes;
+
+    let output = hermes::from_hub(hub_records)?;
+
+    let db_path = dirs::home_dir()
+        .ok_or_else(|| ConvertError::InvalidFormat("No home dir".into()))?
+        .join(".hermes")
+        .join("state.db");
+
+    if !db_path.exists() {
+        return Err(ConvertError::InvalidFormat(format!(
+            "Hermes database not found at {}",
+            db_path.display()
+        )));
+    }
+
+    let conn = rusqlite::Connection::open(&db_path)
+        .map_err(|e| ConvertError::InvalidFormat(format!("Failed to open Hermes DB: {e}")))?;
+
+    let session_id = output.session.id.clone();
+    let title = source
+        .title
+        .as_deref()
+        .or(source.name.as_deref())
+        .unwrap_or("Imported session")
+        .to_string();
+
+    let tx = conn
+        .unchecked_transaction()
+        .map_err(|e| ConvertError::InvalidFormat(format!("Failed to begin transaction: {e}")))?;
+
+    tx.execute(
+        "INSERT OR REPLACE INTO sessions
+         (id, source, model, title, started_at, ended_at, message_count)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+        rusqlite::params![
+            session_id,
+            output.session.source,
+            output.session.model,
+            title,
+            output.session.started_at,
+            output.session.ended_at,
+            output.session.message_count as i64,
+        ],
+    )
+    .map_err(|e| ConvertError::InvalidFormat(format!("Failed to insert session: {e}")))?;
+
+    for msg in &output.messages {
+        tx.execute(
+            "INSERT INTO messages
+             (session_id, role, content, tool_calls, tool_call_id, tool_name, timestamp)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+            rusqlite::params![
+                session_id,
+                msg.role,
+                msg.content,
+                msg.tool_calls,
+                msg.tool_call_id,
+                msg.tool_name,
+                msg.timestamp,
+            ],
+        )
+        .map_err(|e| ConvertError::InvalidFormat(format!("Failed to insert message: {e}")))?;
+    }
+
+    tx.commit()
+        .map_err(|e| ConvertError::InvalidFormat(format!("Failed to commit: {e}")))?;
+
+    eprintln!(
+        "Injected {} messages into Hermes session {}",
+        output.messages.len(),
+        session_id
+    );
+
+    let target_path = db_path.to_string_lossy().to_string();
+    Ok((
+        InjectionResult {
+            session_id: session_id.clone(),
+            resume_args: vec!["--resume".into(), session_id],
+            message: format!(
+                "Injected {} messages from {} into Hermes",
+                output.messages.len(),
+                source.cli,
+            ),
+        },
+        target_path,
+    ))
+}
+
 /// the partial-UUID resolver fast — pi reads every file in the project
 /// dir to match a prefix, so one huge file can starve the rest.
 /// Tunable via `UNLEASH_PI_MAX_BYTES`.

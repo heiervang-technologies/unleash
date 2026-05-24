@@ -87,7 +87,7 @@ TEMPLATE_OUTPUT=$(vastai create template \
   --name "${TEMPLATE_NAME}" \
   --image "${IMAGE}" \
   --image_tag "${TAG}" \
-  --disk-space "${DISK_GB}" \
+  --disk_space "${DISK_GB}" \
   --ssh \
   --jupyter \
   --jupyter-lab \

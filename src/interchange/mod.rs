@@ -5,6 +5,7 @@ mod cross_cli_tests;
 pub mod crossload_index;
 pub mod gemini;
 pub(crate) mod helpers;
+pub mod hermes;
 pub mod hub;
 pub mod inject;
 #[cfg(test)]
@@ -21,6 +22,7 @@ pub enum CliFormat {
     ClaudeCode,
     Codex,
     GeminiCli,
+    Hermes,
     OpenCode,
     Pi,
     Ucf,
@@ -32,6 +34,7 @@ impl fmt::Display for CliFormat {
             Self::ClaudeCode => write!(f, "claude-code"),
             Self::Codex => write!(f, "codex"),
             Self::GeminiCli => write!(f, "gemini-cli"),
+            Self::Hermes => write!(f, "hermes"),
             Self::OpenCode => write!(f, "opencode"),
             Self::Pi => write!(f, "pi"),
             Self::Ucf => write!(f, "ucf"),
@@ -47,6 +50,7 @@ impl std::str::FromStr for CliFormat {
             "claude" | "claude-code" => Ok(Self::ClaudeCode),
             "codex" => Ok(Self::Codex),
             "gemini" | "gemini-cli" | "antigravity" | "antigravity-cli" | "agy" => Ok(Self::GeminiCli),
+            "hermes" | "hermes-agent" => Ok(Self::Hermes),
             "opencode" => Ok(Self::OpenCode),
             "pi" | "pi-coding-agent" => Ok(Self::Pi),
             "ucf" | "hub" => Ok(Self::Ucf),
