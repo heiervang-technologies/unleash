@@ -129,6 +129,8 @@ pub enum Screen {
     Features,
     /// Interactive sandbox setup wizard (issue #112+)
     Sandbox,
+    /// Post-install setup wizard (issue #172)
+    Setup,
 }
 
 /// Main menu items — order here defines display order in the TUI.
@@ -516,6 +518,111 @@ impl SandboxWizardState {
     }
 }
 
+// ─── Setup wizard (issue #172) ──────────────────────────────────────────────
+
+/// One step in the post-install setup wizard.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SetupStep {
+    Welcome,
+    DetectState,
+    PickAgents,
+    CheckPrereqs,
+    InstallAgents,
+    Finalize,
+}
+
+impl SetupStep {
+    pub const ALL: &'static [SetupStep] = &[
+        SetupStep::Welcome,
+        SetupStep::DetectState,
+        SetupStep::PickAgents,
+        SetupStep::CheckPrereqs,
+        SetupStep::InstallAgents,
+        SetupStep::Finalize,
+    ];
+
+    pub fn title(&self) -> &'static str {
+        match self {
+            SetupStep::Welcome => "Welcome",
+            SetupStep::DetectState => "Detect existing install",
+            SetupStep::PickAgents => "Choose agents",
+            SetupStep::CheckPrereqs => "Check prerequisites",
+            SetupStep::InstallAgents => "Install agents",
+            SetupStep::Finalize => "Finish",
+        }
+    }
+
+    pub fn description(&self) -> &'static str {
+        match self {
+            SetupStep::Welcome => "Get up and running with unleash.",
+            SetupStep::DetectState => {
+                "Check for existing config, installed agents, and anything unusual."
+            }
+            SetupStep::PickAgents => {
+                "Choose which agent CLIs you want installed."
+            }
+            SetupStep::CheckPrereqs => {
+                "Verify npm, cargo, or other prerequisites needed by your chosen agents."
+            }
+            SetupStep::InstallAgents => "Download and install the chosen agents.",
+            SetupStep::Finalize => "Write config and launch.",
+        }
+    }
+}
+
+/// Per-step completion status for the setup wizard.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum SetupStepStatus {
+    Pending,
+    Running,
+    Done,
+    Skipped,
+}
+
+/// Top-level state for the setup wizard.
+#[derive(Debug, Clone)]
+pub struct SetupWizardState {
+    /// Index into `SetupStep::ALL` of the current step.
+    pub step: usize,
+    pub statuses: Vec<SetupStepStatus>,
+    /// Agents the user has ticked in the PickAgents step.
+    pub picked_agents: Vec<AgentType>,
+    /// Whether we auto-opened the wizard (UNLEASH_WIZARD=1) vs. user navigated here.
+    pub auto_opened: bool,
+    /// Errors or notices collected during detection / install.
+    pub notices: Vec<String>,
+}
+
+impl SetupWizardState {
+    pub fn new(auto_opened: bool) -> Self {
+        SetupWizardState {
+            step: 0,
+            statuses: SetupStep::ALL
+                .iter()
+                .map(|_| SetupStepStatus::Pending)
+                .collect(),
+            picked_agents: Vec::new(),
+            auto_opened,
+            notices: Vec::new(),
+        }
+    }
+
+    pub fn current_step(&self) -> SetupStep {
+        SetupStep::ALL[self.step.min(SetupStep::ALL.len() - 1)]
+    }
+
+    /// Advance to the next step. Returns false when already at the last step.
+    pub fn advance(&mut self) -> bool {
+        if self.step + 1 < SetupStep::ALL.len() {
+            self.statuses[self.step] = SetupStepStatus::Done;
+            self.step += 1;
+            true
+        } else {
+            false
+        }
+    }
+}
+
 /// State for async version installation
 pub struct InstallState {
     pub agent_type: AgentType,
@@ -852,6 +959,9 @@ pub struct App {
     // ── Sandbox wizard (issue #112+) ────────────────────────────────────────
     /// Active wizard state when `screen == Screen::Sandbox`.
     pub sandbox_wizard: Option<SandboxWizardState>,
+    // ── Setup wizard (issue #172) ────────────────────────────────────────
+    /// Active setup wizard state when `screen == Screen::Setup`.
+    pub setup_wizard: Option<SetupWizardState>,
 }
 
 impl App {
@@ -1007,6 +1117,7 @@ impl App {
             custom_agent_draft: None,
             pending_custom_agent_edit: None,
             sandbox_wizard: None,
+            setup_wizard: None,
         })
     }
 
@@ -1330,6 +1441,7 @@ impl App {
             | Screen::Help
             | Screen::Features
             | Screen::Sandbox
+            | Screen::Setup
             | Screen::ConfirmDelete => {}
         }
     }
@@ -2021,6 +2133,7 @@ impl App {
                 Screen::VersionManagement => return self.handle_version_input(action, key),
                 Screen::Features => self.handle_features_input(action),
                 Screen::Sandbox => self.handle_sandbox_input(action, key),
+                Screen::Setup => self.handle_setup_input(action, key),
             }
         }
         Ok(None)
@@ -3947,6 +4060,133 @@ impl App {
         Color::Rgb(r, g, b)
     }
 
+    fn handle_setup_input(&mut self, action: NavAction, _key: KeyEvent) {
+        let wiz = match self.setup_wizard.as_mut() {
+            Some(w) => w,
+            None => {
+                self.screen = Screen::Main;
+                return;
+            }
+        };
+
+        match action {
+            NavAction::Back | NavAction::Quit => {
+                self.trigger_screen_animation(false, Screen::Main);
+                self.pending_screen = Some(Screen::Main);
+                self.setup_wizard = None;
+                if self.art_animation.is_none() {
+                    self.screen = Screen::Main;
+                    self.refresh_screen_data();
+                }
+            }
+            NavAction::Select | NavAction::Down => {
+                let done = wiz.advance();
+                if done {
+                    self.trigger_screen_animation(false, Screen::Main);
+                    self.pending_screen = Some(Screen::Main);
+                    self.setup_wizard = None;
+                    if self.art_animation.is_none() {
+                        self.screen = Screen::Main;
+                        self.refresh_screen_data();
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+
+    fn render_setup_wizard(&mut self, frame: &mut Frame, area: Rect) {
+        use ratatui::widgets::{Block, Borders, Paragraph};
+
+        let wiz = match self.setup_wizard.as_ref() {
+            Some(w) => w.clone(),
+            None => return,
+        };
+
+        let outer_chunks = Layout::default()
+            .direction(Direction::Horizontal)
+            .constraints([Constraint::Length(34), Constraint::Min(0)])
+            .split(area);
+
+        let left_lines: Vec<Line> = SetupStep::ALL
+            .iter()
+            .enumerate()
+            .map(|(i, s)| {
+                let icon = match &wiz.statuses[i] {
+                    SetupStepStatus::Pending => "·",
+                    SetupStepStatus::Running => "…",
+                    SetupStepStatus::Done => "✓",
+                    SetupStepStatus::Skipped => "—",
+                };
+                let style = if i == wiz.step {
+                    Style::default()
+                        .fg(self.accent_color())
+                        .add_modifier(Modifier::BOLD)
+                } else if wiz.statuses[i] == SetupStepStatus::Done {
+                    Style::default().fg(Color::Green)
+                } else {
+                    Style::default().fg(Color::Gray)
+                };
+                Line::from(Span::styled(
+                    format!(" {} {}. {}", icon, i + 1, s.title()),
+                    style,
+                ))
+            })
+            .collect();
+
+        let left = Paragraph::new(left_lines).block(
+            Block::default()
+                .borders(Borders::ALL)
+                .border_style(Style::default().fg(self.accent_color()))
+                .title(" Setup Wizard "),
+        );
+        frame.render_widget(left, outer_chunks[0]);
+
+        let step = wiz.current_step();
+        let mut detail_lines: Vec<Line> = vec![
+            Line::from(Span::styled(
+                format!(" {}", step.title()),
+                Style::default()
+                    .fg(self.accent_color())
+                    .add_modifier(Modifier::BOLD),
+            )),
+            Line::from(""),
+            Line::from(Span::styled(
+                format!(" {}", step.description()),
+                Style::default().fg(Color::White),
+            )),
+            Line::from(""),
+        ];
+
+        for notice in &wiz.notices {
+            detail_lines.push(Line::from(Span::styled(
+                format!(" {notice}"),
+                Style::default().fg(Color::Yellow),
+            )));
+        }
+
+        detail_lines.push(Line::from(""));
+        let hint = if wiz.step + 1 < SetupStep::ALL.len() {
+            " [Enter] Next   [Esc] Cancel"
+        } else {
+            " [Enter] Finish   [Esc] Cancel"
+        };
+        detail_lines.push(Line::from(Span::styled(
+            hint,
+            Style::default().fg(Color::DarkGray),
+        )));
+
+        let right = Paragraph::new(detail_lines)
+            .block(
+                Block::default()
+                    .borders(Borders::ALL)
+                    .border_style(Style::default().fg(Color::DarkGray))
+                    .title(" Details "),
+            )
+            .wrap(Wrap { trim: false });
+        frame.render_widget(right, outer_chunks[1]);
+    }
+
     fn handle_help_input(&mut self, action: NavAction) {
         match action {
             NavAction::Up => {
@@ -4041,6 +4281,7 @@ impl App {
             }
             Screen::Features => 50,
             Screen::Sandbox => 80,
+            Screen::Setup => 80,
         }
     }
 
@@ -4197,6 +4438,7 @@ impl App {
                     self.render_sandbox_env_value_dialog(frame, frame.area());
                 }
             }
+            Screen::Setup => self.render_setup_wizard(frame, area),
         }
     }
 
@@ -6145,6 +6387,7 @@ mod tests {
             custom_agent_draft: None,
             pending_custom_agent_edit: None,
             sandbox_wizard: None,
+            setup_wizard: None,
         };
 
         (app, temp)
