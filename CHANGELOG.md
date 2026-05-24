@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.42](https://github.com/heiervang-technologies/unleash/compare/v0.1.41...v0.1.42) (2026-05-24)
+
+
+### Features
+
+* **crossload:** context budget guard via UNLEASH_CROSSLOAD_MAX_TOKENS ([#204](https://github.com/heiervang-technologies/unleash/issues/204)) ([69a1311](https://github.com/heiervang-technologies/unleash/commit/69a131115d060d4803afeb3007c33312be65555e)), closes [#61](https://github.com/heiervang-technologies/unleash/issues/61)
+
 ## [0.1.41](https://github.com/heiervang-technologies/unleash/compare/v0.1.40...v0.1.41) (2026-05-24)
 
 
