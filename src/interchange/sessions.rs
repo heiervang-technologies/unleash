@@ -22,6 +22,7 @@ pub fn discover_all() -> Vec<SessionInfo> {
     sessions.extend(discover_claude());
     sessions.extend(discover_codex());
     sessions.extend(discover_gemini());
+    sessions.extend(discover_hermes());
     sessions.extend(discover_opencode());
     sessions.extend(discover_pi());
     sessions.extend(discover_ucf());
@@ -35,6 +36,7 @@ pub fn discover_for(cli: CliFormat) -> Vec<SessionInfo> {
         CliFormat::ClaudeCode => discover_claude(),
         CliFormat::Codex => discover_codex(),
         CliFormat::GeminiCli => discover_gemini(),
+        CliFormat::Hermes => discover_hermes(),
         CliFormat::OpenCode => discover_opencode(),
         CliFormat::Pi => discover_pi(),
         CliFormat::Ucf => discover_ucf(),
@@ -388,6 +390,78 @@ fn discover_gemini() -> Vec<SessionInfo> {
         }
     }
 
+    sessions
+}
+
+// === Hermes discovery ===
+
+fn discover_hermes() -> Vec<SessionInfo> {
+    let mut sessions = Vec::new();
+    let db_path = match dirs::home_dir() {
+        Some(h) => h.join(".hermes").join("state.db"),
+        None => return sessions,
+    };
+    if !db_path.exists() {
+        return sessions;
+    }
+    let conn = match rusqlite::Connection::open_with_flags(
+        &db_path,
+        rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY | rusqlite::OpenFlags::SQLITE_OPEN_NO_MUTEX,
+    ) {
+        Ok(c) => c,
+        Err(_) => return sessions,
+    };
+    let mut stmt = match conn.prepare(
+        "SELECT id, title, started_at, ended_at, message_count, model
+         FROM sessions
+         WHERE source != 'cron'
+         ORDER BY ended_at DESC
+         LIMIT 500",
+    ) {
+        Ok(s) => s,
+        Err(_) => return sessions,
+    };
+    let rows = stmt.query_map([], |row| {
+        let id: String = row.get(0)?;
+        let title: Option<String> = row.get(1)?;
+        let started_at: f64 = row.get(2)?;
+        let ended_at: f64 = row.get::<_, Option<f64>>(3)?.unwrap_or(started_at);
+        let message_count: Option<i64> = row.get(4)?;
+        Ok((id, title, started_at, ended_at, message_count))
+    });
+    let rows = match rows {
+        Ok(r) => r,
+        Err(_) => return sessions,
+    };
+    for row in rows.flatten() {
+        let (id, title, _started, ended_at, msg_count) = row;
+        // Format epoch to rough ISO timestamp (sortable)
+        let secs = ended_at as u64;
+        let updated_at = {
+            let days = secs / 86400;
+            let years = days / 365;
+            let year = 1970 + years;
+            let rem = days - years * 365;
+            let month = (rem / 30 + 1).min(12);
+            let day = rem % 30 + 1;
+            let h = (secs % 86400) / 3600;
+            let m = (secs % 3600) / 60;
+            let s = secs % 60;
+            format!("{year:04}-{month:02}-{day:02}T{h:02}:{m:02}:{s:02}Z")
+        };
+        sessions.push(SessionInfo {
+            cli: "hermes".to_string(),
+            id: id.clone(),
+            name: None,
+            title,
+            directory: dirs::home_dir()
+                .map(|h| h.to_string_lossy().to_string())
+                .unwrap_or_default(),
+            path: db_path.clone(),
+            updated_at,
+            message_count: msg_count.map(|n| n as usize),
+        });
+    }
     sessions
 }
 
