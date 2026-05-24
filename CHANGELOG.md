@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.41](https://github.com/heiervang-technologies/unleash/compare/v0.1.40...v0.1.41) (2026-05-24)
+
+
+### Features
+
+* **crossload:** Hermes session interchange — source and target support ([#202](https://github.com/heiervang-technologies/unleash/issues/202)) ([59a14f5](https://github.com/heiervang-technologies/unleash/commit/59a14f58f2b0022437788eb9482a76c9d4ad51e4))
+
 ## [0.1.40](https://github.com/heiervang-technologies/unleash/compare/v0.1.39...v0.1.40) (2026-05-24)
 
 
