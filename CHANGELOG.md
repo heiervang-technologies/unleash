@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.40](https://github.com/heiervang-technologies/unleash/compare/v0.1.39...v0.1.40) (2026-05-24)
+
+
+### Features
+
+* add Antigravity CLI and deprecate Gemini CLI ([#198](https://github.com/heiervang-technologies/unleash/issues/198)) ([2cd56c6](https://github.com/heiervang-technologies/unleash/commit/2cd56c6ea69291269bb2818ae70a79e08cb3e3d1))
+
 ## [0.1.39](https://github.com/heiervang-technologies/unleash/compare/v0.1.38...v0.1.39) (2026-05-22)
 
 
