@@ -161,6 +161,17 @@ impl Profile {
                 env: default_env(),
             },
             Self {
+                name: "agy".to_string(),
+                description: "Antigravity CLI (agy) by Google".to_string(),
+                agent_cli_path: "agy".to_string(),
+                agent_cli_args: Vec::new(),
+                defaults: ProfileDefaults::default(),
+                agents: ProfileOverrides::default(),
+                stop_prompt: None,
+                theme: "#9b51e0".to_string(),
+                env: default_env(),
+            },
+            Self {
                 name: "gemini".to_string(),
                 description: "Gemini CLI by Google".to_string(),
                 agent_cli_path: "gemini".to_string(),
@@ -193,12 +204,28 @@ impl Profile {
                 theme: "#a855f7".to_string(),
                 env: default_env(),
             },
+            Self {
+                name: "hermes".to_string(),
+                description: "Hermes Agent by Nous Research".to_string(),
+                agent_cli_path: "hermes".to_string(),
+                agent_cli_args: Vec::new(),
+                defaults: ProfileDefaults::default(),
+                agents: ProfileOverrides::default(),
+                stop_prompt: None,
+                theme: "#4f46e5".to_string(),
+                env: default_env(),
+            },
         ]
     }
 
     /// Return the agent type if this profile's CLI path matches a known agent
     /// or a custom agent defined in the app config.
     pub fn agent_type(&self) -> Option<AgentType> {
+        // Try profile name first — allows 'agy' to resolve to Antigravity
+        // even when agent_cli_path is 'gemini' (shared binary)
+        if let Some(at) = AgentType::from_str(&self.name) {
+            return Some(at);
+        }
         let name = std::path::Path::new(&self.agent_cli_path)
             .file_name()
             .and_then(|n| n.to_str())?;
@@ -647,9 +674,11 @@ mod tests {
         // All agent profiles are seeded by default
         assert!(profiles.contains(&"claude".to_string()));
         assert!(profiles.contains(&"codex".to_string()));
+        assert!(profiles.contains(&"agy".to_string()));
         assert!(profiles.contains(&"gemini".to_string()));
         assert!(profiles.contains(&"opencode".to_string()));
         assert!(profiles.contains(&"pi".to_string()));
+        assert!(profiles.contains(&"hermes".to_string()));
     }
 
     #[test]
@@ -679,8 +708,11 @@ mod tests {
         let profiles = manager.list_profiles().unwrap();
         assert!(profiles.contains(&"claude".to_string()));
         assert!(profiles.contains(&"codex".to_string()));
+        assert!(profiles.contains(&"agy".to_string()));
         assert!(profiles.contains(&"gemini".to_string()));
         assert!(profiles.contains(&"opencode".to_string()));
+        assert!(profiles.contains(&"pi".to_string()));
+        assert!(profiles.contains(&"hermes".to_string()));
     }
 
     #[test]

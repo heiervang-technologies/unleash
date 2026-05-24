@@ -55,17 +55,40 @@ pub fn get_versions_file_path() -> PathBuf {
 /// Returns a map of agent key -> list of version strings (newest first).
 pub fn load_embedded_versions() -> HashMap<String, Vec<String>> {
     let path = get_versions_file_path();
-    let content = std::fs::read_to_string(&path).unwrap_or_else(|_| "{}".to_string());
-    let parsed: serde_json::Value = serde_json::from_str(&content).unwrap_or_default();
+    let content = std::fs::read_to_string(&path).unwrap_or_else(|_| "".to_string());
+    let parsed_disk: serde_json::Value = if content.trim().is_empty() {
+        serde_json::Value::Null
+    } else {
+        serde_json::from_str(&content).unwrap_or(serde_json::Value::Null)
+    };
+    let parsed_fallback: serde_json::Value = serde_json::from_str(include_str!("../data/versions.json")).unwrap_or_default();
+
     let mut map = HashMap::new();
-    for key in &["claude", "codex", "gemini", "opencode", "pi", "hermes"] {
-        if let Some(arr) = parsed.get(key).and_then(|v| v.as_array()) {
-            let versions: Vec<String> = arr
+    for key in &[
+        "claude",
+        "codex",
+        "gemini",
+        "antigravity",
+        "opencode",
+        "pi",
+        "hermes",
+    ] {
+        let mut versions: Vec<String> = Vec::new();
+        if let Some(arr) = parsed_disk.get(key).and_then(|v| v.as_array()) {
+            versions = arr
                 .iter()
                 .filter_map(|v| v.as_str().map(String::from))
                 .collect();
-            map.insert(key.to_string(), versions);
         }
+        if versions.is_empty() {
+            if let Some(arr) = parsed_fallback.get(key).and_then(|v| v.as_array()) {
+                versions = arr
+                    .iter()
+                    .filter_map(|v| v.as_str().map(String::from))
+                    .collect();
+            }
+        }
+        map.insert(key.to_string(), versions);
     }
     map
 }
@@ -77,6 +100,7 @@ pub fn save_embedded_versions(map: &HashMap<crate::agents::AgentType, Vec<Versio
         let key = match agent_type {
             crate::agents::AgentType::Claude => "claude",
             crate::agents::AgentType::Codex => "codex",
+            crate::agents::AgentType::Antigravity => "antigravity",
             crate::agents::AgentType::Gemini => "gemini",
             crate::agents::AgentType::OpenCode => "opencode",
             crate::agents::AgentType::Pi => "pi",
@@ -690,6 +714,13 @@ impl VersionManager {
         }
 
         if versions.is_empty() {
+            // Fallback to embedded versions
+            let embedded = load_embedded_versions();
+            if let Some(v_list) = embedded.get("claude") {
+                if !v_list.is_empty() {
+                    return Ok(v_list.clone());
+                }
+            }
             return Err(io::Error::other(
                 "Failed to query available versions from GCS and npm",
             ));
@@ -815,7 +846,10 @@ impl VersionManager {
                 success: false,
                 stdout: String::new(),
                 stderr: "npm not available".into(),
-                error: Some("npm not available (native install skipped by UNLEASH_SKIP_NATIVE_INSTALL)".into()),
+                error: Some(
+                    "npm not available (native install skipped by UNLEASH_SKIP_NATIVE_INSTALL)"
+                        .into(),
+                ),
             })
         }
     }
@@ -919,7 +953,8 @@ impl VersionManager {
 
     /// Get available Codex versions from GitHub releases (tags matching rust-v*)
     pub fn get_codex_available_versions(&self) -> io::Result<Vec<String>> {
-        let output = Command::new("gh")
+        let mut versions = Vec::new();
+        if let Ok(output) = Command::new("gh")
             .args([
                 "api",
                 "repos/openai/codex/tags",
@@ -927,26 +962,37 @@ impl VersionManager {
                 "--jq",
                 ".[].name",
             ])
-            .output()?;
-
-        if output.status.success() {
-            let tag_output = String::from_utf8_lossy(&output.stdout);
-            let mut versions: Vec<String> = tag_output
-                .lines()
-                .filter(|line| line.starts_with("rust-v"))
-                .filter(|line| !line.contains("alpha"))
-                .map(|line| line.trim_start_matches("rust-v").to_string())
-                .filter(|v| !v.is_empty() && v.starts_with(|c: char| c.is_ascii_digit()))
-                .collect();
-            // Sort newest first, then take top 20
-            versions.sort_by(|a, b| version_compare(b, a));
-            versions.truncate(20);
-            Ok(versions)
-        } else {
-            Err(io::Error::other(
-                "Failed to query GitHub releases for Codex",
-            ))
+            .output()
+        {
+            if output.status.success() {
+                let tag_output = String::from_utf8_lossy(&output.stdout);
+                versions = tag_output
+                    .lines()
+                    .filter(|line| line.starts_with("rust-v"))
+                    .filter(|line| !line.contains("alpha"))
+                    .map(|line| line.trim_start_matches("rust-v").to_string())
+                    .filter(|v| !v.is_empty() && v.starts_with(|c: char| c.is_ascii_digit()))
+                    .collect();
+            }
         }
+
+        if versions.is_empty() {
+            // Fallback to embedded versions
+            let embedded = load_embedded_versions();
+            if let Some(v_list) = embedded.get("codex") {
+                if !v_list.is_empty() {
+                    return Ok(v_list.clone());
+                }
+            }
+            return Err(io::Error::other(
+                "Failed to query GitHub releases for Codex",
+            ));
+        }
+
+        // Sort newest first, then take top 20
+        versions.sort_by(|a, b| version_compare(b, a));
+        versions.truncate(20);
+        Ok(versions)
     }
 
     /// Get combined Codex version list with status
@@ -1065,7 +1111,19 @@ impl VersionManager {
 
     /// Get available Gemini CLI versions from npm registry
     pub fn get_gemini_available_versions(&self) -> io::Result<Vec<String>> {
-        Self::query_npm_registry_versions("@google/gemini-cli", 20)
+        let res = Self::query_npm_registry_versions("@google/gemini-cli", 20);
+        match res {
+            Ok(versions) if !versions.is_empty() => Ok(versions),
+            _ => {
+                let embedded = load_embedded_versions();
+                if let Some(v_list) = embedded.get("gemini") {
+                    if !v_list.is_empty() {
+                        return Ok(v_list.clone());
+                    }
+                }
+                Err(io::Error::other("Failed to query available versions for Gemini CLI"))
+            }
+        }
     }
 
     /// Get combined Gemini CLI version list with status
@@ -1127,7 +1185,19 @@ impl VersionManager {
 
     /// Get available Pi versions from npm registry
     pub fn get_pi_available_versions(&self) -> io::Result<Vec<String>> {
-        Self::query_npm_registry_versions("@mariozechner/pi-coding-agent", 20)
+        let res = Self::query_npm_registry_versions("@mariozechner/pi-coding-agent", 20);
+        match res {
+            Ok(versions) if !versions.is_empty() => Ok(versions),
+            _ => {
+                let embedded = load_embedded_versions();
+                if let Some(v_list) = embedded.get("pi") {
+                    if !v_list.is_empty() {
+                        return Ok(v_list.clone());
+                    }
+                }
+                Err(io::Error::other("Failed to query available versions for Pi"))
+            }
+        }
     }
 
     /// Get combined Pi version list with status
@@ -1165,10 +1235,20 @@ impl VersionManager {
     /// for `opencode-ai/opencode` use a different versioning scheme (0.0.x) and
     /// should not be mixed with npm versions (1.x.x).
     pub fn get_opencode_available_versions(&self) -> io::Result<Vec<String>> {
-        let mut versions = Self::query_npm_registry_versions("opencode-ai", 20)?;
-        versions.retain(|s| s.starts_with(|c: char| c.is_ascii_digit()));
+        let mut versions = Vec::new();
+        if let Ok(mut v) = Self::query_npm_registry_versions("opencode-ai", 20) {
+            v.retain(|s| s.starts_with(|c: char| c.is_ascii_digit()));
+            versions = v;
+        }
 
         if versions.is_empty() {
+            // Fallback to embedded versions
+            let embedded = load_embedded_versions();
+            if let Some(v_list) = embedded.get("opencode") {
+                if !v_list.is_empty() {
+                    return Ok(v_list.clone());
+                }
+            }
             return Err(io::Error::other(
                 "Failed to query available versions for OpenCode",
             ));
@@ -1590,6 +1670,43 @@ impl VersionManager {
         })
     }
 
+    // ── Antigravity CLI ───────────────────────────────────────
+
+    /// Get available Antigravity CLI versions (reads embedded versions)
+    pub fn get_antigravity_available_versions(&self) -> io::Result<Vec<String>> {
+        let embedded = load_embedded_versions();
+        Ok(embedded.get("antigravity").cloned().unwrap_or_default())
+    }
+
+    /// Get combined Antigravity CLI version list with status
+    pub fn get_antigravity_version_list(&self, installed: Option<&str>) -> Vec<VersionInfo> {
+        let available = self
+            .get_antigravity_available_versions()
+            .unwrap_or_default();
+
+        let mut versions: Vec<VersionInfo> = available
+            .into_iter()
+            .map(|v| VersionInfo {
+                is_installed: installed == Some(v.as_str()),
+                version: v,
+            })
+            .collect();
+
+        versions.sort_by(|a, b| version_compare(&b.version, &a.version));
+        versions
+    }
+
+    /// Mock installation of Antigravity CLI (returning an error indicating system-managed status)
+    pub fn install_antigravity_version_streaming(
+        &self,
+        _version: &str,
+        log_tx: mpsc::Sender<String>,
+    ) -> io::Result<InstallResult> {
+        let msg = "Antigravity CLI updates are managed by the system package manager (pacman/yay)";
+        let _ = log_tx.send(msg.to_string());
+        Err(io::Error::other(msg))
+    }
+
     /// Install Gemini CLI with streaming log output
     pub fn install_gemini_version_streaming(
         &self,
@@ -1813,7 +1930,6 @@ impl VersionManager {
         format!("codex-{}", target_triple)
     }
 }
-
 
 /// Canonically compare two version strings (semver-like).
 ///

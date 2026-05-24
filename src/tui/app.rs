@@ -264,13 +264,11 @@ pub fn build_agent_cli_picker_entries(custom: &[AgentDefinition]) -> Vec<AgentCl
 /// Resolve the binary path for an agent type.
 /// For built-ins, prefer `which::which(<binary>)` so the profile records the
 /// resolved absolute path. Falls back to the bare binary name if `which` fails.
-pub fn resolve_agent_binary_path(
-    agent: &AgentType,
-    custom: &[AgentDefinition],
-) -> String {
+pub fn resolve_agent_binary_path(agent: &AgentType, custom: &[AgentDefinition]) -> String {
     let binary = match agent {
         AgentType::Claude => AgentDefinition::claude().binary,
         AgentType::Codex => AgentDefinition::codex().binary,
+        AgentType::Antigravity => AgentDefinition::antigravity().binary,
         AgentType::Gemini => AgentDefinition::gemini().binary,
         AgentType::OpenCode => AgentDefinition::opencode().binary,
         AgentType::Pi => AgentDefinition::pi().binary,
@@ -318,7 +316,10 @@ pub enum SandboxStepStatus {
 
 impl SandboxStepStatus {
     pub fn is_done(&self) -> bool {
-        matches!(self, SandboxStepStatus::Success(_) | SandboxStepStatus::Skipped)
+        matches!(
+            self,
+            SandboxStepStatus::Success(_) | SandboxStepStatus::Skipped
+        )
     }
 }
 
@@ -884,6 +885,7 @@ impl App {
         let agent_keys: &[(&str, AgentType)] = &[
             ("claude", AgentType::Claude),
             ("codex", AgentType::Codex),
+            ("antigravity", AgentType::Antigravity),
             ("gemini", AgentType::Gemini),
             ("opencode", AgentType::OpenCode),
             ("pi", AgentType::Pi),
@@ -916,6 +918,7 @@ impl App {
             if let Ok(mut mgr) = AgentManager::new() {
                 for agent_type in &[
                     AgentType::Codex,
+                    AgentType::Antigravity,
                     AgentType::Gemini,
                     AgentType::OpenCode,
                     AgentType::Pi,
@@ -1458,6 +1461,14 @@ impl App {
                     let _ = tx.send((AgentType::Codex, versions, conflicts));
                 });
             }
+            AgentType::Antigravity => {
+                thread::spawn(move || {
+                    let vm = VersionManager::new();
+                    let versions = vm.get_antigravity_version_list(installed.as_deref());
+                    let conflicts = vm.detect_conflicts("antigravity");
+                    let _ = tx.send((AgentType::Antigravity, versions, conflicts));
+                });
+            }
             AgentType::Gemini => {
                 thread::spawn(move || {
                     let vm = VersionManager::new();
@@ -1689,10 +1700,7 @@ impl App {
     /// and ask the run_app loop to open it.
     pub fn start_custom_agent_editor(&mut self) {
         let dir = std::env::temp_dir();
-        let path = dir.join(format!(
-            "unleash-custom-agent-{}.toml",
-            std::process::id()
-        ));
+        let path = dir.join(format!("unleash-custom-agent-{}.toml", std::process::id()));
         if let Err(e) = std::fs::write(&path, custom_agent_toml_template()) {
             self.status_message = Some(format!("Failed to write template: {}", e));
             self.edit_field = EditField::None;
@@ -1724,11 +1732,10 @@ impl App {
         self.refresh_available_agents();
 
         // Point profile at the new custom agent
-        let resolved =
-            which::which(&binary)
-                .ok()
-                .map(|p| p.to_string_lossy().to_string())
-                .unwrap_or(binary);
+        let resolved = which::which(&binary)
+            .ok()
+            .map(|p| p.to_string_lossy().to_string())
+            .unwrap_or(binary);
         if let Some(ref mut profile) = self.editing_profile {
             profile.agent_cli_path = resolved;
             let _ = self.profile_manager.save_profile(profile);
@@ -1739,7 +1746,9 @@ impl App {
         let entries = self.agent_cli_picker_entries();
         self.agent_picker_index = entries
             .iter()
-            .position(|e| matches!(e, AgentCliPickerEntry::Agent(AgentType::Custom(n)) if *n == name))
+            .position(
+                |e| matches!(e, AgentCliPickerEntry::Agent(AgentType::Custom(n)) if *n == name),
+            )
             .unwrap_or(0);
         self.status_message = Some(format!("Custom agent '{}' added", name));
         self.edit_field = EditField::AgentCliPicker;
@@ -1906,7 +1915,8 @@ impl App {
                 match self.version_focus {
                     VersionFocus::Unleash => {} // no scroll in unleash section
                     VersionFocus::AgentPicker => {
-                        let current_idx = self.available_agents
+                        let current_idx = self
+                            .available_agents
                             .iter()
                             .position(|a| *a == self.version_agent)
                             .unwrap_or(0);
@@ -2198,8 +2208,8 @@ impl App {
                         if let Some(draft) = self.custom_agent_draft.as_mut() {
                             draft.model_flag = self.key_input.value.trim().to_string();
                         }
-                        self.key_input = TextInput::new()
-                            .with_placeholder("optional, blank = none");
+                        self.key_input =
+                            TextInput::new().with_placeholder("optional, blank = none");
                         self.edit_field = EditField::CustomAgentYoloFlag;
                     }
                     EditField::CustomAgentYoloFlag => {
@@ -2528,12 +2538,13 @@ impl App {
                             AgentType::Gemini => {
                                 vm.install_gemini_version_streaming(&version, log_tx)
                             }
+                            AgentType::Antigravity => {
+                                vm.install_antigravity_version_streaming(&version, log_tx)
+                            }
                             AgentType::OpenCode => {
                                 vm.install_opencode_version_streaming(&version, log_tx)
                             }
-                            AgentType::Pi => {
-                                vm.install_pi_version_streaming(&version, log_tx)
-                            }
+                            AgentType::Pi => vm.install_pi_version_streaming(&version, log_tx),
                             AgentType::Hermes => {
                                 vm.install_hermes_version_streaming(&version, log_tx)
                             }
@@ -2598,6 +2609,7 @@ impl App {
                     AgentType::Claude => "claude",
                     AgentType::Codex => "codex",
                     AgentType::Gemini => "gemini",
+                    AgentType::Antigravity => "antigravity",
                     AgentType::OpenCode => "opencode",
                     AgentType::Pi => "pi",
                     AgentType::Hermes => "hermes",
@@ -2688,12 +2700,15 @@ impl App {
             VersionFocus::AgentPicker => {
                 match action {
                     NavAction::Up | NavAction::Down => {
-                        let current_idx = self.available_agents
+                        let current_idx = self
+                            .available_agents
                             .iter()
                             .position(|a| *a == self.version_agent)
                             .unwrap_or(0);
                         let new_idx = match action {
-                            NavAction::Down => (current_idx + 1).min(self.available_agents.len() - 1),
+                            NavAction::Down => {
+                                (current_idx + 1).min(self.available_agents.len() - 1)
+                            }
                             NavAction::Up => {
                                 if current_idx == 0 {
                                     // At top of agent list, move focus to unleash
@@ -2854,6 +2869,9 @@ impl App {
                     AgentType::Gemini => {
                         vm.install_gemini_version_streaming(&version_clone, log_tx)
                     }
+                    AgentType::Antigravity => {
+                        vm.install_antigravity_version_streaming(&version_clone, log_tx)
+                    }
                     AgentType::OpenCode => {
                         vm.install_opencode_version_streaming(&version_clone, log_tx)
                     }
@@ -2865,7 +2883,9 @@ impl App {
                         success: false,
                         stdout: String::new(),
                         stderr: String::new(),
-                        error: Some("Version management not yet supported for custom agents".into()),
+                        error: Some(
+                            "Version management not yet supported for custom agents".into(),
+                        ),
                     }),
                 };
 
@@ -3289,8 +3309,7 @@ impl App {
                     if let Ok(manager) = crate::hooks::HookManager::new() {
                         let enabled_dirs = crate::launcher::find_plugin_dirs();
                         let all_dirs = crate::launcher::find_all_plugin_dirs();
-                        let _ =
-                            manager.prune_hooks_for_disabled_plugins(&all_dirs, &enabled_dirs);
+                        let _ = manager.prune_hooks_for_disabled_plugins(&all_dirs, &enabled_dirs);
                         let _ = manager.sync_plugin_hooks(&enabled_dirs);
                     }
                 }
@@ -3747,7 +3766,10 @@ impl App {
                     EnvKeyChoice::Skip => "—".into(),
                 };
                 detail_lines.push(Line::from(vec![
-                    Span::styled(format!("  {} ", host_marker), Style::default().fg(Color::Yellow)),
+                    Span::styled(
+                        format!("  {} ", host_marker),
+                        Style::default().fg(Color::Yellow),
+                    ),
                     Span::styled(format!("{:<28}", row.key), highlight),
                     Span::styled(" ◀ ", Style::default().fg(Color::DarkGray)),
                     Span::styled(format!("{:<12}", row.choice.label()), highlight),
@@ -4077,15 +4099,15 @@ impl App {
             };
 
             let max_lines = figure_rect.height as usize;
-            let agent = self.app_config.current_profile.as_str();
+            let agent_type = self.selected_profile.as_ref().and_then(|p| p.agent_type());
+            let mascot_name = agent_type.as_ref().map(|t| t.mascot_name()).unwrap_or("claude");
             let shift = self.theme_color.theme_shift();
-            let art_lines: Vec<Line> = if self.is_gemini_profile() {
-                let gradient = crate::theme::GradientTheme::gemini();
-                mascots::unleashed_claude_full_ratatui_gradient(max_lines, &gradient)
+            let art_lines: Vec<Line> = if let Some(gradient) = self.profile_gradient() {
+                mascots::full_ratatui_gradient(mascot_name, max_lines, &gradient)
             } else if !shift.is_identity() {
-                mascots::full_ratatui_themed(agent, max_lines, shift)
+                mascots::full_ratatui_themed(mascot_name, max_lines, shift)
             } else {
-                mascots::full_ratatui(agent, max_lines)
+                mascots::full_ratatui(mascot_name, max_lines)
             };
             let art_widget = Paragraph::new(art_lines).scroll((0, scroll_x));
             frame.render_widget(art_widget, figure_rect);
@@ -4166,29 +4188,32 @@ impl App {
         }
     }
 
-    /// Check if the current profile is a Gemini agent (uses gradient)
-    fn is_gemini_profile(&self) -> bool {
-        self.selected_profile
-            .as_ref()
-            .and_then(|p| p.agent_type())
-            .is_some_and(|t| t == crate::agents::AgentType::Gemini)
+
+    /// Get the gradient theme for the current profile if it uses a gradient
+    fn profile_gradient(&self) -> Option<crate::theme::GradientTheme> {
+        let t = self.selected_profile.as_ref().and_then(|p| p.agent_type())?;
+        match t {
+            crate::agents::AgentType::Gemini => Some(crate::theme::GradientTheme::gemini()),
+            crate::agents::AgentType::Antigravity => Some(crate::theme::GradientTheme::antigravity()),
+            _ => None,
+        }
     }
 
     fn render_art_sidebar(&self, frame: &mut Frame, area: Rect) {
         // Render mascot ANSI art (right-facing) for the current agent profile
         // Lava lamp mode is an easter egg triggered by Konami code (idea by cac taurus)
         let max_lines = area.height as usize;
-        let agent = self.app_config.current_profile.as_str();
+        let agent_type = self.selected_profile.as_ref().and_then(|p| p.agent_type());
+        let mascot_name = agent_type.as_ref().map(|t| t.mascot_name()).unwrap_or("claude");
         let shift = self.theme_color.theme_shift();
         let art_lines: Vec<Line> = if self.lava_mode {
-            mascots::right_ratatui_lava(agent, max_lines, self.animation_frame)
-        } else if self.is_gemini_profile() {
-            let gradient = crate::theme::GradientTheme::gemini();
-            mascots::unleashed_claude_ratatui_gradient(max_lines, &gradient)
+            mascots::right_ratatui_lava(mascot_name, max_lines, self.animation_frame)
+        } else if let Some(gradient) = self.profile_gradient() {
+            mascots::right_ratatui_gradient(mascot_name, max_lines, &gradient)
         } else if !shift.is_identity() {
-            mascots::right_ratatui_themed(agent, max_lines, shift)
+            mascots::right_ratatui_themed(mascot_name, max_lines, shift)
         } else {
-            mascots::right_ratatui(agent, max_lines)
+            mascots::right_ratatui(mascot_name, max_lines)
         };
         let art_widget = Paragraph::new(art_lines);
         frame.render_widget(art_widget, area);
@@ -4198,17 +4223,17 @@ impl App {
         // Render mascot ANSI art (left-facing) for the current agent profile
         // Lava lamp mode is an easter egg triggered by Konami code (idea by cac taurus)
         let max_lines = area.height as usize;
-        let agent = self.app_config.current_profile.as_str();
+        let agent_type = self.selected_profile.as_ref().and_then(|p| p.agent_type());
+        let mascot_name = agent_type.as_ref().map(|t| t.mascot_name()).unwrap_or("claude");
         let shift = self.theme_color.theme_shift();
         let art_lines: Vec<Line> = if self.lava_mode {
-            mascots::left_ratatui_lava(agent, max_lines, self.animation_frame)
-        } else if self.is_gemini_profile() {
-            let gradient = crate::theme::GradientTheme::gemini();
-            mascots::unleashed_claude_left_ratatui_gradient(max_lines, &gradient)
+            mascots::left_ratatui_lava(mascot_name, max_lines, self.animation_frame)
+        } else if let Some(gradient) = self.profile_gradient() {
+            mascots::left_ratatui_gradient(mascot_name, max_lines, &gradient)
         } else if !shift.is_identity() {
-            mascots::left_ratatui_themed(agent, max_lines, shift)
+            mascots::left_ratatui_themed(mascot_name, max_lines, shift)
         } else {
-            mascots::left_ratatui(agent, max_lines)
+            mascots::left_ratatui(mascot_name, max_lines)
         };
         let art_widget = Paragraph::new(art_lines);
         frame.render_widget(art_widget, area);
@@ -4959,12 +4984,8 @@ impl App {
         frame.render_widget(Clear, dialog_area);
 
         let (step, total, label, hint) = match self.edit_field {
-            EditField::CustomAgentName => {
-                (1, 8, "Name", "A short identifier (no spaces)")
-            }
-            EditField::CustomAgentBinary => {
-                (2, 8, "Binary", "Executable on PATH or absolute path")
-            }
+            EditField::CustomAgentName => (1, 8, "Name", "A short identifier (no spaces)"),
+            EditField::CustomAgentBinary => (2, 8, "Binary", "Executable on PATH or absolute path"),
             EditField::CustomAgentHeadlessFlag => (
                 3,
                 8,
@@ -4989,9 +5010,12 @@ impl App {
                 "Resume flag",
                 "Flag for resuming a specific session (default: --resume)",
             ),
-            EditField::CustomAgentModelFlag => {
-                (6, 8, "Model flag", "Flag for model selection (default: --model)")
-            }
+            EditField::CustomAgentModelFlag => (
+                6,
+                8,
+                "Model flag",
+                "Flag for model selection (default: --model)",
+            ),
             EditField::CustomAgentYoloFlag => (
                 7,
                 8,
@@ -5630,8 +5654,20 @@ impl App {
 
         for agent in self.available_agents.iter() {
             let is_selected = *agent == self.version_agent;
+            let is_depr = agent == &AgentType::Gemini;
 
-            let (prefix, style) = if is_selected {
+            let (prefix, style) = if is_depr {
+                (
+                    if is_selected {
+                        "> ⚠️ "
+                    } else {
+                        "  ⚠️ "
+                    },
+                    Style::default()
+                        .fg(Color::DarkGray)
+                        .add_modifier(Modifier::DIM),
+                )
+            } else if is_selected {
                 (
                     "> ",
                     Style::default()
@@ -5650,13 +5686,30 @@ impl App {
                 .map(|v| format!("  v{}", v))
                 .unwrap_or_default();
 
+            let name_str = if is_depr {
+                "Gemini CLI (depr.)".to_string()
+            } else {
+                agent.display_name().to_string()
+            };
+
+            let prefix_span = if is_depr {
+                Span::styled(prefix, Style::default().fg(Color::Yellow))
+            } else {
+                Span::styled(prefix, style)
+            };
+
+            let version_style = if is_depr {
+                Style::default()
+                    .fg(Color::DarkGray)
+                    .add_modifier(Modifier::DIM)
+            } else {
+                Style::default().fg(Color::Green)
+            };
+
             let spans = vec![
-                Span::styled(prefix, style),
-                Span::styled(format!("{:<12}", agent.display_name()), style),
-                Span::styled(
-                    format!("{:<12}", version_str),
-                    Style::default().fg(Color::Green),
-                ),
+                prefix_span,
+                Span::styled(format!("{:<20}", name_str), style),
+                Span::styled(format!("{:<12}", version_str), version_style),
             ];
 
             lines.push(Line::from(spans));
@@ -6461,12 +6514,12 @@ mod tests {
         app.version_focus = VersionFocus::AgentPicker;
         assert_eq!(app.version_agent, AgentType::Claude);
 
-        // Navigate down: Claude -> Codex -> Gemini -> OpenCode -> Pi -> Hermes
+        // Navigate down: Claude -> Codex -> Antigravity -> OpenCode -> Pi -> Hermes -> Gemini
         let _ = app.handle_version_input(NavAction::Down, key_for(NavAction::Down));
         assert_eq!(app.version_agent, AgentType::Codex);
 
         let _ = app.handle_version_input(NavAction::Down, key_for(NavAction::Down));
-        assert_eq!(app.version_agent, AgentType::Gemini);
+        assert_eq!(app.version_agent, AgentType::Antigravity);
 
         let _ = app.handle_version_input(NavAction::Down, key_for(NavAction::Down));
         assert_eq!(app.version_agent, AgentType::OpenCode);
@@ -6477,9 +6530,12 @@ mod tests {
         let _ = app.handle_version_input(NavAction::Down, key_for(NavAction::Down));
         assert_eq!(app.version_agent, AgentType::Hermes);
 
+        let _ = app.handle_version_input(NavAction::Down, key_for(NavAction::Down));
+        assert_eq!(app.version_agent, AgentType::Gemini);
+
         // Clamp at bottom (no wrap)
         let _ = app.handle_version_input(NavAction::Down, key_for(NavAction::Down));
-        assert_eq!(app.version_agent, AgentType::Hermes);
+        assert_eq!(app.version_agent, AgentType::Gemini);
     }
 
     #[test]
@@ -6494,9 +6550,9 @@ mod tests {
         app.switch_to_agent_index(3);
         assert_eq!(app.version_agent, AgentType::OpenCode);
 
-        // Navigate up: OpenCode -> Gemini -> Codex -> Claude
+        // Navigate up: OpenCode -> Antigravity -> Codex -> Claude
         let _ = app.handle_version_input(NavAction::Up, key_for(NavAction::Up));
-        assert_eq!(app.version_agent, AgentType::Gemini);
+        assert_eq!(app.version_agent, AgentType::Antigravity);
 
         let _ = app.handle_version_input(NavAction::Up, key_for(NavAction::Up));
         assert_eq!(app.version_agent, AgentType::Codex);
@@ -6685,10 +6741,10 @@ mod tests {
         assert!(app.version_list_receiver.is_some());
         assert_eq!(app.version_agent, AgentType::Codex);
 
-        // Immediately switch to Gemini (should replace receiver)
+        // Immediately switch to Antigravity (should replace receiver)
         let _ = app.handle_version_input(NavAction::Down, key_for(NavAction::Down));
         assert!(app.version_list_receiver.is_some());
-        assert_eq!(app.version_agent, AgentType::Gemini);
+        assert_eq!(app.version_agent, AgentType::Antigravity);
 
         // Switch again to OpenCode
         let _ = app.handle_version_input(NavAction::Down, key_for(NavAction::Down));
@@ -6747,19 +6803,21 @@ mod tests {
     #[test]
     fn test_all_agent_types_in_cycle() {
         let agents = AgentType::builtin();
-        assert_eq!(agents.len(), 6);
+        assert_eq!(agents.len(), 7);
         assert_eq!(agents[0], AgentType::Claude);
         assert_eq!(agents[1], AgentType::Codex);
-        assert_eq!(agents[2], AgentType::Gemini);
+        assert_eq!(agents[2], AgentType::Antigravity);
         assert_eq!(agents[3], AgentType::OpenCode);
         assert_eq!(agents[4], AgentType::Pi);
         assert_eq!(agents[5], AgentType::Hermes);
+        assert_eq!(agents[6], AgentType::Gemini);
     }
 
     #[test]
     fn test_agent_display_names() {
         assert_eq!(AgentType::Claude.display_name(), "Claude Code");
         assert_eq!(AgentType::Codex.display_name(), "Codex");
+        assert_eq!(AgentType::Antigravity.display_name(), "Antigravity CLI");
         assert_eq!(AgentType::Gemini.display_name(), "Gemini CLI");
         assert_eq!(AgentType::OpenCode.display_name(), "OpenCode");
         assert_eq!(AgentType::Pi.display_name(), "Pi");
@@ -6770,6 +6828,14 @@ mod tests {
     fn test_agent_from_str() {
         assert_eq!(AgentType::from_str("claude"), Some(AgentType::Claude));
         assert_eq!(AgentType::from_str("codex"), Some(AgentType::Codex));
+        assert_eq!(
+            AgentType::from_str("antigravity"),
+            Some(AgentType::Antigravity)
+        );
+        assert_eq!(
+            AgentType::from_str("antigravity-cli"),
+            Some(AgentType::Antigravity)
+        );
         assert_eq!(AgentType::from_str("gemini"), Some(AgentType::Gemini));
         assert_eq!(AgentType::from_str("gemini-cli"), Some(AgentType::Gemini));
         assert_eq!(AgentType::from_str("opencode"), Some(AgentType::OpenCode));
@@ -6777,10 +6843,7 @@ mod tests {
         assert_eq!(AgentType::from_str("pi"), Some(AgentType::Pi));
         assert_eq!(AgentType::from_str("pi-coding-agent"), Some(AgentType::Pi));
         assert_eq!(AgentType::from_str("hermes"), Some(AgentType::Hermes));
-        assert_eq!(
-            AgentType::from_str("hermes-agent"),
-            Some(AgentType::Hermes)
-        );
+        assert_eq!(AgentType::from_str("hermes-agent"), Some(AgentType::Hermes));
         assert_eq!(AgentType::from_str("unknown"), None);
     }
 
@@ -6880,7 +6943,7 @@ mod tests {
         // Press 'G' to jump to bottom
         let big_g_key = KeyEvent::new(KeyCode::Char('G'), KeyModifiers::SHIFT);
         let _ = app.handle_version_input(NavAction::None, big_g_key);
-        assert_eq!(app.version_agent, AgentType::Hermes);
+        assert_eq!(app.version_agent, AgentType::Gemini);
     }
 
     #[test]
@@ -6919,14 +6982,18 @@ mod tests {
     #[test]
     fn test_picker_entries_default_order() {
         let entries = build_agent_cli_picker_entries(&[]);
-        assert_eq!(entries.len(), 7);
+        assert_eq!(entries.len(), 8);
         assert_eq!(entries[0], AgentCliPickerEntry::Agent(AgentType::Claude));
         assert_eq!(entries[1], AgentCliPickerEntry::Agent(AgentType::Codex));
-        assert_eq!(entries[2], AgentCliPickerEntry::Agent(AgentType::Gemini));
+        assert_eq!(
+            entries[2],
+            AgentCliPickerEntry::Agent(AgentType::Antigravity)
+        );
         assert_eq!(entries[3], AgentCliPickerEntry::Agent(AgentType::OpenCode));
         assert_eq!(entries[4], AgentCliPickerEntry::Agent(AgentType::Pi));
         assert_eq!(entries[5], AgentCliPickerEntry::Agent(AgentType::Hermes));
-        assert_eq!(entries[6], AgentCliPickerEntry::AddCustom);
+        assert_eq!(entries[6], AgentCliPickerEntry::Agent(AgentType::Gemini));
+        assert_eq!(entries[7], AgentCliPickerEntry::AddCustom);
     }
 
     /// Custom agents appear in the picker between built-ins and AddCustom.
@@ -6937,12 +7004,12 @@ mod tests {
         def.name = "aider".to_string();
         def.binary = "aider".to_string();
         let entries = build_agent_cli_picker_entries(&[def]);
-        assert_eq!(entries.len(), 8);
+        assert_eq!(entries.len(), 9);
         assert_eq!(
-            entries[6],
+            entries[7],
             AgentCliPickerEntry::Agent(AgentType::Custom("aider".to_string()))
         );
-        assert_eq!(entries[7], AgentCliPickerEntry::AddCustom);
+        assert_eq!(entries[8], AgentCliPickerEntry::AddCustom);
     }
 
     /// Right key advances and wraps; left key wraps backwards.
@@ -6967,9 +7034,9 @@ mod tests {
         app.handle_agent_cli_picker_key(KeyEvent::new(KeyCode::Left, KeyModifiers::NONE));
         assert_eq!(app.agent_picker_index, 0);
 
-        // Left from 0 wraps to last (AddCustom = 6 with no custom agents)
+        // Left from 0 wraps to last (AddCustom = 7 with no custom agents)
         app.handle_agent_cli_picker_key(KeyEvent::new(KeyCode::Left, KeyModifiers::NONE));
-        assert_eq!(app.agent_picker_index, 6);
+        assert_eq!(app.agent_picker_index, 7);
 
         // Right from last wraps back to 0
         app.handle_agent_cli_picker_key(KeyEvent::new(KeyCode::Right, KeyModifiers::NONE));
@@ -7013,7 +7080,11 @@ mod tests {
             .file_name()
             .map(|n| n.to_string_lossy().to_string())
             .unwrap_or_default();
-        assert_eq!(file_name, "codex", "agent_cli_path: {}", saved.agent_cli_path);
+        assert_eq!(
+            file_name, "codex",
+            "agent_cli_path: {}",
+            saved.agent_cli_path
+        );
         assert_eq!(saved.agent_type(), Some(AgentType::Codex));
     }
 
@@ -7049,10 +7120,10 @@ mod tests {
         app.app_config.custom_agents.push(cfg);
 
         let entries = app.agent_cli_picker_entries();
-        // 6 builtins + 1 custom + AddCustom = 8
-        assert_eq!(entries.len(), 8);
+        // 7 builtins + 1 custom + AddCustom = 9
+        assert_eq!(entries.len(), 9);
         assert!(matches!(
-            &entries[6],
+            &entries[7],
             AgentCliPickerEntry::Agent(AgentType::Custom(n)) if n == "aider"
         ));
     }
@@ -7270,10 +7341,7 @@ yolo_flag = "--yes"
     fn test_sandbox_record_result_failure_includes_hints() {
         let (mut app, _temp) = test_app();
         app.open_sandbox_wizard();
-        app.sandbox_record_result(
-            0,
-            Err(crate::sandbox::StepFailure::SudoMissing),
-        );
+        app.sandbox_record_result(0, Err(crate::sandbox::StepFailure::SudoMissing));
         match &app.sandbox_wizard.as_ref().unwrap().statuses[0] {
             SandboxStepStatus::FailedRecoverable(_msg, hints) => {
                 assert!(!hints.is_empty(), "failure should ship next-action hints");
@@ -7351,7 +7419,7 @@ yolo_flag = "--yes"
         app.screen = Screen::Sandbox;
         let wiz = app.sandbox_wizard.as_mut().unwrap();
         wiz.step = 5; // Summary
-        // Mark every row as Skip so finishing produces an empty config (safe).
+                      // Mark every row as Skip so finishing produces an empty config (safe).
         for row in &mut wiz.env_draft.rows {
             row.choice = EnvKeyChoice::Skip;
         }
@@ -7591,10 +7659,11 @@ yolo_flag = "--yes"
     #[test]
     fn test_picker_snapshot_cycle_right_to_gemini() {
         let (mut app, _temp) = picker_open_app("claude");
-        // Right twice: Claude -> Codex -> Gemini
-        app.handle_agent_cli_picker_key(KeyEvent::new(KeyCode::Right, KeyModifiers::NONE));
-        app.handle_agent_cli_picker_key(KeyEvent::new(KeyCode::Right, KeyModifiers::NONE));
-        assert_eq!(app.agent_picker_index, 2);
+        // Right six times: Claude -> Codex -> Antigravity -> OpenCode -> Pi -> Hermes -> Gemini
+        for _ in 0..6 {
+            app.handle_agent_cli_picker_key(KeyEvent::new(KeyCode::Right, KeyModifiers::NONE));
+        }
+        assert_eq!(app.agent_picker_index, 6);
 
         let buf = render_region_to_buffer(80, 8, |frame, area| {
             app.render_profile_edit(frame, area);

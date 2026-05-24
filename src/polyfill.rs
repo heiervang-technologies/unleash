@@ -118,15 +118,21 @@ pub fn resolve(
     // instead of args, so the resume subcommand replaces the headless `exec`
     // subcommand cleanly. Flag-style agents append into args as before.
     let resume_is_subcommand = if flags.resume.is_some() {
-        matches!(config.session.resume_strategy, crate::agents::ResumeStrategy::Subcommand(_))
+        matches!(
+            config.session.resume_strategy,
+            crate::agents::ResumeStrategy::Subcommand(_)
+        )
     } else if flags.continue_session {
-        matches!(config.session.continue_strategy, crate::agents::ResumeStrategy::Subcommand(_))
+        matches!(
+            config.session.continue_strategy,
+            crate::agents::ResumeStrategy::Subcommand(_)
+        )
     } else {
         false
     };
 
     let resume_or_continue_active = flags.resume.is_some() || flags.continue_session;
-    
+
     if let Some(ref resume_id) = flags.resume {
         let resume_args = config.get_resume_args(resume_id.as_deref());
         if resume_is_subcommand {
@@ -798,7 +804,10 @@ mod tests {
             ..default_flags()
         };
         let inv = resolve(&config, &flags, &[]);
-        assert!(!inv.args.iter().any(|a| a.contains("verbose") || a.contains("debug") || a.contains("print-logs")));
+        assert!(!inv
+            .args
+            .iter()
+            .any(|a| a.contains("verbose") || a.contains("debug") || a.contains("print-logs")));
     }
 
     // ── Output Format ────────────────��──────────────────────

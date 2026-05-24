@@ -17,13 +17,13 @@ mod json_output;
 pub mod launcher;
 pub mod pixel_art;
 pub mod polyfill;
+mod progress;
 mod sandbox;
 pub mod search;
-pub mod token_count;
-mod progress;
 #[cfg(feature = "tui")]
 mod text_input;
 pub mod theme;
+pub mod token_count;
 #[cfg(feature = "tui")]
 mod tui;
 mod updater;
@@ -110,6 +110,7 @@ fn resolve_target_binary(target_cli: &str) -> String {
     let canonical = match target_cli {
         "claude" | "claude-code" => Some(AgentType::Claude),
         "codex" => Some(AgentType::Codex),
+        "antigravity" | "antigravity-cli" | "agy" => Some(AgentType::Antigravity),
         "gemini" | "gemini-cli" => Some(AgentType::Gemini),
         "opencode" => Some(AgentType::OpenCode),
         "pi" | "pi-coding-agent" => Some(AgentType::Pi),
@@ -193,60 +194,26 @@ fn print_profile_help(profile_name: &str) {
     println!(
         "      --safe                       Restore approval prompts (permissions bypassed by default)"
     );
-    println!(
-        "  -p, --prompt <PROMPT>            Run non-interactively with the given prompt"
-    );
-    println!(
-        "  -m, --model <MODEL>              Model to use for the session"
-    );
-    println!(
-        "  -c, --continue                   Continue the most recent session"
-    );
-    println!(
-        "  -r, --resume [ID]                Resume a session by ID, or open picker"
-    );
+    println!("  -p, --prompt <PROMPT>            Run non-interactively with the given prompt");
+    println!("  -m, --model <MODEL>              Model to use for the session");
+    println!("  -c, --continue                   Continue the most recent session");
+    println!("  -r, --resume [ID]                Resume a session by ID, or open picker");
     println!(
         "      --fork                       Fork the session (use with --continue or --resume)"
     );
-    println!(
-        "  -a, --auto                       Enable auto-mode (autonomous operation)"
-    );
-    println!(
-        "  -e, --effort <LEVEL>             Reasoning effort level (e.g., high, low)"
-    );
-    println!(
-        "  -v, --verbose                    Enable verbose/debug output"
-    );
-    println!(
-        "      --output-format <FORMAT>     Output format (json, text, stream-json)"
-    );
-    println!(
-        "      --system-prompt <TEXT>        System prompt text to inject"
-    );
-    println!(
-        "      --allowed-tools <TOOLS>      Allowed tools filter (comma-separated)"
-    );
-    println!(
-        "      --sandbox                    Enable sandbox mode"
-    );
-    println!(
-        "      --name <NAME>                Session name"
-    );
-    println!(
-        "      --add-dir <DIR>              Additional directory to include"
-    );
-    println!(
-        "      --approval-mode <MODE>       Approval/permission mode"
-    );
-    println!(
-        "      --worktree [NAME]            Git worktree mode (optional name)"
-    );
-    println!(
-        "      --dry-run                    Show the resolved command without executing it"
-    );
-    println!(
-        "  -h, --help                       Print this help message"
-    );
+    println!("  -a, --auto                       Enable auto-mode (autonomous operation)");
+    println!("  -e, --effort <LEVEL>             Reasoning effort level (e.g., high, low)");
+    println!("  -v, --verbose                    Enable verbose/debug output");
+    println!("      --output-format <FORMAT>     Output format (json, text, stream-json)");
+    println!("      --system-prompt <TEXT>        System prompt text to inject");
+    println!("      --allowed-tools <TOOLS>      Allowed tools filter (comma-separated)");
+    println!("      --sandbox                    Enable sandbox mode");
+    println!("      --name <NAME>                Session name");
+    println!("      --add-dir <DIR>              Additional directory to include");
+    println!("      --approval-mode <MODE>       Approval/permission mode");
+    println!("      --worktree [NAME]            Git worktree mode (optional name)");
+    println!("      --dry-run                    Show the resolved command without executing it");
+    println!("  -h, --help                       Print this help message");
     println!();
     println!("Passthrough (after --):");
     println!("  Any arguments after '--' are passed directly to the agent CLI unchanged.");
@@ -294,7 +261,9 @@ fn run_agent_with_polyfill(
         }
     })?;
 
-    ensure_profile_cli_available(&profile.name, &profile.agent_cli_path)?;
+    if !polyfill_args.dry_run {
+        ensure_profile_cli_available(&profile.name, &profile.agent_cli_path)?;
+    }
 
     let mut app_config = manager.load_app_config().unwrap_or_default();
     if app_config.current_profile != profile.name {
@@ -321,6 +290,7 @@ fn run_agent_with_polyfill(
     let target_cli = match &agent_type {
         AgentType::Claude => "claude",
         AgentType::Codex => "codex",
+        AgentType::Antigravity => "agy",
         AgentType::Gemini => "gemini",
         AgentType::OpenCode => "opencode",
         AgentType::Pi => "pi",
@@ -581,6 +551,7 @@ pub fn run() -> io::Result<()> {
             let target_cli = match first_arg {
                 "claude" | "claude-code" => "claude",
                 "codex" => "codex",
+                "antigravity" | "antigravity-cli" | "agy" => "agy",
                 "gemini" | "gemini-cli" => "gemini",
                 "opencode" => "opencode",
                 "pi" => "pi",
@@ -592,6 +563,7 @@ pub fn run() -> io::Result<()> {
                         .map(|agent| match agent {
                             AgentType::Claude => "claude",
                             AgentType::Codex => "codex",
+                            AgentType::Antigravity => "agy",
                             AgentType::Gemini => "gemini",
                             AgentType::OpenCode => "opencode",
                             AgentType::Pi => "pi",
@@ -761,8 +733,8 @@ pub fn run() -> io::Result<()> {
                 Some(HooksAction::Sync) => {
                     let plugin_dirs = launcher::find_plugin_dirs();
                     let all_plugin_dirs = launcher::find_all_plugin_dirs();
-                    let pruned = manager
-                        .prune_hooks_for_disabled_plugins(&all_plugin_dirs, &plugin_dirs)?;
+                    let pruned =
+                        manager.prune_hooks_for_disabled_plugins(&all_plugin_dirs, &plugin_dirs)?;
                     manager.sync_plugin_hooks(&plugin_dirs)?;
                     println!(
                         "Synced hooks from {} plugin(s){}",
@@ -858,8 +830,10 @@ pub fn run() -> io::Result<()> {
                         let items: Vec<json_output::AgentInfoOutput> = defs
                             .iter()
                             .map(|def| {
-                                let installed =
-                                    manager.get_installed_version(def.agent_type.clone()).ok().flatten();
+                                let installed = manager
+                                    .get_installed_version(def.agent_type.clone())
+                                    .ok()
+                                    .flatten();
                                 json_output::AgentInfoOutput {
                                     agent_type: format!("{:?}", def.agent_type).to_lowercase(),
                                     name: def.name.clone(),
@@ -901,7 +875,10 @@ pub fn run() -> io::Result<()> {
                         print!("Checking {}... ", agent_type.display_name());
                         match manager.check_update(agent_type.clone()) {
                             Ok(true) => {
-                                let latest = manager.get_latest_version(agent_type.clone()).ok().flatten();
+                                let latest = manager
+                                    .get_latest_version(agent_type.clone())
+                                    .ok()
+                                    .flatten();
                                 println!(
                                     "update available: {}",
                                     latest.as_deref().unwrap_or("unknown")
@@ -1178,9 +1155,7 @@ pub fn run() -> io::Result<()> {
             top,
         })
         .map_err(|e| io::Error::other(e.to_string())),
-        Some(Commands::Sandbox { action }) => {
-            sandbox::handle_sandbox(action.as_ref())
-        }
+        Some(Commands::Sandbox { action }) => sandbox::handle_sandbox(action.as_ref()),
         Some(Commands::TokenCount { file, tokenizer }) => {
             token_count::handle_token_count(&file, tokenizer.as_deref())
         }
@@ -1375,11 +1350,13 @@ fn handle_config(action: ConfigAction) -> io::Result<()> {
 
 fn setup_ucf_session(ucf_name: &str, target_cli: &str) -> io::Result<(String, Vec<String>)> {
     let ucf_path = dirs::data_dir()
-        .unwrap_or_else(|| std::path::PathBuf::from(env::var("HOME").unwrap_or_default()).join(".local/share"))
+        .unwrap_or_else(|| {
+            std::path::PathBuf::from(env::var("HOME").unwrap_or_default()).join(".local/share")
+        })
         .join("unleash")
         .join("sessions")
         .join(format!("{}.ucf.jsonl", ucf_name));
-        
+
     let ucf_query = format!("ucf:{}", ucf_name);
 
     if !ucf_path.exists() {
@@ -1448,18 +1425,25 @@ fn sync_ucf_session(ucf_name: &str, target_cli: &str, session_id: &str) {
     if let Some(session) = interchange::sessions::find_session(&query) {
         if let Ok(records) = interchange::inject::source_to_hub(&session) {
             let ucf_path = dirs::data_dir()
-                .unwrap_or_else(|| std::path::PathBuf::from(env::var("HOME").unwrap_or_default()).join(".local/share"))
+                .unwrap_or_else(|| {
+                    std::path::PathBuf::from(env::var("HOME").unwrap_or_default())
+                        .join(".local/share")
+                })
                 .join("unleash")
                 .join("sessions")
                 .join(format!("{}.ucf.jsonl", ucf_name));
-            
+
             let mut out = String::new();
             for r in records {
                 out.push_str(&serde_json::to_string(&r).unwrap());
                 out.push('\n');
             }
             if let Err(e) = std::fs::write(&ucf_path, out) {
-                eprintln!("Warning: Failed to save UCF session back to {}: {}", ucf_path.display(), e);
+                eprintln!(
+                    "Warning: Failed to save UCF session back to {}: {}",
+                    ucf_path.display(),
+                    e
+                );
             } else {
                 eprintln!("\x1b[32m✓\x1b[0m Saved native UCF session: {}", ucf_name);
             }

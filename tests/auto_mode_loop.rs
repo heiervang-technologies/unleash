@@ -195,9 +195,7 @@ fn auto_mode_restart_loop_runs_agent_twice_with_continue_on_second_invocation() 
     );
     // Non-Claude agent_type → must NOT inject --dangerously-skip-permissions
     assert!(
-        !args2
-            .iter()
-            .any(|a| a == "--dangerously-skip-permissions"),
+        !args2.iter().any(|a| a == "--dangerously-skip-permissions"),
         "non-Claude agent_type must not get --dangerously-skip-permissions, got: {:?}",
         args2
     );

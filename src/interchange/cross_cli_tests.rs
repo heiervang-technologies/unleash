@@ -75,7 +75,10 @@ mod tests {
             .iter()
             .filter_map(|r| {
                 if let HubRecord::Message(msg) = r {
-                    let has_text = msg.content.iter().any(|b| matches!(b, ContentBlock::Text { .. }));
+                    let has_text = msg
+                        .content
+                        .iter()
+                        .any(|b| matches!(b, ContentBlock::Text { .. }));
 
                     let portable = Some(PortableMessage {
                         role: msg.role.clone(),
@@ -167,7 +170,10 @@ mod tests {
         // User/assistant message counts should be close (within tolerance for
         // format differences like Codex session_meta becoming an extra message)
         let mut allowed_diff = 2;
-        if target_name.contains("gemini") || target_name.contains("opencode") || source_name.contains("opencode") {
+        if target_name.contains("gemini")
+            || target_name.contains("opencode")
+            || source_name.contains("opencode")
+        {
             allowed_diff = 10; // Gemini and OpenCode merge consecutive messages/tool results
         }
 

@@ -968,7 +968,11 @@ mod tests {
 
         let settings = mgr.read_settings().unwrap();
         let hooks = settings["hooks"]["PreCompact"].as_array().unwrap();
-        assert_eq!(hooks.len(), 2, "plugin hook should be added alongside manual hook");
+        assert_eq!(
+            hooks.len(),
+            2,
+            "plugin hook should be added alongside manual hook"
+        );
     }
 
     #[test]
@@ -994,11 +998,7 @@ mod tests {
 
         let settings = mgr.read_settings().unwrap();
         let hooks = settings["hooks"]["PreCompact"].as_array().unwrap();
-        assert_eq!(
-            hooks.len(),
-            1,
-            "sync should populate an empty event array"
-        );
+        assert_eq!(hooks.len(), 1, "sync should populate an empty event array");
     }
 
     #[test]
@@ -1176,10 +1176,7 @@ mod tests {
         );
 
         let changed = mgr
-            .prune_hooks_for_disabled_plugins(
-                &[omnihook.clone(), supercompact],
-                &[omnihook],
-            )
+            .prune_hooks_for_disabled_plugins(&[omnihook.clone(), supercompact], &[omnihook])
             .unwrap();
         assert!(changed);
 

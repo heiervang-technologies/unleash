@@ -73,7 +73,8 @@ fn fixture(name: &str) -> Vec<u8> {
         .join("tests")
         .join("fixtures")
         .join(name);
-    std::fs::read(&path).unwrap_or_else(|e| panic!("failed to read fixture {}: {e}", path.display()))
+    std::fs::read(&path)
+        .unwrap_or_else(|e| panic!("failed to read fixture {}: {e}", path.display()))
 }
 
 // ─────────────────────────────────────────────────────────────────────
@@ -109,7 +110,11 @@ fn place_claude_source(home: &Path, jsonl_bytes: &[u8], session_id: &str) -> Pat
 
 /// Drop a Codex rollout into `$CODEX_HOME/sessions/YYYY/MM/DD/rollout-<ts>-<id>.jsonl`.
 fn place_codex_source(codex_home: &Path, jsonl_bytes: &[u8], session_id: &str) -> PathBuf {
-    let dir = codex_home.join("sessions").join("2026").join("03").join("30");
+    let dir = codex_home
+        .join("sessions")
+        .join("2026")
+        .join("03")
+        .join("30");
     std::fs::create_dir_all(&dir).unwrap();
     // Filename pattern:  rollout-YYYY-MM-DDTHH-MM-SS-<uuid>.jsonl
     // Discovery extracts the id by stripping "rollout-" + 19-char timestamp + "-".
@@ -240,7 +245,12 @@ fn isolated_home(guard: &EnvGuard) -> (tempfile::TempDir, PathBuf, PathBuf) {
 /// expected `sessions/YYYY/MM/DD/` layout with a `session_meta` header.
 #[test]
 fn inject_claude_into_codex() {
-    let guard = EnvGuard::new(&["HOME", "XDG_DATA_HOME", "CODEX_HOME", "UNLEASH_CROSSLOAD_FORCE"]);
+    let guard = EnvGuard::new(&[
+        "HOME",
+        "XDG_DATA_HOME",
+        "CODEX_HOME",
+        "UNLEASH_CROSSLOAD_FORCE",
+    ]);
     let (_tmp, home, _xdg) = isolated_home(&guard);
     let codex_home = home.join(".codex");
     std::fs::create_dir_all(&codex_home).unwrap();
@@ -311,7 +321,12 @@ fn inject_claude_into_codex() {
 /// well-formed `parentUuid` chain.
 #[test]
 fn inject_codex_into_claude() {
-    let guard = EnvGuard::new(&["HOME", "XDG_DATA_HOME", "CODEX_HOME", "UNLEASH_CROSSLOAD_FORCE"]);
+    let guard = EnvGuard::new(&[
+        "HOME",
+        "XDG_DATA_HOME",
+        "CODEX_HOME",
+        "UNLEASH_CROSSLOAD_FORCE",
+    ]);
     let (_tmp, home, _xdg) = isolated_home(&guard);
     let codex_home = home.join(".codex");
     std::fs::create_dir_all(&codex_home).unwrap();
@@ -349,13 +364,19 @@ fn inject_codex_into_claude() {
         lines += 1;
         let v: serde_json::Value = serde_json::from_str(line).unwrap();
         let sid = v.get("sessionId").and_then(|s| s.as_str()).unwrap_or("");
-        assert_eq!(sid, result.session_id, "sessionId must be patched on every line");
+        assert_eq!(
+            sid, result.session_id,
+            "sessionId must be patched on every line"
+        );
         let uuid = v
             .get("uuid")
             .and_then(|u| u.as_str())
             .expect("every claude line must have a uuid")
             .to_string();
-        let parent = v.get("parentUuid").cloned().unwrap_or(serde_json::Value::Null);
+        let parent = v
+            .get("parentUuid")
+            .cloned()
+            .unwrap_or(serde_json::Value::Null);
         match (&prev, parent) {
             (None, serde_json::Value::Null) => {}
             (Some(p), serde_json::Value::String(pu)) => {
@@ -379,12 +400,59 @@ fn inject_codex_into_claude() {
     );
 }
 
+/// claude → antigravity: drop a Claude JSONL session, inject into the
+/// (tempdir) Antigravity store (which uses Gemini's underlying store),
+/// and assert a session JSON file landed in the expected chats layout.
+#[test]
+fn inject_claude_into_antigravity() {
+    let guard = EnvGuard::new(&[
+        "HOME",
+        "XDG_DATA_HOME",
+        "CODEX_HOME",
+        "UNLEASH_CROSSLOAD_FORCE",
+    ]);
+    let (_tmp, home, _xdg) = isolated_home(&guard);
+
+    let session_id = "5abf6b0c-d3a9-4692-bd17-1507f00cb3f7";
+    place_claude_source(&home, &fixture("claude-10turn.jsonl"), session_id);
+
+    let result = inject_session(&format!("claude:{session_id}"), "antigravity")
+        .expect("inject_session claude→antigravity failed");
+
+    // Sanity: a target session id and resume args were produced.
+    assert!(!result.session_id.is_empty(), "empty target session id");
+    assert_eq!(
+        result.resume_args,
+        vec!["--resume".to_string(), result.session_id.clone()],
+        "antigravity resume args must be --resume <id>"
+    );
+
+    // Antigravity sessions land under `$HOME/.gemini/tmp/` because it takes place of Gemini CLI.
+    let gemini_tmp = home.join(".gemini").join("tmp");
+    let written = find_json_for_session(&gemini_tmp, &result.session_id)
+        .expect("no <session_id>.json appeared under .gemini/tmp");
+    let body = std::fs::read_to_string(&written).unwrap();
+    assert!(!body.is_empty(), "antigravity json should not be empty");
+
+    // Parse the written JSON and verify session id matches.
+    let val: serde_json::Value = serde_json::from_str(&body).unwrap();
+    assert_eq!(
+        val.get("id").and_then(|id| id.as_str()),
+        Some(result.session_id.as_str())
+    );
+}
+
 /// gemini → opencode: drop a Gemini session JSON, set up an OpenCode
 /// SQLite DB, inject, then verify a session row appears in the DB along
 /// with corresponding messages and parts.
 #[test]
 fn inject_gemini_into_opencode() {
-    let guard = EnvGuard::new(&["HOME", "XDG_DATA_HOME", "CODEX_HOME", "UNLEASH_CROSSLOAD_FORCE"]);
+    let guard = EnvGuard::new(&[
+        "HOME",
+        "XDG_DATA_HOME",
+        "CODEX_HOME",
+        "UNLEASH_CROSSLOAD_FORCE",
+    ]);
     let (_tmp, home, xdg) = isolated_home(&guard);
     let db_path = init_opencode_db(&xdg);
 
@@ -422,7 +490,11 @@ fn inject_gemini_into_opencode() {
             |r| r.get(0),
         )
         .unwrap();
-    assert_eq!(session_count, 1, "session row missing for {}", result.session_id);
+    assert_eq!(
+        session_count, 1,
+        "session row missing for {}",
+        result.session_id
+    );
 
     let msg_count: i64 = conn
         .query_row(
@@ -501,6 +573,30 @@ fn find_jsonl_with_stem(dir: &Path, stem: &str) -> Option<PathBuf> {
             && path.file_stem().and_then(|s| s.to_str()) == Some(stem)
         {
             return Some(path);
+        }
+    }
+    None
+}
+
+fn find_json_for_session(dir: &Path, session_id: &str) -> Option<PathBuf> {
+    if !dir.exists() {
+        return None;
+    }
+    for entry in std::fs::read_dir(dir).ok()?.flatten() {
+        let path = entry.path();
+        if path.is_dir() {
+            if let Some(found) = find_json_for_session(&path, session_id) {
+                return Some(found);
+            }
+        } else if path.extension().and_then(|e| e.to_str()) == Some("json") {
+            // Read and parse to see if it matches session_id
+            if let Ok(content) = std::fs::read_to_string(&path) {
+                if let Ok(val) = serde_json::from_str::<serde_json::Value>(&content) {
+                    if val.get("id").and_then(|id| id.as_str()) == Some(session_id) {
+                        return Some(path);
+                    }
+                }
+            }
         }
     }
     None

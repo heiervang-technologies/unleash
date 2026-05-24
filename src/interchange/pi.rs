@@ -491,11 +491,7 @@ fn pi_message_to_hub(val: &Value, foreign_originated: bool) -> Result<HubMessage
                 title: None,
                 truncated: false,
             }];
-            (
-                "tool".to_string(),
-                content,
-                MessageMetadata::default(),
-            )
+            ("tool".to_string(), content, MessageMetadata::default())
         }
         other => {
             return Err(ConvertError::InvalidFormat(format!(
@@ -565,10 +561,7 @@ fn extract_content_blocks(content: Option<&Value>) -> Vec<ContentBlock> {
 }
 
 fn content_block_from_pi(block: &Value) -> ContentBlock {
-    let block_type = block
-        .get("type")
-        .and_then(|t| t.as_str())
-        .unwrap_or("");
+    let block_type = block.get("type").and_then(|t| t.as_str()).unwrap_or("");
     match block_type {
         "text" => ContentBlock::Text {
             text: block
@@ -768,10 +761,7 @@ fn hub_message_to_pi(msg: &HubMessage) -> Result<Option<Value>, ConvertError> {
         }
         inner.insert(
             "isError".into(),
-            pi_obj
-                .get("isError")
-                .cloned()
-                .unwrap_or(Value::Bool(tr.2)),
+            pi_obj.get("isError").cloned().unwrap_or(Value::Bool(tr.2)),
         );
         if let Some(ts) = pi_obj.get("envelope_timestamp") {
             inner.insert("timestamp".into(), ts.clone());
@@ -850,10 +840,7 @@ fn hub_message_to_pi(msg: &HubMessage) -> Result<Option<Value>, ConvertError> {
     }
 
     // Restore any envelope fields we preserved but didn't map.
-    if let Some(extras) = pi_obj
-        .get("envelope_extras")
-        .and_then(|v| v.as_object())
-    {
+    if let Some(extras) = pi_obj.get("envelope_extras").and_then(|v| v.as_object()) {
         for (k, v) in extras {
             inner.insert(k.clone(), v.clone());
         }
@@ -869,10 +856,7 @@ fn hub_message_to_pi(msg: &HubMessage) -> Result<Option<Value>, ConvertError> {
             .map(|s| Value::String(s.clone()))
             .unwrap_or(Value::Null),
     );
-    out.insert(
-        "timestamp".into(),
-        Value::String(msg.timestamp.clone()),
-    );
+    out.insert("timestamp".into(), Value::String(msg.timestamp.clone()));
     out.insert("message".into(), Value::Object(inner));
 
     Ok(Some(Value::Object(out)))

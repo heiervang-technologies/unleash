@@ -19,6 +19,7 @@ use std::process::Command;
 pub enum AgentType {
     Claude,
     Codex,
+    Antigravity,
     Gemini,
     OpenCode,
     Pi,
@@ -32,10 +33,11 @@ impl AgentType {
         &[
             AgentType::Claude,
             AgentType::Codex,
-            AgentType::Gemini,
+            AgentType::Antigravity,
             AgentType::OpenCode,
             AgentType::Pi,
             AgentType::Hermes,
+            AgentType::Gemini,
         ]
     }
 
@@ -54,6 +56,7 @@ impl AgentType {
         match self {
             AgentType::Claude => Cow::Borrowed("Claude Code"),
             AgentType::Codex => Cow::Borrowed("Codex"),
+            AgentType::Antigravity => Cow::Borrowed("Antigravity CLI"),
             AgentType::Gemini => Cow::Borrowed("Gemini CLI"),
             AgentType::OpenCode => Cow::Borrowed("OpenCode"),
             AgentType::Pi => Cow::Borrowed("Pi"),
@@ -66,11 +69,26 @@ impl AgentType {
         match s.to_lowercase().as_str() {
             "claude" | "claude-code" => Some(AgentType::Claude),
             "codex" => Some(AgentType::Codex),
+            "antigravity" | "antigravity-cli" | "agy" => Some(AgentType::Antigravity),
             "gemini" | "gemini-cli" => Some(AgentType::Gemini),
             "opencode" | "open-code" => Some(AgentType::OpenCode),
             "pi" | "pi-coding-agent" => Some(AgentType::Pi),
             "hermes" | "hermes-agent" => Some(AgentType::Hermes),
             _ => None,
+        }
+    }
+
+    /// Cleanly map each agent type to its mascot file key name
+    pub fn mascot_name(&self) -> &'static str {
+        match self {
+            AgentType::Claude => "claude",
+            AgentType::Codex => "codex",
+            AgentType::Antigravity => "antigravity",
+            AgentType::Gemini => "gemini",
+            AgentType::OpenCode => "opencode",
+            AgentType::Pi => "pi",
+            AgentType::Hermes => "hermes",
+            AgentType::Custom(_) => "claude",
         }
     }
 }
@@ -287,6 +305,7 @@ impl AgentDefinition {
         match agent_type {
             AgentType::Claude => Self::claude(),
             AgentType::Codex => Self::codex(),
+            AgentType::Antigravity => Self::antigravity(),
             AgentType::Gemini => Self::gemini(),
             AgentType::OpenCode => Self::opencode(),
             AgentType::Pi => Self::pi(),
@@ -354,7 +373,10 @@ impl AgentDefinition {
                 output_format_flag: None,
                 system_prompt_flag: None,
                 allowed_tools_flag: None,
-                sandbox: SandboxStrategy::ValueFlag("--sandbox".to_string(), "workspace-write".to_string()),
+                sandbox: SandboxStrategy::ValueFlag(
+                    "--sandbox".to_string(),
+                    "workspace-write".to_string(),
+                ),
                 name_flag: None,
                 add_dir_flag: Some("--add-dir".to_string()),
                 approval_mode_flag: Some("-a".to_string()),
@@ -362,6 +384,40 @@ impl AgentDefinition {
             },
             github_repo: Some("openai/codex".to_string()),
             npm_package: None,
+            enabled: true,
+        }
+    }
+
+    /// Create Antigravity CLI agent definition
+    pub fn antigravity() -> Self {
+        Self {
+            agent_type: AgentType::Antigravity,
+            name: "Antigravity CLI".to_string(),
+            binary: "agy".to_string(),
+            description: "Google's Antigravity CLI".to_string(),
+            polyfill: AgentPolyfillConfig {
+                headless: HeadlessStrategy::Flag("-p".to_string()),
+                session: SessionStrategy {
+                    continue_strategy: ResumeStrategy::Flag("--resume latest".to_string()),
+                    resume_strategy: ResumeStrategy::Flag("--resume".to_string()),
+                },
+                fork: ForkStrategy::Unsupported,
+                yolo_flag: Some("--yolo".to_string()),
+                model_flag: "-m".to_string(),
+                effort_flag: None,
+                auto_flag: None,
+                verbose_flag: Some("--debug".to_string()),
+                output_format_flag: Some("-o".to_string()),
+                system_prompt_flag: None,
+                allowed_tools_flag: Some("--allowed-tools".to_string()),
+                sandbox: SandboxStrategy::BoolFlag("--sandbox".to_string()),
+                name_flag: None,
+                add_dir_flag: Some("--include-directories".to_string()),
+                approval_mode_flag: Some("--approval-mode".to_string()),
+                worktree_flag: Some("--worktree".to_string()),
+            },
+            github_repo: None,
+            npm_package: Some("@google/antigravity-cli".to_string()),
             enabled: true,
         }
     }
@@ -545,6 +601,7 @@ impl AgentManager {
         manager.register_agent(AgentDefinition::claude());
         manager.register_agent(AgentDefinition::codex());
         manager.register_agent(AgentDefinition::gemini());
+        manager.register_agent(AgentDefinition::antigravity());
         manager.register_agent(AgentDefinition::opencode());
         manager.register_agent(AgentDefinition::pi());
         manager.register_agent(AgentDefinition::hermes());
@@ -570,12 +627,86 @@ impl AgentManager {
         self.agents.values().collect()
     }
 
+    fn parse_asar_version(content: &[u8]) -> Option<String> {
+        let pattern1 = b"\"name\": \"antigravity\"";
+        let pattern2 = b"\"name\":\"antigravity\"";
+        let pos = content
+            .windows(pattern1.len())
+            .position(|w| w == pattern1)
+            .or_else(|| content.windows(pattern2.len()).position(|w| w == pattern2))?;
+
+        let search_slice = &content[pos..pos + std::cmp::min(1000, content.len() - pos)];
+        let version_pattern = b"\"version\"";
+        let v_pos = search_slice
+            .windows(version_pattern.len())
+            .position(|w| w == version_pattern)?;
+
+        let val_slice = &search_slice[v_pos + version_pattern.len()..];
+
+        let mut start_idx = None;
+        let mut colon_found = false;
+        for (i, &b) in val_slice.iter().enumerate() {
+            if b == b':' {
+                colon_found = true;
+            } else if b == b'"' && colon_found {
+                start_idx = Some(i + 1);
+                break;
+            }
+        }
+
+        let start = start_idx?;
+        let end_slice = &val_slice[start..];
+        let end = end_slice.iter().position(|&b| b == b'"')?;
+
+        String::from_utf8(end_slice[..end].to_vec()).ok()
+    }
+
     /// Get installed version for an agent
     pub fn get_installed_version(&mut self, agent_type: AgentType) -> io::Result<Option<String>> {
         let agent = self
             .agents
             .get(&agent_type)
             .ok_or_else(|| io::Error::new(io::ErrorKind::NotFound, "Agent not found"))?;
+
+        if agent_type == AgentType::Antigravity {
+            // Check Electron app.asar paths for system/packaged installations
+            let paths = [
+                PathBuf::from("/opt/Antigravity/resources/app.asar"), // Arch Linux / pacman default
+                PathBuf::from("/Applications/Antigravity.app/Contents/Resources/app.asar"), // macOS default
+            ];
+            let mut version = None;
+            for path in &paths {
+                if path.exists() {
+                    if let Ok(content) = fs::read(path) {
+                        if let Some(v) = Self::parse_asar_version(&content) {
+                            version = Some(v);
+                            break;
+                        }
+                    }
+                }
+            }
+
+            // Fallback for npm-based global installations (@google/antigravity-cli) or custom paths
+            if version.is_none() {
+                if let Ok(bin_path) = which::which(&agent.binary) {
+                    if let Ok(output) = Command::new(&bin_path).arg("--version").output() {
+                        let stdout = String::from_utf8_lossy(&output.stdout);
+                        // Clean up output to extract semver if present
+                        let ver_str = stdout.trim();
+                        if !ver_str.is_empty() {
+                            version = Some(ver_str.to_string());
+                        }
+                    }
+                }
+            }
+
+            // Update cache
+            let entry = self.versions.entry(agent_type).or_default();
+            entry.installed = version.clone();
+            entry.binary_path = which::which(&agent.binary).ok();
+
+            return Ok(version);
+        }
 
         // Try to get version from binary
         let binary = agent.binary.clone();
@@ -785,6 +916,9 @@ impl AgentManager {
         match agent_type {
             AgentType::Claude => self.update_claude(),
             AgentType::Codex => self.update_codex(),
+            AgentType::Antigravity => Err(io::Error::other(
+                "Antigravity CLI updates are managed by the system package manager (pacman/yay)",
+            )),
             AgentType::Gemini => self.update_npm_agent("@google/gemini-cli", "Gemini CLI"),
             AgentType::OpenCode => self.update_opencode(),
             AgentType::Pi => self.update_npm_agent("@mariozechner/pi-coding-agent", "Pi"),
@@ -1152,7 +1286,10 @@ impl AgentManager {
         let mut results = Vec::new();
 
         for agent_type in agent_types {
-            let installed = self.get_installed_version(agent_type.clone()).ok().flatten();
+            let installed = self
+                .get_installed_version(agent_type.clone())
+                .ok()
+                .flatten();
             let latest = self
                 .versions
                 .get(&agent_type)
@@ -1227,7 +1364,10 @@ mod tests {
         assert!(hermes.npm_package.is_none());
         assert_eq!(hermes.binary, "hermes");
         assert_eq!(hermes.agent_type, AgentType::Hermes);
-        assert_eq!(hermes.github_repo.as_deref(), Some("NousResearch/hermes-agent"));
+        assert_eq!(
+            hermes.github_repo.as_deref(),
+            Some("NousResearch/hermes-agent")
+        );
     }
 
     #[test]
@@ -1276,7 +1416,10 @@ mod tests {
             Some("2026.6.12".to_string())
         );
         // Missing parens
-        assert_eq!(AgentManager::parse_hermes_calver("Hermes Agent v0.13.0"), None);
+        assert_eq!(
+            AgentManager::parse_hermes_calver("Hermes Agent v0.13.0"),
+            None
+        );
         // Non-numeric content in parens
         assert_eq!(
             AgentManager::parse_hermes_calver("Hermes Agent v0.13.0 (dev)"),

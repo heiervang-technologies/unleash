@@ -52,8 +52,11 @@ fn count_file_tiktoken(path: &Path) -> io::Result<usize> {
 }
 
 fn count_file_hf(path: &Path, tokenizer_path: &str) -> io::Result<usize> {
-    let tokenizer = tokenizers::Tokenizer::from_file(tokenizer_path)
-        .map_err(|e| io::Error::other(format!("Failed to load tokenizer from {tokenizer_path}: {e}")))?;
+    let tokenizer = tokenizers::Tokenizer::from_file(tokenizer_path).map_err(|e| {
+        io::Error::other(format!(
+            "Failed to load tokenizer from {tokenizer_path}: {e}"
+        ))
+    })?;
 
     let file = fs::File::open(path)?;
     let reader = io::BufReader::new(file);

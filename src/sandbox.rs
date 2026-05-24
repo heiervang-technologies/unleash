@@ -202,8 +202,18 @@ pub fn network_exists() -> bool {
 pub fn iptables_rules_active() -> bool {
     // Silence stderr — without root, iptables prints noisy lock errors we don't care about.
     let raw_ok = Command::new("iptables")
-        .args(["-t", "raw", "-C", "PREROUTING",
-               "-s", "172.30.0.0/16", "-d", "10.0.0.0/8", "-j", "DROP"])
+        .args([
+            "-t",
+            "raw",
+            "-C",
+            "PREROUTING",
+            "-s",
+            "172.30.0.0/16",
+            "-d",
+            "10.0.0.0/8",
+            "-j",
+            "DROP",
+        ])
         .stderr(Stdio::null())
         .status()
         .map(|s| s.success())
@@ -377,10 +387,7 @@ pub enum SudoOutcome {
 /// `args` are forwarded to the privileged command. Output is inherited so the
 /// password prompt is visible to the user — callers running inside a TUI must
 /// suspend the alternate screen first.
-pub fn run_sudo<P: AsRef<std::ffi::OsStr>>(
-    cmd_path: &str,
-    args: &[P],
-) -> io::Result<SudoOutcome> {
+pub fn run_sudo<P: AsRef<std::ffi::OsStr>>(cmd_path: &str, args: &[P]) -> io::Result<SudoOutcome> {
     if which::which("sudo").is_err() {
         return Ok(SudoOutcome::SudoMissing);
     }
@@ -485,9 +492,9 @@ pub fn step_gvisor(auto_install: bool) -> Result<String, StepFailure> {
         SudoOutcome::SudoMissing => Err(StepFailure::SudoMissing),
         SudoOutcome::AuthFailed => Err(StepFailure::SudoAuth),
         SudoOutcome::NoTty => Err(StepFailure::NoTty),
-        SudoOutcome::CommandFailed(s) | SudoOutcome::Other(s) => {
-            Err(StepFailure::Recoverable(format!("gVisor install failed: {}", s)))
-        }
+        SudoOutcome::CommandFailed(s) | SudoOutcome::Other(s) => Err(StepFailure::Recoverable(
+            format!("gVisor install failed: {}", s),
+        )),
     }
 }
 
@@ -573,9 +580,8 @@ pub fn step_env_seed(docker_dir: &Path) -> Result<String, StepFailure> {
     let example = docker_dir.join("example.env");
     let dotenv = docker_dir.join(".env");
     if example.exists() {
-        std::fs::copy(&example, &dotenv).map_err(|e| {
-            StepFailure::Recoverable(format!("Failed to copy example.env: {}", e))
-        })?;
+        std::fs::copy(&example, &dotenv)
+            .map_err(|e| StepFailure::Recoverable(format!("Failed to copy example.env: {}", e)))?;
         Ok(format!(
             "Created {} from example.env. Edit it with your API keys before running agents.",
             dotenv.display()
@@ -646,7 +652,9 @@ pub fn canonical_keys_from_example(docker_dir: &Path) -> Vec<String> {
             if let Some(eq) = trimmed.find('=') {
                 let key = trimmed[..eq].trim();
                 if !key.is_empty()
-                    && key.chars().all(|c| c.is_ascii_uppercase() || c.is_ascii_digit() || c == '_')
+                    && key
+                        .chars()
+                        .all(|c| c.is_ascii_uppercase() || c.is_ascii_digit() || c == '_')
                     && !keys.contains(&key.to_string())
                 {
                     keys.push(key.to_string());
@@ -753,7 +761,10 @@ pub fn run_setup(docker_dir: &Path) -> io::Result<()> {
     print!("  Docker image... ");
     if image_exists() {
         println!("\x1b[32m✓\x1b[0m {} exists", image_name());
-        println!("    (to update: docker pull {}:{})", DOCKER_IMAGE, DOCKER_TAG);
+        println!(
+            "    (to update: docker pull {}:{})",
+            DOCKER_IMAGE, DOCKER_TAG
+        );
     } else {
         println!("\x1b[33m!\x1b[0m not found — pulling from Docker Hub...");
         match step_container_image(docker_dir) {
@@ -834,14 +845,18 @@ pub fn run_status(docker_dir: Option<&Path>) -> io::Result<()> {
     print!("  Container image:  ");
     if image_exists() {
         let name = image_name();
-        let age = run_command_output("docker", &[
-            "image", "inspect", &name,
-            "--format", "{{.Created}}",
-        ])
+        let age = run_command_output(
+            "docker",
+            &["image", "inspect", &name, "--format", "{{.Created}}"],
+        )
         .ok()
         .map(|s| s.trim().to_string())
         .unwrap_or_default();
-        println!("\x1b[32m✓\x1b[0m {} ({})", name, if age.is_empty() { "unknown age" } else { &age });
+        println!(
+            "\x1b[32m✓\x1b[0m {} ({})",
+            name,
+            if age.is_empty() { "unknown age" } else { &age }
+        );
     } else {
         println!("\x1b[31m✗\x1b[0m not found (run: unleash sandbox setup)");
     }
@@ -857,7 +872,9 @@ pub fn run_status(docker_dir: Option<&Path>) -> io::Result<()> {
                         .lines()
                         .filter(|l| {
                             let l = l.trim();
-                            !l.is_empty() && !l.starts_with('#') && l.contains('=')
+                            !l.is_empty()
+                                && !l.starts_with('#')
+                                && l.contains('=')
                                 && l.split('=').nth(1).map(|v| !v.is_empty()).unwrap_or(false)
                         })
                         .count()
@@ -899,15 +916,24 @@ fn validate_sandbox_name(name: &str) -> io::Result<()> {
         return Err(io::Error::other("sandbox name must be 1-63 characters"));
     }
     if !name.chars().all(|c| c.is_ascii_alphanumeric() || c == '-') {
-        return Err(io::Error::other("sandbox name must contain only alphanumeric characters and hyphens"));
+        return Err(io::Error::other(
+            "sandbox name must contain only alphanumeric characters and hyphens",
+        ));
     }
     if name.starts_with('-') || name.ends_with('-') {
-        return Err(io::Error::other("sandbox name must not start or end with a hyphen"));
+        return Err(io::Error::other(
+            "sandbox name must not start or end with a hyphen",
+        ));
     }
     Ok(())
 }
 
-pub fn run_agent(docker_dir: Option<&Path>, agent: &str, name: &str, extra_args: &[String]) -> io::Result<()> {
+pub fn run_agent(
+    docker_dir: Option<&Path>,
+    agent: &str,
+    name: &str,
+    extra_args: &[String],
+) -> io::Result<()> {
     // Validate sandbox name (used as Docker hostname, must be RFC 1123 compliant)
     validate_sandbox_name(name)?;
 
@@ -934,7 +960,9 @@ pub fn run_agent(docker_dir: Option<&Path>, agent: &str, name: &str, extra_args:
     }
 
     if !network_exists() {
-        eprintln!("\x1b[33mwarning:\x1b[0m Sandbox network not found. LAN isolation may not be active.");
+        eprintln!(
+            "\x1b[33mwarning:\x1b[0m Sandbox network not found. LAN isolation may not be active."
+        );
         eprintln!("  Fix: sudo unleash sandbox setup");
     }
 
@@ -968,9 +996,12 @@ pub fn run_agent(docker_dir: Option<&Path>, agent: &str, name: &str, extra_args:
         }
 
         cmd.args([
-            "run", "--rm",
-            "-e", &format!("SANDBOX_NAME={}", name),
-            "-e", &format!("HOSTNAME={}", name),
+            "run",
+            "--rm",
+            "-e",
+            &format!("SANDBOX_NAME={}", name),
+            "-e",
+            &format!("HOSTNAME={}", name),
         ]);
 
         // Inject any wizard-configured passthrough keys.
@@ -981,17 +1012,32 @@ pub fn run_agent(docker_dir: Option<&Path>, agent: &str, name: &str, extra_args:
         // Direct docker run (no compose files available — e.g., installed via binary only)
         let container_name = format!("unleash-{}", name);
         cmd.args([
-            "run", "--rm", "-it",
-            "--runtime", "runsc",
-            "--network", "unleash-sandbox",
-            "--name", &container_name,
-            "--hostname", name,
-            "--dns", "8.8.8.8", "--dns", "8.8.4.4",
-            "-e", &format!("SANDBOX_NAME={}", name),
-            "-v", &format!("{}:/workspace", std::env::current_dir()
-                .map(|p| p.to_string_lossy().to_string())
-                .unwrap_or_else(|_| ".".to_string())),
-            "-w", "/workspace",
+            "run",
+            "--rm",
+            "-it",
+            "--runtime",
+            "runsc",
+            "--network",
+            "unleash-sandbox",
+            "--name",
+            &container_name,
+            "--hostname",
+            name,
+            "--dns",
+            "8.8.8.8",
+            "--dns",
+            "8.8.4.4",
+            "-e",
+            &format!("SANDBOX_NAME={}", name),
+            "-v",
+            &format!(
+                "{}:/workspace",
+                std::env::current_dir()
+                    .map(|p| p.to_string_lossy().to_string())
+                    .unwrap_or_else(|_| ".".to_string())
+            ),
+            "-w",
+            "/workspace",
         ]);
 
         // Wizard-configured passthrough keys (replaces the previous hard-coded list).
@@ -1030,7 +1076,10 @@ pub fn run_agent(docker_dir: Option<&Path>, agent: &str, name: &str, extra_args:
 /// Shared helper: run `<bash> <abs-script-path> <args...>` under sudo.
 fn run_sudo_script(script: &Path, args: &[&str]) -> io::Result<()> {
     if !script.exists() {
-        eprintln!("\x1b[31merror:\x1b[0m sandbox-network.sh not found at {}", script.display());
+        eprintln!(
+            "\x1b[31merror:\x1b[0m sandbox-network.sh not found at {}",
+            script.display()
+        );
         return Err(io::Error::other("script not found"));
     }
     let bash = which::which("bash")
@@ -1076,8 +1125,10 @@ pub fn run_list() -> io::Result<()> {
     let output = Command::new("docker")
         .args([
             "ps",
-            "--filter", "network=unleash-sandbox",
-            "--format", "table {{.ID}}\t{{.Names}}\t{{.Status}}\t{{.RunningFor}}\t{{.Command}}",
+            "--filter",
+            "network=unleash-sandbox",
+            "--format",
+            "table {{.ID}}\t{{.Names}}\t{{.Status}}\t{{.RunningFor}}\t{{.Command}}",
         ])
         .output()?;
 
@@ -1118,10 +1169,7 @@ pub fn run_enter(target: &str, shell: &str) -> io::Result<()> {
     } else {
         // Search sandbox containers by hostname
         let output = Command::new("docker")
-            .args([
-                "ps", "-q",
-                "--filter", "network=unleash-sandbox",
-            ])
+            .args(["ps", "-q", "--filter", "network=unleash-sandbox"])
             .output()?;
 
         let raw = String::from_utf8_lossy(&output.stdout).to_string();
@@ -1134,9 +1182,10 @@ pub fn run_enter(target: &str, shell: &str) -> io::Result<()> {
         // Check each container's hostname
         let mut match_id = None;
         for id in &container_ids {
-            let hostname = run_command_output("docker", &[
-                "inspect", "--format", "{{.Config.Hostname}}", id,
-            ])?;
+            let hostname = run_command_output(
+                "docker",
+                &["inspect", "--format", "{{.Config.Hostname}}", id],
+            )?;
             if hostname.trim() == target {
                 match_id = Some(id.to_string());
                 break;

@@ -63,10 +63,7 @@ pub fn to_hub<R: BufRead>(reader: R) -> Result<Vec<HubRecord>, ConvertError> {
                 // `_ucf_hub.message`, restore it verbatim — Codex's response
                 // shape can't represent every hub content variant losslessly,
                 // but the stashed blob captures everything.
-                if let Some(stashed) = ucf_hub
-                    .and_then(|u| u.get("message"))
-                    .cloned()
-                {
+                if let Some(stashed) = ucf_hub.and_then(|u| u.get("message")).cloned() {
                     if let Ok(mut msg) = serde_json::from_value::<HubMessage>(stashed) {
                         // Codex has no native `tool` role — its tool results
                         // ride on user-role response_items. Coerce so cross-CLI
@@ -106,10 +103,7 @@ pub fn to_hub<R: BufRead>(reader: R) -> Result<Vec<HubRecord>, ConvertError> {
                     records.push(HubRecord::Session(default_session(&timestamp)));
                     session_emitted = true;
                 }
-                let sub_type = payload
-                    .get("type")
-                    .and_then(|t| t.as_str())
-                    .unwrap_or("");
+                let sub_type = payload.get("type").and_then(|t| t.as_str()).unwrap_or("");
                 let mut ext = serde_json::json!({"codex": {"_outer_type": "event_msg"}});
                 if foreign_originated {
                     ext = Value::Object(serde_json::Map::new());
@@ -223,11 +217,7 @@ pub fn from_hub(records: &[HubRecord]) -> Result<Vec<Value>, ConvertError> {
                         attach_ucf_hub_field(&mut line, "completed_at", Value::String(ca.clone()));
                     }
                     if stash_messages {
-                        attach_ucf_hub_field(
-                            &mut line,
-                            "message",
-                            serde_json::to_value(msg)?,
-                        );
+                        attach_ucf_hub_field(&mut line, "message", serde_json::to_value(msg)?);
                     }
                     lines.push(line);
                 }
@@ -345,7 +335,10 @@ fn session_meta_to_hub(payload: &Value, timestamp: &str) -> SessionHeader {
         }
     }
     // Also stash the outer timestamp for exact reconstruction
-    ext.insert("_outer_timestamp".into(), Value::String(timestamp.to_string()));
+    ext.insert(
+        "_outer_timestamp".into(),
+        Value::String(timestamp.to_string()),
+    );
 
     SessionHeader {
         ucf_version: UCF_VERSION.to_string(),
@@ -706,8 +699,7 @@ fn hub_message_to_codex(msg: &HubMessage) -> Result<Value, ConvertError> {
                 id, name, input, ..
             }) = msg.content.first()
             {
-                let arguments =
-                    serde_json::to_string(input).unwrap_or_else(|_| "{}".to_string());
+                let arguments = serde_json::to_string(input).unwrap_or_else(|_| "{}".to_string());
                 let payload = serde_json::json!({
                     "type": "function_call",
                     "name": name,
@@ -850,10 +842,7 @@ fn hub_event_to_codex(evt: &HubEvent) -> Result<Value, ConvertError> {
     let cc = evt.extensions.get("codex").cloned().unwrap_or(Value::Null);
 
     // Check if we stored the original outer type
-    let outer_type = cc
-        .get("_outer_type")
-        .and_then(|v| v.as_str())
-        .unwrap_or("");
+    let outer_type = cc.get("_outer_type").and_then(|v| v.as_str()).unwrap_or("");
 
     let codex_type = if !outer_type.is_empty() {
         outer_type.to_string()

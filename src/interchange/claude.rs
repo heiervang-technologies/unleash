@@ -232,11 +232,7 @@ fn message_to_hub(
     // native Claude representation (mixed-content blocks, foreign metadata,
     // etc.). Foreign extensions stashed under `_ucf_hub.ext` are already part
     // of the stashed message, so this takes precedence.
-    if let Some(stashed) = val
-        .get("_ucf_hub")
-        .and_then(|u| u.get("message"))
-        .cloned()
-    {
+    if let Some(stashed) = val.get("_ucf_hub").and_then(|u| u.get("message")).cloned() {
         if let Ok(restored) = serde_json::from_value::<HubMessage>(stashed) {
             hub_msg = restored;
         }
@@ -249,14 +245,14 @@ fn build_claude_extensions(val: &Value, msg_type: &str) -> Value {
     // Stash ALL top-level fields that don't map to hub message schema
     // into extensions for lossless round-trip
     let hub_fields: &[&str] = &[
-        "type",      // → role / message type
-        "message",   // → content blocks
-        "uuid",      // → id
-        "timestamp", // → timestamp
+        "type",       // → role / message type
+        "message",    // → content blocks
+        "uuid",       // → id
+        "timestamp",  // → timestamp
         "parentUuid", // → parent_id
-        "cwd",       // → metadata.cwd
-        "gitBranch", // → metadata.git_branch
-        "_ucf_hub",  // hub-level passthrough for cross-CLI round-trip
+        "cwd",        // → metadata.cwd
+        "gitBranch",  // → metadata.git_branch
+        "_ucf_hub",   // hub-level passthrough for cross-CLI round-trip
     ];
 
     let mut ext = serde_json::Map::new();
@@ -467,14 +463,8 @@ fn extract_metadata(val: &Value, msg_type: &str) -> MessageMetadata {
                     .get("reasoning_tokens")
                     .and_then(|v| v.as_u64())
                     .unwrap_or(0),
-                tool: u
-                    .get("tool_tokens")
-                    .and_then(|v| v.as_u64())
-                    .unwrap_or(0),
-                total: u
-                    .get("total_tokens")
-                    .and_then(|v| v.as_u64())
-                    .unwrap_or(0),
+                tool: u.get("tool_tokens").and_then(|v| v.as_u64()).unwrap_or(0),
+                total: u.get("total_tokens").and_then(|v| v.as_u64()).unwrap_or(0),
             }),
             stop_reason: message.and_then(|m| opt_str(m, "stop_reason")),
             cwd: opt_str(val, "cwd"),
@@ -1118,10 +1108,7 @@ mod tests {
             "signed thinking should be preserved as thinking block"
         );
         assert_eq!(
-            thinking
-                .unwrap()
-                .get("signature")
-                .and_then(|s| s.as_str()),
+            thinking.unwrap().get("signature").and_then(|s| s.as_str()),
             Some("sig_abc123"),
             "signature should be preserved"
         );
