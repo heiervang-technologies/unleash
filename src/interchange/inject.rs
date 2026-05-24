@@ -77,6 +77,20 @@ pub fn inject_session(
     let hub_records = source_to_hub(&session)?;
     eprintln!("Converted {} records to hub format", hub_records.len());
 
+    // Apply context budget guard (UNLEASH_CROSSLOAD_MAX_TOKENS or default unlimited).
+    let hub_records = if let Some(max_tokens) = context_budget() {
+        let (trimmed, dropped) = truncate_hub_to_budget(hub_records, max_tokens);
+        if dropped > 0 {
+            eprintln!(
+                "Context guard: dropped {} oldest messages to stay within {} token budget",
+                dropped, max_tokens
+            );
+        }
+        trimmed
+    } else {
+        hub_records
+    };
+
     // Inject into target
     let (result, target_path) = match target_cli {
         "claude" | "claude-code" => inject_into_claude(&session, &hub_records)?,
@@ -122,6 +136,77 @@ fn normalize_target_cli(target: &str) -> &str {
         "pi" | "pi-coding-agent" => "pi",
         other => other,
     }
+}
+
+/// Read the optional context budget from `UNLEASH_CROSSLOAD_MAX_TOKENS`.
+/// Returns `None` when the variable is unset or zero (no limit).
+fn context_budget() -> Option<usize> {
+    std::env::var("UNLEASH_CROSSLOAD_MAX_TOKENS")
+        .ok()
+        .and_then(|v| v.parse::<usize>().ok())
+        .filter(|&n| n > 0)
+}
+
+/// Rough token estimate: 1 token ≈ 4 characters.
+fn estimate_tokens(records: &[HubRecord]) -> usize {
+    let chars: usize = records
+        .iter()
+        .filter_map(|r| {
+            if let HubRecord::Message(m) = r {
+                Some(m.content.iter().map(|b| estimate_block_chars(b)).sum::<usize>())
+            } else {
+                None
+            }
+        })
+        .sum();
+    chars / 4
+}
+
+fn estimate_block_chars(block: &crate::interchange::hub::ContentBlock) -> usize {
+    use crate::interchange::hub::ContentBlock;
+    match block {
+        ContentBlock::Text { text } => text.len(),
+        ContentBlock::ToolUse { name, input, .. } => {
+            name.len() + input.to_string().len()
+        }
+        ContentBlock::ToolResult { content, .. } => {
+            content.iter().map(|b| estimate_block_chars(b)).sum()
+        }
+        ContentBlock::Thinking { text, .. } => text.len(),
+        ContentBlock::Image { .. } => 256,
+        _ => 64,
+    }
+}
+
+/// Trim the oldest user+assistant message pairs from `records` until
+/// the estimated token count fits within `max_tokens`.
+/// The session header (first record) is always kept.
+/// Returns (trimmed_records, num_messages_dropped).
+fn truncate_hub_to_budget(
+    records: Vec<HubRecord>,
+    max_tokens: usize,
+) -> (Vec<HubRecord>, usize) {
+    if estimate_tokens(&records) <= max_tokens {
+        return (records, 0);
+    }
+
+    // Separate the session header from the messages.
+    let (header, mut messages): (Vec<HubRecord>, Vec<HubRecord>) =
+        records.into_iter().partition(|r| matches!(r, HubRecord::Session(_)));
+
+    let mut dropped = 0;
+    while !messages.is_empty() {
+        let current: Vec<HubRecord> = header.iter().chain(messages.iter()).cloned().collect();
+        if estimate_tokens(&current) <= max_tokens {
+            return (current, dropped);
+        }
+        // Drop the oldest message.
+        messages.remove(0);
+        dropped += 1;
+    }
+
+    // Couldn't fit even with all messages dropped — return just the header.
+    (header, dropped)
 }
 
 fn resume_args_for(target: &str, session_id: &str) -> Vec<String> {
@@ -2041,5 +2126,113 @@ mod tests {
         assert_eq!(&ts[16..17], ":");
         assert_eq!(&ts[19..20], ".");
         assert!(ts.ends_with('Z'));
+    }
+
+    // ── context budget / truncation ──────────────────────────────────────────
+
+    fn make_session_header() -> HubRecord {
+        HubRecord::Session(SessionHeader {
+            ucf_version: UCF_VERSION.to_string(),
+            session_id: "test-id".to_string(),
+            created_at: "2026-01-01T00:00:00.000Z".to_string(),
+            updated_at: "2026-01-01T00:00:00.000Z".to_string(),
+            source_cli: "claude".to_string(),
+            source_version: "1.0.0".to_string(),
+            project: None,
+            model: None,
+            title: None,
+            slug: None,
+            parent_session_id: None,
+            extensions: serde_json::Value::Null,
+        })
+    }
+
+    fn make_text_message(role: &str, text: &str) -> HubRecord {
+        HubRecord::Message(crate::interchange::hub::HubMessage {
+            id: format!("{}-{}", role, text.len()),
+            api_message_id: None,
+            parent_id: None,
+            timestamp: "2026-01-01T00:00:00.000Z".to_string(),
+            completed_at: None,
+            role: role.to_string(),
+            content: vec![crate::interchange::hub::ContentBlock::Text {
+                text: text.to_string(),
+            }],
+            metadata: Default::default(),
+            extensions: serde_json::Value::Null,
+        })
+    }
+
+    #[test]
+    fn test_estimate_tokens_empty() {
+        assert_eq!(estimate_tokens(&[]), 0);
+    }
+
+    #[test]
+    fn test_estimate_tokens_text() {
+        let records = vec![
+            make_session_header(),
+            make_text_message("user", "aaaa"),   // 4 chars = 1 token
+            make_text_message("assistant", "bbbbbbbb"), // 8 chars = 2 tokens
+        ];
+        assert_eq!(estimate_tokens(&records), 3);
+    }
+
+    #[test]
+    fn test_truncate_no_op_when_within_budget() {
+        let records = vec![
+            make_session_header(),
+            make_text_message("user", "hello"),
+            make_text_message("assistant", "world"),
+        ];
+        let (trimmed, dropped) = truncate_hub_to_budget(records.clone(), 10_000);
+        assert_eq!(dropped, 0);
+        assert_eq!(trimmed.len(), records.len());
+    }
+
+    #[test]
+    fn test_truncate_drops_oldest_messages() {
+        let long_text = "x".repeat(400); // 400 chars = 100 tokens each
+        let records = vec![
+            make_session_header(),
+            make_text_message("user", &long_text),      // oldest
+            make_text_message("assistant", &long_text), // 2nd
+            make_text_message("user", &long_text),      // newest user
+            make_text_message("assistant", &long_text), // newest assistant
+        ];
+        // 4 messages × 100 tokens = 400 tokens total; budget = 250 → must drop 2
+        let (trimmed, dropped) = truncate_hub_to_budget(records, 250);
+        assert_eq!(dropped, 2);
+        // Header + 2 newest messages
+        assert_eq!(trimmed.len(), 3);
+    }
+
+    #[test]
+    fn test_truncate_always_keeps_header() {
+        let records = vec![
+            make_session_header(),
+            make_text_message("user", &"x".repeat(400)),
+        ];
+        // Tiny budget — the message gets dropped but the header stays.
+        let (trimmed, dropped) = truncate_hub_to_budget(records, 1);
+        assert_eq!(dropped, 1);
+        assert_eq!(trimmed.len(), 1);
+        assert!(matches!(trimmed[0], HubRecord::Session(_)));
+    }
+
+    #[test]
+    fn test_context_budget_env_var() {
+        // Unset → None
+        std::env::remove_var("UNLEASH_CROSSLOAD_MAX_TOKENS");
+        assert_eq!(context_budget(), None);
+
+        std::env::set_var("UNLEASH_CROSSLOAD_MAX_TOKENS", "128000");
+        assert_eq!(context_budget(), Some(128_000));
+
+        // Zero means unlimited
+        std::env::set_var("UNLEASH_CROSSLOAD_MAX_TOKENS", "0");
+        assert_eq!(context_budget(), None);
+
+        std::env::remove_var("UNLEASH_CROSSLOAD_MAX_TOKENS");
     }
 }
