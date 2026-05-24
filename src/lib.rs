@@ -288,6 +288,7 @@ fn run_agent_with_polyfill(
 
     let target_cli_owned;
     let target_cli = match &agent_type {
+        AgentType::Unleash => unreachable!("Unleash is not a launchable agent"),
         AgentType::Claude => "claude",
         AgentType::Codex => "codex",
         AgentType::Antigravity => "agy",
@@ -561,6 +562,7 @@ pub fn run() -> io::Result<()> {
                         .ok()
                         .and_then(|cmd| detect_agent_type_from_cmd_path(&cmd))
                         .map(|agent| match agent {
+                            AgentType::Unleash => "claude", // fall back; Unleash is not a crossload target
                             AgentType::Claude => "claude",
                             AgentType::Codex => "codex",
                             AgentType::Antigravity => "agy",
