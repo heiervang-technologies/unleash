@@ -599,6 +599,10 @@ pub struct SetupWizardState {
     pub notices: Vec<String>,
     /// Cursor row within the PickAgents agent list.
     pub pick_cursor: usize,
+    /// Agents waiting to be installed in the InstallAgents step.
+    pub install_queue: Vec<AgentType>,
+    /// Completed install results: (display_name, success).
+    pub install_results: Vec<(String, bool)>,
 }
 
 impl SetupWizardState {
@@ -613,6 +617,8 @@ impl SetupWizardState {
             auto_opened,
             notices: Vec::new(),
             pick_cursor: 0,
+            install_queue: Vec::new(),
+            install_results: Vec::new(),
         }
     }
 
@@ -625,6 +631,16 @@ impl SetupWizardState {
         if self.step + 1 < SetupStep::ALL.len() {
             self.statuses[self.step] = SetupStepStatus::Done;
             self.step += 1;
+            // When entering InstallAgents, populate the queue with picked-but-not-installed agents.
+            if SetupStep::ALL[self.step] == SetupStep::InstallAgents {
+                self.install_queue = self
+                    .picked_agents
+                    .iter()
+                    .filter(|a| which::which(a.mascot_name()).is_err())
+                    .cloned()
+                    .collect();
+                self.install_results.clear();
+            }
             true
         } else {
             false
@@ -1360,6 +1376,22 @@ impl App {
                 } else {
                     format!("{} v{} installed", agent_name, version)
                 });
+
+                // If we're in the setup wizard, record the result and chain the next install.
+                if self.screen == Screen::Setup
+                    && self
+                        .setup_wizard
+                        .as_ref()
+                        .is_some_and(|w| w.current_step() == SetupStep::InstallAgents)
+                {
+                    if let Some(wiz) = self.setup_wizard.as_mut() {
+                        wiz.install_results
+                            .push((agent_name.to_string(), install_ok));
+                    }
+                    self.install_state = None;
+                    self.wizard_start_next_install();
+                    return;
+                }
 
                 self.install_state = None;
                 self.installing_version_index = None;
@@ -4132,30 +4164,102 @@ impl App {
             }
         }
 
+        let on_install = wiz.current_step() == SetupStep::InstallAgents;
+
         match action {
             NavAction::Back | NavAction::Quit => {
                 self.trigger_screen_animation(false, Screen::Main);
                 self.pending_screen = Some(Screen::Main);
                 self.setup_wizard = None;
+                self.install_state = None;
                 if self.art_animation.is_none() {
                     self.screen = Screen::Main;
                     self.refresh_screen_data();
                 }
             }
             NavAction::Select => {
-                let done = wiz.advance();
-                if done {
-                    self.trigger_screen_animation(false, Screen::Main);
-                    self.pending_screen = Some(Screen::Main);
-                    self.setup_wizard = None;
-                    if self.art_animation.is_none() {
-                        self.screen = Screen::Main;
-                        self.refresh_screen_data();
+                if on_install {
+                    // Start the next queued install, or advance if none remain.
+                    self.wizard_start_next_install();
+                } else {
+                    let done = wiz.advance();
+                    if done {
+                        self.trigger_screen_animation(false, Screen::Main);
+                        self.pending_screen = Some(Screen::Main);
+                        self.setup_wizard = None;
+                        if self.art_animation.is_none() {
+                            self.screen = Screen::Main;
+                            self.refresh_screen_data();
+                        }
                     }
                 }
             }
             _ => {}
         }
+    }
+
+    /// Start the next install in the wizard queue if no install is already running.
+    fn wizard_start_next_install(&mut self) {
+        if self.install_state.is_some() {
+            return; // already installing
+        }
+        let agent = match self.setup_wizard.as_mut().and_then(|w| {
+            if w.install_queue.is_empty() {
+                None
+            } else {
+                Some(w.install_queue.remove(0))
+            }
+        }) {
+            Some(a) => a,
+            None => {
+                // Queue empty — advance past InstallAgents.
+                if let Some(wiz) = self.setup_wizard.as_mut() {
+                    wiz.advance();
+                }
+                return;
+            }
+        };
+
+        let name = agent.display_name().to_string();
+        self.status_message = Some(format!("Installing {}…", name));
+        let (tx, rx) = std::sync::mpsc::channel();
+        let agent_for_state = agent.clone();
+        let handle = std::thread::spawn(move || {
+            let (log_tx, log_rx) = std::sync::mpsc::channel::<String>();
+            let tx2 = tx.clone();
+            let bridge = std::thread::spawn(move || {
+                for line in log_rx {
+                    let _ = tx2.send(InstallStepResult::LogLine(line));
+                }
+            });
+            let result = crate::version::install_latest_streaming(agent, log_tx);
+            let _ = bridge.join();
+            match result {
+                Ok((version, r)) => {
+                    let _ = tx.send(InstallStepResult::InstallComplete(r));
+                    let _ = version; // version info carried via log lines
+                }
+                Err(e) => {
+                    let _ = tx.send(InstallStepResult::InstallComplete(InstallResult {
+                        success: false,
+                        stdout: String::new(),
+                        stderr: e.to_string(),
+                        error: Some(e.to_string()),
+                    }));
+                }
+            }
+        });
+        self.install_state = Some(InstallState {
+            agent_type: agent_for_state,
+            version: "latest".to_string(),
+            receiver: rx,
+            _handle: handle,
+            start_time: Instant::now(),
+            current_step: InstallStep::Installing,
+            install_result: None,
+        });
+        self.install_log_lines.clear();
+        self.show_install_log = true;
     }
 
     fn render_setup_wizard(&mut self, frame: &mut Frame, area: Rect) {
@@ -4241,6 +4345,64 @@ impl App {
             detail_lines.push(Line::from(""));
             detail_lines.push(Line::from(Span::styled(
                 " [Space] Toggle   [Enter] Next   [Esc] Cancel",
+                Style::default().fg(Color::DarkGray),
+            )));
+        } else if step == SetupStep::InstallAgents {
+            // Show completed installs
+            for (name, ok) in &wiz.install_results {
+                let (icon, style) = if *ok {
+                    ("✓", Style::default().fg(Color::Green))
+                } else {
+                    ("✗", Style::default().fg(Color::Red))
+                };
+                detail_lines.push(Line::from(Span::styled(
+                    format!(" {icon} {name}"),
+                    style,
+                )));
+            }
+            // Show active install
+            let is_installing = self.install_state.is_some();
+            if is_installing {
+                if let Some(state) = &self.install_state {
+                    let frame_idx =
+                        (state.start_time.elapsed().as_millis() / 100) as usize % SPINNER_FRAMES.len();
+                    detail_lines.push(Line::from(Span::styled(
+                        format!(
+                            " {} Installing {}…",
+                            SPINNER_FRAMES[frame_idx],
+                            state.agent_type.display_name()
+                        ),
+                        Style::default().fg(accent),
+                    )));
+                    // Show last few log lines
+                    let log_start = self.install_log_lines.len().saturating_sub(4);
+                    for line in &self.install_log_lines[log_start..] {
+                        detail_lines.push(Line::from(Span::styled(
+                            format!("   {line}"),
+                            Style::default().fg(Color::DarkGray),
+                        )));
+                    }
+                }
+            }
+            // Show queued agents
+            for agent in &wiz.install_queue {
+                detail_lines.push(Line::from(Span::styled(
+                    format!(" · {} (queued)", agent.display_name()),
+                    Style::default().fg(Color::Gray),
+                )));
+            }
+            detail_lines.push(Line::from(""));
+            let hint = if is_installing {
+                " Installing… please wait"
+            } else if wiz.install_queue.is_empty() && wiz.install_results.is_empty() {
+                " Nothing to install — [Enter] to continue"
+            } else if wiz.install_queue.is_empty() {
+                " [Enter] Continue   [Esc] Cancel"
+            } else {
+                " [Enter] Start installing   [Esc] Cancel"
+            };
+            detail_lines.push(Line::from(Span::styled(
+                hint,
                 Style::default().fg(Color::DarkGray),
             )));
         } else {
