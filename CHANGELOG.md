@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.44](https://github.com/heiervang-technologies/unleash/compare/v0.1.43...v0.1.44) (2026-05-25)
+
+
+### Features
+
+* **tui:** setup wizard scaffold — main menu entry, agent detection, 6-step wizard ([#172](https://github.com/heiervang-technologies/unleash/issues/172)) ([342a860](https://github.com/heiervang-technologies/unleash/commit/342a8605d75c481d80258c3a37d9911deb721be9))
+
 ## [0.1.43](https://github.com/heiervang-technologies/unleash/compare/v0.1.42...v0.1.43) (2026-05-25)
 
 
