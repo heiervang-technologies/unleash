@@ -140,6 +140,7 @@ pub enum MainMenuItem {
     Profiles,
     Versions,
     Features,
+    Setup,
     Sandbox,
     Help,
     Quit,
@@ -166,6 +167,11 @@ const MAIN_MENU: &[(MainMenuItem, &str, &str)] = &[
         MainMenuItem::Features,
         "Features & Plugins",
         "Toggle plugins and experimental features",
+    ),
+    (
+        MainMenuItem::Setup,
+        "Setup Wizard",
+        "First-time setup: install agents and configure unleash",
     ),
     (
         MainMenuItem::Sandbox,
@@ -2526,6 +2532,11 @@ impl App {
                         self.trigger_screen_animation(true, Screen::Features);
                         self.pending_screen = Some(Screen::Features);
                     }
+                    Some(MainMenuItem::Setup) => {
+                        self.open_setup_wizard();
+                        self.trigger_screen_animation(true, Screen::Setup);
+                        self.pending_screen = Some(Screen::Setup);
+                    }
                     Some(MainMenuItem::Sandbox) => {
                         self.open_sandbox_wizard();
                         self.trigger_screen_animation(true, Screen::Sandbox);
@@ -3487,6 +3498,23 @@ impl App {
         }
         self.sandbox_wizard = Some(state);
         self.edit_field = EditField::None;
+    }
+
+    pub fn open_setup_wizard(&mut self) {
+        let mut state = SetupWizardState::new(false);
+        // Pre-detect which builtin agents are already on PATH.
+        let installed: Vec<AgentType> = AgentType::builtin()
+            .iter()
+            .filter(|a| which::which(a.mascot_name()).is_ok())
+            .cloned()
+            .collect();
+        if !installed.is_empty() {
+            let names: Vec<&str> = installed.iter().map(|a| a.mascot_name()).collect();
+            state.statuses[1] = SetupStepStatus::Done;
+            state.notices.push(format!("Found: {}", names.join(", ")));
+            state.picked_agents = installed;
+        }
+        self.setup_wizard = Some(state);
     }
 
     /// Number of logical wizard steps. Used by tests and the renderer.
@@ -6428,8 +6456,8 @@ mod tests {
     fn test_content_width_main_screen() {
         let (app, _temp) = test_app();
         let width = app.content_width();
-        // Main menu should have reasonable width (based on menu item text)
-        assert!(width >= 30 && width <= 50);
+        // Main menu width is driven by the longest description line.
+        assert!(width >= 30 && width <= 80);
     }
 
     #[test]
