@@ -266,6 +266,7 @@ pub fn build_agent_cli_picker_entries(custom: &[AgentDefinition]) -> Vec<AgentCl
 /// resolved absolute path. Falls back to the bare binary name if `which` fails.
 pub fn resolve_agent_binary_path(agent: &AgentType, custom: &[AgentDefinition]) -> String {
     let binary = match agent {
+        AgentType::Unleash => return String::new(), // not a launchable agent
         AgentType::Claude => AgentDefinition::claude().binary,
         AgentType::Codex => AgentDefinition::codex().binary,
         AgentType::Antigravity => AgentDefinition::antigravity().binary,
@@ -876,7 +877,7 @@ impl App {
             .filter(|a| a.enabled)
             .map(AgentDefinition::from_custom_config)
             .collect();
-        let available_agents = AgentType::all_with_custom(&custom_defs);
+        let available_agents = AgentType::all_for_version_picker(&custom_defs);
 
         // Pre-populate version caches from embedded (compiled-in) version lists.
         // This makes version lists appear instantly — no network fetch needed.
@@ -962,7 +963,7 @@ impl App {
             version_menu: MenuState::new(0),
             versions: Vec::new(),
             selected_version: None,
-            version_agent: AgentType::Claude,
+            version_agent: AgentType::Unleash,
             cached_agent_versions: HashMap::new(),
             cached_version_lists,
             cached_installed_version: None, // Will be populated async
@@ -1314,7 +1315,7 @@ impl App {
         match self.screen {
             Screen::Profiles => self.refresh_profiles(),
             Screen::VersionManagement => {
-                self.version_focus = VersionFocus::Unleash;
+                self.version_focus = VersionFocus::AgentPicker;
                 self.refresh_versions();
                 if self.versions.is_empty() {
                     self.status_message = Some("Loading versions...".to_string());
@@ -1445,6 +1446,13 @@ impl App {
             .get(&agent)
             .and_then(|v| v.clone());
         match agent {
+            AgentType::Unleash => {
+                thread::spawn(move || {
+                    let vm = VersionManager::new();
+                    let versions = vm.get_unleash_version_list();
+                    let _ = tx.send((AgentType::Unleash, versions, vec![]));
+                });
+            }
             AgentType::Claude => {
                 thread::spawn(move || {
                     let vm = VersionManager::new();
@@ -1572,7 +1580,7 @@ impl App {
             .filter(|c| c.enabled)
             .map(AgentDefinition::from_custom_config)
             .collect();
-        self.available_agents = AgentType::all_with_custom(&custom);
+        self.available_agents = AgentType::all_for_version_picker(&custom);
         self.agent_picker_menu
             .set_items_count(self.available_agents.len());
     }
@@ -2606,6 +2614,7 @@ impl App {
                 // Enter / Y: clean up
                 let agent_str_owned;
                 let agent_str = match &self.version_agent {
+                    AgentType::Unleash => "unleash",
                     AgentType::Claude => "claude",
                     AgentType::Codex => "codex",
                     AgentType::Gemini => "gemini",
@@ -2710,11 +2719,6 @@ impl App {
                                 (current_idx + 1).min(self.available_agents.len() - 1)
                             }
                             NavAction::Up => {
-                                if current_idx == 0 {
-                                    // At top of agent list, move focus to unleash
-                                    self.version_focus = VersionFocus::Unleash;
-                                    return Ok(None);
-                                }
                                 current_idx.saturating_sub(1)
                             }
                             _ => unreachable!(),
@@ -2864,6 +2868,14 @@ impl App {
                 });
 
                 let result = match agent {
+                    AgentType::Unleash => Ok(InstallResult {
+                        success: false,
+                        stdout: String::new(),
+                        stderr: String::new(),
+                        error: Some(
+                            "To install a specific unleash version, run: unleash update".into(),
+                        ),
+                    }),
                     AgentType::Claude => vm.install_version_streaming(&version_clone, log_tx),
                     AgentType::Codex => vm.install_codex_version_streaming(&version_clone, log_tx),
                     AgentType::Gemini => {
@@ -6089,7 +6101,7 @@ mod tests {
             version_menu: MenuState::new(0),
             versions: Vec::new(),
             selected_version: None,
-            version_agent: AgentType::Claude,
+            version_agent: AgentType::Unleash,
             cached_agent_versions: HashMap::new(),
             cached_version_lists: HashMap::new(),
             cached_installed_version: None,
@@ -6127,7 +6139,7 @@ mod tests {
             feature_menu: MenuState::new(0),
             discovered_plugins: Vec::new(),
             clickable_areas: Vec::new(),
-            available_agents: AgentType::builtin().to_vec(),
+            available_agents: AgentType::all_for_version_picker(&[]),
             agent_picker_index: 0,
             agent_picker_custom_choice: 0,
             custom_agent_draft: None,
@@ -6512,9 +6524,13 @@ mod tests {
 
         app.screen = Screen::VersionManagement;
         app.version_focus = VersionFocus::AgentPicker;
+        // Unleash is now first in the picker
+        assert_eq!(app.version_agent, AgentType::Unleash);
+
+        // Navigate down: Unleash -> Claude -> Codex -> Antigravity -> OpenCode -> Pi -> Hermes -> Gemini
+        let _ = app.handle_version_input(NavAction::Down, key_for(NavAction::Down));
         assert_eq!(app.version_agent, AgentType::Claude);
 
-        // Navigate down: Claude -> Codex -> Antigravity -> OpenCode -> Pi -> Hermes -> Gemini
         let _ = app.handle_version_input(NavAction::Down, key_for(NavAction::Down));
         assert_eq!(app.version_agent, AgentType::Codex);
 
@@ -6546,11 +6562,11 @@ mod tests {
         app.screen = Screen::VersionManagement;
         app.version_focus = VersionFocus::AgentPicker;
 
-        // Start at OpenCode
-        app.switch_to_agent_index(3);
+        // Start at OpenCode (index 4 with Unleash first)
+        app.switch_to_agent_index(4);
         assert_eq!(app.version_agent, AgentType::OpenCode);
 
-        // Navigate up: OpenCode -> Antigravity -> Codex -> Claude
+        // Navigate up: OpenCode -> Antigravity -> Codex -> Claude -> Unleash
         let _ = app.handle_version_input(NavAction::Up, key_for(NavAction::Up));
         assert_eq!(app.version_agent, AgentType::Antigravity);
 
@@ -6560,9 +6576,12 @@ mod tests {
         let _ = app.handle_version_input(NavAction::Up, key_for(NavAction::Up));
         assert_eq!(app.version_agent, AgentType::Claude);
 
-        // Clamp at top (no wrap)
         let _ = app.handle_version_input(NavAction::Up, key_for(NavAction::Up));
-        assert_eq!(app.version_agent, AgentType::Claude);
+        assert_eq!(app.version_agent, AgentType::Unleash);
+
+        // Clamp at top (no wrap — arrow keys no longer escape to Unleash section)
+        let _ = app.handle_version_input(NavAction::Up, key_for(NavAction::Up));
+        assert_eq!(app.version_agent, AgentType::Unleash);
     }
 
     #[test]
@@ -6684,22 +6703,22 @@ mod tests {
         app.screen = Screen::VersionManagement;
         app.version_focus = VersionFocus::AgentPicker;
 
-        // Pre-populate Claude versions
+        // Pre-populate Unleash versions
         app.versions = vec![VersionInfo {
-            version: "2.1.12".to_string(),
+            version: "0.1.38".to_string(),
             is_installed: true,
         }];
         app.version_menu.set_items_count(1);
-        assert_eq!(app.version_agent, AgentType::Claude);
+        assert_eq!(app.version_agent, AgentType::Unleash);
 
-        // Switch to Codex (no cache exists for Codex)
+        // Switch to Claude (no cache exists for Claude)
         let _ = app.handle_version_input(NavAction::Down, key_for(NavAction::Down));
-        assert_eq!(app.version_agent, AgentType::Codex);
+        assert_eq!(app.version_agent, AgentType::Claude);
 
         // After the fix, versions should be cleared (no stale Claude data)
         assert!(
-            !app.versions.iter().any(|v| v.version == "2.1.12"),
-            "Claude version 2.1.12 should not be visible after switching to Codex"
+            !app.versions.iter().any(|v| v.version == "0.1.38"),
+            "Unleash version 0.1.38 should not be visible after switching to Claude"
         );
         assert_eq!(app.version_menu.selected, 0);
         assert_eq!(app.version_menu.scroll_offset, 0);
@@ -6712,21 +6731,21 @@ mod tests {
         app.screen = Screen::VersionManagement;
         app.version_focus = VersionFocus::AgentPicker;
 
-        // Pre-cache Codex versions
-        let codex_versions = vec![VersionInfo {
-            version: "0.98.0".to_string(),
+        // Pre-cache Claude versions
+        let claude_versions = vec![VersionInfo {
+            version: "2.1.12".to_string(),
             is_installed: true,
         }];
         app.cached_version_lists
-            .insert(AgentType::Codex, codex_versions);
+            .insert(AgentType::Claude, claude_versions);
 
-        // Switch to Codex
+        // Switch to Claude (index 1, Down from Unleash)
         let _ = app.handle_version_input(NavAction::Down, key_for(NavAction::Down));
-        assert_eq!(app.version_agent, AgentType::Codex);
+        assert_eq!(app.version_agent, AgentType::Claude);
 
-        // Should show cached Codex version immediately
+        // Should show cached Claude version immediately
         assert_eq!(app.versions.len(), 1);
-        assert_eq!(app.versions[0].version, "0.98.0");
+        assert_eq!(app.versions[0].version, "2.1.12");
     }
 
     #[test]
@@ -6736,20 +6755,20 @@ mod tests {
         app.screen = Screen::VersionManagement;
         app.version_focus = VersionFocus::AgentPicker;
 
-        // Switch to Codex (starts async fetch)
+        // Switch to Claude (starts async fetch; Down from Unleash)
+        let _ = app.handle_version_input(NavAction::Down, key_for(NavAction::Down));
+        assert!(app.version_list_receiver.is_some());
+        assert_eq!(app.version_agent, AgentType::Claude);
+
+        // Immediately switch to Codex (should replace receiver)
         let _ = app.handle_version_input(NavAction::Down, key_for(NavAction::Down));
         assert!(app.version_list_receiver.is_some());
         assert_eq!(app.version_agent, AgentType::Codex);
 
-        // Immediately switch to Antigravity (should replace receiver)
+        // Switch again to Antigravity
         let _ = app.handle_version_input(NavAction::Down, key_for(NavAction::Down));
         assert!(app.version_list_receiver.is_some());
         assert_eq!(app.version_agent, AgentType::Antigravity);
-
-        // Switch again to OpenCode
-        let _ = app.handle_version_input(NavAction::Down, key_for(NavAction::Down));
-        assert!(app.version_list_receiver.is_some());
-        assert_eq!(app.version_agent, AgentType::OpenCode);
     }
 
     #[test]
@@ -6908,7 +6927,7 @@ mod tests {
         app.screen = Screen::VersionManagement;
         app.refresh_screen_data();
 
-        assert!(app.version_focus == VersionFocus::Unleash);
+        assert!(app.version_focus == VersionFocus::AgentPicker);
     }
 
     #[test]
@@ -6918,17 +6937,17 @@ mod tests {
         app.screen = Screen::VersionManagement;
         app.version_focus = VersionFocus::AgentPicker;
 
-        // Navigate to OpenCode (bottom)
+        // Navigate to Antigravity (index 3 with Unleash first)
         app.switch_to_agent_index(3);
-        assert_eq!(app.version_agent, AgentType::OpenCode);
+        assert_eq!(app.version_agent, AgentType::Antigravity);
 
-        // Press 'g' then 'g' to jump to top
+        // Press 'g' then 'g' to jump to top (Unleash is now index 0)
         let g_key = KeyEvent::new(KeyCode::Char('g'), KeyModifiers::NONE);
         let _ = app.handle_version_input(NavAction::None, g_key);
         assert!(app.g_pending);
         let _ = app.handle_version_input(NavAction::None, g_key);
         assert!(!app.g_pending);
-        assert_eq!(app.version_agent, AgentType::Claude);
+        assert_eq!(app.version_agent, AgentType::Unleash);
     }
 
     #[test]
@@ -6938,7 +6957,8 @@ mod tests {
         app.screen = Screen::VersionManagement;
         app.version_focus = VersionFocus::AgentPicker;
 
-        assert_eq!(app.version_agent, AgentType::Claude);
+        // Unleash is now first in the picker
+        assert_eq!(app.version_agent, AgentType::Unleash);
 
         // Press 'G' to jump to bottom
         let big_g_key = KeyEvent::new(KeyCode::Char('G'), KeyModifiers::SHIFT);

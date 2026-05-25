@@ -933,6 +933,9 @@ fn update_agent(
     latest_version: Option<String>,
 ) -> io::Result<String> {
     let result = match agent_type {
+        AgentType::Unleash => Err(io::Error::other(
+            "Use `unleash update` to update unleash itself",
+        )),
         AgentType::Claude => update_claude(tx, index),
         AgentType::Codex => update_codex(tx, index, latest_version),
         AgentType::Antigravity => Err(io::Error::other(

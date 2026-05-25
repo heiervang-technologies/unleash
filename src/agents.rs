@@ -17,6 +17,8 @@ use std::process::Command;
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum AgentType {
+    /// The unleash wrapper itself (version management entry at top of the picker)
+    Unleash,
     Claude,
     Codex,
     Antigravity,
@@ -52,8 +54,16 @@ impl AgentType {
         types
     }
 
+    /// All types for the version manager picker: Unleash first, then agents + custom.
+    pub fn all_for_version_picker(custom: &[AgentDefinition]) -> Vec<AgentType> {
+        let mut types = vec![AgentType::Unleash];
+        types.extend(Self::all_with_custom(custom));
+        types
+    }
+
     pub fn display_name(&self) -> Cow<'static, str> {
         match self {
+            AgentType::Unleash => Cow::Borrowed("Unleash"),
             AgentType::Claude => Cow::Borrowed("Claude Code"),
             AgentType::Codex => Cow::Borrowed("Codex"),
             AgentType::Antigravity => Cow::Borrowed("Antigravity CLI"),
@@ -81,6 +91,7 @@ impl AgentType {
     /// Cleanly map each agent type to its mascot file key name
     pub fn mascot_name(&self) -> &'static str {
         match self {
+            AgentType::Unleash => "unleash",
             AgentType::Claude => "claude",
             AgentType::Codex => "codex",
             AgentType::Antigravity => "antigravity",
@@ -300,9 +311,13 @@ impl AgentDefinition {
     }
 
     /// Create an agent definition from an agent type.
-    /// Panics for `Custom` — use `from_custom_config()` for custom agents.
+    /// Panics for `Custom` and `Unleash` — use `from_custom_config()` for custom agents.
     pub fn from_type(agent_type: AgentType) -> Self {
         match agent_type {
+            AgentType::Unleash => panic!(
+                "AgentDefinition::from_type() called with Unleash. \
+                 Unleash is not a launchable agent."
+            ),
             AgentType::Claude => Self::claude(),
             AgentType::Codex => Self::codex(),
             AgentType::Antigravity => Self::antigravity(),
@@ -914,6 +929,9 @@ impl AgentManager {
             .ok_or_else(|| io::Error::new(io::ErrorKind::NotFound, "Agent not found"))?;
 
         match agent_type {
+            AgentType::Unleash => Err(io::Error::other(
+                "Use `unleash update` to update unleash itself",
+            )),
             AgentType::Claude => self.update_claude(),
             AgentType::Codex => self.update_codex(),
             AgentType::Antigravity => Err(io::Error::other(
