@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.45](https://github.com/heiervang-technologies/unleash/compare/v0.1.44...v0.1.45) (2026-05-25)
+
+
+### Features
+
+* **tui:** setup wizard PickAgents step with checkbox UI ([a074c9a](https://github.com/heiervang-technologies/unleash/commit/a074c9a06a4e88d825b7a120fed31ea43265dbba))
+
 ## [0.1.44](https://github.com/heiervang-technologies/unleash/compare/v0.1.43...v0.1.44) (2026-05-25)
 
 
