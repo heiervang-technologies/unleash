@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.43](https://github.com/heiervang-technologies/unleash/compare/v0.1.42...v0.1.43) (2026-05-25)
+
+
+### Bug Fixes
+
+* **tui:** version picker UX — Unleash first, focus AgentPicker at entry, arrow keys stay in list ([07fcac3](https://github.com/heiervang-technologies/unleash/commit/07fcac344046343532971ddf82e227acdcba04e5)), closes [#71](https://github.com/heiervang-technologies/unleash/issues/71)
+
 ## [0.1.42](https://github.com/heiervang-technologies/unleash/compare/v0.1.41...v0.1.42) (2026-05-24)
 
 
