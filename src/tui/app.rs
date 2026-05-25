@@ -597,6 +597,8 @@ pub struct SetupWizardState {
     pub auto_opened: bool,
     /// Errors or notices collected during detection / install.
     pub notices: Vec<String>,
+    /// Cursor row within the PickAgents agent list.
+    pub pick_cursor: usize,
 }
 
 impl SetupWizardState {
@@ -610,6 +612,7 @@ impl SetupWizardState {
             picked_agents: Vec::new(),
             auto_opened,
             notices: Vec::new(),
+            pick_cursor: 0,
         }
     }
 
@@ -4088,7 +4091,7 @@ impl App {
         Color::Rgb(r, g, b)
     }
 
-    fn handle_setup_input(&mut self, action: NavAction, _key: KeyEvent) {
+    fn handle_setup_input(&mut self, action: NavAction, key: KeyEvent) {
         let wiz = match self.setup_wizard.as_mut() {
             Some(w) => w,
             None => {
@@ -4096,6 +4099,38 @@ impl App {
                 return;
             }
         };
+
+        let on_pick = wiz.current_step() == SetupStep::PickAgents;
+        let agents = AgentType::builtin();
+
+        // Navigation within the PickAgents list.
+        if on_pick {
+            match action {
+                NavAction::Up => {
+                    if wiz.pick_cursor > 0 {
+                        wiz.pick_cursor -= 1;
+                    }
+                    return;
+                }
+                NavAction::Down => {
+                    if wiz.pick_cursor + 1 < agents.len() {
+                        wiz.pick_cursor += 1;
+                    }
+                    return;
+                }
+                _ => {}
+            }
+            // Space toggles the agent under the cursor.
+            if key.code == KeyCode::Char(' ') {
+                let agent = agents[wiz.pick_cursor].clone();
+                if wiz.picked_agents.contains(&agent) {
+                    wiz.picked_agents.retain(|a| a != &agent);
+                } else {
+                    wiz.picked_agents.push(agent);
+                }
+                return;
+            }
+        }
 
         match action {
             NavAction::Back | NavAction::Quit => {
@@ -4107,7 +4142,7 @@ impl App {
                     self.refresh_screen_data();
                 }
             }
-            NavAction::Select | NavAction::Down => {
+            NavAction::Select => {
                 let done = wiz.advance();
                 if done {
                     self.trigger_screen_animation(false, Screen::Main);
@@ -4171,12 +4206,11 @@ impl App {
         frame.render_widget(left, outer_chunks[0]);
 
         let step = wiz.current_step();
+        let accent = self.accent_color();
         let mut detail_lines: Vec<Line> = vec![
             Line::from(Span::styled(
                 format!(" {}", step.title()),
-                Style::default()
-                    .fg(self.accent_color())
-                    .add_modifier(Modifier::BOLD),
+                Style::default().fg(accent).add_modifier(Modifier::BOLD),
             )),
             Line::from(""),
             Line::from(Span::styled(
@@ -4186,23 +4220,47 @@ impl App {
             Line::from(""),
         ];
 
-        for notice in &wiz.notices {
+        if step == SetupStep::PickAgents {
+            for (i, agent) in AgentType::builtin().iter().enumerate() {
+                let checked = wiz.picked_agents.contains(agent);
+                let cursor = i == wiz.pick_cursor;
+                let check = if checked { "[x]" } else { "[ ]" };
+                let prefix = if cursor { "> " } else { "  " };
+                let style = if cursor {
+                    Style::default().fg(accent).add_modifier(Modifier::BOLD)
+                } else if checked {
+                    Style::default().fg(Color::Green)
+                } else {
+                    Style::default().fg(Color::White)
+                };
+                detail_lines.push(Line::from(Span::styled(
+                    format!(" {prefix}{check} {}", agent.display_name()),
+                    style,
+                )));
+            }
+            detail_lines.push(Line::from(""));
             detail_lines.push(Line::from(Span::styled(
-                format!(" {notice}"),
-                Style::default().fg(Color::Yellow),
+                " [Space] Toggle   [Enter] Next   [Esc] Cancel",
+                Style::default().fg(Color::DarkGray),
+            )));
+        } else {
+            for notice in &wiz.notices {
+                detail_lines.push(Line::from(Span::styled(
+                    format!(" {notice}"),
+                    Style::default().fg(Color::Yellow),
+                )));
+            }
+            detail_lines.push(Line::from(""));
+            let hint = if wiz.step + 1 < SetupStep::ALL.len() {
+                " [Enter] Next   [Esc] Cancel"
+            } else {
+                " [Enter] Finish   [Esc] Cancel"
+            };
+            detail_lines.push(Line::from(Span::styled(
+                hint,
+                Style::default().fg(Color::DarkGray),
             )));
         }
-
-        detail_lines.push(Line::from(""));
-        let hint = if wiz.step + 1 < SetupStep::ALL.len() {
-            " [Enter] Next   [Esc] Cancel"
-        } else {
-            " [Enter] Finish   [Esc] Cancel"
-        };
-        detail_lines.push(Line::from(Span::styled(
-            hint,
-            Style::default().fg(Color::DarkGray),
-        )));
 
         let right = Paragraph::new(detail_lines)
             .block(
