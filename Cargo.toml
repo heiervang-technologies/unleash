@@ -44,7 +44,7 @@ tokenizers = { version = "0.23", default-features = false, features = ["onig"] }
 include_dir = "0.7"
 
 # Semantic session search (turso vector store + OAI-compat embeddings/naming)
-turso = "0.6.0"
+turso = "0.6.1"
 tokio = { version = "1", features = ["rt", "macros"] }
 reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
 
