@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.48](https://github.com/heiervang-technologies/unleash/compare/v0.1.47...v0.1.48) (2026-05-26)
+
+
+### Bug Fixes
+
+* **tui:** sandbox wizard UX improvements ([#218](https://github.com/heiervang-technologies/unleash/issues/218)) ([43193fe](https://github.com/heiervang-technologies/unleash/commit/43193fec9397bb813cc1da232c3b7e23841b09a7))
+
 ## [0.1.47](https://github.com/heiervang-technologies/unleash/compare/v0.1.46...v0.1.47) (2026-05-26)
 
 
