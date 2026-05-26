@@ -2164,6 +2164,96 @@ pub fn show_current_json() {
     json_output::print_json(&output);
 }
 
+/// Install the latest available version of `agent`, streaming log lines to `log_tx`.
+/// Returns `(resolved_version, InstallResult)`.
+pub fn install_latest_streaming(
+    agent: crate::agents::AgentType,
+    log_tx: mpsc::Sender<String>,
+) -> io::Result<(String, InstallResult)> {
+    use crate::agents::AgentType;
+    let vm = VersionManager::new();
+    match agent {
+        AgentType::Claude => {
+            let versions = vm.get_version_list();
+            let v = versions
+                .into_iter()
+                .find(|i| !i.is_installed)
+                .or_else(|| vm.get_version_list().into_iter().next())
+                .map(|i| i.version)
+                .ok_or_else(|| io::Error::other("no Claude version available"))?;
+            let r = vm.install_version_streaming(&v, log_tx)?;
+            Ok((v, r))
+        }
+        AgentType::Codex => {
+            let installed = which::which("codex")
+                .ok()
+                .and_then(|_| None::<String>); // just need presence
+            let versions = vm.get_codex_version_list(installed.as_deref());
+            let v = versions
+                .into_iter()
+                .next()
+                .map(|i| i.version)
+                .ok_or_else(|| io::Error::other("no Codex version available"))?;
+            let r = vm.install_codex_version_streaming(&v, log_tx)?;
+            Ok((v, r))
+        }
+        AgentType::Gemini => {
+            let versions = vm.get_gemini_version_list(None);
+            let v = versions
+                .into_iter()
+                .next()
+                .map(|i| i.version)
+                .ok_or_else(|| io::Error::other("no Gemini version available"))?;
+            let r = vm.install_gemini_version_streaming(&v, log_tx)?;
+            Ok((v, r))
+        }
+        AgentType::Antigravity => {
+            let versions = vm.get_antigravity_version_list(None);
+            let v = versions
+                .into_iter()
+                .next()
+                .map(|i| i.version)
+                .ok_or_else(|| io::Error::other("no Antigravity version available"))?;
+            let r = vm.install_antigravity_version_streaming(&v, log_tx)?;
+            Ok((v, r))
+        }
+        AgentType::OpenCode => {
+            let versions = vm.get_opencode_version_list(None);
+            let v = versions
+                .into_iter()
+                .next()
+                .map(|i| i.version)
+                .ok_or_else(|| io::Error::other("no OpenCode version available"))?;
+            let r = vm.install_opencode_version_streaming(&v, log_tx)?;
+            Ok((v, r))
+        }
+        AgentType::Pi => {
+            let versions = vm.get_pi_version_list(None);
+            let v = versions
+                .into_iter()
+                .next()
+                .map(|i| i.version)
+                .ok_or_else(|| io::Error::other("no Pi version available"))?;
+            let r = vm.install_pi_version_streaming(&v, log_tx)?;
+            Ok((v, r))
+        }
+        AgentType::Hermes => {
+            let versions = vm.get_hermes_version_list(None);
+            let v = versions
+                .into_iter()
+                .next()
+                .map(|i| i.version)
+                .ok_or_else(|| io::Error::other("no Hermes version available"))?;
+            let r = vm.install_hermes_version_streaming(&v, log_tx)?;
+            Ok((v, r))
+        }
+        AgentType::Unleash | AgentType::Custom(_) => Err(io::Error::other(format!(
+            "{} cannot be installed via the wizard",
+            agent.display_name()
+        ))),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
