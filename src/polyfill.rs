@@ -1057,6 +1057,18 @@ mod tests {
         assert!(!inv.args.contains(&"auto".to_string()));
     }
 
+    #[test]
+    fn test_antigravity_no_approval_mode() {
+        let config = AgentDefinition::antigravity().polyfill;
+        let flags = PolyfillFlags {
+            approval_mode: Some("bypass".into()),
+            ..default_flags()
+        };
+        let inv = resolve(&config, &flags, &[]);
+        assert!(!inv.args.contains(&"--approval-mode".to_string()));
+        assert!(!inv.args.contains(&"bypass".to_string()));
+    }
+
     // ── Worktree ────────────────────────────────────────────
 
     #[test]
