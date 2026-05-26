@@ -593,8 +593,6 @@ pub struct SetupWizardState {
     pub statuses: Vec<SetupStepStatus>,
     /// Agents the user has ticked in the PickAgents step.
     pub picked_agents: Vec<AgentType>,
-    /// Whether we auto-opened the wizard (UNLEASH_WIZARD=1) vs. user navigated here.
-    pub auto_opened: bool,
     /// Errors or notices collected during detection / install.
     pub notices: Vec<String>,
     /// Cursor row within the PickAgents agent list.
@@ -605,8 +603,14 @@ pub struct SetupWizardState {
     pub install_results: Vec<(String, bool)>,
 }
 
+impl Default for SetupWizardState {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl SetupWizardState {
-    pub fn new(auto_opened: bool) -> Self {
+    pub fn new() -> Self {
         SetupWizardState {
             step: 0,
             statuses: SetupStep::ALL
@@ -614,7 +618,6 @@ impl SetupWizardState {
                 .map(|_| SetupStepStatus::Pending)
                 .collect(),
             picked_agents: Vec::new(),
-            auto_opened,
             notices: Vec::new(),
             pick_cursor: 0,
             install_queue: Vec::new(),
@@ -3551,7 +3554,7 @@ impl App {
     }
 
     pub fn open_setup_wizard(&mut self) {
-        let mut state = SetupWizardState::new(false);
+        let mut state = SetupWizardState::new();
         // Pre-detect which builtin agents are already on PATH.
         let installed: Vec<AgentType> = AgentType::builtin()
             .iter()
