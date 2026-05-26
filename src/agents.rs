@@ -417,7 +417,7 @@ impl AgentDefinition {
                     resume_strategy: ResumeStrategy::Flag("--resume".to_string()),
                 },
                 fork: ForkStrategy::Unsupported,
-                yolo_flag: Some("--yolo".to_string()),
+                yolo_flag: Some("--dangerously-skip-permissions".to_string()),
                 model_flag: "-m".to_string(),
                 effort_flag: None,
                 auto_flag: None,
