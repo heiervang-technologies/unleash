@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.46](https://github.com/heiervang-technologies/unleash/compare/v0.1.45...v0.1.46) (2026-05-26)
+
+
+### Features
+
+* **tui:** setup wizard InstallAgents step with live install progress ([ac9715d](https://github.com/heiervang-technologies/unleash/commit/ac9715dca7eabbc356bd748b303a0e2644b143f5))
+
 ## [0.1.45](https://github.com/heiervang-technologies/unleash/compare/v0.1.44...v0.1.45) (2026-05-25)
 
 
