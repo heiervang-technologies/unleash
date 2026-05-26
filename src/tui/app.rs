@@ -129,9 +129,74 @@ pub enum Screen {
     Features,
     /// Interactive sandbox setup wizard (issue #112+)
     Sandbox,
+    /// Submenu listing sandbox management actions (Setup, Status, List, ...).
+    SandboxMenu,
     /// Post-install setup wizard (issue #172)
     Setup,
 }
+
+/// Items in the Sandbox management submenu (`Screen::SandboxMenu`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SandboxMenuItem {
+    Setup,
+    Status,
+    List,
+    Teardown,
+    Back,
+}
+
+/// Strip ANSI CSI sequences (`\x1b[...m` and friends) from a line so captured
+/// stdout from child processes renders as plain text inside ratatui widgets.
+/// Handles colors, cursor moves, and other CSI codes — not OSC, not DCS.
+fn strip_ansi(s: &str) -> String {
+    let mut out = String::with_capacity(s.len());
+    let mut chars = s.chars().peekable();
+    while let Some(c) = chars.next() {
+        if c == '\x1b' && chars.peek() == Some(&'[') {
+            chars.next(); // consume '['
+            // Skip parameter / intermediate bytes (0x20..=0x3f), then one final byte (0x40..=0x7e).
+            while let Some(&nc) = chars.peek() {
+                let nu = nc as u32;
+                if (0x40..=0x7e).contains(&nu) {
+                    chars.next();
+                    break;
+                }
+                chars.next();
+            }
+            continue;
+        }
+        out.push(c);
+    }
+    out
+}
+
+const SANDBOX_MENU: &[(SandboxMenuItem, &str, &str)] = &[
+    (
+        SandboxMenuItem::Setup,
+        "Setup / Reconfigure",
+        "Run the interactive gVisor + Docker sandbox wizard",
+    ),
+    (
+        SandboxMenuItem::Status,
+        "Status",
+        "Show sandbox health: network, image, firewall rules",
+    ),
+    (
+        SandboxMenuItem::List,
+        "List Containers",
+        "Show running sandboxed containers",
+    ),
+    (
+        SandboxMenuItem::Teardown,
+        "Teardown",
+        "Remove sandbox network + firewall rules (requires sudo)",
+    ),
+    (
+        SandboxMenuItem::Back,
+        "Back",
+        "Return to the main menu",
+    ),
+];
 
 /// Main menu items — order here defines display order in the TUI.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -887,6 +952,13 @@ pub struct App {
     /// gVisor sandbox (`unleash sandbox run <agent>`). Session-only — resets
     /// on relaunch. Toggled via `MainMenuItem::SandboxMode`.
     pub sandbox_armed: bool,
+    /// Selection state for the Sandbox management submenu (`Screen::SandboxMenu`).
+    pub sandbox_menu: MenuState,
+    /// Captured stdout/stderr from the last sandbox action (Status/List/...).
+    /// When non-empty, an output panel is rendered over the submenu.
+    pub sandbox_action_output: Vec<String>,
+    /// Title shown above the captured output (e.g. "Sandbox Status").
+    pub sandbox_action_title: String,
     /// Profile search/filter query
     pub profile_search_query: String,
     /// Whether search input is active
@@ -1114,6 +1186,9 @@ impl App {
             selected_profile,
             status_message: None,
             sandbox_armed: false,
+            sandbox_menu: MenuState::new(SANDBOX_MENU.len()),
+            sandbox_action_output: Vec::new(),
+            sandbox_action_title: String::new(),
             profile_search_query: String::new(),
             profile_search_active: false,
             editing_profile: None,
@@ -1511,6 +1586,7 @@ impl App {
             | Screen::Help
             | Screen::Features
             | Screen::Sandbox
+            | Screen::SandboxMenu
             | Screen::Setup
             | Screen::ConfirmDelete => {}
         }
@@ -2203,6 +2279,7 @@ impl App {
                 Screen::VersionManagement => return self.handle_version_input(action, key),
                 Screen::Features => self.handle_features_input(action),
                 Screen::Sandbox => self.handle_sandbox_input(action, key),
+                Screen::SandboxMenu => self.handle_sandbox_menu_input(action),
                 Screen::Setup => self.handle_setup_input(action, key),
             }
         }
@@ -2612,9 +2689,10 @@ impl App {
                         self.pending_screen = Some(Screen::Setup);
                     }
                     Some(MainMenuItem::Sandbox) => {
-                        self.open_sandbox_wizard();
-                        self.trigger_screen_animation(true, Screen::Sandbox);
-                        self.pending_screen = Some(Screen::Sandbox);
+                        self.sandbox_action_output.clear();
+                        self.sandbox_action_title.clear();
+                        self.trigger_screen_animation(true, Screen::SandboxMenu);
+                        self.pending_screen = Some(Screen::SandboxMenu);
                     }
                     Some(MainMenuItem::Help) => {
                         self.help_return_screen = Some(Screen::Main);
@@ -3597,6 +3675,100 @@ impl App {
         SandboxStep::ALL.len()
     }
 
+    fn handle_sandbox_menu_input(&mut self, action: NavAction) {
+        // When the action-output panel is showing, any key dismisses it.
+        if !self.sandbox_action_output.is_empty() {
+            match action {
+                NavAction::Back | NavAction::Quit | NavAction::Select => {
+                    self.sandbox_action_output.clear();
+                    self.sandbox_action_title.clear();
+                }
+                _ => {}
+            }
+            return;
+        }
+
+        match action {
+            NavAction::Up | NavAction::Down => {
+                self.sandbox_menu.handle_action(action);
+            }
+            NavAction::Back | NavAction::Quit => {
+                self.trigger_screen_animation(false, Screen::Main);
+                self.pending_screen = Some(Screen::Main);
+            }
+            NavAction::Select => {
+                let item = SANDBOX_MENU
+                    .get(self.sandbox_menu.selected)
+                    .map(|(id, _, _)| *id);
+                match item {
+                    Some(SandboxMenuItem::Setup) => {
+                        self.open_sandbox_wizard();
+                        self.trigger_screen_animation(true, Screen::Sandbox);
+                        self.pending_screen = Some(Screen::Sandbox);
+                    }
+                    Some(SandboxMenuItem::Status) => self.run_sandbox_action_capture(
+                        "Sandbox Status",
+                        &["sandbox", "status"],
+                    ),
+                    Some(SandboxMenuItem::List) => self.run_sandbox_action_capture(
+                        "Running Sandboxes",
+                        &["sandbox", "list"],
+                    ),
+                    Some(SandboxMenuItem::Teardown) => {
+                        self.status_message = Some(
+                            "Teardown needs sudo — run `sudo unleash sandbox teardown` from a shell."
+                                .to_string(),
+                        );
+                    }
+                    Some(SandboxMenuItem::Back) | None => {
+                        self.trigger_screen_animation(false, Screen::Main);
+                        self.pending_screen = Some(Screen::Main);
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+
+    /// Spawn `unleash <args>` as a child process and capture its stdout/stderr
+    /// into `sandbox_action_output` for inline display. Synchronous — the
+    /// commands invoked here (sandbox status, list) are docker queries that
+    /// return in well under a second.
+    fn run_sandbox_action_capture(&mut self, title: &str, args: &[&str]) {
+        self.sandbox_action_title = title.to_string();
+        self.sandbox_action_output.clear();
+        let exe = match std::env::current_exe() {
+            Ok(p) => p,
+            Err(e) => {
+                self.sandbox_action_output
+                    .push(format!("error: cannot resolve current exe: {}", e));
+                return;
+            }
+        };
+        let output = match Command::new(&exe).args(args).output() {
+            Ok(o) => o,
+            Err(e) => {
+                self.sandbox_action_output
+                    .push(format!("error: failed to spawn `unleash {}`: {}", args.join(" "), e));
+                return;
+            }
+        };
+        for line in String::from_utf8_lossy(&output.stdout).lines() {
+            self.sandbox_action_output.push(strip_ansi(line));
+        }
+        for line in String::from_utf8_lossy(&output.stderr).lines() {
+            self.sandbox_action_output.push(strip_ansi(line));
+        }
+        if !output.status.success() {
+            self.sandbox_action_output
+                .push(format!("[exited with status {}]", output.status));
+        }
+        if self.sandbox_action_output.is_empty() {
+            self.sandbox_action_output
+                .push("(no output)".to_string());
+        }
+    }
+
     fn handle_sandbox_input(&mut self, action: NavAction, key: KeyEvent) {
         // While typing an explicit env value, the text input handler owns input.
         if self.edit_field == EditField::SandboxEnvValue {
@@ -3861,6 +4033,77 @@ impl App {
     }
 
     /// Render the sandbox wizard.
+    fn render_sandbox_menu(&mut self, frame: &mut Frame, area: Rect) {
+        let chunks = Layout::default()
+            .direction(Direction::Vertical)
+            .constraints([
+                Constraint::Length(3), // Title
+                Constraint::Min(10),   // Menu / output
+            ])
+            .split(area);
+
+        let title = Paragraph::new(Line::from(Span::styled(
+            "Sandbox Management",
+            Style::default()
+                .fg(self.accent_color())
+                .add_modifier(Modifier::BOLD),
+        )));
+        frame.render_widget(title, chunks[0]);
+
+        // If an action was just run, show its captured output instead of the menu.
+        if !self.sandbox_action_output.is_empty() {
+            let mut lines: Vec<Line> = Vec::with_capacity(self.sandbox_action_output.len() + 2);
+            lines.push(Line::from(Span::styled(
+                self.sandbox_action_title.clone(),
+                Style::default()
+                    .fg(self.accent_color())
+                    .add_modifier(Modifier::BOLD),
+            )));
+            lines.push(Line::from(""));
+            for raw in &self.sandbox_action_output {
+                lines.push(Line::from(raw.clone()));
+            }
+            lines.push(Line::from(""));
+            lines.push(Line::from(Span::styled(
+                "Press Esc / Enter to return to the menu.",
+                Style::default().fg(Color::DarkGray),
+            )));
+            let para = Paragraph::new(lines).wrap(Wrap { trim: false });
+            frame.render_widget(para, chunks[1]);
+            return;
+        }
+
+        // Otherwise render the action list.
+        let menu_area = chunks[1];
+        let items: Vec<ListItem> = SANDBOX_MENU
+            .iter()
+            .enumerate()
+            .map(|(i, (_, name, desc))| {
+                let style = if i == self.sandbox_menu.selected {
+                    Style::default()
+                        .fg(self.accent_color())
+                        .add_modifier(Modifier::BOLD)
+                } else {
+                    Style::default()
+                };
+                let prefix = if i == self.sandbox_menu.selected {
+                    "> "
+                } else {
+                    "  "
+                };
+                ListItem::new(vec![
+                    Line::from(Span::styled(format!("{}{}", prefix, name), style)),
+                    Line::from(Span::styled(
+                        format!("    {}", desc),
+                        Style::default().fg(Color::DarkGray),
+                    )),
+                ])
+            })
+            .collect();
+        let list = List::new(items);
+        frame.render_widget(list, menu_area);
+    }
+
     fn render_sandbox_wizard(&mut self, frame: &mut Frame, area: Rect) {
         use ratatui::widgets::{Block, Borders, Paragraph};
 
@@ -4594,6 +4837,7 @@ impl App {
             }
             Screen::Features => 50,
             Screen::Sandbox => 80,
+            Screen::SandboxMenu => 70,
             Screen::Setup => 80,
         }
     }
@@ -4751,6 +4995,7 @@ impl App {
                     self.render_sandbox_env_value_dialog(frame, frame.area());
                 }
             }
+            Screen::SandboxMenu => self.render_sandbox_menu(frame, area),
             Screen::Setup => self.render_setup_wizard(frame, area),
         }
     }
@@ -6686,6 +6931,9 @@ mod tests {
             profile_manager,
             app_config,
             sandbox_armed: false,
+            sandbox_menu: MenuState::new(SANDBOX_MENU.len()),
+            sandbox_action_output: Vec::new(),
+            sandbox_action_title: String::new(),
             profiles: profiles.clone(),
             selected_profile: profiles.first().cloned(),
             status_message: None,
@@ -6922,6 +7170,68 @@ mod tests {
 
         let _ = app.handle_main_input(NavAction::Select);
         assert!(!app.sandbox_armed, "second Select should disarm sandbox mode");
+    }
+
+    #[test]
+    fn test_main_menu_sandbox_routes_to_submenu() {
+        let (mut app, _temp) = test_app();
+        app.animations_enabled = false;
+        app.main_menu.selected = menu_index(MainMenuItem::Sandbox);
+        let _ = app.handle_main_input(NavAction::Select);
+        app.tick();
+        assert_eq!(app.screen, Screen::SandboxMenu);
+    }
+
+    #[test]
+    fn test_sandbox_menu_setup_opens_wizard() {
+        let (mut app, _temp) = test_app();
+        app.animations_enabled = false;
+        app.screen = Screen::SandboxMenu;
+        app.sandbox_menu.selected = SANDBOX_MENU
+            .iter()
+            .position(|(id, _, _)| *id == SandboxMenuItem::Setup)
+            .unwrap();
+        app.handle_sandbox_menu_input(NavAction::Select);
+        app.tick();
+        assert_eq!(app.screen, Screen::Sandbox);
+        assert!(app.sandbox_wizard.is_some());
+    }
+
+    #[test]
+    fn test_sandbox_menu_back_returns_to_main() {
+        let (mut app, _temp) = test_app();
+        app.animations_enabled = false;
+        app.screen = Screen::SandboxMenu;
+        app.sandbox_menu.selected = SANDBOX_MENU
+            .iter()
+            .position(|(id, _, _)| *id == SandboxMenuItem::Back)
+            .unwrap();
+        app.handle_sandbox_menu_input(NavAction::Select);
+        app.tick();
+        assert_eq!(app.screen, Screen::Main);
+    }
+
+    #[test]
+    fn test_sandbox_menu_esc_returns_to_main() {
+        let (mut app, _temp) = test_app();
+        app.animations_enabled = false;
+        app.screen = Screen::SandboxMenu;
+        app.handle_sandbox_menu_input(NavAction::Back);
+        app.tick();
+        assert_eq!(app.screen, Screen::Main);
+    }
+
+    #[test]
+    fn test_sandbox_menu_output_panel_dismisses_on_key() {
+        let (mut app, _temp) = test_app();
+        app.screen = Screen::SandboxMenu;
+        app.sandbox_action_output = vec!["line 1".into(), "line 2".into()];
+        app.sandbox_action_title = "Sandbox Status".into();
+        app.handle_sandbox_menu_input(NavAction::Back);
+        assert!(app.sandbox_action_output.is_empty());
+        assert!(app.sandbox_action_title.is_empty());
+        // Still on SandboxMenu — back key dismisses output, doesn't navigate.
+        assert_eq!(app.screen, Screen::SandboxMenu);
     }
 
     #[test]
