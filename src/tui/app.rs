@@ -593,8 +593,6 @@ pub struct SetupWizardState {
     pub statuses: Vec<SetupStepStatus>,
     /// Agents the user has ticked in the PickAgents step.
     pub picked_agents: Vec<AgentType>,
-    /// Whether we auto-opened the wizard (UNLEASH_WIZARD=1) vs. user navigated here.
-    pub auto_opened: bool,
     /// Errors or notices collected during detection / install.
     pub notices: Vec<String>,
     /// Cursor row within the PickAgents agent list.
@@ -605,8 +603,14 @@ pub struct SetupWizardState {
     pub install_results: Vec<(String, bool)>,
 }
 
+impl Default for SetupWizardState {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl SetupWizardState {
-    pub fn new(auto_opened: bool) -> Self {
+    pub fn new() -> Self {
         SetupWizardState {
             step: 0,
             statuses: SetupStep::ALL
@@ -614,7 +618,6 @@ impl SetupWizardState {
                 .map(|_| SetupStepStatus::Pending)
                 .collect(),
             picked_agents: Vec::new(),
-            auto_opened,
             notices: Vec::new(),
             pick_cursor: 0,
             install_queue: Vec::new(),
@@ -640,6 +643,21 @@ impl SetupWizardState {
                     .cloned()
                     .collect();
                 self.install_results.clear();
+                // Mark already-installed picked agents as Skipped so the step
+                // status reflects reality rather than staying Pending.
+                let already: Vec<String> = self
+                    .picked_agents
+                    .iter()
+                    .filter(|a| which::which(a.mascot_name()).is_ok())
+                    .map(|a| a.display_name().to_string())
+                    .collect();
+                if !already.is_empty() {
+                    self.statuses[self.step] = SetupStepStatus::Skipped;
+                    // Surface them as pre-recorded results so the UI shows them.
+                    for name in already {
+                        self.install_results.push((format!("{name} (already installed)"), true));
+                    }
+                }
             }
             true
         } else {
@@ -3536,7 +3554,7 @@ impl App {
     }
 
     pub fn open_setup_wizard(&mut self) {
-        let mut state = SetupWizardState::new(false);
+        let mut state = SetupWizardState::new();
         // Pre-detect which builtin agents are already on PATH.
         let installed: Vec<AgentType> = AgentType::builtin()
             .iter()
@@ -3599,6 +3617,19 @@ impl App {
                         wiz.env_draft.selected = (wiz.env_draft.selected + 1) % len;
                     }
                 }
+                return;
+            }
+            // Up/Down navigate between steps on non-env steps.
+            NavAction::Up => {
+                if let Some(wiz) = self.sandbox_wizard.as_mut() {
+                    if wiz.step > 0 {
+                        wiz.step -= 1;
+                    }
+                }
+                return;
+            }
+            NavAction::Down => {
+                self.sandbox_advance_step();
                 return;
             }
             _ => {}
@@ -3745,6 +3776,7 @@ impl App {
         step_idx: usize,
         result: Result<String, crate::sandbox::StepFailure>,
     ) {
+        let success = result.is_ok();
         if let Some(wiz) = self.sandbox_wizard.as_mut() {
             if step_idx >= wiz.statuses.len() {
                 return;
@@ -3753,6 +3785,10 @@ impl App {
                 Ok(msg) => SandboxStepStatus::Success(msg),
                 Err(f) => SandboxStepStatus::FailedRecoverable(f.message(), f.next_actions()),
             };
+        }
+        // Auto-advance to the next step on success.
+        if success {
+            self.sandbox_advance_step();
         }
     }
 
@@ -4010,9 +4046,9 @@ impl App {
         if step != SandboxStep::Summary {
             detail_lines.push(Line::from(""));
             let footer = if step == SandboxStep::Env {
-                " [↑↓] row  [◀▶] choice  [Enter] set  [Tab] next step  [Esc] back"
+                " [↑↓] row  [◀▶] choice  [Enter] set  [Tab] next  [Esc] back"
             } else {
-                " [Enter] run  [r] retry  [s] skip  [Tab] next  [p] prev  [Esc] back"
+                " [Enter] run  [↑↓] step  [r] retry  [s] skip  [Esc] back"
             };
             detail_lines.push(Line::from(Span::styled(
                 footer,
@@ -4222,6 +4258,14 @@ impl App {
 
         let name = agent.display_name().to_string();
         self.status_message = Some(format!("Installing {}…", name));
+        // Mark the InstallAgents step as Running while installing.
+        if let Some(wiz) = self.setup_wizard.as_mut() {
+            let install_step_idx = SetupStep::ALL
+                .iter()
+                .position(|s| *s == SetupStep::InstallAgents)
+                .unwrap_or(4);
+            wiz.statuses[install_step_idx] = SetupStepStatus::Running;
+        }
         let (tx, rx) = std::sync::mpsc::channel();
         let agent_for_state = agent.clone();
         let handle = std::thread::spawn(move || {
