@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.47](https://github.com/heiervang-technologies/unleash/compare/v0.1.46...v0.1.47) (2026-05-26)
+
+
+### Bug Fixes
+
+* **agents:** agy uses --dangerously-skip-permissions not --yolo ([26ab316](https://github.com/heiervang-technologies/unleash/commit/26ab3165f691ee2b064c86b453d707739c64397a))
+
 ## [0.1.46](https://github.com/heiervang-technologies/unleash/compare/v0.1.45...v0.1.46) (2026-05-26)
 
 
