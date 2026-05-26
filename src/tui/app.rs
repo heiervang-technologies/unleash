@@ -137,6 +137,7 @@ pub enum Screen {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum MainMenuItem {
     Start,
+    SandboxMode,
     Profiles,
     Versions,
     Features,
@@ -152,6 +153,11 @@ const MAIN_MENU: &[(MainMenuItem, &str, &str)] = &[
         MainMenuItem::Start,
         "Start Session",
         "Launch with selected profile",
+    ),
+    (
+        MainMenuItem::SandboxMode,
+        "Sandbox Mode: OFF",
+        "Toggle: launch the next session inside the gVisor sandbox",
     ),
     (
         MainMenuItem::Profiles,
@@ -877,6 +883,10 @@ pub struct App {
     pub profiles: Vec<Profile>,
     pub selected_profile: Option<Profile>,
     pub status_message: Option<String>,
+    /// Whether the next "Start Session" launch should be routed through the
+    /// gVisor sandbox (`unleash sandbox run <agent>`). Session-only — resets
+    /// on relaunch. Toggled via `MainMenuItem::SandboxMode`.
+    pub sandbox_armed: bool,
     /// Profile search/filter query
     pub profile_search_query: String,
     /// Whether search input is active
@@ -1103,6 +1113,7 @@ impl App {
             profiles,
             selected_profile,
             status_message: None,
+            sandbox_armed: false,
             profile_search_query: String::new(),
             profile_search_active: false,
             editing_profile: None,
@@ -2566,10 +2577,20 @@ impl App {
                         if let Some(profile) = &self.selected_profile {
                             return Ok(Some(AppAction::Launch(Box::new(LaunchRequest {
                                 profile: profile.clone(),
+                                sandbox: self.sandbox_armed,
                             }))));
                         } else {
                             self.status_message = Some("No profile selected!".to_string());
                         }
+                    }
+                    Some(MainMenuItem::SandboxMode) => {
+                        self.sandbox_armed = !self.sandbox_armed;
+                        self.status_message = Some(if self.sandbox_armed {
+                            "Sandbox mode armed — next Start Session runs in the gVisor sandbox."
+                                .to_string()
+                        } else {
+                            "Sandbox mode off — next Start Session runs on the host.".to_string()
+                        });
                     }
                     Some(MainMenuItem::Profiles) => {
                         self.trigger_screen_animation(true, Screen::Profiles);
@@ -4827,15 +4848,31 @@ impl App {
         self.main_menu.ensure_visible(visible_items);
         let scroll_offset = self.main_menu.scroll_offset;
 
+        let armed = self.sandbox_armed;
         let items: Vec<ListItem> = MAIN_MENU
             .iter()
             .enumerate()
             .skip(scroll_offset)
             .take(visible_items)
-            .map(|(i, (_, name, desc))| {
+            .map(|(i, (id, name, desc))| {
+                let (name_owned, desc_owned) = match id {
+                    MainMenuItem::SandboxMode if armed => (
+                        "Sandbox Mode: ON  [●]".to_string(),
+                        "Next Start Session will run inside the gVisor sandbox".to_string(),
+                    ),
+                    MainMenuItem::SandboxMode => (
+                        "Sandbox Mode: OFF [○]".to_string(),
+                        (*desc).to_string(),
+                    ),
+                    _ => ((*name).to_string(), (*desc).to_string()),
+                };
                 let style = if i == self.main_menu.selected {
                     Style::default()
                         .fg(self.accent_color())
+                        .add_modifier(Modifier::BOLD)
+                } else if matches!(id, MainMenuItem::SandboxMode) && armed {
+                    Style::default()
+                        .fg(Color::Green)
                         .add_modifier(Modifier::BOLD)
                 } else {
                     Style::default()
@@ -4846,9 +4883,9 @@ impl App {
                     "  "
                 };
                 ListItem::new(vec![
-                    Line::from(Span::styled(format!("{}{}", prefix, name), style)),
+                    Line::from(Span::styled(format!("{}{}", prefix, name_owned), style)),
                     Line::from(Span::styled(
-                        format!("    {}", desc),
+                        format!("    {}", desc_owned),
                         Style::default().fg(Color::DarkGray),
                     )),
                 ])
@@ -6510,6 +6547,9 @@ pub enum AppAction {
 #[derive(Debug, Clone)]
 pub struct LaunchRequest {
     pub profile: Profile,
+    /// If true, route the launch through `unleash sandbox run <agent>`
+    /// instead of executing the agent binary directly on the host.
+    pub sandbox: bool,
 }
 
 /// Request to update the TUI
@@ -6521,6 +6561,32 @@ pub struct UpdateRequest {
 impl LaunchRequest {
     pub fn execute(&self) -> io::Result<std::process::ExitStatus> {
         use std::os::unix::process::CommandExt;
+
+        // Sandboxed launch: re-exec ourselves as `unleash sandbox run <agent>`.
+        // The sandbox dispatcher (src/sandbox.rs::run_agent) handles docker
+        // preflight checks, compose lookup, and agent name validation.
+        if self.sandbox {
+            let agent_name = self
+                .profile
+                .agent_type()
+                .as_ref()
+                .map(|t| t.mascot_name().to_string())
+                .or_else(|| {
+                    std::path::Path::new(&self.profile.agent_cli_path)
+                        .file_name()
+                        .and_then(|n| n.to_str())
+                        .map(|s| s.to_string())
+                })
+                .unwrap_or_else(|| "claude".to_string());
+            let exe = std::env::current_exe()?;
+            let mut cmd = Command::new(&exe);
+            cmd.arg0("unleash");
+            cmd.args(["sandbox", "run", &agent_name]);
+            for (key, value) in &self.profile.env {
+                cmd.env(key, value);
+            }
+            return cmd.status();
+        }
 
         // If the profile points to a known agent binary, route through the wrapper
         // so it gets focus, restart, and plugin features automatically.
@@ -6615,10 +6681,11 @@ mod tests {
             running: true,
             last_frame_area: Rect::default(),
             screen: Screen::Main,
-            main_menu: MenuState::new(6), // Start, Profiles, Features, Versions, Help, Quit
+            main_menu: MenuState::new(MAIN_MENU.len()),
             profile_menu: MenuState::new(profiles.len()),
             profile_manager,
             app_config,
+            sandbox_armed: false,
             profiles: profiles.clone(),
             selected_profile: profiles.first().cloned(),
             status_message: None,
@@ -6758,7 +6825,7 @@ mod tests {
         // Disable animations for instant transitions in test
         app.animations_enabled = false;
 
-        app.main_menu.selected = 1;
+        app.main_menu.selected = menu_index(MainMenuItem::Profiles);
         let _ = app.handle_main_input(NavAction::Select);
         app.tick(); // Complete pending transition
         assert_eq!(app.screen, Screen::Profiles);
@@ -6796,8 +6863,8 @@ mod tests {
         let (mut app, _temp) = test_app();
         app.animations_enabled = false;
 
-        // Navigate to Profiles (index 1)
-        app.main_menu.selected = 1;
+        // Navigate to Profiles
+        app.main_menu.selected = menu_index(MainMenuItem::Profiles);
         let _ = app.handle_main_input(NavAction::Select);
         app.tick();
         assert_eq!(app.screen, Screen::Profiles);
@@ -6823,7 +6890,7 @@ mod tests {
         app.animations_enabled = false;
 
         // Navigate to Profiles
-        app.main_menu.selected = 1;
+        app.main_menu.selected = menu_index(MainMenuItem::Profiles);
         let _ = app.handle_main_input(NavAction::Select);
         app.tick();
         assert_eq!(app.screen, Screen::Profiles);
@@ -6840,6 +6907,35 @@ mod tests {
         app.handle_help_input(NavAction::Back);
         app.tick();
         assert_eq!(app.screen, Screen::Profiles);
+    }
+
+    #[test]
+    fn test_sandbox_mode_toggle_flips_armed_flag() {
+        let (mut app, _temp) = test_app();
+        app.animations_enabled = false;
+        assert!(!app.sandbox_armed);
+
+        app.main_menu.selected = menu_index(MainMenuItem::SandboxMode);
+        let _ = app.handle_main_input(NavAction::Select);
+        assert!(app.sandbox_armed, "first Select should arm sandbox mode");
+        assert_eq!(app.screen, Screen::Main, "toggle should not navigate away");
+
+        let _ = app.handle_main_input(NavAction::Select);
+        assert!(!app.sandbox_armed, "second Select should disarm sandbox mode");
+    }
+
+    #[test]
+    fn test_sandbox_armed_propagates_to_launch_request() {
+        let (mut app, _temp) = test_app();
+        app.animations_enabled = false;
+        app.sandbox_armed = true;
+        app.main_menu.selected = menu_index(MainMenuItem::Start);
+
+        let action = app.handle_main_input(NavAction::Select).unwrap();
+        match action {
+            Some(AppAction::Launch(req)) => assert!(req.sandbox),
+            other => panic!("expected Launch with sandbox=true, got {:?}", other),
+        }
     }
 
     #[test]
