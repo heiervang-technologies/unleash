@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.53](https://github.com/heiervang-technologies/unleash/compare/v0.1.52...v0.1.53) (2026-05-27)
+
+
+### Features
+
+* **sessions:** implement unleash sessions doctor subcommand ([#233](https://github.com/heiervang-technologies/unleash/issues/233)) ([7f40b24](https://github.com/heiervang-technologies/unleash/commit/7f40b24333bad7f8a73d99c0709cfcc529035e04))
+
 ## [0.1.52](https://github.com/heiervang-technologies/unleash/compare/v0.1.51...v0.1.52) (2026-05-27)
 
 
