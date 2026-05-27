@@ -6,7 +6,7 @@
 # with real nameservers if the internal resolver is unreachable.
 #
 # Privilege handling:
-#   - Agent CLIs (claude, codex, gemini, unleash, opencode) run as 'unleash' user
+#   - Agent CLIs (claude, codex, gemini, opencode, pi, unleash) run as 'unleash' user
 #     because Claude Code refuses --dangerously-skip-permissions as root.
 #   - bash/shell sessions run as root for full install capability.
 # gVisor + network isolation is the security boundary, not the in-container user.
@@ -31,7 +31,7 @@ fi
 # Determine if we should drop privileges
 cmd="$(basename "${1:-}" 2>/dev/null)"
 case "$cmd" in
-    claude|codex|gemini|opencode|unleash)
+    claude|codex|gemini|opencode|pi|unleash)
         # Agent CLIs need non-root (Claude Code refuses --dangerously-skip-permissions as root)
         export HOME=/home/unleash
         exec runuser -u unleash -- "$@"

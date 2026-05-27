@@ -937,8 +937,9 @@ pub fn run_agent(
     // Validate sandbox name (used as Docker hostname, must be RFC 1123 compliant)
     validate_sandbox_name(name)?;
 
-    // Validate agent name
-    let valid_agents = ["claude", "codex", "gemini", "opencode", "bash", "unleash"];
+    // Validate agent name — must match a CLI built into the sandbox image
+    // (docker/Dockerfile) and a service in docker-compose.yml.
+    let valid_agents = ["claude", "codex", "gemini", "opencode", "pi", "bash", "unleash"];
     if !valid_agents.contains(&agent) {
         eprintln!(
             "\x1b[31merror:\x1b[0m Unknown agent '{}'. Valid agents: {}",
@@ -1330,7 +1331,7 @@ pub enum SandboxAction {
         #[arg(long, default_value = "sandbox")]
         name: String,
 
-        /// Agent to run: claude, codex, gemini, opencode, bash, unleash
+        /// Agent to run: claude, codex, gemini, opencode, pi, bash, unleash
         /// Defaults to bash if omitted.
         #[arg(default_value = "bash")]
         agent: String,
