@@ -86,9 +86,13 @@ fn trigger_background_reindex(db_path: &std::path::Path) {
     };
 
     if !already_running {
-        let exe = match std::env::current_exe() {
-            Ok(p) => p,
-            Err(_) => return,
+        let exe = if let Some(override_bin) = std::env::var_os("UNLEASH_REINDEX_BINARY") {
+            std::path::PathBuf::from(override_bin)
+        } else {
+            match std::env::current_exe() {
+                Ok(p) => p,
+                Err(_) => return,
+            }
         };
         if let Some(parent) = lock_path.parent() {
             let _ = std::fs::create_dir_all(parent);
@@ -783,8 +787,17 @@ mod tests {
         std::fs::create_dir_all(&unleash_dir).unwrap();
         std::fs::rename(&db_path, unleash_dir.join("search-index.db")).unwrap();
         let saved_xdg = std::env::var_os("XDG_DATA_HOME");
+        let saved_reindex_binary = std::env::var_os("UNLEASH_REINDEX_BINARY");
+        let true_path = if std::path::Path::new("/usr/bin/true").exists() {
+            "/usr/bin/true"
+        } else {
+            "/bin/true"
+        };
         // SAFETY: tests are single-threaded for env mutation; restored below.
-        unsafe { std::env::set_var("XDG_DATA_HOME", tmp.path()); }
+        unsafe {
+            std::env::set_var("XDG_DATA_HOME", tmp.path());
+            std::env::set_var("UNLEASH_REINDEX_BINARY", true_path);
+        }
 
         overlay_search_index_names(&mut sessions);
 
@@ -792,6 +805,10 @@ mod tests {
         match saved_xdg {
             Some(v) => unsafe { std::env::set_var("XDG_DATA_HOME", v) },
             None => unsafe { std::env::remove_var("XDG_DATA_HOME") },
+        }
+        match saved_reindex_binary {
+            Some(v) => unsafe { std::env::set_var("UNLEASH_REINDEX_BINARY", v) },
+            None => unsafe { std::env::remove_var("UNLEASH_REINDEX_BINARY") },
         }
 
         assert_eq!(sessions[0].name.as_deref(), Some("overlay-name"));
