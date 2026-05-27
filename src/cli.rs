@@ -803,6 +803,13 @@ pub enum SessionsAction {
         /// New title — if omitted, regenerate via the configured chat model
         title: Option<String>,
     },
+
+    /// Diagnose the crossload-index cache for stale/dead entries
+    Doctor {
+        /// Garbage collect: remove source-gone entries from the cache
+        #[arg(long)]
+        gc: bool,
+    },
 }
 
 #[derive(Subcommand, Debug)]

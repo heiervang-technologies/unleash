@@ -229,6 +229,10 @@ async fn run_sessions_action_async(
         crate::cli::SessionsAction::Name { target, title } => {
             set_session_title(&target, title.as_deref(), json).await
         }
+        crate::cli::SessionsAction::Doctor { gc } => {
+            crate::interchange::crossload_index::run_doctor(json, gc)?;
+            Ok(())
+        }
     }
 }
 
