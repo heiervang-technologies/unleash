@@ -62,11 +62,29 @@ fn overlay_search_index_names(sessions: &mut [SessionInfo]) {
     if sessions.is_empty() {
         return;
     }
+    let debug_mode = std::env::var_os("UNLEASH_DEBUG").is_some();
+
+    // Helper to fall back to filesystem titles for exact name matching in `find_session`
+    // (e.g. for Claude's agent-name or custom-title) even when the SQLite database is absent or unindexed.
+    // This allows exact matching to function immediately on newly-updated or freshly-named files
+    // without requiring an explicit reindex.
+    let apply_filesystem_fallbacks = |sessions: &mut [SessionInfo]| {
+        for s in sessions.iter_mut() {
+            if s.name.is_none() && s.title.is_some() {
+                s.name = s.title.clone();
+            }
+        }
+    };
+
     let db_path = match dirs::data_local_dir() {
         Some(d) => d.join("unleash").join("search-index.db"),
-        None => return,
+        None => {
+            apply_filesystem_fallbacks(sessions);
+            return;
+        }
     };
     if !db_path.exists() {
+        apply_filesystem_fallbacks(sessions);
         return;
     }
     let conn = match rusqlite::Connection::open_with_flags(
@@ -74,40 +92,66 @@ fn overlay_search_index_names(sessions: &mut [SessionInfo]) {
         rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY | rusqlite::OpenFlags::SQLITE_OPEN_NO_MUTEX,
     ) {
         Ok(c) => c,
-        Err(_) => return,
+        Err(e) => {
+            if debug_mode {
+                eprintln!("Warning: Failed to open search index database {}: {}", db_path.display(), e);
+            }
+            apply_filesystem_fallbacks(sessions);
+            return;
+        }
     };
     let mut stmt = match conn.prepare(
-        "SELECT cli, source_id, coalesce(generated_title, native_title) AS title
-         FROM sessions
-         WHERE title IS NOT NULL",
+        "SELECT cli, source_id, generated_title, native_title
+         FROM sessions",
     ) {
         Ok(s) => s,
-        Err(_) => return,
+        Err(e) => {
+            if debug_mode {
+                eprintln!("Warning: Failed to prepare search index query: {}", e);
+            }
+            apply_filesystem_fallbacks(sessions);
+            return;
+        }
     };
     let rows = match stmt.query_map([], |row| {
         Ok((
             row.get::<_, String>(0)?,
             row.get::<_, String>(1)?,
-            row.get::<_, String>(2)?,
+            row.get::<_, Option<String>>(2)?,
+            row.get::<_, Option<String>>(3)?,
         ))
     }) {
         Ok(r) => r,
-        Err(_) => return,
+        Err(e) => {
+            if debug_mode {
+                eprintln!("Warning: Failed to execute search index query: {}", e);
+            }
+            apply_filesystem_fallbacks(sessions);
+            return;
+        }
     };
-    let mut overlay: std::collections::HashMap<(String, String), String> =
+    let mut overlay: std::collections::HashMap<(String, String), (Option<String>, Option<String>)> =
         std::collections::HashMap::new();
     for row in rows.flatten() {
-        overlay.insert((row.0, row.1), row.2);
-    }
-    if overlay.is_empty() {
-        return;
+        overlay.insert((row.0, row.1), (row.2, row.3));
     }
     for s in sessions.iter_mut() {
-        if s.name.is_some() {
-            continue;
-        }
-        if let Some(title) = overlay.get(&(s.cli.clone(), s.id.clone())) {
-            s.name = Some(title.clone());
+        if let Some((gen, nat)) = overlay.get(&(s.cli.clone(), s.id.clone())) {
+            if s.name.is_none() {
+                if gen.is_some() {
+                    // Manual custom title set by the user takes priority
+                    s.name = gen.clone();
+                } else if s.title.is_some() {
+                    // Live filesystem-derived title takes priority over stale/cached native DB title
+                    s.name = s.title.clone();
+                } else {
+                    // Last resort fallback: cached DB native title
+                    s.name = nat.clone();
+                }
+            }
+        } else if s.name.is_none() && s.title.is_some() {
+            // Live filesystem-derived title acts as name fallback if missing from DB
+            s.name = s.title.clone();
         }
     }
 }
@@ -642,6 +686,16 @@ mod tests {
                 updated_at: "0".into(),
                 message_count: None,
             },
+            SessionInfo {
+                cli: "claude".into(),
+                id: "no-db-entry-id".into(),
+                name: None,
+                title: Some("fs-title".into()),
+                directory: "/tmp".into(),
+                path: PathBuf::from("/tmp/nope3.jsonl"),
+                updated_at: "0".into(),
+                message_count: None,
+            },
         ];
 
         let tmp = tempfile::tempdir().unwrap();
@@ -684,6 +738,11 @@ mod tests {
             sessions[1].name.as_deref(),
             Some("preexisting"),
             "overlay must not overwrite an existing name"
+        );
+        assert_eq!(
+            sessions[2].name.as_deref(),
+            Some("fs-title"),
+            "filesystem title should fall back to name if DB is missing entry"
         );
     }
 
