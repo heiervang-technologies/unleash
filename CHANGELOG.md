@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.51](https://github.com/heiervang-technologies/unleash/compare/v0.1.50...v0.1.51) (2026-05-27)
+
+
+### Bug Fixes
+
+* **sessions:** overlay search-index names onto crossload resolution ([#227](https://github.com/heiervang-technologies/unleash/issues/227)) ([c9af14d](https://github.com/heiervang-technologies/unleash/commit/c9af14d520a278681715b8610e3612e0ba3bfe37))
+
 ## [0.1.50](https://github.com/heiervang-technologies/unleash/compare/v0.1.49...v0.1.50) (2026-05-27)
 
 
