@@ -26,13 +26,14 @@ pub fn discover_all() -> Vec<SessionInfo> {
     sessions.extend(discover_opencode());
     sessions.extend(discover_pi());
     sessions.extend(discover_ucf());
+    overlay_search_index_names(&mut sessions);
     sessions.sort_by(|a, b| b.updated_at.cmp(&a.updated_at));
     sessions
 }
 
 /// Discover sessions for a specific CLI.
 pub fn discover_for(cli: CliFormat) -> Vec<SessionInfo> {
-    match cli {
+    let mut sessions = match cli {
         CliFormat::ClaudeCode => discover_claude(),
         CliFormat::Codex => discover_codex(),
         CliFormat::GeminiCli => discover_gemini(),
@@ -40,6 +41,74 @@ pub fn discover_for(cli: CliFormat) -> Vec<SessionInfo> {
         CliFormat::OpenCode => discover_opencode(),
         CliFormat::Pi => discover_pi(),
         CliFormat::Ucf => discover_ucf(),
+    };
+    overlay_search_index_names(&mut sessions);
+    sessions
+}
+
+/// Overlay friendly names from the search index DB (`unleash sessions name ...`
+/// and auto-generated titles) onto the filesystem-derived session list.
+///
+/// The search index is written by `src/search.rs` to a local SQLite file. If
+/// a row exists for `(cli, source_id)`, we copy its preferred title
+/// (generated > native) into `SessionInfo.name`, but only when the filesystem
+/// scan didn't already pick up a name. This keeps the DB as a *supplementary*
+/// source — JSONL-native names (Claude `agent-name`, Codex `session_index`)
+/// still win.
+///
+/// Failures are silent: the index is optional and may not exist on a fresh
+/// install or on a machine that's never run `unleash search`.
+fn overlay_search_index_names(sessions: &mut [SessionInfo]) {
+    if sessions.is_empty() {
+        return;
+    }
+    let db_path = match dirs::data_local_dir() {
+        Some(d) => d.join("unleash").join("search-index.db"),
+        None => return,
+    };
+    if !db_path.exists() {
+        return;
+    }
+    let conn = match rusqlite::Connection::open_with_flags(
+        &db_path,
+        rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY | rusqlite::OpenFlags::SQLITE_OPEN_NO_MUTEX,
+    ) {
+        Ok(c) => c,
+        Err(_) => return,
+    };
+    let mut stmt = match conn.prepare(
+        "SELECT cli, source_id, coalesce(generated_title, native_title) AS title
+         FROM sessions
+         WHERE title IS NOT NULL",
+    ) {
+        Ok(s) => s,
+        Err(_) => return,
+    };
+    let rows = match stmt.query_map([], |row| {
+        Ok((
+            row.get::<_, String>(0)?,
+            row.get::<_, String>(1)?,
+            row.get::<_, String>(2)?,
+        ))
+    }) {
+        Ok(r) => r,
+        Err(_) => return,
+    };
+    let mut overlay: std::collections::HashMap<(String, String), String> =
+        std::collections::HashMap::new();
+    for row in rows.flatten() {
+        overlay.insert((row.0, row.1), row.2);
+    }
+    if overlay.is_empty() {
+        return;
+    }
+    for s in sessions.iter_mut() {
+        if s.name.is_some() {
+            continue;
+        }
+        if let Some(title) = overlay.get(&(s.cli.clone(), s.id.clone())) {
+            s.name = Some(title.clone());
+        }
     }
 }
 
@@ -548,6 +617,74 @@ mod tests {
         let sessions = discover_all();
         // We can't assert count since it depends on the machine; just verify no panic.
         let _ = sessions.len();
+    }
+
+    #[test]
+    fn test_overlay_search_index_fills_missing_name() {
+        let mut sessions = vec![
+            SessionInfo {
+                cli: "claude".into(),
+                id: "test-id-xyz".into(),
+                name: None,
+                title: None,
+                directory: "/tmp".into(),
+                path: PathBuf::from("/tmp/nope.jsonl"),
+                updated_at: "0".into(),
+                message_count: None,
+            },
+            SessionInfo {
+                cli: "claude".into(),
+                id: "preserved-id".into(),
+                name: Some("preexisting".into()),
+                title: None,
+                directory: "/tmp".into(),
+                path: PathBuf::from("/tmp/nope2.jsonl"),
+                updated_at: "0".into(),
+                message_count: None,
+            },
+        ];
+
+        let tmp = tempfile::tempdir().unwrap();
+        let db_path = tmp.path().join("search-index.db");
+        let conn = rusqlite::Connection::open(&db_path).unwrap();
+        conn.execute_batch(
+            "CREATE TABLE sessions (
+                pk INTEGER PRIMARY KEY,
+                cli TEXT NOT NULL,
+                source_id TEXT NOT NULL,
+                native_title TEXT,
+                generated_title TEXT,
+                UNIQUE(cli, source_id));
+             INSERT INTO sessions (cli, source_id, generated_title) VALUES
+               ('claude', 'test-id-xyz', 'overlay-name'),
+               ('claude', 'preserved-id', 'should-not-overwrite');",
+        )
+        .unwrap();
+        drop(conn);
+
+        // Point dirs::data_local_dir() at our temp by hijacking XDG_DATA_HOME.
+        // The unleash subdir must exist below it.
+        let unleash_dir = tmp.path().join("unleash");
+        std::fs::create_dir_all(&unleash_dir).unwrap();
+        std::fs::rename(&db_path, unleash_dir.join("search-index.db")).unwrap();
+        let saved_xdg = std::env::var_os("XDG_DATA_HOME");
+        // SAFETY: tests are single-threaded for env mutation; restored below.
+        unsafe { std::env::set_var("XDG_DATA_HOME", tmp.path()); }
+
+        overlay_search_index_names(&mut sessions);
+
+        // Restore env before any panic surfaces.
+        match saved_xdg {
+            Some(v) => unsafe { std::env::set_var("XDG_DATA_HOME", v) },
+            None => unsafe { std::env::remove_var("XDG_DATA_HOME") },
+        }
+
+        assert_eq!(sessions[0].name.as_deref(), Some("overlay-name"));
+        assert_eq!(
+            sessions[1].name.as_deref(),
+            Some("preexisting"),
+            "overlay must not overwrite an existing name"
+        );
     }
 
     #[test]
