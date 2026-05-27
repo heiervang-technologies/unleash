@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.1.49](https://github.com/heiervang-technologies/unleash/compare/v0.1.48...v0.1.49) (2026-05-27)
+
+
+### Features
+
+* **tui:** sandbox mode toggle + management submenu ([#222](https://github.com/heiervang-technologies/unleash/issues/222)) ([4eda8d2](https://github.com/heiervang-technologies/unleash/commit/4eda8d2925cdfabae80ebe2a68589cb62a92316a))
+
+
+### Bug Fixes
+
+* **agents:** drop agy --approval-mode forwarding (closes [#219](https://github.com/heiervang-technologies/unleash/issues/219)) ([#220](https://github.com/heiervang-technologies/unleash/issues/220)) ([929511e](https://github.com/heiervang-technologies/unleash/commit/929511ea2abc02c6619428b4f694a3b25f803393))
+
 ## [0.1.48](https://github.com/heiervang-technologies/unleash/compare/v0.1.47...v0.1.48) (2026-05-26)
 
 
