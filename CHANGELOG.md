@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.1.50](https://github.com/heiervang-technologies/unleash/compare/v0.1.49...v0.1.50) (2026-05-27)
+
+
+### Bug Fixes
+
+* **sandbox:** accept pi as a sandboxed agent ([0ad5898](https://github.com/heiervang-technologies/unleash/commit/0ad58980a5fc95a730241fb2ab50b96f1efbd1e6))
+* **sandbox:** accept pi as a sandboxed agent ([754325f](https://github.com/heiervang-technologies/unleash/commit/754325f81dd86c60755669781bcdbf39357c3987))
+
 ## [0.1.49](https://github.com/heiervang-technologies/unleash/compare/v0.1.48...v0.1.49) (2026-05-27)
 
 
