@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.52](https://github.com/heiervang-technologies/unleash/compare/v0.1.51...v0.1.52) (2026-05-27)
+
+
+### Features
+
+* **sessions:** auto-reindex stale sessions in the background ([#229](https://github.com/heiervang-technologies/unleash/issues/229)) ([9661994](https://github.com/heiervang-technologies/unleash/commit/96619946a494613a44d74303f48c8235dbb6de31))
+
 ## [0.1.51](https://github.com/heiervang-technologies/unleash/compare/v0.1.50...v0.1.51) (2026-05-27)
 
 
