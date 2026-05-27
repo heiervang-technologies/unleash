@@ -428,7 +428,7 @@ impl AgentDefinition {
                 sandbox: SandboxStrategy::BoolFlag("--sandbox".to_string()),
                 name_flag: None,
                 add_dir_flag: Some("--include-directories".to_string()),
-                approval_mode_flag: Some("--approval-mode".to_string()),
+                approval_mode_flag: None,
                 worktree_flag: Some("--worktree".to_string()),
             },
             github_repo: None,
