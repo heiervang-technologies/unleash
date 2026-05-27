@@ -58,6 +58,66 @@ pub fn discover_for(cli: CliFormat) -> Vec<SessionInfo> {
 ///
 /// Failures are silent: the index is optional and may not exist on a fresh
 /// install or on a machine that's never run `unleash search`.
+fn file_mtime_ns(p: &std::path::Path) -> Option<i64> {
+    let md = std::fs::metadata(p).ok()?;
+    let mtime = md.modified().ok()?;
+    let dur = mtime.duration_since(std::time::UNIX_EPOCH).ok()?;
+    Some(dur.as_nanos() as i64)
+}
+
+fn trigger_background_reindex(db_path: &std::path::Path) {
+    let lock_path = db_path.with_file_name("search-index.lock");
+    let already_running = if lock_path.exists() {
+        if let Ok(content) = std::fs::read_to_string(&lock_path) {
+            if let Ok(pid) = content.trim().parse::<i32>() {
+                match nix::sys::signal::kill(nix::unistd::Pid::from_raw(pid), None) {
+                    Ok(_) => true,
+                    Err(nix::errno::Errno::EPERM) => true,
+                    _ => false,
+                }
+            } else {
+                false
+            }
+        } else {
+            false
+        }
+    } else {
+        false
+    };
+
+    if !already_running {
+        let exe = match std::env::current_exe() {
+            Ok(p) => p,
+            Err(_) => return,
+        };
+        if let Some(parent) = lock_path.parent() {
+            let _ = std::fs::create_dir_all(parent);
+        }
+        if let Ok(child) = std::process::Command::new(&exe)
+            .args(["sessions", "reindex", "--json"])
+            .stdin(std::process::Stdio::null())
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .spawn()
+        {
+            let pid = child.id();
+            let _ = std::fs::write(&lock_path, pid.to_string());
+        }
+    }
+}
+
+/// Overlay friendly names from the search index DB (`unleash sessions name ...`
+/// and auto-generated titles) onto the filesystem-derived session list.
+///
+/// The search index is written by `src/search.rs` to a local SQLite file. If
+/// a row exists for `(cli, source_id)`, we copy its preferred title
+/// (generated > native) into `SessionInfo.name`, but only when the filesystem
+/// scan didn't already pick up a name. This keeps the DB as a *supplementary*
+/// source — JSONL-native names (Claude `agent-name`, Codex `session_index`)
+/// still win.
+///
+/// Failures are silent: the index is optional and may not exist on a fresh
+/// install or on a machine that's never run `unleash search`.
 fn overlay_search_index_names(sessions: &mut [SessionInfo]) {
     if sessions.is_empty() {
         return;
@@ -83,60 +143,53 @@ fn overlay_search_index_names(sessions: &mut [SessionInfo]) {
             return;
         }
     };
-    if !db_path.exists() {
-        apply_filesystem_fallbacks(sessions);
-        return;
-    }
-    let conn = match rusqlite::Connection::open_with_flags(
-        &db_path,
-        rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY | rusqlite::OpenFlags::SQLITE_OPEN_NO_MUTEX,
-    ) {
-        Ok(c) => c,
-        Err(e) => {
-            if debug_mode {
-                eprintln!("Warning: Failed to open search index database {}: {}", db_path.display(), e);
-            }
-            apply_filesystem_fallbacks(sessions);
-            return;
-        }
-    };
-    let mut stmt = match conn.prepare(
-        "SELECT cli, source_id, generated_title, native_title
-         FROM sessions",
-    ) {
-        Ok(s) => s,
-        Err(e) => {
-            if debug_mode {
-                eprintln!("Warning: Failed to prepare search index query: {}", e);
-            }
-            apply_filesystem_fallbacks(sessions);
-            return;
-        }
-    };
-    let rows = match stmt.query_map([], |row| {
-        Ok((
-            row.get::<_, String>(0)?,
-            row.get::<_, String>(1)?,
-            row.get::<_, Option<String>>(2)?,
-            row.get::<_, Option<String>>(3)?,
-        ))
-    }) {
-        Ok(r) => r,
-        Err(e) => {
-            if debug_mode {
-                eprintln!("Warning: Failed to execute search index query: {}", e);
-            }
-            apply_filesystem_fallbacks(sessions);
-            return;
-        }
-    };
-    let mut overlay: std::collections::HashMap<(String, String), (Option<String>, Option<String>)> =
+
+    let mut needs_reindex = !db_path.exists();
+    let mut overlay: std::collections::HashMap<(String, String), (Option<String>, Option<String>, i64)> =
         std::collections::HashMap::new();
-    for row in rows.flatten() {
-        overlay.insert((row.0, row.1), (row.2, row.3));
+
+    if db_path.exists() {
+        if let Ok(conn) = rusqlite::Connection::open_with_flags(
+            &db_path,
+            rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY | rusqlite::OpenFlags::SQLITE_OPEN_NO_MUTEX,
+        ) {
+            if let Ok(mut stmt) = conn.prepare(
+                "SELECT cli, source_id, generated_title, native_title, mtime_ns
+                 FROM sessions",
+            ) {
+                if let Ok(rows) = stmt.query_map([], |row| {
+                    Ok((
+                        row.get::<_, String>(0)?,
+                        row.get::<_, String>(1)?,
+                        row.get::<_, Option<String>>(2)?,
+                        row.get::<_, Option<String>>(3)?,
+                        row.get::<_, i64>(4)?,
+                    ))
+                }) {
+                    for row in rows.flatten() {
+                        overlay.insert((row.0, row.1), (row.2, row.3, row.4));
+                    }
+                } else if debug_mode {
+                    eprintln!("Warning: Failed to execute search index query");
+                }
+            } else if debug_mode {
+                eprintln!("Warning: Failed to prepare search index query");
+            }
+        } else if debug_mode {
+            eprintln!("Warning: Failed to open search index database {}", db_path.display());
+        }
     }
+
     for s in sessions.iter_mut() {
-        if let Some((gen, nat)) = overlay.get(&(s.cli.clone(), s.id.clone())) {
+        // Skip background reindexing for Claude's rotated backup/archive sessions
+        if s.id.ends_with(".archive") {
+            continue;
+        }
+        let fs_mtime = file_mtime_ns(&s.path).unwrap_or(0);
+        if let Some((gen, nat, db_mtime)) = overlay.get(&(s.cli.clone(), s.id.clone())) {
+            if *db_mtime != fs_mtime {
+                needs_reindex = true;
+            }
             if s.name.is_none() {
                 if gen.is_some() {
                     // Manual custom title set by the user takes priority
@@ -149,10 +202,17 @@ fn overlay_search_index_names(sessions: &mut [SessionInfo]) {
                     s.name = nat.clone();
                 }
             }
-        } else if s.name.is_none() && s.title.is_some() {
-            // Live filesystem-derived title acts as name fallback if missing from DB
-            s.name = s.title.clone();
+        } else {
+            needs_reindex = true;
+            if s.name.is_none() && s.title.is_some() {
+                // Live filesystem-derived title acts as name fallback if missing from DB
+                s.name = s.title.clone();
+            }
         }
+    }
+
+    if needs_reindex {
+        trigger_background_reindex(&db_path);
     }
 }
 
@@ -708,10 +768,11 @@ mod tests {
                 source_id TEXT NOT NULL,
                 native_title TEXT,
                 generated_title TEXT,
+                mtime_ns INTEGER NOT NULL DEFAULT 0,
                 UNIQUE(cli, source_id));
-             INSERT INTO sessions (cli, source_id, generated_title) VALUES
-               ('claude', 'test-id-xyz', 'overlay-name'),
-               ('claude', 'preserved-id', 'should-not-overwrite');",
+             INSERT INTO sessions (cli, source_id, generated_title, mtime_ns) VALUES
+               ('claude', 'test-id-xyz', 'overlay-name', 0),
+               ('claude', 'preserved-id', 'should-not-overwrite', 0);",
         )
         .unwrap();
         drop(conn);
@@ -743,6 +804,19 @@ mod tests {
             sessions[2].name.as_deref(),
             Some("fs-title"),
             "filesystem title should fall back to name if DB is missing entry"
+        );
+
+        // Verify that the lock file is created as a result of detecting that the
+        // third session is missing from the DB (triggering background reindexing).
+        let lock_path = unleash_dir.join("search-index.lock");
+        assert!(lock_path.exists(), "search-index.lock should be created when reindexing is needed");
+        let content = std::fs::read_to_string(&lock_path).unwrap();
+        let pid = content.trim().parse::<i32>().unwrap();
+        assert!(pid > 0, "lock file should contain a valid PID");
+        // Verify that the spawned process PID is live (kill(pid, 0) returns Ok)
+        assert!(
+            nix::sys::signal::kill(nix::unistd::Pid::from_raw(pid), None).is_ok(),
+            "the spawned process PID should be active"
         );
     }
 
