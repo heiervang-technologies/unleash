@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.55](https://github.com/heiervang-technologies/unleash/compare/v0.1.54...v0.1.55) (2026-05-29)
+
+
+### Bug Fixes
+
+* **inject:** match Claude Code's actual long-path hash algorithm ([#237](https://github.com/heiervang-technologies/unleash/issues/237)) ([b0f9c68](https://github.com/heiervang-technologies/unleash/commit/b0f9c68258be3e5ff0dd67a253bc6d77d3bfa855))
+
 ## [0.1.54](https://github.com/heiervang-technologies/unleash/compare/v0.1.53...v0.1.54) (2026-05-29)
 
 
