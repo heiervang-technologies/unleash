@@ -75,6 +75,9 @@ impl AgentType {
         }
     }
 
+    // Public API since 0.1.x; signature returns Option, not Result as
+    // std::str::FromStr requires. Renaming would break callers.
+    #[allow(clippy::should_implement_trait)]
     pub fn from_str(s: &str) -> Option<Self> {
         match s.to_lowercase().as_str() {
             "claude" | "claude-code" => Some(AgentType::Claude),

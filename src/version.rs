@@ -2187,7 +2187,7 @@ pub fn install_latest_streaming(
         AgentType::Codex => {
             let installed = which::which("codex")
                 .ok()
-                .and_then(|_| None::<String>); // just need presence
+                .and(None::<String>); // just need presence
             let versions = vm.get_codex_version_list(installed.as_deref());
             let v = versions
                 .into_iter()

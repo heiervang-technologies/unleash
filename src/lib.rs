@@ -1177,6 +1177,129 @@ pub fn run() -> io::Result<()> {
     }
 }
 
+fn handle_config(action: ConfigAction) -> io::Result<()> {
+    match action {
+        ConfigAction::IsPluginEnabled { name } => {
+            let manager = ProfileManager::new()?;
+            let path = manager.config_dir().join("config.toml");
+            // No config file = first run before TUI write = treat as all enabled.
+            if !path.exists() {
+                return Ok(());
+            }
+            let cfg = manager.load_app_config()?;
+            // Empty enabled_plugins = "all enabled" (backwards compat).
+            if cfg.enabled_plugins.is_empty() || cfg.enabled_plugins.contains(&name) {
+                Ok(())
+            } else {
+                std::process::exit(1);
+            }
+        }
+    }
+}
+
+fn setup_ucf_session(ucf_name: &str, target_cli: &str) -> io::Result<(String, Vec<String>)> {
+    let ucf_path = dirs::data_dir()
+        .unwrap_or_else(|| {
+            std::path::PathBuf::from(env::var("HOME").unwrap_or_default()).join(".local/share")
+        })
+        .join("unleash")
+        .join("sessions")
+        .join(format!("{}.ucf.jsonl", ucf_name));
+
+    let ucf_query = format!("ucf:{}", ucf_name);
+
+    if !ucf_path.exists() {
+        eprintln!("\x1b[34minfo:\x1b[0m Starting new native UCF session: {ucf_name}");
+        std::fs::create_dir_all(ucf_path.parent().unwrap())?;
+        let now_iso = std::process::Command::new("date")
+            .arg("-u")
+            .arg("+%Y-%m-%dT%H:%M:%SZ")
+            .output()
+            .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string())
+            .unwrap_or_else(|_| "1970-01-01T00:00:00Z".to_string());
+
+        let header = interchange::hub::SessionHeader {
+            ucf_version: interchange::hub::UCF_VERSION.to_string(),
+            session_id: ucf_name.to_string(),
+            created_at: now_iso.clone(),
+            updated_at: now_iso.clone(),
+            source_cli: "ucf".to_string(),
+            source_version: "1.0.0".to_string(),
+            project: None,
+            model: None,
+            title: Some(ucf_name.to_string()),
+            slug: Some(ucf_name.to_string()),
+            parent_session_id: None,
+            extensions: serde_json::json!({}),
+        };
+        let msg = interchange::hub::HubMessage {
+            id: format!("init-{ucf_name}"),
+            api_message_id: None,
+            parent_id: None,
+            timestamp: now_iso.clone(),
+            completed_at: Some(now_iso),
+            role: "user".to_string(),
+            content: vec![interchange::hub::ContentBlock::Text {
+                text: "[UCF Session Initialized]".to_string(),
+            }],
+            metadata: Default::default(),
+            extensions: serde_json::json!({}),
+        };
+
+        let record_session = interchange::hub::HubRecord::Session(header);
+        let record_msg = interchange::hub::HubRecord::Message(msg);
+        let data = serde_json::to_string(&record_session).unwrap()
+            + "\n"
+            + &serde_json::to_string(&record_msg).unwrap()
+            + "\n";
+        std::fs::write(&ucf_path, data)?;
+    } else {
+        eprintln!("\x1b[34minfo:\x1b[0m Loading native UCF session: {ucf_name} into {target_cli}");
+    }
+
+    match interchange::inject::inject_session(&ucf_query, target_cli) {
+        Ok(result) => {
+            eprintln!("\x1b[32m✓\x1b[0m {}", result.message);
+            Ok((result.session_id, result.resume_args))
+        }
+        Err(e) => {
+            eprintln!("\x1b[31m✗\x1b[0m UCF initialization failed: {e}");
+            Err(io::Error::other(e.to_string()))
+        }
+    }
+}
+
+fn sync_ucf_session(ucf_name: &str, target_cli: &str, session_id: &str) {
+    let query = format!("{}:{}", target_cli, session_id);
+    if let Some(session) = interchange::sessions::find_session(&query) {
+        if let Ok(records) = interchange::inject::source_to_hub(&session) {
+            let ucf_path = dirs::data_dir()
+                .unwrap_or_else(|| {
+                    std::path::PathBuf::from(env::var("HOME").unwrap_or_default())
+                        .join(".local/share")
+                })
+                .join("unleash")
+                .join("sessions")
+                .join(format!("{}.ucf.jsonl", ucf_name));
+
+            let mut out = String::new();
+            for r in records {
+                out.push_str(&serde_json::to_string(&r).unwrap());
+                out.push('\n');
+            }
+            if let Err(e) = std::fs::write(&ucf_path, out) {
+                eprintln!(
+                    "Warning: Failed to save UCF session back to {}: {}",
+                    ucf_path.display(),
+                    e
+                );
+            } else {
+                eprintln!("\x1b[32m✓\x1b[0m Saved native UCF session: {}", ucf_name);
+            }
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1327,128 +1450,5 @@ mod tests {
         assert!(!is_known_subcommand("invalid-subcommand"));
         assert!(!is_known_subcommand(""));
         assert!(!is_known_subcommand("VERSION")); // case sensitive
-    }
-}
-
-fn handle_config(action: ConfigAction) -> io::Result<()> {
-    match action {
-        ConfigAction::IsPluginEnabled { name } => {
-            let manager = ProfileManager::new()?;
-            let path = manager.config_dir().join("config.toml");
-            // No config file = first run before TUI write = treat as all enabled.
-            if !path.exists() {
-                return Ok(());
-            }
-            let cfg = manager.load_app_config()?;
-            // Empty enabled_plugins = "all enabled" (backwards compat).
-            if cfg.enabled_plugins.is_empty() || cfg.enabled_plugins.contains(&name) {
-                Ok(())
-            } else {
-                std::process::exit(1);
-            }
-        }
-    }
-}
-
-fn setup_ucf_session(ucf_name: &str, target_cli: &str) -> io::Result<(String, Vec<String>)> {
-    let ucf_path = dirs::data_dir()
-        .unwrap_or_else(|| {
-            std::path::PathBuf::from(env::var("HOME").unwrap_or_default()).join(".local/share")
-        })
-        .join("unleash")
-        .join("sessions")
-        .join(format!("{}.ucf.jsonl", ucf_name));
-
-    let ucf_query = format!("ucf:{}", ucf_name);
-
-    if !ucf_path.exists() {
-        eprintln!("\x1b[34minfo:\x1b[0m Starting new native UCF session: {ucf_name}");
-        std::fs::create_dir_all(ucf_path.parent().unwrap())?;
-        let now_iso = std::process::Command::new("date")
-            .arg("-u")
-            .arg("+%Y-%m-%dT%H:%M:%SZ")
-            .output()
-            .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string())
-            .unwrap_or_else(|_| "1970-01-01T00:00:00Z".to_string());
-
-        let header = interchange::hub::SessionHeader {
-            ucf_version: interchange::hub::UCF_VERSION.to_string(),
-            session_id: ucf_name.to_string(),
-            created_at: now_iso.clone(),
-            updated_at: now_iso.clone(),
-            source_cli: "ucf".to_string(),
-            source_version: "1.0.0".to_string(),
-            project: None,
-            model: None,
-            title: Some(ucf_name.to_string()),
-            slug: Some(ucf_name.to_string()),
-            parent_session_id: None,
-            extensions: serde_json::json!({}),
-        };
-        let msg = interchange::hub::HubMessage {
-            id: format!("init-{ucf_name}"),
-            api_message_id: None,
-            parent_id: None,
-            timestamp: now_iso.clone(),
-            completed_at: Some(now_iso),
-            role: "user".to_string(),
-            content: vec![interchange::hub::ContentBlock::Text {
-                text: "[UCF Session Initialized]".to_string(),
-            }],
-            metadata: Default::default(),
-            extensions: serde_json::json!({}),
-        };
-
-        let record_session = interchange::hub::HubRecord::Session(header);
-        let record_msg = interchange::hub::HubRecord::Message(msg);
-        let data = serde_json::to_string(&record_session).unwrap()
-            + "\n"
-            + &serde_json::to_string(&record_msg).unwrap()
-            + "\n";
-        std::fs::write(&ucf_path, data)?;
-    } else {
-        eprintln!("\x1b[34minfo:\x1b[0m Loading native UCF session: {ucf_name} into {target_cli}");
-    }
-
-    match interchange::inject::inject_session(&ucf_query, target_cli) {
-        Ok(result) => {
-            eprintln!("\x1b[32m✓\x1b[0m {}", result.message);
-            Ok((result.session_id, result.resume_args))
-        }
-        Err(e) => {
-            eprintln!("\x1b[31m✗\x1b[0m UCF initialization failed: {e}");
-            Err(io::Error::other(e.to_string()))
-        }
-    }
-}
-
-fn sync_ucf_session(ucf_name: &str, target_cli: &str, session_id: &str) {
-    let query = format!("{}:{}", target_cli, session_id);
-    if let Some(session) = interchange::sessions::find_session(&query) {
-        if let Ok(records) = interchange::inject::source_to_hub(&session) {
-            let ucf_path = dirs::data_dir()
-                .unwrap_or_else(|| {
-                    std::path::PathBuf::from(env::var("HOME").unwrap_or_default())
-                        .join(".local/share")
-                })
-                .join("unleash")
-                .join("sessions")
-                .join(format!("{}.ucf.jsonl", ucf_name));
-
-            let mut out = String::new();
-            for r in records {
-                out.push_str(&serde_json::to_string(&r).unwrap());
-                out.push('\n');
-            }
-            if let Err(e) = std::fs::write(&ucf_path, out) {
-                eprintln!(
-                    "Warning: Failed to save UCF session back to {}: {}",
-                    ucf_path.display(),
-                    e
-                );
-            } else {
-                eprintln!("\x1b[32m✓\x1b[0m Saved native UCF session: {}", ucf_name);
-            }
-        }
     }
 }

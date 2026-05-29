@@ -1103,7 +1103,7 @@ mod tests {
             "timestamp": "2026-03-29T12:00:00.000Z"
         });
 
-        let data = gemini_session_json(&[msg.clone()]);
+        let data = gemini_session_json(std::slice::from_ref(&msg));
         let hub = to_hub(&data).unwrap();
         let back = from_hub(&hub).unwrap();
         let back_messages = back.get("messages").unwrap().as_array().unwrap();
@@ -1359,7 +1359,7 @@ mod tests {
             "timestamp": "2026-03-29T12:00:00.000Z"
         });
 
-        let data = gemini_session_json(&[msg.clone()]);
+        let data = gemini_session_json(std::slice::from_ref(&msg));
         let hub = to_hub(&data).unwrap();
 
         if let HubRecord::Message(ref hub_msg) = hub[1] {
@@ -1368,12 +1368,11 @@ mod tests {
             // Should have the original message stashed for lossless round-trip
             let orig = gc.get("_original_message").unwrap();
             assert_eq!(orig.get("id").unwrap().as_str().unwrap(), "msg-5");
-            assert_eq!(
+            assert!(
                 orig.get("renderOutputAsMarkdown")
                     .unwrap()
                     .as_bool()
-                    .unwrap(),
-                true
+                    .unwrap()
             );
         }
     }

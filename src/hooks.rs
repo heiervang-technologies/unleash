@@ -844,7 +844,7 @@ mod tests {
         )
         .unwrap();
 
-        mgr.sync_plugin_hooks(&[plugin_dir.clone()]).unwrap();
+        mgr.sync_plugin_hooks(std::slice::from_ref(&plugin_dir)).unwrap();
 
         let settings = mgr.read_settings().unwrap();
 
@@ -904,7 +904,7 @@ mod tests {
         .unwrap();
 
         // Sync twice
-        mgr.sync_plugin_hooks(&[plugin_dir.clone()]).unwrap();
+        mgr.sync_plugin_hooks(std::slice::from_ref(&plugin_dir)).unwrap();
         mgr.sync_plugin_hooks(&[plugin_dir]).unwrap();
 
         let settings = mgr.read_settings().unwrap();
@@ -935,7 +935,7 @@ mod tests {
             r#"{"hooks":{"PreCompact":[{"hooks":[{"type":"command","command":"${CLAUDE_PLUGIN_ROOT}/hook.sh"}]}]}}"#,
         )
         .unwrap();
-        mgr.sync_plugin_hooks(&[new_dir.clone()]).unwrap();
+        mgr.sync_plugin_hooks(std::slice::from_ref(&new_dir)).unwrap();
 
         let settings = mgr.read_settings().unwrap();
         let hooks = settings["hooks"]["PreCompact"].as_array().unwrap();
@@ -1039,7 +1039,7 @@ mod tests {
         let plugin_dir = root.join("plugins/bundled").join(name);
         fs::create_dir_all(plugin_dir.join("hooks")).unwrap();
         fs::write(plugin_dir.join("hooks/hooks.json"), hooks_json).unwrap();
-        mgr.sync_plugin_hooks(&[plugin_dir.clone()]).unwrap();
+        mgr.sync_plugin_hooks(std::slice::from_ref(&plugin_dir)).unwrap();
         plugin_dir
     }
 
@@ -1097,8 +1097,9 @@ mod tests {
         );
 
         let before = fs::read_to_string(&mgr.installation.settings_path).unwrap();
+        let plugins = [plugin_a.clone()];
         let changed = mgr
-            .prune_hooks_for_disabled_plugins(&[plugin_a.clone()], &[plugin_a])
+            .prune_hooks_for_disabled_plugins(&plugins, &[plugin_a])
             .unwrap();
         let after = fs::read_to_string(&mgr.installation.settings_path).unwrap();
 
