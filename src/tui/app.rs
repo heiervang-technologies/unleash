@@ -405,6 +405,7 @@ impl SandboxStepStatus {
 
 /// What the user picked for a single env-var key in the wizard.
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Default)]
 pub enum EnvKeyChoice {
     /// Don't store; pass `-e KEY` at `docker run` time so the host value flows in.
     Passthrough,
@@ -413,6 +414,7 @@ pub enum EnvKeyChoice {
     /// Open `$EDITOR` on `docker/.env` when the user hits Enter.
     Editor,
     /// Neither — skip this key entirely.
+    #[default]
     Skip,
 }
 
@@ -443,13 +445,6 @@ impl EnvKeyChoice {
     }
 }
 
-impl Default for EnvKeyChoice {
-    fn default() -> Self {
-        // Default to passthrough when the host env already has the key set
-        // (decided per-row at draft creation); fall back to Skip otherwise.
-        EnvKeyChoice::Skip
-    }
-}
 
 /// One row in the env-config step.
 #[derive(Debug, Clone)]
@@ -7036,7 +7031,7 @@ mod tests {
         let (app, _temp) = test_app();
         let width = app.content_width();
         // Main menu width is driven by the longest description line.
-        assert!(width >= 30 && width <= 80);
+        assert!((30..=80).contains(&width));
     }
 
     #[test]

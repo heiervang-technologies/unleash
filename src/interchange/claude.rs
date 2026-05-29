@@ -118,14 +118,14 @@ pub fn from_hub(records: &[HubRecord]) -> Result<Vec<Value>, ConvertError> {
     }
 
     // Attach the session passthrough to the first emitted line.
-    if let (Some(sess), Some(first)) = (session_passthrough, lines.first_mut()) {
-        if let Value::Object(ref mut obj) = first {
-            let entry = obj
-                .entry("_ucf_hub".to_string())
-                .or_insert_with(|| Value::Object(serde_json::Map::new()));
-            if let Value::Object(ref mut inner) = entry {
-                inner.insert("session".to_string(), sess);
-            }
+    if let (Some(sess), Some(Value::Object(ref mut obj))) =
+        (session_passthrough, lines.first_mut())
+    {
+        let entry = obj
+            .entry("_ucf_hub".to_string())
+            .or_insert_with(|| Value::Object(serde_json::Map::new()));
+        if let Value::Object(ref mut inner) = entry {
+            inner.insert("session".to_string(), sess);
         }
     }
 

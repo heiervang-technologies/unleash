@@ -844,14 +844,12 @@ fn hub_event_to_codex(evt: &HubEvent) -> Result<Value, ConvertError> {
     // Check if we stored the original outer type
     let outer_type = cc.get("_outer_type").and_then(|v| v.as_str()).unwrap_or("");
 
+    // turn_context is the only Codex outer type that's not event_msg; everything
+    // else (token_count, codex_*, plus the catch-all) lands as event_msg.
     let codex_type = if !outer_type.is_empty() {
         outer_type.to_string()
     } else if evt.event_type == "turn_context" {
         "turn_context".to_string()
-    } else if evt.event_type == "token_count" {
-        "event_msg".to_string()
-    } else if evt.event_type.starts_with("codex_") {
-        "event_msg".to_string()
     } else {
         "event_msg".to_string()
     };

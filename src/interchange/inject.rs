@@ -153,7 +153,7 @@ fn estimate_tokens(records: &[HubRecord]) -> usize {
         .iter()
         .filter_map(|r| {
             if let HubRecord::Message(m) = r {
-                Some(m.content.iter().map(|b| estimate_block_chars(b)).sum::<usize>())
+                Some(m.content.iter().map(estimate_block_chars).sum::<usize>())
             } else {
                 None
             }
@@ -170,7 +170,7 @@ fn estimate_block_chars(block: &crate::interchange::hub::ContentBlock) -> usize 
             name.len() + input.to_string().len()
         }
         ContentBlock::ToolResult { content, .. } => {
-            content.iter().map(|b| estimate_block_chars(b)).sum()
+            content.iter().map(estimate_block_chars).sum()
         }
         ContentBlock::Thinking { text, .. } => text.len(),
         ContentBlock::Image { .. } => 256,

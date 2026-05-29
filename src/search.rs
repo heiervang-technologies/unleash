@@ -581,7 +581,7 @@ async fn run_async(args: RunArgs) -> Result<(), Box<dyn std::error::Error>> {
             }
             Err(_) => emb_failed += 1,
         }
-        if !args.json && (emb_done + emb_failed) % 32 == 0 {
+        if !args.json && (emb_done + emb_failed).is_multiple_of(32) {
             eprintln!("  embed: {}/{}", emb_done + emb_failed, total_embed);
         }
     }

@@ -70,11 +70,12 @@ fn trigger_background_reindex(db_path: &std::path::Path) {
     let already_running = if lock_path.exists() {
         if let Ok(content) = std::fs::read_to_string(&lock_path) {
             if let Ok(pid) = content.trim().parse::<i32>() {
-                match nix::sys::signal::kill(nix::unistd::Pid::from_raw(pid), None) {
-                    Ok(_) => true,
-                    Err(nix::errno::Errno::EPERM) => true,
-                    _ => false,
-                }
+                // EPERM means the PID exists but is owned by another user — still
+                // a live process for our purposes.
+                matches!(
+                    nix::sys::signal::kill(nix::unistd::Pid::from_raw(pid), None),
+                    Ok(_) | Err(nix::errno::Errno::EPERM)
+                )
             } else {
                 false
             }
@@ -153,7 +154,9 @@ fn overlay_search_index_names(sessions: &mut [SessionInfo]) {
     };
 
     let mut needs_reindex = !db_path.exists();
-    let mut overlay: std::collections::HashMap<(String, String), (Option<String>, Option<String>, i64)> =
+    // (cli, source_id) → (generated_title, native_title, db_mtime_ns)
+    type OverlayRow = (Option<String>, Option<String>, i64);
+    let mut overlay: std::collections::HashMap<(String, String), OverlayRow> =
         std::collections::HashMap::new();
 
     if db_path.exists() {
@@ -710,6 +713,153 @@ fn format_epoch_ms(ms: u64) -> String {
     format!("{year:04}-{month:02}-{day:02}T00:00:00Z")
 }
 
+// === Pi discovery ===
+
+fn discover_pi() -> Vec<SessionInfo> {
+    let mut sessions = Vec::new();
+    let pi_dir = match dirs::home_dir() {
+        Some(h) => h.join(".pi").join("agent").join("sessions"),
+        None => return sessions,
+    };
+
+    if !pi_dir.exists() {
+        return sessions;
+    }
+
+    let Ok(project_dirs) = std::fs::read_dir(&pi_dir) else {
+        return sessions;
+    };
+
+    for project in project_dirs.flatten() {
+        if !project.file_type().is_ok_and(|ft| ft.is_dir()) {
+            continue;
+        }
+        let project_path = project.path();
+        // Pi encodes the project dir as --<path-with-slashes-as-hyphens>--
+        let raw = project.file_name().to_string_lossy().to_string();
+        let decoded = raw
+            .strip_prefix("--")
+            .and_then(|s| s.strip_suffix("--"))
+            .map(|s| format!("/{}", s.replace('-', "/")))
+            .unwrap_or(raw.clone());
+
+        let Ok(files) = std::fs::read_dir(&project_path) else {
+            continue;
+        };
+
+        for file in files.flatten() {
+            let path = file.path();
+            if path.extension().and_then(|e| e.to_str()) != Some("jsonl") {
+                continue;
+            }
+
+            let session_id = path
+                .file_stem()
+                .and_then(|s| s.to_str())
+                .unwrap_or("")
+                .to_string();
+
+            let updated_at = file
+                .metadata()
+                .ok()
+                .and_then(|m| m.modified().ok())
+                .map(|t| {
+                    let duration = t.duration_since(std::time::UNIX_EPOCH).unwrap_or_default();
+                    format_epoch_ms(duration.as_millis() as u64)
+                })
+                .unwrap_or_default();
+
+            sessions.push(SessionInfo {
+                cli: "pi".to_string(),
+                id: session_id,
+                name: None,
+                title: None,
+                directory: decoded.clone(),
+                path,
+                updated_at,
+                message_count: None,
+            });
+        }
+    }
+
+    sessions
+}
+
+// === UCF (Native Hub) discovery ===
+
+fn discover_ucf() -> Vec<SessionInfo> {
+    let mut sessions = Vec::new();
+    let ucf_dir = match dirs::data_dir() {
+        Some(d) => d.join("unleash").join("sessions"),
+        None => return sessions,
+    };
+
+    if !ucf_dir.exists() {
+        return sessions;
+    }
+
+    let Ok(entries) = std::fs::read_dir(&ucf_dir) else {
+        return sessions;
+    };
+
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if path.extension().and_then(|s| s.to_str()) != Some("jsonl") {
+            continue;
+        }
+
+        let file_name = path.file_name().unwrap_or_default().to_string_lossy();
+        if !file_name.ends_with(".ucf.jsonl") {
+            continue;
+        }
+
+        let id = file_name
+            .strip_suffix(".ucf.jsonl")
+            .unwrap_or(&file_name)
+            .to_string();
+
+        let Ok(file) = std::fs::File::open(&path) else {
+            continue;
+        };
+
+        use std::io::BufRead;
+        let reader = std::io::BufReader::new(file);
+        let mut lines = reader.lines();
+
+        if let Some(Ok(first_line)) = lines.next() {
+            if let Ok(val) = serde_json::from_str::<serde_json::Value>(&first_line) {
+                if val.get("type").and_then(|t| t.as_str()) == Some("session") {
+                    let updated_at = val
+                        .get("updated_at")
+                        .and_then(|t| t.as_str())
+                        .unwrap_or("1970-01-01T00:00:00.000Z")
+                        .to_string();
+                    let title = val
+                        .get("title")
+                        .and_then(|t| t.as_str())
+                        .map(|s| s.to_string());
+
+                    // remaining lines after header (messages + events)
+                    let message_count = lines.filter(|l| l.is_ok()).count();
+
+                    sessions.push(SessionInfo {
+                        cli: "ucf".to_string(),
+                        id: id.clone(),
+                        name: Some(id),
+                        title,
+                        directory: ucf_dir.to_string_lossy().to_string(),
+                        path,
+                        updated_at,
+                        message_count: Some(message_count),
+                    });
+                }
+            }
+        }
+    }
+
+    sessions
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -935,7 +1085,7 @@ mod tests {
         let ts = format_epoch_ms(31_104_000_000);
         let month: u32 = ts[5..7].parse().unwrap();
         assert!(
-            month >= 1 && month <= 12,
+            (1..=12).contains(&month),
             "month={} out of range in '{}'",
             month,
             ts
@@ -945,157 +1095,10 @@ mod tests {
         let ts2 = format_epoch_ms(1_735_603_200_000); // ~2024-12-31
         let month2: u32 = ts2[5..7].parse().unwrap();
         assert!(
-            month2 >= 1 && month2 <= 12,
+            (1..=12).contains(&month2),
             "month={} out of range in '{}'",
             month2,
             ts2
         );
     }
-}
-
-// === Pi discovery ===
-
-fn discover_pi() -> Vec<SessionInfo> {
-    let mut sessions = Vec::new();
-    let pi_dir = match dirs::home_dir() {
-        Some(h) => h.join(".pi").join("agent").join("sessions"),
-        None => return sessions,
-    };
-
-    if !pi_dir.exists() {
-        return sessions;
-    }
-
-    let Ok(project_dirs) = std::fs::read_dir(&pi_dir) else {
-        return sessions;
-    };
-
-    for project in project_dirs.flatten() {
-        if !project.file_type().is_ok_and(|ft| ft.is_dir()) {
-            continue;
-        }
-        let project_path = project.path();
-        // Pi encodes the project dir as --<path-with-slashes-as-hyphens>--
-        let raw = project.file_name().to_string_lossy().to_string();
-        let decoded = raw
-            .strip_prefix("--")
-            .and_then(|s| s.strip_suffix("--"))
-            .map(|s| format!("/{}", s.replace('-', "/")))
-            .unwrap_or(raw.clone());
-
-        let Ok(files) = std::fs::read_dir(&project_path) else {
-            continue;
-        };
-
-        for file in files.flatten() {
-            let path = file.path();
-            if path.extension().and_then(|e| e.to_str()) != Some("jsonl") {
-                continue;
-            }
-
-            let session_id = path
-                .file_stem()
-                .and_then(|s| s.to_str())
-                .unwrap_or("")
-                .to_string();
-
-            let updated_at = file
-                .metadata()
-                .ok()
-                .and_then(|m| m.modified().ok())
-                .map(|t| {
-                    let duration = t.duration_since(std::time::UNIX_EPOCH).unwrap_or_default();
-                    format_epoch_ms(duration.as_millis() as u64)
-                })
-                .unwrap_or_default();
-
-            sessions.push(SessionInfo {
-                cli: "pi".to_string(),
-                id: session_id,
-                name: None,
-                title: None,
-                directory: decoded.clone(),
-                path,
-                updated_at,
-                message_count: None,
-            });
-        }
-    }
-
-    sessions
-}
-
-// === UCF (Native Hub) discovery ===
-
-fn discover_ucf() -> Vec<SessionInfo> {
-    let mut sessions = Vec::new();
-    let ucf_dir = match dirs::data_dir() {
-        Some(d) => d.join("unleash").join("sessions"),
-        None => return sessions,
-    };
-
-    if !ucf_dir.exists() {
-        return sessions;
-    }
-
-    let Ok(entries) = std::fs::read_dir(&ucf_dir) else {
-        return sessions;
-    };
-
-    for entry in entries.flatten() {
-        let path = entry.path();
-        if path.extension().and_then(|s| s.to_str()) != Some("jsonl") {
-            continue;
-        }
-
-        let file_name = path.file_name().unwrap_or_default().to_string_lossy();
-        if !file_name.ends_with(".ucf.jsonl") {
-            continue;
-        }
-
-        let id = file_name
-            .strip_suffix(".ucf.jsonl")
-            .unwrap_or(&file_name)
-            .to_string();
-
-        let Ok(file) = std::fs::File::open(&path) else {
-            continue;
-        };
-
-        use std::io::BufRead;
-        let reader = std::io::BufReader::new(file);
-        let mut lines = reader.lines();
-
-        if let Some(Ok(first_line)) = lines.next() {
-            if let Ok(val) = serde_json::from_str::<serde_json::Value>(&first_line) {
-                if val.get("type").and_then(|t| t.as_str()) == Some("session") {
-                    let updated_at = val
-                        .get("updated_at")
-                        .and_then(|t| t.as_str())
-                        .unwrap_or("1970-01-01T00:00:00.000Z")
-                        .to_string();
-                    let title = val
-                        .get("title")
-                        .and_then(|t| t.as_str())
-                        .map(|s| s.to_string());
-
-                    // remaining lines after header (messages + events)
-                    let message_count = lines.filter(|l| l.is_ok()).count();
-
-                    sessions.push(SessionInfo {
-                        cli: "ucf".to_string(),
-                        id: id.clone(),
-                        name: Some(id),
-                        title,
-                        directory: ucf_dir.to_string_lossy().to_string(),
-                        path,
-                        updated_at,
-                        message_count: Some(message_count),
-                    });
-                }
-            }
-        }
-    }
-
-    sessions
 }

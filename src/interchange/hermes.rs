@@ -247,12 +247,12 @@ pub fn to_hub(json: &str) -> Result<Vec<HubRecord>, ConvertError> {
                     });
 
                     // Collect matching tool result from following tool-role msgs
-                    for j in (i + 1)..messages.len() {
-                        if messages[j]["role"].as_str() != Some("tool") {
+                    for next in messages.iter().skip(i + 1) {
+                        if next["role"].as_str() != Some("tool") {
                             break;
                         }
-                        if messages[j]["tool_call_id"].as_str() == Some(&call_id) {
-                            let res = messages[j]["content"].as_str().unwrap_or("").to_string();
+                        if next["tool_call_id"].as_str() == Some(&call_id) {
+                            let res = next["content"].as_str().unwrap_or("").to_string();
                             result_blocks.push(ContentBlock::ToolResult {
                                 tool_use_id: call_id.clone(),
                                 content: vec![ContentBlock::Text { text: res }],

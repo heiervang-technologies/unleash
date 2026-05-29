@@ -221,7 +221,7 @@ where
         let serialized = serde_json::to_string_pretty(&reports)?;
         println!("{}", serialized);
     } else {
-        println!("{:<15} {:<30} {:<30} {}", "STATUS", "SOURCE", "TARGET", "REASON");
+        println!("{:<15} {:<30} {:<30} REASON", "STATUS", "SOURCE", "TARGET");
         for r in &reports {
             println!(
                 "{:<15} {:<30} {:<30} {}",

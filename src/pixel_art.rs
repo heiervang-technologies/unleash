@@ -1367,7 +1367,7 @@ mod tests {
             while let Some(ch) = chars.next() {
                 if ch == '\x1b' {
                     // Skip until 'm'
-                    while let Some(c) = chars.next() {
+                    for c in chars.by_ref() {
                         if c == 'm' {
                             break;
                         }
@@ -1406,7 +1406,7 @@ mod tests {
             let mut chars = line.chars().peekable();
             while let Some(ch) = chars.next() {
                 if ch == '\x1b' {
-                    while let Some(c) = chars.next() {
+                    for c in chars.by_ref() {
                         if c == 'm' {
                             break;
                         }

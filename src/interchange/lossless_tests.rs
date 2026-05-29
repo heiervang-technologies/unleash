@@ -257,7 +257,8 @@ mod tests {
     #[test]
     #[ignore = "diagnostic — run manually"]
     fn diagnostic_all_pairs() {
-        let clis: Vec<(&str, &dyn Fn(&[HubRecord]) -> Vec<HubRecord>)> = vec![
+        type RoundTrip = dyn Fn(&[HubRecord]) -> Vec<HubRecord>;
+        let clis: Vec<(&str, &RoundTrip)> = vec![
             ("claude", &via_claude),
             ("codex", &via_codex),
             ("gemini", &via_gemini),
