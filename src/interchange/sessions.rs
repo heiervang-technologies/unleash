@@ -97,8 +97,12 @@ fn trigger_background_reindex(db_path: &std::path::Path) {
         if let Some(parent) = lock_path.parent() {
             let _ = std::fs::create_dir_all(parent);
         }
+        // UNLEASH_REINDEX_LOCK_PATH lets the child clean up its own lock file on
+        // exit (see run_sessions_action_async). Without it, the stale lock persists
+        // until the next reindex check finds the PID is dead via kill(pid, 0).
         if let Ok(child) = std::process::Command::new(&exe)
             .args(["sessions", "reindex", "--json"])
+            .env("UNLEASH_REINDEX_LOCK_PATH", &lock_path)
             .stdin(std::process::Stdio::null())
             .stdout(std::process::Stdio::null())
             .stderr(std::process::Stdio::null())
@@ -834,6 +838,68 @@ mod tests {
         assert!(
             nix::sys::signal::kill(nix::unistd::Pid::from_raw(pid), None).is_ok(),
             "the spawned process PID should be active"
+        );
+    }
+
+    #[test]
+    fn test_trigger_background_reindex_sets_lock_path_env_var() {
+        // The child process needs UNLEASH_REINDEX_LOCK_PATH to clean up the lock
+        // file on exit. We stub the child with a tiny shell script that asserts
+        // the env var is set and points at the expected file. If the env var is
+        // missing or wrong, the script exits non-zero and we can detect it via
+        // the absence of the marker file it writes.
+        let tmp = tempfile::tempdir().unwrap();
+        let db_path = tmp.path().join("search-index.db");
+        let unleash_dir = tmp.path();
+        let lock_path = unleash_dir.join("search-index.lock");
+        let marker = tmp.path().join("env-was-set.marker");
+
+        // Wait at the end of script body so trigger_background_reindex writes
+        // the lock file before we check the marker contents.
+        let script_path = tmp.path().join("fake-unleash.sh");
+        std::fs::write(
+            &script_path,
+            format!(
+                "#!/bin/sh\necho \"$UNLEASH_REINDEX_LOCK_PATH\" > {:?}\n",
+                marker
+            ),
+        )
+        .unwrap();
+        use std::os::unix::fs::PermissionsExt;
+        let mut perm = std::fs::metadata(&script_path).unwrap().permissions();
+        perm.set_mode(0o755);
+        std::fs::set_permissions(&script_path, perm).unwrap();
+
+        let saved_reindex_binary = std::env::var_os("UNLEASH_REINDEX_BINARY");
+        // SAFETY: env mutation in tests; restored below.
+        unsafe {
+            std::env::set_var("UNLEASH_REINDEX_BINARY", &script_path);
+        }
+
+        trigger_background_reindex(&db_path);
+
+        // Restore env before assertions
+        match saved_reindex_binary {
+            Some(v) => unsafe { std::env::set_var("UNLEASH_REINDEX_BINARY", v) },
+            None => unsafe { std::env::remove_var("UNLEASH_REINDEX_BINARY") },
+        }
+
+        // Give the spawned child a moment to flush its echo. The script is
+        // trivial; even on slow runners it completes in milliseconds.
+        for _ in 0..20 {
+            if marker.exists() {
+                break;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(50));
+        }
+
+        assert!(marker.exists(), "fake child should have written the marker");
+        let content = std::fs::read_to_string(&marker).unwrap();
+        let received_path = content.trim();
+        assert_eq!(
+            received_path,
+            lock_path.to_string_lossy(),
+            "child must receive UNLEASH_REINDEX_LOCK_PATH pointing at the parent's lock file"
         );
     }
 

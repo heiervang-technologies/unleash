@@ -197,6 +197,16 @@ pub fn run(args: RunArgs) -> Result<(), Box<dyn std::error::Error>> {
     rt.block_on(run_async(args))
 }
 
+/// RAII guard that removes a lock file when dropped. Used by the reindex
+/// action when it's invoked as a background child (lock path arrives via the
+/// UNLEASH_REINDEX_LOCK_PATH env var set by trigger_background_reindex).
+struct ReindexLockGuard(std::ffi::OsString);
+impl Drop for ReindexLockGuard {
+    fn drop(&mut self) {
+        let _ = std::fs::remove_file(std::path::Path::new(&self.0));
+    }
+}
+
 /// Synchronous entry point for `unleash sessions reindex` / `unleash sessions name`.
 /// Same tokio-containment pattern as `run()`.
 pub fn run_sessions_action(
@@ -215,6 +225,12 @@ async fn run_sessions_action_async(
 ) -> Result<(), Box<dyn std::error::Error>> {
     match action {
         crate::cli::SessionsAction::Reindex => {
+            // When spawned in the background by trigger_background_reindex, the
+            // parent passes the lock-file path so we can remove it on completion
+            // (success, error, or panic). Without this, the stale lock persists
+            // until the next reindex check notices the PID is dead.
+            let _lock_guard = std::env::var_os("UNLEASH_REINDEX_LOCK_PATH")
+                .map(ReindexLockGuard);
             // Re-use the full search pipeline (probe → schema → discover → upsert
             // → embed → name) with no query and no TUI. Setting reindex=true
             // wipes embeddings + generated titles so everything regenerates.
@@ -2135,5 +2151,28 @@ mod tests {
         let out = truncate("αβγδε ζηθικ", 6);
         assert_eq!(out.chars().count(), 6);
         assert!(out.ends_with('…'));
+    }
+
+    #[test]
+    fn reindex_lock_guard_removes_file_on_drop() {
+        let tmp = tempfile::tempdir().unwrap();
+        let lock_path = tmp.path().join("search-index.lock");
+        std::fs::write(&lock_path, "12345").unwrap();
+        assert!(lock_path.exists());
+        {
+            let _g = ReindexLockGuard(lock_path.as_os_str().to_os_string());
+        }
+        assert!(!lock_path.exists(), "guard should remove the lock file on drop");
+    }
+
+    #[test]
+    fn reindex_lock_guard_drop_is_silent_when_file_missing() {
+        // If something else already removed the lock (e.g. a concurrent reindex
+        // attempt cleaned up), Drop must not panic — std::fs::remove_file returns
+        // an error we deliberately ignore.
+        let tmp = tempfile::tempdir().unwrap();
+        let lock_path = tmp.path().join("does-not-exist.lock");
+        let _g = ReindexLockGuard(lock_path.as_os_str().to_os_string());
+        // dropping at end of scope — no panic expected
     }
 }
