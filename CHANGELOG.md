@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.56](https://github.com/heiervang-technologies/unleash/compare/v0.1.55...v0.1.56) (2026-05-29)
+
+
+### Bug Fixes
+
+* **updater:** fall back to embedded versions when live latest-check fails ([#240](https://github.com/heiervang-technologies/unleash/issues/240)) ([de97777](https://github.com/heiervang-technologies/unleash/commit/de97777fab3fbc214e5288997f830ceaefcb459a))
+
 ## [0.1.55](https://github.com/heiervang-technologies/unleash/compare/v0.1.54...v0.1.55) (2026-05-29)
 
 
