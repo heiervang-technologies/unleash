@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.54](https://github.com/heiervang-technologies/unleash/compare/v0.1.53...v0.1.54) (2026-05-29)
+
+
+### Bug Fixes
+
+* **sessions:** clean up reindex lock file when child exits ([#235](https://github.com/heiervang-technologies/unleash/issues/235)) ([a4c1f29](https://github.com/heiervang-technologies/unleash/commit/a4c1f29763f8e9b6feb7b5c8f17bfac048b9e48f))
+
 ## [0.1.53](https://github.com/heiervang-technologies/unleash/compare/v0.1.52...v0.1.53) (2026-05-27)
 
 
