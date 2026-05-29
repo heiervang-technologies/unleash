@@ -529,7 +529,7 @@ fn get_latest_version(agent_type: AgentType) -> io::Result<Option<String>> {
     if let AgentType::Custom(_) = &agent_type {
         return Ok(None); // custom agents don't support version detection yet
     }
-    let def = AgentDefinition::from_type(agent_type);
+    let def = AgentDefinition::from_type(agent_type.clone());
 
     // Prefer npm registry for agents that have an npm package.
     if let Some(ref package) = def.npm_package {
@@ -539,12 +539,39 @@ fn get_latest_version(agent_type: AgentType) -> io::Result<Option<String>> {
         // npm not available or returned nothing — fall through to GitHub
     }
 
-    // Fall back to GitHub releases.
+    // Try GitHub releases.
     if let Some(ref repo) = def.github_repo {
-        return get_latest_github_version(repo);
+        if let Some(version) = get_latest_github_version(repo)? {
+            return Ok(Some(version));
+        }
     }
 
-    Ok(None)
+    // Both live lookups failed (npm down, GitHub rate-limited, no network,
+    // etc.) — fall back to the embedded version list compiled into the
+    // binary. Without this, the check phase emits "not installed (up to
+    // date)" and the install loop silently skips the agent, leaving the
+    // user with no install and no error. Embedded versions may be slightly
+    // behind upstream but are always installable.
+    Ok(latest_embedded_version(&agent_type))
+}
+
+/// First (newest) version for `agent_type` from the embedded versions
+/// list, or None for agents not represented there (Custom, Unleash).
+fn latest_embedded_version(agent_type: &AgentType) -> Option<String> {
+    let key = match agent_type {
+        AgentType::Claude => "claude",
+        AgentType::Codex => "codex",
+        AgentType::Antigravity => "antigravity",
+        AgentType::Gemini => "gemini",
+        AgentType::OpenCode => "opencode",
+        AgentType::Pi => "pi",
+        AgentType::Hermes => "hermes",
+        AgentType::Unleash | AgentType::Custom(_) => return None,
+    };
+    crate::version::load_embedded_versions()
+        .get(key)
+        .and_then(|v| v.first())
+        .cloned()
 }
 
 fn get_latest_npm_version(package: &str) -> io::Result<Option<String>> {
@@ -1546,5 +1573,42 @@ mod tests {
     fn parse_release_tag_returns_none_for_missing_tag_name() {
         let body = br#"{"name":"Release","id":12345}"#;
         assert_eq!(parse_release_tag(body), None);
+    }
+
+    #[test]
+    fn latest_embedded_version_returns_first_for_bundled_agents() {
+        // data/versions.json is compiled into the binary via include_str! —
+        // these agents must always have at least one fallback entry or the
+        // CUDA Dockerfile / any offline install will silently skip them.
+        // Pi and Hermes are NPM-only at build time and not bundled; their
+        // live install path doesn't depend on this fallback.
+        for agent in [
+            AgentType::Claude,
+            AgentType::Codex,
+            AgentType::Gemini,
+            AgentType::OpenCode,
+            AgentType::Antigravity,
+        ] {
+            let v = latest_embedded_version(&agent);
+            assert!(
+                v.is_some(),
+                "embedded versions must include {:?} (data/versions.json)",
+                agent
+            );
+            assert!(
+                !v.as_deref().unwrap_or("").is_empty(),
+                "{:?} embedded version must be non-empty",
+                agent
+            );
+        }
+    }
+
+    #[test]
+    fn latest_embedded_version_returns_none_for_custom_and_unleash() {
+        assert_eq!(latest_embedded_version(&AgentType::Unleash), None);
+        assert_eq!(
+            latest_embedded_version(&AgentType::Custom("foo".into())),
+            None
+        );
     }
 }
