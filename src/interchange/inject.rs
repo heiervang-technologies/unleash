@@ -1484,30 +1484,80 @@ fn extract_session_id(records: &[HubRecord]) -> String {
 }
 
 fn encode_claude_project_path(dir: &str) -> String {
-    // Claude replaces ALL non-alphanumeric chars with dashes, and truncates at 200 chars with hash
+    // Mirrors Claude Code's `TM(H)` exactly (verified 2026-05-29 against
+    // cli.js v2.1.154 — strings dump at /tmp/claude-strings.txt):
+    //
+    //   function TM(H) {
+    //     let $ = H.replace(/[^a-zA-Z0-9]/g, "-");
+    //     if ($.length <= 200) return $;
+    //     return `${$.slice(0, 200)}-${Math.abs(FmH(H)).toString(36)}`;
+    //   }
+    //
+    // The hash is computed from the **original** path `H`, not the encoded
+    // form. Output is base36 of |int32|. Caller is responsible for NFC
+    // normalization if the path contains non-ASCII chars (Claude normalizes
+    // upstream in F3()/aKH()).
     let encoded: String = dir
         .chars()
         .map(|c| if c.is_ascii_alphanumeric() { c } else { '-' })
         .collect();
-    if encoded.len() > 200 {
-        let hash = simple_hash(&encoded);
-        format!("{}-{:x}", &encoded[..200], hash)
-    } else {
+    if encoded.len() <= 200 {
         encoded
+    } else {
+        let suffix = to_base36(claude_path_hash(dir).unsigned_abs() as u64);
+        format!("{}-{}", &encoded[..200], suffix)
     }
 }
 
+/// Mirrors Claude Code's `FmH(H)` 32-bit polynomial hash:
+///
+/// ```js
+/// function FmH(H) {
+///   let $ = 0;
+///   for (let q = 0; q < H.length; q++) $ = ($ << 5) - $ + H.charCodeAt(q) | 0;
+///   return $;
+/// }
+/// ```
+///
+/// `($ << 5) - $` is `31 * $`. The `| 0` operator coerces to signed int32 at
+/// each step, so we use `i32` with wrapping arithmetic. `charCodeAt` returns
+/// UTF-16 code units — for BMP non-ASCII chars this is the code point itself,
+/// for supplementary chars it's surrogate pairs.
+fn claude_path_hash(s: &str) -> i32 {
+    let mut h: i32 = 0;
+    for c in s.encode_utf16() {
+        h = h.wrapping_shl(5).wrapping_sub(h).wrapping_add(c as i32);
+    }
+    h
+}
+
+/// Polynomial × 31 fallback hash for SHA256/SHA1 cache-key construction when
+/// the system `sha256sum`/`shasum` binaries are unavailable. Output stability
+/// across runs is the only requirement; it intentionally does NOT match any
+/// real cryptographic hash. Do not use for Claude project-path encoding —
+/// that needs claude_path_hash() above.
 fn simple_hash(s: &str) -> u64 {
-    // TODO: verify this matches Claude Code's actual truncation hash implementation.
-    // Claude Code's source uses a hash suffix for long paths, but the exact algorithm
-    // (polynomial basis, seed, output width) has not been confirmed against a live binary.
-    // Until verified, injected long-path sessions may land in a different directory than
-    // Claude Code would create natively — meaning resume won't find them.
     let mut h: u64 = 0;
     for b in s.bytes() {
         h = h.wrapping_mul(31).wrapping_add(b as u64);
     }
     h
+}
+
+/// Equivalent to JS `n.toString(36)` for non-negative integers. Digits 0-9
+/// then a-z (lowercase). Empty input is "0".
+fn to_base36(mut n: u64) -> String {
+    if n == 0 {
+        return "0".to_string();
+    }
+    let mut digits = Vec::with_capacity(13);
+    while n > 0 {
+        let d = (n % 36) as u8;
+        digits.push(if d < 10 { b'0' + d } else { b'a' + (d - 10) });
+        n /= 36;
+    }
+    digits.reverse();
+    String::from_utf8(digits).unwrap()
 }
 
 fn uuid_v4() -> String {
@@ -1583,34 +1633,60 @@ mod tests {
     }
 
     #[test]
-    fn test_encode_claude_project_path_long_path_truncates_with_hash() {
-        // Paths over 200 chars should be truncated to 200 chars with a hex hash suffix
-        let long_path = "/home/me/".to_string() + &"a".repeat(200);
-        let result = encode_claude_project_path(&long_path);
-        // Result must be longer than 200 (truncated prefix + "-" + hex hash)
-        assert!(
-            result.len() > 200,
-            "long path result should be longer than 200: len={}",
-            result.len()
+    fn test_encode_claude_project_path_long_path_matches_claude_fixture() {
+        // Fixtures computed by running Claude Code's TM(H) against Node
+        // (cli.js v2.1.154). If this test fails, our hash drifted from
+        // Claude's and crossload --resume into long-path projects breaks.
+        // To regenerate: paste the FmH/p81/TM functions in `node -e`.
+        let cases: &[(String, &str)] = &[
+            // /home/me/ + "a"*200
+            (
+                "/home/me/".to_string() + &"a".repeat(200),
+                "-home-me-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-8t3x7u",
+            ),
+            // /home/me/ + "/"*199 — encodes to all-dashes
+            (
+                "/home/me/".to_string() + &"/".repeat(199),
+                "-home-me-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------prcamf",
+            ),
+            // /home/me/ + "a"*500 — different hash from the *200 case (proves
+            // we hash original cwd, not the encoded-then-truncated form)
+            (
+                "/home/me/".to_string() + &"a".repeat(500),
+                "-home-me-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-ko6vqi",
+            ),
+        ];
+        for (input, expected) in cases {
+            assert_eq!(
+                encode_claude_project_path(input).as_str(),
+                *expected,
+                "encoding mismatch for input of len {}",
+                input.len()
+            );
+        }
+    }
+
+    #[test]
+    fn test_claude_path_hash_matches_js_fixtures() {
+        // FmH (the 32-bit polynomial × 31) fixtures from Node.
+        // These pin the algorithm independently of encode_claude_project_path.
+        assert_eq!(claude_path_hash("/home/me/project"), 1226745027);
+        assert_eq!(
+            claude_path_hash(&("/home/me/".to_string() + &"a".repeat(200))),
+            -532621290
         );
-        // The 200-char prefix is the encoded version of the first 200 encoded chars
-        let encoded_full: String = long_path
-            .chars()
-            .map(|c| if c.is_ascii_alphanumeric() { c } else { '-' })
-            .collect();
-        assert!(
-            result.starts_with(&encoded_full[..200]),
-            "should start with first 200 encoded chars"
-        );
-        // Must have a dash-separated hex suffix
-        let suffix = &result[200..];
-        assert!(suffix.starts_with('-'), "suffix should start with dash");
-        let hex_part = &suffix[1..];
-        assert!(!hex_part.is_empty(), "hex hash suffix should not be empty");
-        assert!(
-            hex_part.chars().all(|c| c.is_ascii_hexdigit()),
-            "suffix should be hex: {hex_part}"
-        );
+        assert_eq!(claude_path_hash(""), 0);
+    }
+
+    #[test]
+    fn test_to_base36_matches_js_tostring_36() {
+        assert_eq!(to_base36(0), "0");
+        assert_eq!(to_base36(35), "z");
+        assert_eq!(to_base36(36), "10");
+        // Math.abs(-532621290).toString(36) — i.e. p81 of "/home/me/" + "a"*200
+        assert_eq!(to_base36(532621290), "8t3x7u");
+        // Math.abs(-1557577671).toString(36) — p81 of "/home/me/" + "/"*199
+        assert_eq!(to_base36(1557577671), "prcamf");
     }
 
     // ── uuid_v4 ──────────────────────────────────────────────
