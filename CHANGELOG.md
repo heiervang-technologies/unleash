@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.57](https://github.com/heiervang-technologies/unleash/compare/v0.1.56...v0.1.57) (2026-05-30)
+
+
+### Features
+
+* **updater:** include pi and hermes in embedded versions fallback ([#243](https://github.com/heiervang-technologies/unleash/issues/243)) ([d87a0f2](https://github.com/heiervang-technologies/unleash/commit/d87a0f23d4324d851d9efade6f266d1d845b6a12))
+
 ## [0.1.56](https://github.com/heiervang-technologies/unleash/compare/v0.1.55...v0.1.56) (2026-05-29)
 
 
