@@ -1,0 +1,67 @@
+name: Lint Rust
+
+# Gate PRs and main on clippy cleanliness.
+#
+# Scope: --lib --tests matches the baseline established by #239 and restored
+# by #242. examples/ (notably examples/poc_search.rs from the search PoC) is
+# intentionally excluded — it's exploration code and not held to the same bar
+# yet. Widen to --all-targets when those are cleaned up.
+#
+# Why a dedicated workflow rather than piggybacking on coverage.yml:
+#   - Coverage builds with llvm-cov instrumentation (~10 min); clippy is ~1 min
+#     warm-cached. Failures should be attributable to the right check.
+#   - Coverage timeout is generous because of instrumentation; we want lint
+#     failures to surface fast.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'src/**'
+      - 'Cargo.toml'
+      - 'Cargo.lock'
+      - '.github/workflows/lint.yml'
+  pull_request:
+    paths:
+      - 'src/**'
+      - 'Cargo.toml'
+      - 'Cargo.lock'
+      - '.github/workflows/lint.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: lint-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  clippy:
+    name: cargo clippy --lib --tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      CARGO_TERM_COLOR: always
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+
+      - name: Cache cargo registry & build
+        uses: actions/cache@v5
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: lint-${{ runner.os }}-${{ hashFiles('Cargo.lock', 'Cargo.toml') }}
+          restore-keys: |
+            lint-${{ runner.os }}-
+
+      - name: cargo clippy
+        run: cargo clippy --lib --tests --no-deps -- -D warnings
