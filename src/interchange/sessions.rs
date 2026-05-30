@@ -863,6 +863,17 @@ fn discover_ucf() -> Vec<SessionInfo> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::sync::Mutex;
+
+    // Multiple tests in this module mutate UNLEASH_REINDEX_BINARY (and
+    // related env) around a `trigger_background_reindex` fork+exec. Cargo
+    // runs tests on a thread pool by default, so two such tests racing can
+    // leave the spawned child reading the OTHER test's env. We saw this as
+    // intermittent flake-check failures on
+    // `test_trigger_background_reindex_sets_lock_path_env_var`.
+    // Acquire this mutex at the start of any test that mutates the shared
+    // env to serialize them.
+    static ENV_MUTATION_LOCK: Mutex<()> = Mutex::new(());
 
     #[test]
     fn test_find_session_with_cli_prefix() {
@@ -883,6 +894,7 @@ mod tests {
 
     #[test]
     fn test_overlay_search_index_fills_missing_name() {
+        let _env_lock = ENV_MUTATION_LOCK.lock().unwrap_or_else(|e| e.into_inner());
         let mut sessions = vec![
             SessionInfo {
                 cli: "claude".into(),
@@ -993,6 +1005,7 @@ mod tests {
 
     #[test]
     fn test_trigger_background_reindex_sets_lock_path_env_var() {
+        let _env_lock = ENV_MUTATION_LOCK.lock().unwrap_or_else(|e| e.into_inner());
         // The child process needs UNLEASH_REINDEX_LOCK_PATH to clean up the lock
         // file on exit. We stub the child with a tiny shell script that asserts
         // the env var is set and points at the expected file. If the env var is
