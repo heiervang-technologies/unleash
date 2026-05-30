@@ -486,18 +486,16 @@ fn parse_ansi_sequence_with(
                     i += 4;
                 }
             }
-            "48" => {
-                if i + 1 < parts.len() && parts[i + 1] == "2" && i + 4 < parts.len() {
-                    if let (Ok(r), Ok(g), Ok(b)) = (
-                        parts[i + 2].parse::<u8>(),
-                        parts[i + 3].parse::<u8>(),
-                        parts[i + 4].parse::<u8>(),
-                    ) {
-                        let (nr, ng, nb) = transform(r, g, b);
-                        style = style.bg(RatatuiColor::Rgb(nr, ng, nb));
-                    }
-                    i += 4;
+            "48" if i + 1 < parts.len() && parts[i + 1] == "2" && i + 4 < parts.len() => {
+                if let (Ok(r), Ok(g), Ok(b)) = (
+                    parts[i + 2].parse::<u8>(),
+                    parts[i + 3].parse::<u8>(),
+                    parts[i + 4].parse::<u8>(),
+                ) {
+                    let (nr, ng, nb) = transform(r, g, b);
+                    style = style.bg(RatatuiColor::Rgb(nr, ng, nb));
                 }
+                i += 4;
             }
             _ => {}
         }
@@ -668,17 +666,15 @@ fn parse_gradient_sequence_colors(seq: &str, mut fg: OptRgb, mut bg: OptRgb) -> 
                     i += 4;
                 }
             }
-            "48" => {
-                if i + 1 < parts.len() && parts[i + 1] == "2" && i + 4 < parts.len() {
-                    if let (Ok(r), Ok(g), Ok(b)) = (
-                        parts[i + 2].parse::<u8>(),
-                        parts[i + 3].parse::<u8>(),
-                        parts[i + 4].parse::<u8>(),
-                    ) {
-                        bg = Some((r, g, b));
-                    }
-                    i += 4;
+            "48" if i + 1 < parts.len() && parts[i + 1] == "2" && i + 4 < parts.len() => {
+                if let (Ok(r), Ok(g), Ok(b)) = (
+                    parts[i + 2].parse::<u8>(),
+                    parts[i + 3].parse::<u8>(),
+                    parts[i + 4].parse::<u8>(),
+                ) {
+                    bg = Some((r, g, b));
                 }
+                i += 4;
             }
             _ => {}
         }
