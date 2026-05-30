@@ -1579,15 +1579,16 @@ mod tests {
     fn latest_embedded_version_returns_first_for_bundled_agents() {
         // data/versions.json is compiled into the binary via include_str! —
         // these agents must always have at least one fallback entry or the
-        // CUDA Dockerfile / any offline install will silently skip them.
-        // Pi and Hermes are NPM-only at build time and not bundled; their
-        // live install path doesn't depend on this fallback.
+        // CUDA Dockerfile / any offline install will silently skip them when
+        // the live registry lookup fails (npm down, GitHub rate-limited).
         for agent in [
             AgentType::Claude,
             AgentType::Codex,
             AgentType::Gemini,
             AgentType::OpenCode,
             AgentType::Antigravity,
+            AgentType::Pi,
+            AgentType::Hermes,
         ] {
             let v = latest_embedded_version(&agent);
             assert!(
