@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.58](https://github.com/heiervang-technologies/unleash/compare/v0.1.57...v0.1.58) (2026-05-30)
+
+
+### Bug Fixes
+
+* **tests:** serialize UNLEASH_REINDEX_BINARY env mutation in sessions tests ([#245](https://github.com/heiervang-technologies/unleash/issues/245)) ([e073f74](https://github.com/heiervang-technologies/unleash/commit/e073f7438785573f12cd4d997a89e686d298cfd3))
+
 ## [0.1.57](https://github.com/heiervang-technologies/unleash/compare/v0.1.56...v0.1.57) (2026-05-30)
 
 
