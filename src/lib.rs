@@ -5,6 +5,8 @@
 //!
 
 pub mod agents;
+#[cfg(feature = "tui")]
+mod ansi;
 mod auth;
 mod cli;
 pub mod config;
