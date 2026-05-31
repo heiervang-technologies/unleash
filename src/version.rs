@@ -1858,6 +1858,23 @@ impl VersionManager {
             ));
         }
 
+        // The installer's update path runs `git pull --ff-only` and aborts
+        // when the local clone has diverged from origin/main (e.g. after an
+        // upstream squash/rebase). We hit this exact failure mode in the
+        // wild: the local checkout had 1 stale commit on top of an older
+        // main, so install.sh died with "Not possible to fast-forward".
+        // Reset the clone to origin/<branch> before invoking the installer
+        // so the ff-only pull always succeeds. Uncommitted local edits are
+        // still preserved — the installer's own stash logic handles those.
+        let install_dir = std::env::var("HERMES_INSTALL_DIR")
+            .ok()
+            .map(PathBuf::from)
+            .or_else(|| dirs::home_dir().map(|h| h.join(".hermes/hermes-agent")));
+        let branch = std::env::var("HERMES_BRANCH").unwrap_or_else(|_| "main".to_string());
+        if let Some(dir) = install_dir {
+            Self::reset_diverged_hermes_clone(&dir, &branch, &log_tx);
+        }
+
         let _ = log_tx.send(
             "Running: curl -fsSL https://raw.githubusercontent.com/NousResearch/hermes-agent/main/scripts/install.sh | bash -s -- --skip-setup".to_string(),
         );
@@ -1887,6 +1904,83 @@ impl VersionManager {
                 ))
             },
         })
+    }
+
+    /// Reset the hermes clone to `origin/<branch>` if HEAD has diverged.
+    ///
+    /// install.sh's `git pull --ff-only` aborts on divergence; we paper over
+    /// that by hard-resetting to the upstream branch tip first. The
+    /// installer then sees a clean fast-forward (no-op or a normal pull).
+    /// No-op when the directory is missing or not a git checkout — fresh
+    /// installs fall through to the normal clone path.
+    pub(crate) fn reset_diverged_hermes_clone(
+        dir: &std::path::Path,
+        branch: &str,
+        log_tx: &mpsc::Sender<String>,
+    ) {
+        if !dir.join(".git").exists() {
+            return;
+        }
+        let remote_ref = format!("origin/{}", branch);
+
+        let fetch_ok = Command::new("git")
+            .arg("-C")
+            .arg(dir)
+            .args(["fetch", "origin", branch])
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .status()
+            .map(|s| s.success())
+            .unwrap_or(false);
+        if !fetch_ok {
+            // Network failure or no remote yet — let the installer handle it.
+            return;
+        }
+
+        // `git merge-base --is-ancestor HEAD origin/<branch>` exits 0 when
+        // HEAD is reachable from upstream (clean ff possible), nonzero
+        // otherwise. We only reset on the nonzero case.
+        let is_ancestor = Command::new("git")
+            .arg("-C")
+            .arg(dir)
+            .args(["merge-base", "--is-ancestor", "HEAD", &remote_ref])
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .status()
+            .map(|s| s.success())
+            .unwrap_or(true);
+        if is_ancestor {
+            return;
+        }
+
+        let _ = log_tx.send(format!(
+            "Detected divergent hermes checkout at {} — resetting to {} so install can fast-forward",
+            dir.display(),
+            remote_ref
+        ));
+        let reset = Command::new("git")
+            .arg("-C")
+            .arg(dir)
+            .args(["reset", "--hard", &remote_ref])
+            .stdin(Stdio::null())
+            .output();
+        match reset {
+            Ok(out) if out.status.success() => {
+                let _ = log_tx.send(format!("Reset clone to {}", remote_ref));
+            }
+            Ok(out) => {
+                let _ = log_tx.send(format!(
+                    "git reset failed (status {}): {}",
+                    out.status,
+                    String::from_utf8_lossy(&out.stderr).trim()
+                ));
+            }
+            Err(e) => {
+                let _ = log_tx.send(format!("git reset could not run: {}", e));
+            }
+        }
     }
 
     /// Install OpenCode with streaming log output.
@@ -2259,6 +2353,172 @@ mod tests {
     use super::*;
     use std::time::Instant;
     use tempfile::TempDir;
+
+    /// Build a self-contained "origin + clone" pair in a tempdir for the
+    /// hermes divergence test. Returns (origin_dir, clone_dir).
+    ///
+    /// Tests must NEVER touch the real ~/.hermes checkout — every git op
+    /// stays inside the tempdir.
+    fn make_origin_and_clone(td: &TempDir) -> (PathBuf, PathBuf) {
+        use std::fs;
+        let origin = td.path().join("origin.git");
+        let clone = td.path().join("clone");
+        fs::create_dir_all(&origin).unwrap();
+
+        // Bare origin repo with an initial commit on `main`.
+        let work = td.path().join("seed");
+        fs::create_dir_all(&work).unwrap();
+        for args in [
+            vec!["init", "--initial-branch=main", "-q"],
+            vec!["config", "user.email", "test@example.com"],
+            vec!["config", "user.name", "Test"],
+            vec!["commit", "--allow-empty", "-m", "initial", "-q"],
+        ] {
+            let ok = Command::new("git")
+                .arg("-C")
+                .arg(&work)
+                .args(&args)
+                .status()
+                .unwrap()
+                .success();
+            assert!(ok, "seed setup failed: {:?}", args);
+        }
+        let ok = Command::new("git")
+            .args(["clone", "--bare", "-q"])
+            .arg(&work)
+            .arg(&origin)
+            .status()
+            .unwrap()
+            .success();
+        assert!(ok);
+        let ok = Command::new("git")
+            .args(["clone", "-q"])
+            .arg(&origin)
+            .arg(&clone)
+            .status()
+            .unwrap()
+            .success();
+        assert!(ok);
+        for args in [
+            vec!["config", "user.email", "test@example.com"],
+            vec!["config", "user.name", "Test"],
+        ] {
+            Command::new("git")
+                .arg("-C")
+                .arg(&clone)
+                .args(&args)
+                .status()
+                .unwrap();
+        }
+        (origin, clone)
+    }
+
+    fn head_oid(repo: &std::path::Path) -> String {
+        let out = Command::new("git")
+            .arg("-C")
+            .arg(repo)
+            .args(["rev-parse", "HEAD"])
+            .output()
+            .unwrap();
+        assert!(out.status.success());
+        String::from_utf8(out.stdout).unwrap().trim().to_string()
+    }
+
+    fn add_commit(repo: &std::path::Path, message: &str) {
+        let ok = Command::new("git")
+            .arg("-C")
+            .arg(repo)
+            .args(["commit", "--allow-empty", "-m", message, "-q"])
+            .status()
+            .unwrap()
+            .success();
+        assert!(ok);
+    }
+
+    #[test]
+    fn reset_diverged_hermes_clone_is_noop_when_in_sync() {
+        let td = TempDir::new().unwrap();
+        let (_origin, clone) = make_origin_and_clone(&td);
+        let before = head_oid(&clone);
+        let (tx, _rx) = mpsc::channel();
+        VersionManager::reset_diverged_hermes_clone(&clone, "main", &tx);
+        // No divergence → HEAD unchanged.
+        assert_eq!(head_oid(&clone), before);
+    }
+
+    #[test]
+    fn reset_diverged_hermes_clone_resets_diverged_head() {
+        let td = TempDir::new().unwrap();
+        let (origin, clone) = make_origin_and_clone(&td);
+
+        // Advance origin/main beyond what the clone has, by pushing a new
+        // commit from a second worktree.
+        let advance = td.path().join("advance");
+        let ok = Command::new("git")
+            .args(["clone", "-q"])
+            .arg(&origin)
+            .arg(&advance)
+            .status()
+            .unwrap()
+            .success();
+        assert!(ok);
+        for args in [
+            vec!["config", "user.email", "test@example.com"],
+            vec!["config", "user.name", "Test"],
+        ] {
+            Command::new("git")
+                .arg("-C")
+                .arg(&advance)
+                .args(&args)
+                .status()
+                .unwrap();
+        }
+        add_commit(&advance, "upstream commit");
+        let ok = Command::new("git")
+            .arg("-C")
+            .arg(&advance)
+            .args(["push", "-q", "origin", "main"])
+            .status()
+            .unwrap()
+            .success();
+        assert!(ok);
+        let upstream_tip = head_oid(&advance);
+
+        // Now make the original clone diverge with its own local commit
+        // (not present upstream) so HEAD is no longer an ancestor of origin/main.
+        add_commit(&clone, "diverging local commit");
+        let local_before = head_oid(&clone);
+        assert_ne!(local_before, upstream_tip);
+
+        let (tx, rx) = mpsc::channel();
+        VersionManager::reset_diverged_hermes_clone(&clone, "main", &tx);
+        drop(tx);
+        let logs: Vec<String> = rx.iter().collect();
+
+        // HEAD should now match the upstream tip, not the previous local commit.
+        let after = head_oid(&clone);
+        assert_eq!(after, upstream_tip, "clone should be reset to origin/main");
+
+        // And we should have emitted a clear log line so the user sees why
+        // their local commit went away.
+        assert!(
+            logs.iter().any(|l| l.contains("Detected divergent")),
+            "expected divergence log line, got: {:?}",
+            logs
+        );
+    }
+
+    #[test]
+    fn reset_diverged_hermes_clone_skips_when_not_a_git_dir() {
+        let td = TempDir::new().unwrap();
+        // Pass a path that exists but has no `.git/` — should silently no-op
+        // (fresh installs land here and the installer's clone path takes over).
+        let (tx, rx) = mpsc::channel();
+        VersionManager::reset_diverged_hermes_clone(td.path(), "main", &tx);
+        drop(tx);
+        let logs: Vec<String> = rx.iter().collect();
+        assert!(logs.is_empty(), "should not log when no .git/ present: {:?}", logs);
+    }
 
     #[test]
     fn test_version_compare() {

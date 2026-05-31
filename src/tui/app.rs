@@ -6729,7 +6729,11 @@ impl App {
         let visible_lines: Vec<Line> = self.install_log_lines[start..]
             .iter()
             .map(|line| {
-                let style = if line.starts_with("---") {
+                // Our own `---` status markers (emitted from the install
+                // pipeline) keep their existing semantic coloring. Installer
+                // output is parsed for ANSI SGR so green checkmarks, magenta
+                // banners, etc. survive the trip through our log channel.
+                let base_style = if line.starts_with("---") {
                     if line.contains("successfully") {
                         Style::default().fg(Color::Green)
                     } else if line.contains("failed") || line.contains("Failed") {
@@ -6740,7 +6744,13 @@ impl App {
                 } else {
                     Style::default().fg(Color::DarkGray)
                 };
-                Line::from(Span::styled(format!(" {}", line), style))
+                let parsed = crate::ansi::parse_line(line, base_style);
+                // Prepend the leading space the previous renderer used so the
+                // log content does not butt up against the panel border.
+                let mut spans: Vec<Span<'static>> = Vec::with_capacity(parsed.spans.len() + 1);
+                spans.push(Span::styled(" ".to_string(), base_style));
+                spans.extend(parsed.spans);
+                Line::from(spans)
             })
             .collect();
 
