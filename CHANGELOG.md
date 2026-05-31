@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.59](https://github.com/heiervang-technologies/unleash/compare/v0.1.58...v0.1.59) (2026-05-31)
+
+
+### Bug Fixes
+
+* **install:** render ANSI in install log + reset diverged hermes clone ([#250](https://github.com/heiervang-technologies/unleash/issues/250)) ([090d17e](https://github.com/heiervang-technologies/unleash/commit/090d17e12f9f034c07e8ab010f991755c2641543))
+
 ## [0.1.58](https://github.com/heiervang-technologies/unleash/compare/v0.1.57...v0.1.58) (2026-05-30)
 
 
