@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.60](https://github.com/heiervang-technologies/unleash/compare/v0.1.59...v0.1.60) (2026-05-31)
+
+
+### Bug Fixes
+
+* **hermes:** also reset divergence on the CLI update path ([#252](https://github.com/heiervang-technologies/unleash/issues/252)) ([cccf1d5](https://github.com/heiervang-technologies/unleash/commit/cccf1d57d06ec340745ad7bb6637b10ee26e512d))
+
 ## [0.1.59](https://github.com/heiervang-technologies/unleash/compare/v0.1.58...v0.1.59) (2026-05-31)
 
 
