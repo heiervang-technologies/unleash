@@ -8,12 +8,10 @@
 //! 1. Spin up an OpenAI-compatible server with an embedding model. Examples:
 //!
 //!    # llama.cpp with Granite Embedding small-r2 (preferred per plan):
-//!    llama-server -m ~/models/granite-embedding-small-en-r2.Q8_0.gguf \
-//!                 --embedding --port 8080 -ngl 99
+//!    llama-server -m ~/models/granite-embedding-small-en-r2.Q8_0.gguf --embedding --port 8080 -ngl 99
 //!
 //!    # Or EmbeddingGemma-300m (fallback if Granite GGUF is fiddly):
-//!    llama-server -m ~/models/embeddinggemma-300m.Q8_0.gguf \
-//!                 --embedding --port 8080 -ngl 99
+//!    llama-server -m ~/models/embeddinggemma-300m.Q8_0.gguf --embedding --port 8080 -ngl 99
 //!
 //!    # Or via ollama:
 //!    ollama serve  # then `ollama pull granite-embedding:30m`
@@ -245,7 +243,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
                 None => failed += 1,
             }
         }
-        if (done + failed) % 64 == 0 {
+        if (done + failed).is_multiple_of(64) {
             eprintln!(
                 "  embed progress: {}/{} ({} failed)",
                 done + failed,
@@ -291,7 +289,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
 
     // ── Step 5: run hybrid search ────────────────────────────────────────
     let t_q = Instant::now();
-    let qvec = embed_batch(&http, &oai_base, &embed_model, &[query.clone()]).await?;
+    let qvec = embed_batch(&http, &oai_base, &embed_model, std::slice::from_ref(&query)).await?;
     let qvec = qvec.into_iter().next().ok_or("empty query embedding")?;
     let qlit = vec_to_lit(&qvec);
 
