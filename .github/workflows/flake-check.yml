@@ -1,13 +1,20 @@
 name: Flaky Test Detection
 
-# Runs `cargo test --lib` 5 times in a row at 06:00 UTC daily and fails if any
-# of the 5 runs has a different per-test pass/fail/ignore set than the first.
+# Runs `cargo test --lib` 20 times in a row at 06:00 UTC daily and fails if any
+# of the 20 runs has a different per-test pass/fail/ignore set than the first.
 #
 # Why: chronic flakes (e.g. test_gemini_install_sets_install_state, fixed in
 # PR #116 after weeks of intermittent red CI) are hard to spot because most PR
-# runs hit the green path. A single 5x repetition catches non-determinism in
-# under 20 minutes per day, and surfaces the offending test name in the job
-# summary so the next maintainer can act within a day instead of a sprint.
+# runs hit the green path. Repeated runs catch non-determinism and surface
+# the offending test name in the job summary so the next maintainer can act
+# within a day instead of a sprint.
+#
+# Why 20 (was 5): the lib test suite runs in ~2.5 seconds per iteration —
+# the wall-clock cost is dominated by the cargo build, not by reruns. Bumping
+# from 5→20 adds ~40s to the job (under 5 min total) while quadrupling the
+# detection probability for low-rate flakes. For a per-run flake rate p,
+# P(detect ≥ 1) = 1 - (1-p)^N: at p=3% that's 14% → 46% (5→20). #245's flake
+# only triggered on iter 5 of 5 — comfortably more headroom now.
 #
 # Implementation notes:
 #   - We parse `cargo test`'s text output for `^test <name> ... <STATUS>` lines
@@ -31,14 +38,15 @@ permissions:
 
 jobs:
   flake-check:
-    name: Run cargo test --lib x5
+    name: Run cargo test --lib x20
     runs-on: ubuntu-latest
-    # 5 iterations × ~3 min build/test + overhead. Cap generously.
+    # Observed: ~2 min cargo build + ~2.5s/iter. 20 iters ≈ 3 min total. Cap
+    # generously for cold caches / slow runners.
     timeout-minutes: 30
     env:
       CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_LINKER: clang
       CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_RUSTFLAGS: "-C link-arg=-fuse-ld=mold"
-      ITERATIONS: "5"
+      ITERATIONS: "20"
 
     steps:
       - name: Checkout repository
@@ -59,7 +67,7 @@ jobs:
         # compilation. `--no-run` compiles the test harness without executing it.
         run: cargo test --lib --no-run
 
-      - name: Run cargo test --lib 5 times
+      - name: Run cargo test --lib 20 times
         id: repeat
         run: |
           set -uo pipefail
