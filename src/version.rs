@@ -1866,13 +1866,12 @@ impl VersionManager {
         // Reset the clone to origin/<branch> before invoking the installer
         // so the ff-only pull always succeeds. Uncommitted local edits are
         // still preserved — the installer's own stash logic handles those.
-        let install_dir = std::env::var("HERMES_INSTALL_DIR")
-            .ok()
-            .map(PathBuf::from)
-            .or_else(|| dirs::home_dir().map(|h| h.join(".hermes/hermes-agent")));
-        let branch = std::env::var("HERMES_BRANCH").unwrap_or_else(|_| "main".to_string());
-        if let Some(dir) = install_dir {
-            Self::reset_diverged_hermes_clone(&dir, &branch, &log_tx);
+        if let Some(dir) = Self::hermes_install_dir() {
+            let branch = std::env::var("HERMES_BRANCH").unwrap_or_else(|_| "main".to_string());
+            let tx = log_tx.clone();
+            Self::reset_diverged_hermes_clone(&dir, &branch, &mut |msg| {
+                let _ = tx.send(msg);
+            });
         }
 
         let _ = log_tx.send(
@@ -1906,6 +1905,15 @@ impl VersionManager {
         })
     }
 
+    /// Resolve the hermes install directory the same way install.sh does:
+    /// `HERMES_INSTALL_DIR` env override → `$HOME/.hermes/hermes-agent`.
+    pub(crate) fn hermes_install_dir() -> Option<PathBuf> {
+        std::env::var("HERMES_INSTALL_DIR")
+            .ok()
+            .map(PathBuf::from)
+            .or_else(|| dirs::home_dir().map(|h| h.join(".hermes/hermes-agent")))
+    }
+
     /// Reset the hermes clone to `origin/<branch>` if HEAD has diverged.
     ///
     /// install.sh's `git pull --ff-only` aborts on divergence; we paper over
@@ -1913,10 +1921,14 @@ impl VersionManager {
     /// installer then sees a clean fast-forward (no-op or a normal pull).
     /// No-op when the directory is missing or not a git checkout — fresh
     /// installs fall through to the normal clone path.
+    ///
+    /// Progress messages are routed through `log` so callers can wire them
+    /// into a TUI channel (`unleash` TUI install panel) or stderr (`unleash
+    /// agents update` CLI path).
     pub(crate) fn reset_diverged_hermes_clone(
         dir: &std::path::Path,
         branch: &str,
-        log_tx: &mpsc::Sender<String>,
+        log: &mut dyn FnMut(String),
     ) {
         if !dir.join(".git").exists() {
             return;
@@ -1955,7 +1967,7 @@ impl VersionManager {
             return;
         }
 
-        let _ = log_tx.send(format!(
+        log(format!(
             "Detected divergent hermes checkout at {} — resetting to {} so install can fast-forward",
             dir.display(),
             remote_ref
@@ -1968,17 +1980,17 @@ impl VersionManager {
             .output();
         match reset {
             Ok(out) if out.status.success() => {
-                let _ = log_tx.send(format!("Reset clone to {}", remote_ref));
+                log(format!("Reset clone to {}", remote_ref));
             }
             Ok(out) => {
-                let _ = log_tx.send(format!(
+                log(format!(
                     "git reset failed (status {}): {}",
                     out.status,
                     String::from_utf8_lossy(&out.stderr).trim()
                 ));
             }
             Err(e) => {
-                let _ = log_tx.send(format!("git reset could not run: {}", e));
+                log(format!("git reset could not run: {}", e));
             }
         }
     }
@@ -2440,10 +2452,11 @@ mod tests {
         let td = TempDir::new().unwrap();
         let (_origin, clone) = make_origin_and_clone(&td);
         let before = head_oid(&clone);
-        let (tx, _rx) = mpsc::channel();
-        VersionManager::reset_diverged_hermes_clone(&clone, "main", &tx);
+        let mut logs: Vec<String> = Vec::new();
+        VersionManager::reset_diverged_hermes_clone(&clone, "main", &mut |m| logs.push(m));
         // No divergence → HEAD unchanged.
         assert_eq!(head_oid(&clone), before);
+        assert!(logs.is_empty(), "should not log when in sync: {:?}", logs);
     }
 
     #[test]
@@ -2490,10 +2503,8 @@ mod tests {
         let local_before = head_oid(&clone);
         assert_ne!(local_before, upstream_tip);
 
-        let (tx, rx) = mpsc::channel();
-        VersionManager::reset_diverged_hermes_clone(&clone, "main", &tx);
-        drop(tx);
-        let logs: Vec<String> = rx.iter().collect();
+        let mut logs: Vec<String> = Vec::new();
+        VersionManager::reset_diverged_hermes_clone(&clone, "main", &mut |m| logs.push(m));
 
         // HEAD should now match the upstream tip, not the previous local commit.
         let after = head_oid(&clone);
@@ -2513,10 +2524,8 @@ mod tests {
         let td = TempDir::new().unwrap();
         // Pass a path that exists but has no `.git/` — should silently no-op
         // (fresh installs land here and the installer's clone path takes over).
-        let (tx, rx) = mpsc::channel();
-        VersionManager::reset_diverged_hermes_clone(td.path(), "main", &tx);
-        drop(tx);
-        let logs: Vec<String> = rx.iter().collect();
+        let mut logs: Vec<String> = Vec::new();
+        VersionManager::reset_diverged_hermes_clone(td.path(), "main", &mut |m| logs.push(m));
         assert!(logs.is_empty(), "should not log when no .git/ present: {:?}", logs);
     }
 

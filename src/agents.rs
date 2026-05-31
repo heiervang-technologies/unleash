@@ -1258,7 +1258,23 @@ impl AgentManager {
     /// version pin argument. `--skip-setup` bypasses the interactive setup
     /// wizard, which the installer otherwise drives by reading from /dev/tty
     /// even when piped from curl.
+    ///
+    /// install.sh's update path does `git pull --ff-only`, which aborts when
+    /// the local clone has diverged from origin/main (upstream rebases,
+    /// stray local commits). We pre-reset to upstream so the ff-only pull
+    /// always succeeds — see `VersionManager::reset_diverged_hermes_clone`
+    /// for the rationale and `install_hermes_version_streaming` for the
+    /// TUI-side caller.
     fn update_hermes(&self) -> io::Result<String> {
+        if let Some(dir) = crate::version::VersionManager::hermes_install_dir() {
+            let branch = std::env::var("HERMES_BRANCH").unwrap_or_else(|_| "main".to_string());
+            crate::version::VersionManager::reset_diverged_hermes_clone(
+                &dir,
+                &branch,
+                &mut |msg| eprintln!("{}", msg),
+            );
+        }
+
         let output = Command::new("bash")
             .args([
                 "-c",
