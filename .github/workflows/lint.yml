@@ -2,10 +2,9 @@ name: Lint Rust
 
 # Gate PRs and main on clippy cleanliness.
 #
-# Scope: --lib --tests matches the baseline established by #239 and restored
-# by #242. examples/ (notably examples/poc_search.rs from the search PoC) is
-# intentionally excluded — it's exploration code and not held to the same bar
-# yet. Widen to --all-targets when those are cleaned up.
+# Scope: --all-targets covers lib, integration tests, examples, and benches.
+# Started narrower (--lib --tests, matching #239) and widened once
+# examples/poc_search.rs was cleaned — see #248.
 #
 # Why a dedicated workflow rather than piggybacking on coverage.yml:
 #   - Coverage builds with llvm-cov instrumentation (~10 min); clippy is ~1 min
@@ -18,12 +17,16 @@ on:
     branches: [main]
     paths:
       - 'src/**'
+      - 'examples/**'
+      - 'tests/**'
       - 'Cargo.toml'
       - 'Cargo.lock'
       - '.github/workflows/lint.yml'
   pull_request:
     paths:
       - 'src/**'
+      - 'examples/**'
+      - 'tests/**'
       - 'Cargo.toml'
       - 'Cargo.lock'
       - '.github/workflows/lint.yml'
@@ -37,7 +40,7 @@ concurrency:
 
 jobs:
   clippy:
-    name: cargo clippy --lib --tests
+    name: cargo clippy --all-targets
     runs-on: ubuntu-latest
     timeout-minutes: 15
     env:
@@ -64,4 +67,4 @@ jobs:
             lint-${{ runner.os }}-
 
       - name: cargo clippy
-        run: cargo clippy --lib --tests --no-deps -- -D warnings
+        run: cargo clippy --all-targets --no-deps -- -D warnings
