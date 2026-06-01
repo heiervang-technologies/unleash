@@ -26,7 +26,7 @@
 # ============================================================
 # Stage 1: Build unleash from Rust source
 # ============================================================
-FROM rust:1.90-bookworm AS rust-builder
+FROM rust:1.91-bookworm AS rust-builder
 
 WORKDIR /build
 
