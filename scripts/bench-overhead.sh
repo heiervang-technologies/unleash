@@ -122,10 +122,10 @@ UNLEASH_BIN="$(resolve_unleash)"
 
 # ANSI colors
 if [[ $USE_COLOR -eq 1 && -t 1 ]]; then
-    C_DIM=$'\033[2m'; C_BOLD=$'\033[1m'; C_GREEN=$'\033[32m'
+    C_DIM=$'\033[2m'; C_BOLD=$'\033[1m'
     C_RED=$'\033[31m'; C_YELLOW=$'\033[33m'; C_RESET=$'\033[0m'
 else
-    C_DIM=; C_BOLD=; C_GREEN=; C_RED=; C_YELLOW=; C_RESET=
+    C_DIM=; C_BOLD=; C_RED=; C_YELLOW=; C_RESET=
 fi
 
 # ---------------------------- helpers ----------------------------
@@ -195,7 +195,8 @@ col() {
 # Per-agent default command (lookup BENCH_CMD_<UPPER>; fallback to $DEFAULT_CMD).
 cmd_for_agent() {
     local agent="$1"
-    local var="BENCH_CMD_$(echo "$agent" | tr '[:lower:]' '[:upper:]')"
+    local var
+    var="BENCH_CMD_$(echo "$agent" | tr '[:lower:]' '[:upper:]')"
     if [[ -n "${!var:-}" ]]; then
         echo "${!var}"
     else
@@ -365,6 +366,7 @@ if [[ -f "$WORKDIR/summary.tsv" ]]; then
         "Agent" "Wall Δ" "RSS Δ" "Wall (direct→wrapped)" "RSS (direct→wrapped)"
     printf "|%s|%s|%s|%s|%s|\n" \
         "------------" "------------" "------------" "-----------------------" "-----------------------"
+    # shellcheck disable=SC2034  # d_u/d_s/w_u/w_s/dn/wn are destructured for shape but unused in this view
     while IFS=$'\t' read -r agent d_w d_u d_s d_r w_w w_u w_s w_r dn wn; do
         printf "| %-10s | %-10s | %-10s | %s → %s | %s → %s |\n" \
             "$agent" \
