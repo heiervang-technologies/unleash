@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.61](https://github.com/heiervang-technologies/unleash/compare/v0.1.60...v0.1.61) (2026-06-02)
+
+
+### Bug Fixes
+
+* **agents:** replace antigravity install lie with real AUR-helper path ([#259](https://github.com/heiervang-technologies/unleash/issues/259)) ([8c95861](https://github.com/heiervang-technologies/unleash/commit/8c958617dcd161baf9fdbb2582089fe9ab75b0b4))
+
 ## [0.1.60](https://github.com/heiervang-technologies/unleash/compare/v0.1.59...v0.1.60) (2026-05-31)
 
 
