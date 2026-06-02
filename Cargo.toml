@@ -34,7 +34,7 @@ which = "8.0"
 libc = "0.2"
 
 # Interchange format
-rusqlite = { version = "0.39", features = ["bundled"] }
+rusqlite = { version = "0.40", features = ["bundled"] }
 
 # Tokenizers
 tiktoken-rs = "0.11"
