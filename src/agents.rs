@@ -937,9 +937,7 @@ impl AgentManager {
             )),
             AgentType::Claude => self.update_claude(),
             AgentType::Codex => self.update_codex(),
-            AgentType::Antigravity => Err(io::Error::other(
-                "Antigravity CLI updates are managed by the system package manager (pacman/yay)",
-            )),
+            AgentType::Antigravity => self.update_antigravity(),
             AgentType::Gemini => self.update_npm_agent("@google/gemini-cli", "Gemini CLI"),
             AgentType::OpenCode => self.update_opencode(),
             AgentType::Pi => self.update_npm_agent("@mariozechner/pi-coding-agent", "Pi"),
@@ -1249,6 +1247,42 @@ impl AgentManager {
                 "Failed to update {}: {}",
                 name,
                 String::from_utf8_lossy(&output.stderr)
+            )))
+        }
+    }
+
+    /// Update Antigravity CLI via an AUR helper (yay/paru). Antigravity has
+    /// no public npm or GitHub-releases channel, so this is the only way to
+    /// upgrade it programmatically on Arch-family systems. On every other
+    /// OS, returns an honest error pointing at the antigravity.google
+    /// download page rather than the old "managed by pacman/yay" lie.
+    fn update_antigravity(&self) -> io::Result<String> {
+        use std::process::Command;
+
+        let helper = ["yay", "paru"]
+            .iter()
+            .find(|h| Command::new(*h).arg("--version").output().is_ok());
+
+        let Some(helper) = helper else {
+            return Err(io::Error::other(
+                "Antigravity CLI has no npm/GitHub release channel. \
+                 Install via your distro's AUR helper (yay/paru — package \
+                 `antigravity-cli`) or download from https://antigravity.google",
+            ));
+        };
+
+        let output = Command::new(helper)
+            .args(["-S", "--noconfirm", "--needed", "antigravity-cli"])
+            .stdin(std::process::Stdio::null())
+            .output()?;
+
+        if output.status.success() {
+            Ok("Antigravity CLI updated successfully".to_string())
+        } else {
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            Err(io::Error::other(format!(
+                "{} -S antigravity-cli failed: {}",
+                helper, stderr
             )))
         }
     }

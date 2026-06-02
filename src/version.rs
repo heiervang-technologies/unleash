@@ -61,8 +61,17 @@ pub fn load_embedded_versions() -> HashMap<String, Vec<String>> {
     } else {
         serde_json::from_str(&content).unwrap_or(serde_json::Value::Null)
     };
-    let parsed_fallback: serde_json::Value = serde_json::from_str(include_str!("../data/versions.json")).unwrap_or_default();
+    let parsed_fallback: serde_json::Value =
+        serde_json::from_str(include_str!("../data/versions.json")).unwrap_or_default();
+    merge_disk_and_fallback(&parsed_disk, &parsed_fallback)
+}
 
+/// Inner merge step extracted so the antigravity migration can be exercised
+/// from unit tests without touching the real on-disk cache.
+fn merge_disk_and_fallback(
+    parsed_disk: &serde_json::Value,
+    parsed_fallback: &serde_json::Value,
+) -> HashMap<String, Vec<String>> {
     let mut map = HashMap::new();
     for key in &[
         "claude",
@@ -79,6 +88,16 @@ pub fn load_embedded_versions() -> HashMap<String, Vec<String>> {
                 .iter()
                 .filter_map(|v| v.as_str().map(String::from))
                 .collect();
+        }
+        // Migration: earlier builds shipped antigravity = ["2.0.1"] as the
+        // embedded "latest", but that version was never published anywhere
+        // (npm 404, no GitHub release). Cached copies of that list still live
+        // in users' ~/.config/unleash/versions.json and cause `update agy` to
+        // report a perpetually-available phantom update. If the cache exactly
+        // matches the legacy stub, fall through to the in-binary fallback so
+        // the fix in data/versions.json takes effect.
+        if *key == "antigravity" && versions == ["2.0.1"] {
+            versions.clear();
         }
         if versions.is_empty() {
             if let Some(arr) = parsed_fallback.get(key).and_then(|v| v.as_array()) {
@@ -1742,15 +1761,67 @@ impl VersionManager {
         versions
     }
 
-    /// Mock installation of Antigravity CLI (returning an error indicating system-managed status)
+    /// Install Antigravity CLI.
+    ///
+    /// Antigravity (the `agy` binary) has no public npm or GitHub-releases
+    /// distribution. The only stable channels are the AUR `antigravity-cli`
+    /// package (for Arch users, via yay/paru) and the antigravity.google
+    /// download page.
+    ///
+    /// Previously this returned a hard-coded "managed by the system package
+    /// manager (pacman/yay)" error. That was misleading on every non-Arch
+    /// system and unhelpful even on Arch (the user has to read the error,
+    /// look up the package name, and run yay themselves). Now: if an AUR
+    /// helper is on PATH, drive it; otherwise return an honest, actionable
+    /// error pointing at antigravity.google.
+    ///
+    /// `version` is accepted to match the trait but is ignored — AUR ships
+    /// "whatever's current".
     pub fn install_antigravity_version_streaming(
         &self,
         _version: &str,
         log_tx: mpsc::Sender<String>,
     ) -> io::Result<InstallResult> {
-        let msg = "Antigravity CLI updates are managed by the system package manager (pacman/yay)";
-        let _ = log_tx.send(msg.to_string());
-        Err(io::Error::other(msg))
+        let helper = ["yay", "paru"]
+            .iter()
+            .find(|h| Command::new(*h).arg("--version").output().is_ok());
+
+        let Some(helper) = helper else {
+            let msg = "Antigravity CLI has no npm/GitHub release channel. \
+                       Install via your distro's AUR helper (yay/paru — package \
+                       `antigravity-cli`) or download from https://antigravity.google";
+            let _ = log_tx.send(msg.to_string());
+            return Ok(InstallResult {
+                success: false,
+                stdout: String::new(),
+                stderr: msg.to_string(),
+                error: Some(msg.to_string()),
+            });
+        };
+
+        let _ = log_tx.send(format!(
+            "Running: {} -S --noconfirm --needed antigravity-cli",
+            helper
+        ));
+        let mut cmd = Command::new(helper);
+        cmd.args(["-S", "--noconfirm", "--needed", "antigravity-cli"]);
+        let (ok, stdout, stderr) = Self::run_streaming(&mut cmd, &log_tx)?;
+
+        Ok(InstallResult {
+            success: ok,
+            stdout,
+            stderr: stderr.clone(),
+            error: if ok {
+                None
+            } else if stderr.contains("sudo") || stderr.contains("password") {
+                Some(format!(
+                    "{} -S failed (sudo prompt blocked — run `{} -S antigravity-cli` interactively): {}",
+                    helper, helper, stderr
+                ))
+            } else {
+                Some(format!("{} -S antigravity-cli failed: {}", helper, stderr))
+            },
+        })
     }
 
     /// Install Gemini CLI with streaming log output
@@ -2527,6 +2598,41 @@ mod tests {
         let mut logs: Vec<String> = Vec::new();
         VersionManager::reset_diverged_hermes_clone(td.path(), "main", &mut |m| logs.push(m));
         assert!(logs.is_empty(), "should not log when no .git/ present: {:?}", logs);
+    }
+
+    /// Cached `antigravity = ["2.0.1"]` is the bogus value earlier builds
+    /// shipped — replace it with the in-binary fallback so the user's check
+    /// stops claiming a phantom update is available.
+    #[test]
+    fn merge_disk_strips_legacy_antigravity_2_0_1_stub() {
+        let disk = serde_json::json!({ "antigravity": ["2.0.1"] });
+        let fallback = serde_json::json!({ "antigravity": ["1.0.3"] });
+        let merged = merge_disk_and_fallback(&disk, &fallback);
+        assert_eq!(merged.get("antigravity"), Some(&vec!["1.0.3".to_string()]));
+    }
+
+    /// A real cached version list — e.g. once Google ships a 2.x agy — must
+    /// pass through untouched. The migration is intentionally narrow.
+    #[test]
+    fn merge_disk_preserves_non_stub_antigravity_versions() {
+        let disk = serde_json::json!({ "antigravity": ["2.5.0", "2.4.0"] });
+        let fallback = serde_json::json!({ "antigravity": ["1.0.3"] });
+        let merged = merge_disk_and_fallback(&disk, &fallback);
+        assert_eq!(
+            merged.get("antigravity"),
+            Some(&vec!["2.5.0".to_string(), "2.4.0".to_string()])
+        );
+    }
+
+    /// No disk cache at all → fall back to the embedded list. Regression
+    /// guard for the install_only path that needs a valid `latest` to even
+    /// reach the installer.
+    #[test]
+    fn merge_disk_falls_back_when_antigravity_missing_from_disk() {
+        let disk = serde_json::json!({});
+        let fallback = serde_json::json!({ "antigravity": ["1.0.3"] });
+        let merged = merge_disk_and_fallback(&disk, &fallback);
+        assert_eq!(merged.get("antigravity"), Some(&vec!["1.0.3".to_string()]));
     }
 
     #[test]

@@ -965,9 +965,7 @@ fn update_agent(
         )),
         AgentType::Claude => update_claude(tx, index),
         AgentType::Codex => update_codex(tx, index, latest_version),
-        AgentType::Antigravity => Err(io::Error::other(
-            "Antigravity CLI updates are managed by the system package manager (pacman/yay)",
-        )),
+        AgentType::Antigravity => update_antigravity(tx, index, latest_version),
         AgentType::Gemini => update_gemini(tx, index, latest_version),
         AgentType::OpenCode => update_opencode(tx, index),
         AgentType::Pi => update_pi(tx, index, latest_version),
@@ -1177,6 +1175,27 @@ fn update_gemini(
             String::from_utf8_lossy(&output.stderr)
         )))
     }
+}
+
+/// Update Antigravity CLI via an AUR helper.
+///
+/// Routes through [`crate::version::VersionManager::install_antigravity_version_streaming`]
+/// so the install_only/update_only dispatchers share one source of truth. See
+/// that function for the full rationale on why this isn't an npm install — the
+/// short version is that `@google/antigravity-cli` is not published anywhere
+/// and AUR is the only reliable channel.
+fn update_antigravity(
+    tx: &mpsc::Sender<(usize, LineState)>,
+    index: usize,
+    latest_version: Option<String>,
+) -> io::Result<String> {
+    let label = latest_version.clone().unwrap_or_else(|| "latest".into());
+    let vm = crate::version::VersionManager::new();
+    let result = run_install_with_phase_updates(tx, index, label.clone(), |log_tx| {
+        vm.install_antigravity_version_streaming("latest", log_tx)
+    })?;
+
+    install_result_to_version(result, AgentType::Antigravity, label)
 }
 
 /// Run a streaming install, forwarding each log line as a Building phase
