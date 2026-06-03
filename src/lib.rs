@@ -304,6 +304,20 @@ fn run_agent_with_polyfill(
         }
     };
 
+    // Meta-command short-circuit: --version / --help / doctor never need
+    // polyfill yolo flags, plugin-dir discovery, hook sync, or session setup.
+    // Skip straight to exec'ing the bare agent binary with profile env so
+    // claude doesn't pay its plugin-init tax for `unleash claude --version`.
+    // See issue #258 and docs/benchmarks/overhead-2026-06-01.html.
+    if launcher::is_meta_command(&extra_args) {
+        let agent_path = std::path::PathBuf::from(&profile.agent_cli_path);
+        let exit_code = launcher::exec_meta_command(&agent_path, &extra_args, &profile.env)?;
+        if exit_code == 0 {
+            return Ok(());
+        }
+        std::process::exit(exit_code);
+    }
+
     let mut flags = polyfill_args.to_polyfill_flags(&profile.defaults);
     let mut ucf_active = None;
 

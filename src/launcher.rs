@@ -43,6 +43,37 @@ fn detect_agent_type(cmd: &Path) -> Option<AgentType> {
     AgentType::from_str(name)
 }
 
+/// Returns true if the args contain a short-lived "meta" command that
+/// doesn't need the wrapper's machinery — version, help, doctor.
+///
+/// These short-circuit the wrapper so claude doesn't pay the ~100 ms /
+/// ~54 MB plugin-init tax it incurs whenever `--dangerously-skip-permissions`
+/// or `--plugin-dir` is on its argv. Meaningful for hot paths like
+/// `unleash claude --version`, CI smoke tests, and the many hook subprocesses
+/// that re-enter unleash during a session.
+pub(crate) fn is_meta_command(args: &[String]) -> bool {
+    args.iter().any(|a| {
+        matches!(
+            a.as_str(),
+            "--version" | "-V" | "--help" | "-h" | "doctor"
+        )
+    })
+}
+
+/// Exec the agent directly with profile env — no plugins, no permissions
+/// flag, no hook sync, no telemetry scrub. Used for meta commands.
+pub(crate) fn exec_meta_command(
+    agent_cmd: &PathBuf,
+    args: &[String],
+    profile_env: &HashMap<String, String>,
+) -> io::Result<i32> {
+    let status = Command::new(agent_cmd)
+        .args(args)
+        .envs(profile_env)
+        .status()?;
+    Ok(status.code().unwrap_or(1))
+}
+
 /// Configuration for [`run_loop`]: bundles the inputs the auto-mode restart
 /// state machine needs without having to read from the user's profile, env,
 /// or `dirs::cache_dir()`. Production callers build this from real config in
@@ -224,6 +255,20 @@ pub fn run_loop(config: LauncherConfig) -> io::Result<i32> {
 
 /// Run an agent with wrapper features
 pub fn run(auto_mode: bool, prompt: Option<String>, extra_args: Vec<String>) -> io::Result<()> {
+    // Meta-command short-circuit: --version / --help / doctor never need
+    // hooks, plugins, permissions, or the restart loop. Exec the agent bare
+    // with just profile env. Recovers the +100 ms / +54 MB claude pays for
+    // wrapper-added flags on short-lived invocations (#258).
+    if is_meta_command(&extra_args) {
+        let agent_cmd = find_agent_command()?;
+        let profile_env = load_profile_env()?;
+        let exit_code = exec_meta_command(&agent_cmd, &extra_args, &profile_env)?;
+        if exit_code == 0 {
+            return Ok(());
+        }
+        std::process::exit(exit_code);
+    }
+
     // Sync hooks: install defaults + merge plugin hooks into settings.json
     // Plugin hooks must be in settings.json because Claude Code may not reliably
     // load hooks from --plugin-dir when settings.json already has the event key.
@@ -671,4 +716,48 @@ pub fn trigger_exit(wrapper_pid: u32) -> io::Result<()> {
     kill(Pid::from_raw(wrapper_pid as i32), Signal::SIGTERM).map_err(io::Error::other)?;
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn s(args: &[&str]) -> Vec<String> {
+        args.iter().map(|a| a.to_string()).collect()
+    }
+
+    #[test]
+    fn meta_command_detects_version_long_and_short() {
+        assert!(is_meta_command(&s(&["--version"])));
+        assert!(is_meta_command(&s(&["-V"])));
+    }
+
+    #[test]
+    fn meta_command_detects_help_long_and_short() {
+        assert!(is_meta_command(&s(&["--help"])));
+        assert!(is_meta_command(&s(&["-h"])));
+    }
+
+    #[test]
+    fn meta_command_detects_doctor_subcommand() {
+        assert!(is_meta_command(&s(&["doctor"])));
+    }
+
+    #[test]
+    fn meta_command_detected_anywhere_in_argv() {
+        // Some agents accept the flag mid-argv.
+        assert!(is_meta_command(&s(&["--foo", "bar", "--version"])));
+        assert!(is_meta_command(&s(&["doctor", "--verbose"])));
+    }
+
+    #[test]
+    fn meta_command_ignores_interactive_invocations() {
+        assert!(!is_meta_command(&s(&[])));
+        assert!(!is_meta_command(&s(&["--print", "hello"])));
+        assert!(!is_meta_command(&s(&["--resume"])));
+        assert!(!is_meta_command(&s(&["-p", "do thing"])));
+        // Substrings must not match — only exact arg equality.
+        assert!(!is_meta_command(&s(&["--version-check"])));
+        assert!(!is_meta_command(&s(&["--help-mcp"])));
+    }
 }
