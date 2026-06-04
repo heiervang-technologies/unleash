@@ -1,11 +1,12 @@
 # Cross-CLI Session Crossload
 
 Load conversation history from one agent CLI into another. Start a session in
-Codex, continue it in Claude, hand it to Gemini -- without losing context.
+Codex, continue it in Claude, hand it to Gemini, finish it in Pi — without
+losing context.
 
 ## How It Works
 
-1. **Discovery** -- `unleash sessions` scans session stores for all installed CLIs
+1. **Discovery** -- `unleash sessions` scans session stores for all installed CLIs (claude/codex/gemini/opencode/pi/hermes; agy shares the Gemini path)
 2. **Hub conversion** -- source format is converted to Universal Chat Format (`.ucf.jsonl`)
 3. **Target injection** -- hub format is converted to the target CLI's native format
 4. **Resume** -- target CLI launches with the injected session
@@ -15,10 +16,13 @@ Codex, continue it in Claude, hand it to Gemini -- without losing context.
 ```
 Claude JSONL  <-->  Hub (.ucf.jsonl)  <-->  Codex JSONL
                          |
-Gemini JSON   <---------|---------->  OpenCode SQLite
+                         |---->  Gemini JSON  (agy shares this path)
+                         |---->  OpenCode SQLite
+                         |---->  Pi JSON
+                         |---->  Hermes JSON
 ```
 
-O(N) converters instead of O(N^2) direct pairs. The hub format is JSONL for
+O(N) converters instead of O(N²) direct pairs. The hub format is JSONL for
 corruption recovery, with minimal extensions (~10% overhead).
 
 ## Usage
