@@ -78,8 +78,10 @@ unleash/
 │   ├── auto-mode/              # Autonomous operation mode
 │   ├── hyprland-focus/         # Window transparency for Hyprland
 │   ├── mcp-refresh/            # MCP config change detection
+│   ├── omnihook/               # Universal hook → low-latency voice integration
 │   ├── process-restart/        # Self-restart hooks and commands
-
+│   ├── supercompact/           # Entity-preservation conversation compaction
+│   └── token-usage/            # Cross-CLI token + cost accounting
 ├── docs/                        # Documentation
 ├── tests/                       # Test scripts
 ├── .github/workflows/           # CI/CD workflows
@@ -133,22 +135,24 @@ When working on this repository:
    cd plugins/existing-plugin
    ```
 
-3. **Implement plugin structure**
+3. **Implement plugin structure** — Claude Code plugins are config + scripts, not Node.js modules:
    ```
    plugins/my-plugin/
-   ├── plugin.json          # Manifest
-   ├── index.js             # Main entry point
-   ├── README.md            # Documentation
-   ├── hooks/               # Lifecycle hooks
-   │   ├── pre-command.js
-   │   └── post-command.js
-   └── tests/               # Plugin tests
-       └── index.test.js
+   ├── .claude-plugin/
+   │   └── plugin.json      # Manifest (Claude Code reads from here)
+   ├── commands/            # Slash commands (*.md files), optional
+   ├── hooks/               # Lifecycle hooks, optional
+   │   ├── hooks.json       # Event → script mapping
+   │   └── *.sh             # Hook scripts (bash, python, anything executable)
+   ├── scripts/             # Helper scripts called by hooks/commands, optional
+   └── README.md
    ```
 
 4. **Test the plugin**
-   - Create tests in `tests/` directory
-   - Test with Claude Code CLI
+   - Verify the manifest parses (`jq . plugins/my-plugin/.claude-plugin/plugin.json`)
+   - Smoke-test hooks by sourcing them with the env vars Claude Code provides
+     (`$CLAUDE_PLUGIN_ROOT`, `$CLAUDE_PROJECT_DIR`, etc.)
+   - Launch via `unleash` and verify the plugin loads (no error in stderr)
    - Verify no conflicts with other plugins
 
 5. **Update configuration**
@@ -173,49 +177,55 @@ When working on this repository:
 
 ### Example: Creating a Simple Plugin
 
-When asked to add a feature, create a plugin:
+When asked to add a feature, create a plugin. Manifest, hook config, and a hook script — three files:
 
-```javascript
-// plugins/my-feature/plugin.json
+`plugins/my-feature/.claude-plugin/plugin.json`:
+```json
 {
   "name": "my-feature",
-  "version": "1.0.0",
-  "description": "Does something useful",
-  "author": "Heiervang Technologies",
-  "main": "index.js",
-  "hooks": {
-    "pre-command": "./hooks/pre-command.js"
+  "description": "Does something useful on every Stop event",
+  "version": "0.1.0",
+  "author": {
+    "name": "Heiervang Technologies",
+    "email": "support@heiervang.com"
   }
 }
-
-// plugins/my-feature/index.js
-module.exports = {
-  name: 'my-feature',
-
-  async initialize(context) {
-    // Setup logic
-    console.log('My feature initialized');
-  },
-
-  async execute(command, args) {
-    // Main plugin logic
-    return { success: true };
-  }
-};
-
-// plugins/my-feature/README.md
-# My Feature Plugin
-
-Description of what this plugin does.
-
-## Configuration
-
-Plugins are loaded automatically via `--plugin-dir`.
-
-## Usage
-
-Describe how to use the plugin.
 ```
+
+`plugins/my-feature/hooks/hooks.json`:
+```json
+{
+  "description": "Logs every Stop event",
+  "hooks": {
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "${CLAUDE_PLUGIN_ROOT}/hooks/on-stop.sh"
+          }
+        ]
+      }
+    ]
+  }
+}
+```
+
+`plugins/my-feature/hooks/on-stop.sh`:
+```bash
+#!/usr/bin/env bash
+# Claude Code sets CLAUDE_PLUGIN_ROOT, CLAUDE_PROJECT_DIR, and pipes the
+# event payload as JSON on stdin. Read it with jq if you need fields.
+set -euo pipefail
+payload=$(cat)
+echo "[my-feature] stop event: $(echo "$payload" | jq -c .session_id)" >> ~/.cache/my-feature.log
+```
+
+Optional settings live in the manifest under `"settings"` — see
+`plugins/bundled/supercompact/.claude-plugin/plugin.json` for the schema
+(`type`, `choices`/`min`/`max`, `default`, `label`, `description`). They
+surface in the unleash TUI as toggles / inputs and are passed to hooks via
+`PLUGIN_SETTING_<KEY>` environment variables.
 
 ## Code Style and Standards
 
@@ -229,57 +239,52 @@ Describe how to use the plugin.
 
 ### Plugin-Specific Standards
 
-```javascript
-// Use clear, descriptive variable names
-const pluginConfiguration = loadConfig();
+```bash
+#!/usr/bin/env bash
+# Hooks: always set strict mode, always read the JSON payload from stdin once,
+# always reference $CLAUDE_PLUGIN_ROOT (set by Claude Code) instead of hardcoding
+# the bundled path. Fail loud on the rare error — Claude Code surfaces non-zero
+# exit codes in the session log.
+set -euo pipefail
+payload=$(cat)
+session_id=$(echo "$payload" | jq -r .session_id)
 
-// Add JSDoc comments for public APIs
-/**
- * Initializes the plugin with the given context
- * @param {Object} context - The plugin context
- * @returns {Promise<void>}
- */
-async initialize(context) {
-  // Implementation
-}
-
-// Handle errors gracefully
-try {
-  await executePlugin();
-} catch (error) {
-  console.error(`Plugin failed: ${error.message}`);
-  return { success: false, error };
-}
+# Settings declared in plugin.json arrive as PLUGIN_SETTING_<UPPER_KEY>:
+mode="${PLUGIN_SETTING_MODE:-auto}"
 ```
 
 ### Testing Standards
 
-```javascript
-// plugins/my-plugin/tests/index.test.js
-describe('MyPlugin', () => {
-  it('should initialize correctly', async () => {
-    const plugin = require('../index.js');
-    const result = await plugin.initialize({});
-    expect(result).toBeDefined();
-  });
+Bundled plugins are exercised by `tests/` in this repo (shell harnesses, see
+`tests/test-plugins.sh` for the pattern). Add a per-plugin smoke test that:
 
-  it('should execute command', async () => {
-    const plugin = require('../index.js');
-    const result = await plugin.execute('test', []);
-    expect(result.success).toBe(true);
-  });
-});
+```bash
+# tests/test_my_feature.sh
+#!/usr/bin/env bash
+set -euo pipefail
+plugin_dir="$(git rev-parse --show-toplevel)/plugins/bundled/my-feature"
+
+# 1. Manifest parses + has required fields
+jq -e '.name and .description and .version' "$plugin_dir/.claude-plugin/plugin.json" >/dev/null
+
+# 2. Each hook script is executable
+find "$plugin_dir/hooks" -name '*.sh' -exec test -x {} \;
+
+# 3. Hooks survive an empty JSON payload (catches missing `jq -r` defaults)
+CLAUDE_PLUGIN_ROOT="$plugin_dir" \
+  bash "$plugin_dir/hooks/on-stop.sh" <<<'{"session_id":"smoke"}'
 ```
 
 ## Common Tasks and Patterns
 
 ### Adding a New Plugin
 
-1. Create directory: `mkdir -p plugins/plugin-name`
-2. Add manifest: `plugins/plugin-name/plugin.json`
-3. Implement logic: `plugins/plugin-name/index.js`
-4. Document: `plugins/plugin-name/README.md`
-5. Test: Add to `plugins/plugin-name/tests/`
+1. Create directory: `mkdir -p plugins/bundled/plugin-name/{.claude-plugin,hooks,commands}`
+2. Add manifest: `plugins/bundled/plugin-name/.claude-plugin/plugin.json`
+3. Wire hooks (if any): `plugins/bundled/plugin-name/hooks/hooks.json` + executable scripts
+4. Add slash commands (if any) as markdown files in `commands/`
+5. Document: `plugins/bundled/plugin-name/README.md`
+6. Add a smoke test in `tests/` (see `tests/test-plugins.sh` for the pattern)
 
 ### Investigating Upstream Changes
 
@@ -300,14 +305,19 @@ describe('MyPlugin', () => {
 ### Plugin Not Loading
 
 **Check:**
-1. Does `plugin.json` exist and is it valid JSON?
-2. Is `index.js` present with correct exports?
-3. Are there errors in plugin logs?
+1. Does `.claude-plugin/plugin.json` exist and parse as JSON? (`jq .` it)
+2. Does the manifest have at least `name`, `description`, `version`, `author`?
+3. Are `hooks/hooks.json` event keys spelled correctly (`Stop`, `PreCompact`, `UserPromptSubmit`, …)?
+4. Are hook scripts marked executable (`chmod +x`)?
+5. Does `unleash` log a warning at launch? (Hook sync prints "Warning: …" when settings.json can't be merged.)
 
 **Solution:**
 ```bash
-# Validate plugin structure
-ls -la plugins/problem-plugin/
+# Walk the plugin tree:
+find plugins/bundled/problem-plugin -maxdepth 3 -type f -o -type d
+
+# Validate the manifest:
+jq -e '.name and .description and .version' plugins/bundled/problem-plugin/.claude-plugin/plugin.json
 ```
 
 ## Links to Documentation
