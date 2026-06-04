@@ -4,14 +4,17 @@ Profiles control how Unleash launches agent CLIs. Each profile is a TOML file in
 
 ## Basics
 
-Unleash creates four default profiles on first run:
+Unleash creates seven default profiles on first run:
 
 | Profile    | Theme     |
 |------------|-----------|
 | `claude`   | `orange`  |
 | `codex`    | `#aaaaaa` |
+| `agy`      | `#9b51e0` |
 | `gemini`   | `#4285f4` |
 | `opencode` | `#10b981` |
+| `pi`       | `#a855f7` |
+| `hermes`   | `#4f46e5` |
 
 Select a profile from the TUI, or edit the TOML files directly.
 
