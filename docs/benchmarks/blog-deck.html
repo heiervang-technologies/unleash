@@ -209,7 +209,30 @@
   </p>
 </section>
 
-<!-- 12. TL;DR -->
+<!-- 12. POSTSCRIPT -->
+<section data-background-color="#0b1220">
+  <div class="kicker">Postscript</div>
+  <h2 style="color: var(--good);">And the +130 ms?<br>Gone too.</h2>
+  <p style="font-size: 1.1em; margin-top: 28px; color: var(--muted); max-width: 80%; margin-left: auto; margin-right: auto;">
+    Because claude's plugin-init tax fires the moment you pass
+    <code>--dangerously-skip-permissions</code> or <code>--plugin-dir</code>,
+    the wrapper now <em>short-circuits</em> meta commands &mdash;
+    <code>--version</code>, <code>--help</code>, <code>doctor</code> &mdash;
+    and execs the agent bare.
+  </p>
+  <div class="twoup" style="margin-top: 24px;">
+    <div class="stat">
+      <div class="n bad">+130 ms</div>
+      <div class="label">before</div>
+    </div>
+    <div class="stat">
+      <div class="n good">+0 ms</div>
+      <div class="label">after &mdash; <code>unleash claude --version</code></div>
+    </div>
+  </div>
+</section>
+
+<!-- 13. TL;DR -->
 <section data-background-color="#0b1220">
   <div class="kicker">TL;DR</div>
   <h2>Three things I learned.</h2>
