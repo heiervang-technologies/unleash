@@ -118,8 +118,7 @@ pub fn from_hub(records: &[HubRecord]) -> Result<Vec<Value>, ConvertError> {
     }
 
     // Attach the session passthrough to the first emitted line.
-    if let (Some(sess), Some(Value::Object(ref mut obj))) =
-        (session_passthrough, lines.first_mut())
+    if let (Some(sess), Some(Value::Object(ref mut obj))) = (session_passthrough, lines.first_mut())
     {
         let entry = obj
             .entry("_ucf_hub".to_string())

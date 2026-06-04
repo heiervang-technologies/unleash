@@ -1186,7 +1186,9 @@ impl VersionManager {
                         return Ok(v_list.clone());
                     }
                 }
-                Err(io::Error::other("Failed to query available versions for Gemini CLI"))
+                Err(io::Error::other(
+                    "Failed to query available versions for Gemini CLI",
+                ))
             }
         }
     }
@@ -1260,7 +1262,9 @@ impl VersionManager {
                         return Ok(v_list.clone());
                     }
                 }
-                Err(io::Error::other("Failed to query available versions for Pi"))
+                Err(io::Error::other(
+                    "Failed to query available versions for Pi",
+                ))
             }
         }
     }
@@ -2362,9 +2366,7 @@ pub fn install_latest_streaming(
             Ok((v, r))
         }
         AgentType::Codex => {
-            let installed = which::which("codex")
-                .ok()
-                .and(None::<String>); // just need presence
+            let installed = which::which("codex").ok().and(None::<String>); // just need presence
             let versions = vm.get_codex_version_list(installed.as_deref());
             let v = versions
                 .into_iter()
@@ -2597,7 +2599,11 @@ mod tests {
         // (fresh installs land here and the installer's clone path takes over).
         let mut logs: Vec<String> = Vec::new();
         VersionManager::reset_diverged_hermes_clone(td.path(), "main", &mut |m| logs.push(m));
-        assert!(logs.is_empty(), "should not log when no .git/ present: {:?}", logs);
+        assert!(
+            logs.is_empty(),
+            "should not log when no .git/ present: {:?}",
+            logs
+        );
     }
 
     /// Cached `antigravity = ["2.0.1"]` is the bogus value earlier builds

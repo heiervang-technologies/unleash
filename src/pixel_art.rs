@@ -896,7 +896,12 @@ pub mod mascots {
         max_lines: usize,
         gradient: &crate::theme::GradientTheme,
     ) -> Vec<RatatuiLine<'static>> {
-        to_ratatui_gradient_with_width(art, max_lines, gradient, crate::pixel_art::mascots::HALF_WIDTH)
+        to_ratatui_gradient_with_width(
+            art,
+            max_lines,
+            gradient,
+            crate::pixel_art::mascots::HALF_WIDTH,
+        )
     }
 
     /// Helper: parse with diagonal gradient and custom width

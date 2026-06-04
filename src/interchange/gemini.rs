@@ -1368,12 +1368,11 @@ mod tests {
             // Should have the original message stashed for lossless round-trip
             let orig = gc.get("_original_message").unwrap();
             assert_eq!(orig.get("id").unwrap().as_str().unwrap(), "msg-5");
-            assert!(
-                orig.get("renderOutputAsMarkdown")
-                    .unwrap()
-                    .as_bool()
-                    .unwrap()
-            );
+            assert!(orig
+                .get("renderOutputAsMarkdown")
+                .unwrap()
+                .as_bool()
+                .unwrap());
         }
     }
 }

@@ -939,7 +939,9 @@ pub fn run_agent(
 
     // Validate agent name — must match a CLI built into the sandbox image
     // (docker/Dockerfile) and a service in docker-compose.yml.
-    let valid_agents = ["claude", "codex", "gemini", "opencode", "pi", "bash", "unleash"];
+    let valid_agents = [
+        "claude", "codex", "gemini", "opencode", "pi", "bash", "unleash",
+    ];
     if !valid_agents.contains(&agent) {
         eprintln!(
             "\x1b[31merror:\x1b[0m Unknown agent '{}'. Valid agents: {}",

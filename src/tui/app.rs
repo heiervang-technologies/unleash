@@ -154,7 +154,7 @@ fn strip_ansi(s: &str) -> String {
     while let Some(c) = chars.next() {
         if c == '\x1b' && chars.peek() == Some(&'[') {
             chars.next(); // consume '['
-            // Skip parameter / intermediate bytes (0x20..=0x3f), then one final byte (0x40..=0x7e).
+                          // Skip parameter / intermediate bytes (0x20..=0x3f), then one final byte (0x40..=0x7e).
             while let Some(&nc) = chars.peek() {
                 let nu = nc as u32;
                 if (0x40..=0x7e).contains(&nu) {
@@ -191,11 +191,7 @@ const SANDBOX_MENU: &[(SandboxMenuItem, &str, &str)] = &[
         "Teardown",
         "Remove sandbox network + firewall rules (requires sudo)",
     ),
-    (
-        SandboxMenuItem::Back,
-        "Back",
-        "Return to the main menu",
-    ),
+    (SandboxMenuItem::Back, "Back", "Return to the main menu"),
 ];
 
 /// Main menu items — order here defines display order in the TUI.
@@ -404,8 +400,7 @@ impl SandboxStepStatus {
 }
 
 /// What the user picked for a single env-var key in the wizard.
-#[derive(Debug, Clone, PartialEq, Eq)]
-#[derive(Default)]
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub enum EnvKeyChoice {
     /// Don't store; pass `-e KEY` at `docker run` time so the host value flows in.
     Passthrough,
@@ -444,7 +439,6 @@ impl EnvKeyChoice {
         }
     }
 }
-
 
 /// One row in the env-config step.
 #[derive(Debug, Clone)]
@@ -630,9 +624,7 @@ impl SetupStep {
             SetupStep::DetectState => {
                 "Check for existing config, installed agents, and anything unusual."
             }
-            SetupStep::PickAgents => {
-                "Choose which agent CLIs you want installed."
-            }
+            SetupStep::PickAgents => "Choose which agent CLIs you want installed.",
             SetupStep::CheckPrereqs => {
                 "Verify npm, cargo, or other prerequisites needed by your chosen agents."
             }
@@ -721,7 +713,8 @@ impl SetupWizardState {
                     self.statuses[self.step] = SetupStepStatus::Skipped;
                     // Surface them as pre-recorded results so the UI shows them.
                     for name in already {
-                        self.install_results.push((format!("{name} (already installed)"), true));
+                        self.install_results
+                            .push((format!("{name} (already installed)"), true));
                     }
                 }
             }
@@ -2977,39 +2970,33 @@ impl App {
                     _ => {}
                 }
             }
-            VersionFocus::AgentPicker => {
-                match action {
-                    NavAction::Up | NavAction::Down => {
-                        let current_idx = self
-                            .available_agents
-                            .iter()
-                            .position(|a| *a == self.version_agent)
-                            .unwrap_or(0);
-                        let new_idx = match action {
-                            NavAction::Down => {
-                                (current_idx + 1).min(self.available_agents.len() - 1)
-                            }
-                            NavAction::Up => {
-                                current_idx.saturating_sub(1)
-                            }
-                            _ => unreachable!(),
-                        };
-                        if new_idx != current_idx {
-                            self.switch_to_agent_index(new_idx);
-                        }
+            VersionFocus::AgentPicker => match action {
+                NavAction::Up | NavAction::Down => {
+                    let current_idx = self
+                        .available_agents
+                        .iter()
+                        .position(|a| *a == self.version_agent)
+                        .unwrap_or(0);
+                    let new_idx = match action {
+                        NavAction::Down => (current_idx + 1).min(self.available_agents.len() - 1),
+                        NavAction::Up => current_idx.saturating_sub(1),
+                        _ => unreachable!(),
+                    };
+                    if new_idx != current_idx {
+                        self.switch_to_agent_index(new_idx);
                     }
-                    NavAction::Tab | NavAction::Select => {
-                        self.version_focus = VersionFocus::VersionList;
-                    }
-                    NavAction::BackTab => {
-                        self.version_focus = VersionFocus::Unleash;
-                    }
-                    NavAction::Back | NavAction::Quit => {
-                        self.version_focus = VersionFocus::Unleash;
-                    }
-                    _ => {}
                 }
-            }
+                NavAction::Tab | NavAction::Select => {
+                    self.version_focus = VersionFocus::VersionList;
+                }
+                NavAction::BackTab => {
+                    self.version_focus = VersionFocus::Unleash;
+                }
+                NavAction::Back | NavAction::Quit => {
+                    self.version_focus = VersionFocus::Unleash;
+                }
+                _ => {}
+            },
             VersionFocus::VersionList => {
                 match action {
                     NavAction::Up | NavAction::Down => {
@@ -3701,14 +3688,12 @@ impl App {
                         self.trigger_screen_animation(true, Screen::Sandbox);
                         self.pending_screen = Some(Screen::Sandbox);
                     }
-                    Some(SandboxMenuItem::Status) => self.run_sandbox_action_capture(
-                        "Sandbox Status",
-                        &["sandbox", "status"],
-                    ),
-                    Some(SandboxMenuItem::List) => self.run_sandbox_action_capture(
-                        "Running Sandboxes",
-                        &["sandbox", "list"],
-                    ),
+                    Some(SandboxMenuItem::Status) => {
+                        self.run_sandbox_action_capture("Sandbox Status", &["sandbox", "status"])
+                    }
+                    Some(SandboxMenuItem::List) => {
+                        self.run_sandbox_action_capture("Running Sandboxes", &["sandbox", "list"])
+                    }
                     Some(SandboxMenuItem::Teardown) => {
                         self.status_message = Some(
                             "Teardown needs sudo — run `sudo unleash sandbox teardown` from a shell."
@@ -3743,8 +3728,11 @@ impl App {
         let output = match Command::new(&exe).args(args).output() {
             Ok(o) => o,
             Err(e) => {
-                self.sandbox_action_output
-                    .push(format!("error: failed to spawn `unleash {}`: {}", args.join(" "), e));
+                self.sandbox_action_output.push(format!(
+                    "error: failed to spawn `unleash {}`: {}",
+                    args.join(" "),
+                    e
+                ));
                 return;
             }
         };
@@ -3759,8 +3747,7 @@ impl App {
                 .push(format!("[exited with status {}]", output.status));
         }
         if self.sandbox_action_output.is_empty() {
-            self.sandbox_action_output
-                .push("(no output)".to_string());
+            self.sandbox_action_output.push("(no output)".to_string());
         }
     }
 
@@ -4658,17 +4645,14 @@ impl App {
                 } else {
                     ("✗", Style::default().fg(Color::Red))
                 };
-                detail_lines.push(Line::from(Span::styled(
-                    format!(" {icon} {name}"),
-                    style,
-                )));
+                detail_lines.push(Line::from(Span::styled(format!(" {icon} {name}"), style)));
             }
             // Show active install
             let is_installing = self.install_state.is_some();
             if is_installing {
                 if let Some(state) = &self.install_state {
-                    let frame_idx =
-                        (state.start_time.elapsed().as_millis() / 100) as usize % SPINNER_FRAMES.len();
+                    let frame_idx = (state.start_time.elapsed().as_millis() / 100) as usize
+                        % SPINNER_FRAMES.len();
                     detail_lines.push(Line::from(Span::styled(
                         format!(
                             " {} Installing {}…",
@@ -4905,7 +4889,10 @@ impl App {
 
             let max_lines = figure_rect.height as usize;
             let agent_type = self.selected_profile.as_ref().and_then(|p| p.agent_type());
-            let mascot_name = agent_type.as_ref().map(|t| t.mascot_name()).unwrap_or("claude");
+            let mascot_name = agent_type
+                .as_ref()
+                .map(|t| t.mascot_name())
+                .unwrap_or("claude");
             let shift = self.theme_color.theme_shift();
             let art_lines: Vec<Line> = if let Some(gradient) = self.profile_gradient() {
                 mascots::full_ratatui_gradient(mascot_name, max_lines, &gradient)
@@ -4995,13 +4982,17 @@ impl App {
         }
     }
 
-
     /// Get the gradient theme for the current profile if it uses a gradient
     fn profile_gradient(&self) -> Option<crate::theme::GradientTheme> {
-        let t = self.selected_profile.as_ref().and_then(|p| p.agent_type())?;
+        let t = self
+            .selected_profile
+            .as_ref()
+            .and_then(|p| p.agent_type())?;
         match t {
             crate::agents::AgentType::Gemini => Some(crate::theme::GradientTheme::gemini()),
-            crate::agents::AgentType::Antigravity => Some(crate::theme::GradientTheme::antigravity()),
+            crate::agents::AgentType::Antigravity => {
+                Some(crate::theme::GradientTheme::antigravity())
+            }
             _ => None,
         }
     }
@@ -5011,7 +5002,10 @@ impl App {
         // Lava lamp mode is an easter egg triggered by Konami code (idea by cac taurus)
         let max_lines = area.height as usize;
         let agent_type = self.selected_profile.as_ref().and_then(|p| p.agent_type());
-        let mascot_name = agent_type.as_ref().map(|t| t.mascot_name()).unwrap_or("claude");
+        let mascot_name = agent_type
+            .as_ref()
+            .map(|t| t.mascot_name())
+            .unwrap_or("claude");
         let shift = self.theme_color.theme_shift();
         let art_lines: Vec<Line> = if self.lava_mode {
             mascots::right_ratatui_lava(mascot_name, max_lines, self.animation_frame)
@@ -5031,7 +5025,10 @@ impl App {
         // Lava lamp mode is an easter egg triggered by Konami code (idea by cac taurus)
         let max_lines = area.height as usize;
         let agent_type = self.selected_profile.as_ref().and_then(|p| p.agent_type());
-        let mascot_name = agent_type.as_ref().map(|t| t.mascot_name()).unwrap_or("claude");
+        let mascot_name = agent_type
+            .as_ref()
+            .map(|t| t.mascot_name())
+            .unwrap_or("claude");
         let shift = self.theme_color.theme_shift();
         let art_lines: Vec<Line> = if self.lava_mode {
             mascots::left_ratatui_lava(mascot_name, max_lines, self.animation_frame)
@@ -5100,10 +5097,9 @@ impl App {
                         "Sandbox Mode: ON  [●]".to_string(),
                         "Next Start Session will run inside the gVisor sandbox".to_string(),
                     ),
-                    MainMenuItem::SandboxMode => (
-                        "Sandbox Mode: OFF [○]".to_string(),
-                        (*desc).to_string(),
-                    ),
+                    MainMenuItem::SandboxMode => {
+                        ("Sandbox Mode: OFF [○]".to_string(), (*desc).to_string())
+                    }
                     _ => ((*name).to_string(), (*desc).to_string()),
                 };
                 let style = if i == self.main_menu.selected {
@@ -7174,7 +7170,10 @@ mod tests {
         assert_eq!(app.screen, Screen::Main, "toggle should not navigate away");
 
         let _ = app.handle_main_input(NavAction::Select);
-        assert!(!app.sandbox_armed, "second Select should disarm sandbox mode");
+        assert!(
+            !app.sandbox_armed,
+            "second Select should disarm sandbox mode"
+        );
     }
 
     #[test]

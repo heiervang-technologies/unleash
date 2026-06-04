@@ -49,7 +49,9 @@ impl std::str::FromStr for CliFormat {
         match s {
             "claude" | "claude-code" => Ok(Self::ClaudeCode),
             "codex" => Ok(Self::Codex),
-            "gemini" | "gemini-cli" | "antigravity" | "antigravity-cli" | "agy" => Ok(Self::GeminiCli),
+            "gemini" | "gemini-cli" | "antigravity" | "antigravity-cli" | "agy" => {
+                Ok(Self::GeminiCli)
+            }
             "hermes" | "hermes-agent" => Ok(Self::Hermes),
             "opencode" => Ok(Self::OpenCode),
             "pi" | "pi-coding-agent" => Ok(Self::Pi),

@@ -324,8 +324,7 @@ fn run_agent_with_polyfill(
             .and_then(|p| p.canonicalize().ok());
         let safe = target_canon.is_some() && target_canon != exe_canon;
         if safe {
-            let exit_code =
-                launcher::exec_meta_command(&agent_path, &extra_args, &profile.env)?;
+            let exit_code = launcher::exec_meta_command(&agent_path, &extra_args, &profile.env)?;
             if exit_code == 0 {
                 return Ok(());
             }
