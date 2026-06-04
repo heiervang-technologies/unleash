@@ -22,13 +22,13 @@ The `--plugin-dir` flag allows isolated testing of plugins during development.
 
 ```bash
 # Test single plugin
-cc --plugin-dir plugins/bundled/my-plugin
+claude --plugin-dir plugins/bundled/my-plugin
 
 # Test multiple plugins
-cc --plugin-dir /path/to/plugin1 --plugin-dir /path/to/plugin2
+claude --plugin-dir /path/to/plugin1 --plugin-dir /path/to/plugin2
 
 # Combine with debug mode
-cc --plugin-dir /path/to/plugin --debug
+claude --plugin-dir /path/to/plugin --debug
 ```
 
 #### Testing Workflow
@@ -49,7 +49,7 @@ git commit -m "Initial commit"
 2. **Load Plugin**:
 ```bash
 # Launch Claude Code with plugin
-cc --plugin-dir plugins/bundled/my-plugin
+claude --plugin-dir plugins/bundled/my-plugin
 ```
 
 3. **Test Components**:
@@ -191,7 +191,7 @@ cat > test-plugin/.claude-plugin/plugin.json <<'EOF'
 EOF
 
 # Test the command
-cc --plugin-dir test-plugin
+claude --plugin-dir test-plugin
 
 # In Claude:
 # /test arg1 arg2
@@ -230,7 +230,7 @@ You are a test agent. Confirm you've been activated and describe your role.
 EOF
 
 # Launch Claude Code
-cc --plugin-dir test-plugin
+claude --plugin-dir test-plugin
 
 # In Claude:
 "Can you test the agent?"
@@ -281,7 +281,7 @@ This is test skill content. If you see this, the skill activated correctly.
 EOF
 
 # Launch Claude Code
-cc --plugin-dir test-plugin
+claude --plugin-dir test-plugin
 
 # In Claude:
 "Please activate test skill"
@@ -392,7 +392,7 @@ EOF
 cp test-hook.sh test-plugin/hooks/scripts/validate.sh
 
 # Test in Claude Code
-cc --plugin-dir test-plugin --debug
+claude --plugin-dir test-plugin --debug
 
 # In Claude:
 "Write 'test' to /tmp/.env"
@@ -438,7 +438,7 @@ cat > test-plugin/hooks/hooks.json <<'EOF'
 EOF
 
 # Test dangerous command
-cc --plugin-dir test-plugin
+claude --plugin-dir test-plugin
 
 # In Claude:
 "Run rm -rf /"
@@ -470,7 +470,7 @@ cat > test-plugin/.mcp.json <<'EOF'
 EOF
 
 # Launch Claude Code
-cc --plugin-dir test-plugin --debug
+claude --plugin-dir test-plugin --debug
 
 # Look for server startup logs
 # In Claude:
@@ -487,7 +487,7 @@ cc --plugin-dir test-plugin --debug
 Enable debug mode for detailed logging:
 
 ```bash
-cc --plugin-dir /path/to/plugin --debug
+claude --plugin-dir /path/to/plugin --debug
 ```
 
 **Debug Output Includes**:
@@ -826,7 +826,7 @@ description: Say hello
 Hello, world!
 EOF
 
-cc --plugin-dir minimal-plugin
+claude --plugin-dir minimal-plugin
 # /hello
 ```
 
@@ -836,20 +836,20 @@ Test each component type separately:
 
 ```bash
 # Test only commands
-cc --plugin-dir plugin-with-only-commands
+claude --plugin-dir plugin-with-only-commands
 
 # Test only hooks
-cc --plugin-dir plugin-with-only-hooks
+claude --plugin-dir plugin-with-only-hooks
 
 # Test only MCP
-cc --plugin-dir plugin-with-only-mcp
+claude --plugin-dir plugin-with-only-mcp
 ```
 
 #### 3. Use Debug Mode
 
 ```bash
 # Always use debug mode when troubleshooting
-cc --plugin-dir /path/to/plugin --debug 2>&1 | tee debug.log
+claude --plugin-dir /path/to/plugin --debug 2>&1 | tee debug.log
 
 # Analyze debug log
 grep ERROR debug.log
@@ -902,7 +902,7 @@ cat commands/my-command.md
 # Should have --- delimiters and valid YAML
 
 # 4. Check plugin loading
-cc --plugin-dir . --debug 2>&1 | grep "Registered command"
+claude --plugin-dir . --debug 2>&1 | grep "Registered command"
 ```
 
 #### Agents Not Triggering
@@ -922,7 +922,7 @@ cat agents/my-agent.md
 # Ensure model specified if needed
 
 # 4. Verify agent loaded
-cc --plugin-dir . --debug 2>&1 | grep "Registered agent"
+claude --plugin-dir . --debug 2>&1 | grep "Registered agent"
 ```
 
 #### Hooks Not Executing
@@ -946,7 +946,7 @@ ls -la hooks/scripts/validate.sh
 # Should be -rwxr-xr-x
 
 # 5. Verify ${CLAUDE_PLUGIN_ROOT} resolves
-cc --plugin-dir . --debug 2>&1 | grep "CLAUDE_PLUGIN_ROOT"
+claude --plugin-dir . --debug 2>&1 | grep "CLAUDE_PLUGIN_ROOT"
 
 # 6. Check timeout isn't too short
 # Increase timeout in hooks.json if needed
@@ -969,7 +969,7 @@ npx -y @modelcontextprotocol/server-filesystem
 # Ensure all ${VAR} have values
 
 # 4. Look for startup errors
-cc --plugin-dir . --debug 2>&1 | grep -A 10 "MCP server"
+claude --plugin-dir . --debug 2>&1 | grep -A 10 "MCP server"
 
 # 5. Verify tool listing
 # In Claude: "List available MCP tools"
@@ -991,7 +991,7 @@ cc --plugin-dir . --debug 2>&1 | grep -A 10 "MCP server"
 # Not OK: Markdown files (use literal path descriptions)
 
 # 3. Test resolution
-cc --plugin-dir . --debug 2>&1 | grep "CLAUDE_PLUGIN_ROOT"
+claude --plugin-dir . --debug 2>&1 | grep "CLAUDE_PLUGIN_ROOT"
 ```
 
 ### Logging and Diagnostics
@@ -1020,7 +1020,7 @@ echo "[DEBUG] Hook script completed" >&2
 
 ```bash
 # Run Claude Code with full logging
-cc --plugin-dir . --debug 2>&1 | tee full-debug.log
+claude --plugin-dir . --debug 2>&1 | tee full-debug.log
 
 # Analyze log
 grep "\[DEBUG\]" full-debug.log
@@ -1052,7 +1052,7 @@ tree .
 
 # 4. Check --plugin-dir path
 # Must be absolute path or correct relative path
-cc --plugin-dir "$(pwd)"
+claude --plugin-dir "$(pwd)"
 ```
 
 ### Issue: Command Fails with "Tool not allowed"
@@ -1103,7 +1103,7 @@ allowed-tools: ["Read", "Write", "Bash", "Grep", "Glob"]
 ```bash
 # 1. Set environment variable before launching
 export MY_API_KEY="..."
-cc --plugin-dir .
+claude --plugin-dir .
 
 # 2. Or use .env file
 cat > .env <<EOF
