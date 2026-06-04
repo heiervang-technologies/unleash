@@ -1,6 +1,6 @@
 # Unleash CLI Reference
 
-Unified CLI manager for AI code agents (Claude, Codex, Gemini, OpenCode).
+Unified CLI manager for AI code agents (Claude, Codex, Antigravity, Gemini, OpenCode, Pi, Hermes).
 
 ## Usage
 
@@ -39,14 +39,14 @@ unleash gemini -p "fix it"  # Headless Gemini prompt
 
 How unified flags map to each agent's native CLI:
 
-| unleash | Claude | Codex | Gemini | OpenCode |
-|---------|--------|-------|--------|----------|
-| `-p <prompt>` | `-p <prompt>` | `exec <prompt>` | `-p <prompt>` | `run <prompt>` |
-| `-c` | `--continue` | `resume --last` | `--resume latest` | `--continue` |
-| `-r [id]` | `--resume [id]` | `resume [id]` | `--resume [id]` | `--session <id>` |
-| `--fork` | `--fork-session` | `fork` subcommand | *(unsupported)* | `--fork` |
-| *(default)* | `--dangerously-skip-permissions` | `--dangerously-bypass-approvals-and-sandbox` | `--yolo` | *(no-op)* |
-| `--safe` | *(omits above)* | *(omits above)* | *(omits above)* | *(no-op)* |
+| unleash | Claude | Codex | Antigravity (`agy`) | Gemini | OpenCode | Pi | Hermes |
+|---------|--------|-------|---------------------|--------|----------|----|--------|
+| `-p <prompt>` | `-p <prompt>` | `exec <prompt>` | `-p <prompt>` | `-p <prompt>` | `run <prompt>` | `-p <prompt>` | `-z <prompt>` |
+| `-c` | `--continue` | `resume --last` | `--resume latest` | `--resume latest` | `--continue` | `--continue` | `--continue` |
+| `-r [id]` | `--resume [id]` | `resume [id]` | `--resume [id]` | `--resume [id]` | `-s <id>` | `--session <id>` | `--resume [id]` |
+| `--fork` | `--fork-session` | `fork` subcommand | *(unsupported)* | *(unsupported)* | `--fork` | `--fork` | `--worktree` |
+| *(default)* | `--dangerously-skip-permissions` | `--dangerously-bypass-approvals-and-sandbox` | `--dangerously-skip-permissions` | `--yolo` | *(no-op)* | *(no-op)* | `--yolo` |
+| `--safe` | *(omits above)* | *(omits above)* | *(omits above)* | *(omits above)* | *(no-op)* | *(no-op)* | *(omits above)* |
 
 ## Passthrough
 
@@ -152,11 +152,14 @@ unleash convert --from codex session.jsonl --verify                 # round-trip
 ```
 
 Required:
-- `--from <format>`: source format (`claude`, `codex`, `gemini`, `opencode`, `hub`)
+- `--from <format>`: source format. One of: `claude` (alias `claude-code`),
+  `codex`, `gemini` (aliases `gemini-cli`, `antigravity`, `antigravity-cli`,
+  `agy` — same JSON schema), `opencode`, `pi` (alias `pi-coding-agent`),
+  `hermes` (alias `hermes-agent`), or `hub` / `ucf`.
 - `<input>`: path to the input file (positional)
 
 Optional:
-- `--to <format>`: target format (default: `hub`)
+- `--to <format>`: target format (same set as `--from`; default: `hub`)
 - `--output <path>` / `-o <path>`: output file (default: stdout)
 - `--verify`: verify lossless round-trip instead of converting
 
