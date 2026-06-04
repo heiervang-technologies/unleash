@@ -7,11 +7,9 @@
 //!
 //! Idempotence: `to_hub(from_hub(to_hub(x))) == to_hub(x)` for every CLI.
 //!
-//! These tests are expected to fail until foreign-extension passthrough is
-//! implemented in each converter. They document the target behavior.
-//!
-//! Tests are gated behind `#[ignore]` until the passthrough lands. Run with:
-//!   cargo test --lib interchange::lossless_tests -- --ignored --nocapture
+//! Foreign-extension passthrough is implemented in every converter (codex,
+//! claude, gemini, opencode), so all tests in this module run by default;
+//! one diagnostic test is `#[ignore]`d and runs only with `--ignored`.
 
 #[cfg(test)]
 mod tests {
