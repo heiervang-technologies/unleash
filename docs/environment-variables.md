@@ -12,6 +12,11 @@ These can be set before launching `unleash` to change behavior.
 | `EDITOR` / `VISUAL` | Editor for TUI text input fields | system default |
 | `AGENT_UNLEASH_ROOT` | Path to the unleash installation directory (read by plugins and hooks) | unset |
 | `CODEX_HOME` | Override Codex home directory (used to locate Codex sessions and history) | `~/.codex` |
+| `OAI_BASE` | Base URL of the OpenAI-compatible server `unleash search` uses for embeddings (and chat unless `OAI_CHAT_BASE` is set) | `http://127.0.0.1:18000/v1` |
+| `OAI_EMBED_MODEL` | Embedding model name (`/v1/embeddings`) | `lco-omni-3b` |
+| `OAI_CHAT_BASE` | Optional separate base URL for chat completions (title regeneration) | falls back to `OAI_BASE` |
+| `OAI_CHAT_MODEL` | Chat model used for `sessions name` title generation. **Unset = skip naming** | unset |
+| `ALPHA` | Hybrid-search rank fusion: dense-vs-BM25 weight (0–1, higher = more dense) | `0.4` |
 
 ### Examples
 
@@ -37,7 +42,7 @@ runtime environment.
 
 | Variable | Purpose |
 |----------|---------|
-| `AGENT_CMD` | Which agent binary is running (`claude`, `codex`, `gemini`, `opencode`) |
+| `AGENT_CMD` | Which agent binary is running (`claude`, `codex`, `agy`, `gemini`, `opencode`, `pi`, `hermes`, or a custom-agent name) |
 | `AGENT_UNLEASH` | Set to `1` when running under the unleash wrapper |
 | `AGENT_WRAPPER_PID` | PID of the wrapper process (used by plugins and Hyprland focus) |
 | `UNLEASH_POLYFILL_ACTIVE` | Set to `1` when polyfill flag translation is active |

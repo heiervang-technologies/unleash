@@ -9,11 +9,21 @@ Unleash uses a minimal global config file. Most settings live in
 
 ```toml
 current_profile = "claude"   # Which profile loads by default
-animations = false            # TUI animations (lava color cycling)
+animations = false           # TUI animations (lava color cycling)
+enabled_plugins = []         # Empty = all bundled plugins enabled (default)
+                             # Non-empty = only-these list
+
+# Custom agent CLI definitions (zero or more `[[custom_agents]]` blocks).
+# See docs/custom-agents.md for the full schema.
+[[custom_agents]]
+name = "aider"
+binary = "aider"
+# ... polyfill, description, optional fields
 ```
 
-That's it -- just two fields. Everything else (agent path, theme, flags,
-environment variables, plugin settings) is configured per-profile.
+Per-agent settings (path, theme, flags, env vars, stop_prompt) live in
+[profile TOMLs](profiles.md), not here. Per-plugin settings live in each
+plugin's manifest with TUI controls.
 
 ## Directory Layout
 
@@ -23,9 +33,17 @@ environment variables, plugin settings) is configured per-profile.
 └── profiles/                # One TOML file per profile
     ├── claude.toml
     ├── codex.toml
+    ├── agy.toml
     ├── gemini.toml
-    └── opencode.toml
+    ├── opencode.toml
+    ├── pi.toml
+    └── hermes.toml
 ```
+
+`profiles/` is seeded with the seven default profiles on first run. Add
+extra `<name>.toml` files for custom profiles or custom agents — the
+filename (without `.toml`) becomes the subcommand name (e.g.
+`aider.toml` → `unleash aider`).
 
 ## Changing the Default Profile
 
