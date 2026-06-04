@@ -1,0 +1,155 @@
+{
+  "metadata": {
+    "iterations": 15,
+    "warmup": 2,
+    "timeout_sec": 30,
+    "command": "--version",
+    "mode": "equivalent",
+    "unleash": "./target/release/unleash",
+    "host": "centurion",
+    "kernel": "7.0.3-arch1-2",
+    "timestamp": "2026-06-01T21:18:39Z"
+  },
+  "results": [
+    {
+      "agent": "claude",
+      "direct": {
+        "wall_sec":   { "median": 0.170000, "p95": 0.180000, "stddev": 0.008338, "min": 0.160000, "max": 0.180000, "n": 15 },
+        "user_sec":   { "median": 0.140000,  "p95": 0.150000,  "stddev": 0.008338 },
+        "sys_sec":    { "median": 0.050000,  "p95": 0.060000,  "stddev": 0.006761 },
+        "max_rss_kb": { "median": 266132.000000,  "p95": 267664.000000,  "stddev": 944.530359, "min": 264432.000000, "max": 267796.000000 }
+      },
+      "wrapped": {
+        "wall_sec":   { "median": 0.180000, "p95": 0.190000, "stddev": 0.012228, "min": 0.170000, "max": 0.220000, "n": 15 },
+        "user_sec":   { "median": 0.150000,  "p95": 0.160000,  "stddev": 0.009411 },
+        "sys_sec":    { "median": 0.060000,  "p95": 0.060000,  "stddev": 0.006172 },
+        "max_rss_kb": { "median": 266060.000000,  "p95": 266384.000000,  "stddev": 792.853028, "min": 264356.000000, "max": 268048.000000 }
+      },
+      "overhead": {
+        "wall_sec_abs": 0.010000,
+        "max_rss_kb_abs": -72
+      }
+    }
+,
+    {
+      "agent": "codex",
+      "direct": {
+        "wall_sec":   { "median": 0.000000, "p95": 0.000000, "stddev": 0.000000, "min": 0.000000, "max": 0.000000, "n": 15 },
+        "user_sec":   { "median": 0.000000,  "p95": 0.000000,  "stddev": 0.000000 },
+        "sys_sec":    { "median": 0.000000,  "p95": 0.000000,  "stddev": 0.000000 },
+        "max_rss_kb": { "median": 19360.000000,  "p95": 19360.000000,  "stddev": 77.311984, "min": 19128.000000, "max": 19388.000000 }
+      },
+      "wrapped": {
+        "wall_sec":   { "median": 0.010000, "p95": 0.020000, "stddev": 0.004880, "min": 0.010000, "max": 0.020000, "n": 15 },
+        "user_sec":   { "median": 0.000000,  "p95": 0.000000,  "stddev": 0.000000 },
+        "sys_sec":    { "median": 0.010000,  "p95": 0.010000,  "stddev": 0.004880 },
+        "max_rss_kb": { "median": 19340.000000,  "p95": 19440.000000,  "stddev": 92.772738, "min": 19248.000000, "max": 19596.000000 }
+      },
+      "overhead": {
+        "wall_sec_abs": 0.010000,
+        "max_rss_kb_abs": -20
+      }
+    }
+,
+    {
+      "agent": "agy",
+      "direct": {
+        "wall_sec":   { "median": 0.060000, "p95": 0.070000, "stddev": 0.005164, "min": 0.060000, "max": 0.070000, "n": 15 },
+        "user_sec":   { "median": 0.050000,  "p95": 0.050000,  "stddev": 0.006325 },
+        "sys_sec":    { "median": 0.030000,  "p95": 0.030000,  "stddev": 0.005164 },
+        "max_rss_kb": { "median": 127704.000000,  "p95": 128872.000000,  "stddev": 586.240061, "min": 126896.000000, "max": 129036.000000 }
+      },
+      "wrapped": {
+        "wall_sec":   { "median": 0.070000, "p95": 0.080000, "stddev": 0.005071, "min": 0.070000, "max": 0.080000, "n": 15 },
+        "user_sec":   { "median": 0.050000,  "p95": 0.060000,  "stddev": 0.007037 },
+        "sys_sec":    { "median": 0.040000,  "p95": 0.040000,  "stddev": 0.007432 },
+        "max_rss_kb": { "median": 127672.000000,  "p95": 128848.000000,  "stddev": 715.862397, "min": 126968.000000, "max": 129072.000000 }
+      },
+      "overhead": {
+        "wall_sec_abs": 0.010000,
+        "max_rss_kb_abs": -32
+      }
+    }
+,
+    {
+      "agent": "gemini",
+      "direct": {
+        "wall_sec":   { "median": 0.980000, "p95": 0.990000, "stddev": 0.015887, "min": 0.950000, "max": 1.010000, "n": 15 },
+        "user_sec":   { "median": 1.010000,  "p95": 1.030000,  "stddev": 0.020284 },
+        "sys_sec":    { "median": 0.150000,  "p95": 0.170000,  "stddev": 0.009904 },
+        "max_rss_kb": { "median": 220448.000000,  "p95": 220880.000000,  "stddev": 287.517320, "min": 220092.000000, "max": 221136.000000 }
+      },
+      "wrapped": {
+        "wall_sec":   { "median": 0.990000, "p95": 1.000000, "stddev": 0.019074, "min": 0.940000, "max": 1.010000, "n": 15 },
+        "user_sec":   { "median": 1.010000,  "p95": 1.020000,  "stddev": 0.018465 },
+        "sys_sec":    { "median": 0.160000,  "p95": 0.170000,  "stddev": 0.009258 },
+        "max_rss_kb": { "median": 220544.000000,  "p95": 221068.000000,  "stddev": 400.010857, "min": 219692.000000, "max": 221068.000000 }
+      },
+      "overhead": {
+        "wall_sec_abs": 0.010000,
+        "max_rss_kb_abs": 96
+      }
+    }
+,
+    {
+      "agent": "opencode",
+      "direct": {
+        "wall_sec":   { "median": 0.410000, "p95": 0.520000, "stddev": 0.044796, "min": 0.400000, "max": 0.530000, "n": 15 },
+        "user_sec":   { "median": 0.520000,  "p95": 0.610000,  "stddev": 0.042393 },
+        "sys_sec":    { "median": 0.070000,  "p95": 0.090000,  "stddev": 0.008997 },
+        "max_rss_kb": { "median": 200916.000000,  "p95": 201660.000000,  "stddev": 1531.041102, "min": 197068.000000, "max": 202160.000000 }
+      },
+      "wrapped": {
+        "wall_sec":   { "median": 0.420000, "p95": 0.450000, "stddev": 0.017512, "min": 0.400000, "max": 0.460000, "n": 15 },
+        "user_sec":   { "median": 0.520000,  "p95": 0.570000,  "stddev": 0.026851 },
+        "sys_sec":    { "median": 0.080000,  "p95": 0.090000,  "stddev": 0.009759 },
+        "max_rss_kb": { "median": 200508.000000,  "p95": 201360.000000,  "stddev": 1152.347633, "min": 198368.000000, "max": 202732.000000 }
+      },
+      "overhead": {
+        "wall_sec_abs": 0.010000,
+        "max_rss_kb_abs": -408
+      }
+    }
+,
+    {
+      "agent": "pi",
+      "direct": {
+        "wall_sec":   { "median": 0.450000, "p95": 0.460000, "stddev": 0.013345, "min": 0.420000, "max": 0.460000, "n": 15 },
+        "user_sec":   { "median": 0.470000,  "p95": 0.480000,  "stddev": 0.015946 },
+        "sys_sec":    { "median": 0.070000,  "p95": 0.080000,  "stddev": 0.008281 },
+        "max_rss_kb": { "median": 155368.000000,  "p95": 156220.000000,  "stddev": 456.088880, "min": 155064.000000, "max": 156420.000000 }
+      },
+      "wrapped": {
+        "wall_sec":   { "median": 0.450000, "p95": 0.460000, "stddev": 0.009612, "min": 0.430000, "max": 0.470000, "n": 15 },
+        "user_sec":   { "median": 0.460000,  "p95": 0.480000,  "stddev": 0.011255 },
+        "sys_sec":    { "median": 0.070000,  "p95": 0.080000,  "stddev": 0.007432 },
+        "max_rss_kb": { "median": 155124.000000,  "p95": 156404.000000,  "stddev": 758.379927, "min": 154080.000000, "max": 156524.000000 }
+      },
+      "overhead": {
+        "wall_sec_abs": 0.000000,
+        "max_rss_kb_abs": -244
+      }
+    }
+,
+    {
+      "agent": "hermes",
+      "direct": {
+        "wall_sec":   { "median": 0.210000, "p95": 0.230000, "stddev": 0.015976, "min": 0.210000, "max": 0.270000, "n": 15 },
+        "user_sec":   { "median": 0.190000,  "p95": 0.210000,  "stddev": 0.013522 },
+        "sys_sec":    { "median": 0.020000,  "p95": 0.030000,  "stddev": 0.006761 },
+        "max_rss_kb": { "median": 41540.000000,  "p95": 41940.000000,  "stddev": 279.001758, "min": 41136.000000, "max": 42272.000000 }
+      },
+      "wrapped": {
+        "wall_sec":   { "median": 0.230000, "p95": 0.250000, "stddev": 0.008997, "min": 0.220000, "max": 0.250000, "n": 15 },
+        "user_sec":   { "median": 0.200000,  "p95": 0.210000,  "stddev": 0.008452 },
+        "sys_sec":    { "median": 0.020000,  "p95": 0.030000,  "stddev": 0.007432 },
+        "max_rss_kb": { "median": 41756.000000,  "p95": 42044.000000,  "stddev": 309.038940, "min": 41228.000000, "max": 42196.000000 }
+      },
+      "overhead": {
+        "wall_sec_abs": 0.020000,
+        "max_rss_kb_abs": 216
+      }
+    }
+
+  ]
+}
