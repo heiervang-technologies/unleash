@@ -1,6 +1,6 @@
 # Getting Started
 
-Unleash is a unified CLI manager for AI code agents — Claude Code, Codex, Gemini CLI, and OpenCode. It wraps these CLIs with a TUI, profiles, version management, and a plugin system.
+Unleash is a unified CLI manager for AI code agents — Claude Code, Codex, Antigravity (`agy`), Gemini CLI, OpenCode, Pi, and Hermes. It wraps these CLIs with a TUI, profiles, version management, and a plugin system.
 
 ## Prerequisites
 
@@ -40,23 +40,31 @@ Navigation:
 
 ## Pick a Profile
 
-Unleash ships with four default profiles:
+Unleash ships with seven default profiles:
 
 | Profile | Agent |
 |---------|-------|
 | `claude` | Claude Code |
 | `codex` | Codex CLI |
+| `agy` | Antigravity CLI |
 | `gemini` | Gemini CLI |
 | `opencode` | OpenCode |
+| `pi` | Pi coding agent |
+| `hermes` | Hermes Agent |
 
 Launch directly from the command line:
 
 ```bash
 unleash claude
 unleash codex
+unleash agy
 unleash gemini
 unleash opencode
+unleash pi
+unleash hermes
 ```
+
+To add a custom CLI (e.g. `aider`), see [Custom Agent CLIs](custom-agents.md).
 
 ## Key Concepts
 

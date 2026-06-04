@@ -79,7 +79,7 @@ Add a matching profile at `~/.config/unleash/profiles/aider.toml` (any built-in 
 unleash <profile> [unified flags] [-- agent-specific flags]
 ```
 
-The first argument is always a **profile name**. The six default profiles (`claude`, `codex`, `gemini`, `opencode`, `pi`, `hermes`) map to their respective agents. Custom profiles can target any agent with custom settings.
+The first argument is always a **profile name**. The seven default profiles (`claude`, `codex`, `agy`, `gemini`, `opencode`, `pi`, `hermes`) map to their respective agents. Custom profiles can target any agent with custom settings — see [`docs/custom-agents.md`](docs/custom-agents.md).
 
 ```bash
 unleash claude -m opus -c              # Continue last Claude session with Opus
@@ -136,10 +136,11 @@ unleash agents status      # Show all agent versions and update status
 
 ## Version Management
 
-unleash manages versions for all six built-in agent CLIs:
+unleash manages versions for all seven built-in agent CLIs:
 
 - **Claude Code**: Native binary (GCS) or npm install
 - **Codex**: Prebuilt binary from GitHub releases, cargo build fallback
+- **Antigravity CLI** (`agy`): AUR helper (`yay`/`paru`) on Arch; download from antigravity.google elsewhere
 - **Gemini CLI**: npm install
 - **OpenCode**: Built-in `opencode upgrade` command
 - **Pi**: npm install (`@mariozechner/pi-coding-agent`)
