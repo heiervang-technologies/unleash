@@ -2,7 +2,11 @@
 
 Status of conversation history loading between all supported agent CLIs.
 
-**Last updated:** 2026-04-14
+**Last updated:** 2026-06-05
+
+> Coverage below is for the four CLIs with end-to-end synthetic-fixture
+> tests (`src/interchange/tests/fixtures/synthetic/*-10turn.*`). For the
+> other three see [Additional CLIs](#additional-clis) below.
 
 ## Usage
 
@@ -40,9 +44,17 @@ unleash convert --from codex session.jsonl --to claude -o output.jsonl
 
 **Legend:** :green_circle: Lossless (verified end-to-end) · :yellow_circle: Partial (works with known limitations) · :red_circle: Not working · :white_circle: Untested
 
+## Additional CLIs
+
+| CLI | Source discovery | Target injection | Round-trip coverage |
+|---|---|---|---|
+| **Pi** | ✓ `sessions.rs:776` | ✓ `inject_into_pi` | Bidirectional **portable-fields** unit tests in `cross_cli_tests.rs` against claude/codex/gemini/opencode. No 10-turn synthetic fixture yet → not in main matrix. |
+| **Hermes** | ✓ `sessions.rs:640` | ✓ `inject_into_hermes` | Untested — dispatch wired in, no round-trip tests yet. |
+| **Antigravity (`agy`)** | via Gemini storage layout (`sessions.rs` Gemini path; see `normalize_target_cli` in `inject.rs:130`) | via Gemini path | Inherits Gemini's matrix entries. |
+
 ## How It Works
 
-1. **Session discovery** (`unleash sessions`) scans all 4 CLI session stores
+1. **Session discovery** (`unleash sessions`) scans the configured CLI session stores (claude/codex/gemini/opencode/pi/hermes; agy shares the Gemini path)
 2. **Hub conversion** transforms the source format to the Unleash Conversation Format (.ucf.jsonl)
 3. **Target injection** converts from hub to the target CLI format and writes to its session directory
 4. **Resume** launches the target CLI with `--resume <session-id>`
@@ -52,10 +64,13 @@ unleash convert --from codex session.jsonl --to claude -o output.jsonl
 ```
 Claude JSONL  <-->  Hub (.ucf.jsonl)  <-->  Codex JSONL
                          |
-Gemini JSON   <---------|---------->  OpenCode SQLite
+                         |---->  Gemini JSON  (agy shares this path)
+                         |---->  OpenCode SQLite
+                         |---->  Pi JSON
+                         |---->  Hermes JSON
 ```
 
-Hub-and-spoke model: O(N) converters, not O(N^2) direct pairs.
+Hub-and-spoke model: O(N) converters, not O(N²) direct pairs.
 
 ## Known Limitations
 
