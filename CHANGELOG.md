@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.62](https://github.com/heiervang-technologies/unleash/compare/v0.1.61...v0.1.62) (2026-06-04)
+
+
+### Performance Improvements
+
+* **launcher:** short-circuit meta commands to bypass plugin-init tax (refs [#258](https://github.com/heiervang-technologies/unleash/issues/258)) ([#263](https://github.com/heiervang-technologies/unleash/issues/263)) ([e08e901](https://github.com/heiervang-technologies/unleash/commit/e08e90131166b1aea9b1f6ca4545ad900603186c))
+
 ## [0.1.61](https://github.com/heiervang-technologies/unleash/compare/v0.1.60...v0.1.61) (2026-06-02)
 
 
