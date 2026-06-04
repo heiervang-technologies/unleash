@@ -156,7 +156,7 @@ Features that unleash adds on top of the base agent CLIs:
 
 ### Available Now
 
-- **Self-restart**: Restart the agent while preserving session state (`unleash-refresh`, also available as `restart-claude`)
+- **Self-restart**: Restart the agent while preserving session state (`unleash-refresh`)
 - **Auto-mode**: Autonomous operation via Stop hook + flag file system
 - **Plugin system**: Custom functionality loaded via `--plugin-dir`
 - **MCP refresh**: Detect MCP configuration changes and trigger reload

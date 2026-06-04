@@ -142,7 +142,7 @@ When auto-mode is active, the stop hook delivers a message to the agent each tim
 Set `stop_prompt` in the profile TOML:
 
 ```toml
-stop_prompt = "Complete all tests before stopping. Use exit-claude when truly done."
+stop_prompt = "Complete all tests before stopping. Use unleash-exit when truly done."
 ```
 
 ### Priority Order
