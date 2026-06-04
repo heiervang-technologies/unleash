@@ -309,13 +309,28 @@ fn run_agent_with_polyfill(
     // Skip straight to exec'ing the bare agent binary with profile env so
     // claude doesn't pay its plugin-init tax for `unleash claude --version`.
     // See issue #258 and docs/benchmarks/overhead-2026-06-01.html.
+    //
+    // Guard against recursive invocation: if the profile's `agent_cli_path`
+    // resolves to the unleash binary itself (the Profile::new default), fall
+    // through to the normal path — `find_agent_command()` produces a helpful
+    // error there instead of exec'ing ourselves with --version.
     if launcher::is_meta_command(&extra_args) {
         let agent_path = std::path::PathBuf::from(&profile.agent_cli_path);
-        let exit_code = launcher::exec_meta_command(&agent_path, &extra_args, &profile.env)?;
-        if exit_code == 0 {
-            return Ok(());
+        let target_canon = which::which(&profile.agent_cli_path)
+            .ok()
+            .and_then(|p| p.canonicalize().ok());
+        let exe_canon = std::env::current_exe()
+            .ok()
+            .and_then(|p| p.canonicalize().ok());
+        let safe = target_canon.is_some() && target_canon != exe_canon;
+        if safe {
+            let exit_code =
+                launcher::exec_meta_command(&agent_path, &extra_args, &profile.env)?;
+            if exit_code == 0 {
+                return Ok(());
+            }
+            std::process::exit(exit_code);
         }
-        std::process::exit(exit_code);
     }
 
     let mut flags = polyfill_args.to_polyfill_flags(&profile.defaults);
