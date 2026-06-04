@@ -18,7 +18,7 @@ unleash uses a small set of configuration files:
 
 | File/Path | Purpose | Format |
 |-----------|---------|--------|
-| `~/.config/unleash/config.toml` | Global app state (current profile, animations) | TOML |
+| `~/.config/unleash/config.toml` | Global app state (current profile, animations, enabled plugins, custom-agent defs) | TOML |
 | `~/.config/unleash/profiles/*.toml` | Per-profile settings (agent, model, theme, env, …) | TOML |
 | `~/.claude/settings.json` | Claude Code settings and hooks (managed by Claude Code) | JSON |
 | `~/.cache/unleash/` | Runtime state (auto-mode flags, restart triggers) | Various |
@@ -27,23 +27,28 @@ unleash uses a small set of configuration files:
 
 ### Global Config (`config.toml`)
 
-Located at `~/.config/unleash/config.toml`. Stores only minimal global state:
+Located at `~/.config/unleash/config.toml`. Stores minimal global state:
 
 ```toml
 current_profile = "claude"
 animations = true
+enabled_plugins = []        # Empty = all bundled enabled; non-empty = only-these
+# Custom CLI definitions (zero or more `[[custom_agents]]` blocks).
+# See docs/custom-agents.md for the full schema.
 ```
 
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
 | `current_profile` | string | `"claude"` | Name of the active profile |
 | `animations` | bool | `true` | Enable/disable TUI animations |
+| `enabled_plugins` | array | `[]` | Plugin allowlist (empty = all bundled plugins enabled) |
+| `custom_agents` | array of tables | `[]` | User-defined custom CLIs; see [Custom Agent CLIs](../custom-agents.md) |
 
-> **Note:** Executable path, arguments, model, stop prompt, and theme are all configured per-profile — not here.
+> **Note:** Executable path, arguments, model, stop prompt, theme, and per-agent env vars are all configured per-profile — not here.
 
 ### Profiles (`~/.config/unleash/profiles/`)
 
-Each profile is a `.toml` file in `~/.config/unleash/profiles/`. Default profiles (`claude.toml`, `codex.toml`, `gemini.toml`, `opencode.toml`) are created automatically on first run.
+Each profile is a `.toml` file in `~/.config/unleash/profiles/`. The seven default profiles (`claude.toml`, `codex.toml`, `agy.toml`, `gemini.toml`, `opencode.toml`, `pi.toml`, `hermes.toml`) are created automatically on first run.
 
 **Example profile (`claude.toml`):**
 ```toml
