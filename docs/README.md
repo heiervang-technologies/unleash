@@ -7,9 +7,11 @@
 | [Getting Started](getting-started.md) | Install, first run, pick a profile |
 | [CLI Reference](cli-reference.md) | All flags, subcommands, and translation tables |
 | [Profiles](profiles.md) | Create and configure named agent profiles |
+| [Custom Agent CLIs](custom-agents.md) | Add your own agent CLI as a first-class profile |
 | [Configuration](configuration.md) | Global settings (`config.toml`) |
 | [Environment Variables](environment-variables.md) | All env vars unleash sets or reads |
 | [Crossload](crossload.md) | Portable conversation histories across CLIs |
+| [Crossload Matrix](crossload-matrix.md) | Per-pair lossless/partial status across all agents |
 | [Docker](docker.md) | Sandboxed containers and multi-agent mesh |
 | [Plugins](plugins.md) | Bundled plugin index and custom plugin pointers |
 
