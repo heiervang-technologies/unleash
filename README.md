@@ -63,13 +63,13 @@ github_repo = "paul-gauthier/aider"
 
 [custom_agents.polyfill]
 headless = { flag = "--message" }
-session = { continue_arg = "--restore-chat-history", resume_arg = "--restore-chat-history" }
+session = { continue_strategy = { flag = "--restore-chat-history" }, resume_strategy = { flag = "--restore-chat-history" } }
 fork = "unsupported"
 model_flag = "--model"                    # required
 yolo_flag = "--yes"                       # optional
 ```
 
-Then launch with `unleash aider` — full polyfill support and TUI integration.
+Add a matching profile at `~/.config/unleash/profiles/aider.toml` (any built-in profile makes a fine starting template), then launch with `unleash aider` — full polyfill support and TUI integration. See [Custom Agent CLIs](docs/custom-agents.md) for the full schema, polyfill strategy reference, and multi-agent examples.
 
 ## CLI Usage
 
