@@ -12,6 +12,8 @@ when launching an agent.
 | **mcp-refresh** | Detect MCP config changes and notify for reload | Automatic via PreToolUse hook |
 | **hyprland-focus** | Window transparency while agent works (Hyprland only) | `AU_HYPRLAND_FOCUS=0` to disable |
 | **omnihook** | Unified hook handler with voice input integration and FIFO wakeup | Automatic |
+| **supercompact** | Entity-preservation conversation compaction (`/compact` replacement) | Plugins tab in TUI; method = `eitf` / `setcover` / `dedup` |
+| **token-usage** | Centralized token-usage log across all agent CLIs | Plugins tab in TUI; per-method toggles |
 
 ## Plugin Descriptions
 
@@ -43,23 +45,45 @@ Unified hook handler that combines multiple hook functions into a single
 entry point. Manages a FIFO queue for instant message wakeup in auto-mode,
 replacing sleep-based polling.
 
+### supercompact
+
+Drop-in replacement for `/compact` that runs entity-preservation scoring
+(EITF / set-cover / dedup) instead of summarization. ~400× faster than the
+default summarizer and retains roughly twice as many distinct entities
+across a single compaction. Pick the scoring method from the Plugins tab.
+
+### token-usage
+
+Centralizes token-usage data from every agent CLI into a single append-only
+log at `~/.local/share/unleash/token-usage.jsonl`. Multiple collection
+methods (Stop-hook session tail for live Claude data, on-demand session
+scan for other CLIs) are independently toggleable in the Plugins tab.
+
 ## Creating Custom Plugins
 
-Plugins live in their own directory with a standard structure:
+Claude Code plugins are config + scripts (not Node.js modules). A typical
+layout:
 
 ```
 plugins/my-plugin/
-├── plugin.json          # Manifest (name, version, hooks)
-├── index.js             # Main entry point
-└── README.md            # Documentation
+├── .claude-plugin/
+│   └── plugin.json      # Manifest (Claude Code reads from here)
+├── commands/            # Slash commands (*.md files), optional
+├── hooks/               # Lifecycle hooks, optional
+│   ├── hooks.json       # Event → script mapping
+│   └── *.sh             # Hook scripts (bash, python, anything executable)
+├── scripts/             # Helper scripts called by hooks/commands, optional
+└── README.md
 ```
 
-For full details on the plugin API, see
-[docs/extensions/plugin-development.md](extensions/plugin-development.md).
+For full details on the plugin API, hook event types, and tested patterns
+see [Plugin Development Guide](internal/claude-code/plugin-development.md).
 
 ## Loading Plugins
 
-Bundled plugins are loaded automatically. To add a custom plugin directory:
+Bundled plugins under `plugins/bundled/` are discovered automatically.
+Unleash also picks up user plugins from `~/.local/share/unleash/plugins/`
+and (with `--plugin-dir`) from any extra directory you point it at:
 
 ```bash
 unleash claude --plugin-dir /path/to/my-plugins
