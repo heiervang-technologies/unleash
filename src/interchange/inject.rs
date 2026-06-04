@@ -2,7 +2,9 @@
 
 use crate::interchange::crossload_index::{self, entry_is_live};
 use crate::interchange::sessions::{find_session, SessionInfo};
-use crate::interchange::{claude, codex, gemini, hermes, hub::HubRecord, opencode, pi, ConvertError};
+use crate::interchange::{
+    claude, codex, gemini, hermes, hub::HubRecord, opencode, pi, ConvertError,
+};
 
 /// Result of injecting a session: the session ID to resume with and any extra args.
 pub struct InjectionResult {
@@ -166,12 +168,8 @@ fn estimate_block_chars(block: &crate::interchange::hub::ContentBlock) -> usize 
     use crate::interchange::hub::ContentBlock;
     match block {
         ContentBlock::Text { text } => text.len(),
-        ContentBlock::ToolUse { name, input, .. } => {
-            name.len() + input.to_string().len()
-        }
-        ContentBlock::ToolResult { content, .. } => {
-            content.iter().map(estimate_block_chars).sum()
-        }
+        ContentBlock::ToolUse { name, input, .. } => name.len() + input.to_string().len(),
+        ContentBlock::ToolResult { content, .. } => content.iter().map(estimate_block_chars).sum(),
         ContentBlock::Thinking { text, .. } => text.len(),
         ContentBlock::Image { .. } => 256,
         _ => 64,
@@ -182,17 +180,15 @@ fn estimate_block_chars(block: &crate::interchange::hub::ContentBlock) -> usize 
 /// the estimated token count fits within `max_tokens`.
 /// The session header (first record) is always kept.
 /// Returns (trimmed_records, num_messages_dropped).
-fn truncate_hub_to_budget(
-    records: Vec<HubRecord>,
-    max_tokens: usize,
-) -> (Vec<HubRecord>, usize) {
+fn truncate_hub_to_budget(records: Vec<HubRecord>, max_tokens: usize) -> (Vec<HubRecord>, usize) {
     if estimate_tokens(&records) <= max_tokens {
         return (records, 0);
     }
 
     // Separate the session header from the messages.
-    let (header, mut messages): (Vec<HubRecord>, Vec<HubRecord>) =
-        records.into_iter().partition(|r| matches!(r, HubRecord::Session(_)));
+    let (header, mut messages): (Vec<HubRecord>, Vec<HubRecord>) = records
+        .into_iter()
+        .partition(|r| matches!(r, HubRecord::Session(_)));
 
     let mut dropped = 0;
     while !messages.is_empty() {
@@ -2248,7 +2244,7 @@ mod tests {
     fn test_estimate_tokens_text() {
         let records = vec![
             make_session_header(),
-            make_text_message("user", "aaaa"),   // 4 chars = 1 token
+            make_text_message("user", "aaaa"), // 4 chars = 1 token
             make_text_message("assistant", "bbbbbbbb"), // 8 chars = 2 tokens
         ];
         assert_eq!(estimate_tokens(&records), 3);
@@ -2271,9 +2267,9 @@ mod tests {
         let long_text = "x".repeat(400); // 400 chars = 100 tokens each
         let records = vec![
             make_session_header(),
-            make_text_message("user", &long_text),      // oldest
+            make_text_message("user", &long_text), // oldest
             make_text_message("assistant", &long_text), // 2nd
-            make_text_message("user", &long_text),      // newest user
+            make_text_message("user", &long_text), // newest user
             make_text_message("assistant", &long_text), // newest assistant
         ];
         // 4 messages × 100 tokens = 400 tokens total; budget = 250 → must drop 2

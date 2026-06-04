@@ -229,8 +229,7 @@ async fn run_sessions_action_async(
             // parent passes the lock-file path so we can remove it on completion
             // (success, error, or panic). Without this, the stale lock persists
             // until the next reindex check notices the PID is dead.
-            let _lock_guard = std::env::var_os("UNLEASH_REINDEX_LOCK_PATH")
-                .map(ReindexLockGuard);
+            let _lock_guard = std::env::var_os("UNLEASH_REINDEX_LOCK_PATH").map(ReindexLockGuard);
             // Re-use the full search pipeline (probe → schema → discover → upsert
             // → embed → name) with no query and no TUI. Setting reindex=true
             // wipes embeddings + generated titles so everything regenerates.
@@ -2162,7 +2161,10 @@ mod tests {
         {
             let _g = ReindexLockGuard(lock_path.as_os_str().to_os_string());
         }
-        assert!(!lock_path.exists(), "guard should remove the lock file on drop");
+        assert!(
+            !lock_path.exists(),
+            "guard should remove the lock file on drop"
+        );
     }
 
     #[test]

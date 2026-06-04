@@ -52,12 +52,8 @@ fn detect_agent_type(cmd: &Path) -> Option<AgentType> {
 /// `unleash claude --version`, CI smoke tests, and the many hook subprocesses
 /// that re-enter unleash during a session.
 pub(crate) fn is_meta_command(args: &[String]) -> bool {
-    args.iter().any(|a| {
-        matches!(
-            a.as_str(),
-            "--version" | "-V" | "--help" | "-h" | "doctor"
-        )
-    })
+    args.iter()
+        .any(|a| matches!(a.as_str(), "--version" | "-V" | "--help" | "-h" | "doctor"))
 }
 
 /// Exec the agent directly with profile env — no plugins, no permissions

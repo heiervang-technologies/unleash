@@ -144,10 +144,7 @@ pub fn to_hub(json: &str) -> Result<Vec<HubRecord>, ConvertError> {
     let session: Value = serde_json::from_str(json)?;
     let mut records: Vec<HubRecord> = Vec::new();
 
-    let session_id = session["id"]
-        .as_str()
-        .unwrap_or("unknown")
-        .to_string();
+    let session_id = session["id"].as_str().unwrap_or("unknown").to_string();
     let model = session["model"].as_str().map(|s| s.to_string());
     let title = session["title"].as_str().map(|s| s.to_string());
 
@@ -165,9 +162,7 @@ pub fn to_hub(json: &str) -> Result<Vec<HubRecord>, ConvertError> {
         model: model.clone(),
         title: title.clone(),
         slug: None,
-        parent_session_id: session["parent_session_id"]
-            .as_str()
-            .map(|s| s.to_string()),
+        parent_session_id: session["parent_session_id"].as_str().map(|s| s.to_string()),
         extensions: Value::Object(Default::default()),
     }));
 
@@ -178,15 +173,15 @@ pub fn to_hub(json: &str) -> Result<Vec<HubRecord>, ConvertError> {
         let msg = &messages[i];
         let role = msg["role"].as_str().unwrap_or("user");
         let ts = msg["timestamp"].as_f64().unwrap_or(started_at);
-        let msg_id = msg["id"].as_u64().map(|n| n.to_string()).unwrap_or_default();
+        let msg_id = msg["id"]
+            .as_u64()
+            .map(|n| n.to_string())
+            .unwrap_or_default();
 
         if role == "tool" {
             // Orphaned tool result — emit as user ToolResult block
             let content = msg["content"].as_str().unwrap_or("").to_string();
-            let tool_use_id = msg["tool_call_id"]
-                .as_str()
-                .unwrap_or(&msg_id)
-                .to_string();
+            let tool_use_id = msg["tool_call_id"].as_str().unwrap_or(&msg_id).to_string();
             records.push(HubRecord::Message(HubMessage {
                 id: msg_id,
                 api_message_id: None,
@@ -215,9 +210,7 @@ pub fn to_hub(json: &str) -> Result<Vec<HubRecord>, ConvertError> {
         let content_text = msg["content"].as_str().unwrap_or("").to_string();
         let mut blocks: Vec<ContentBlock> = Vec::new();
         if !content_text.is_empty() {
-            blocks.push(ContentBlock::Text {
-                text: content_text,
-            });
+            blocks.push(ContentBlock::Text { text: content_text });
         }
 
         let mut result_blocks: Vec<ContentBlock> = Vec::new();
@@ -236,8 +229,8 @@ pub fn to_hub(json: &str) -> Result<Vec<HubRecord>, ConvertError> {
                         .as_str()
                         .or_else(|| call["arguments"].as_str())
                         .unwrap_or("{}");
-                    let input: Value = serde_json::from_str(raw_args)
-                        .unwrap_or(Value::Object(Default::default()));
+                    let input: Value =
+                        serde_json::from_str(raw_args).unwrap_or(Value::Object(Default::default()));
                     blocks.push(ContentBlock::ToolUse {
                         id: call_id.clone(),
                         name: fn_name,
@@ -370,7 +363,10 @@ pub fn from_hub(records: &[HubRecord]) -> Result<HermesOutput, ConvertError> {
             let calls: Vec<Value> = tool_use_blocks
                 .iter()
                 .filter_map(|b| {
-                    if let ContentBlock::ToolUse { id, name, input, .. } = b {
+                    if let ContentBlock::ToolUse {
+                        id, name, input, ..
+                    } = b
+                    {
                         Some(serde_json::json!({
                             "id": id,
                             "call_id": id,
@@ -535,7 +531,9 @@ mod tests {
         }
         if let HubRecord::Message(m) = &records[1] {
             assert_eq!(m.role, "user");
-            assert!(matches!(&m.content[0], ContentBlock::Text { text } if text == "Hello, world!"));
+            assert!(
+                matches!(&m.content[0], ContentBlock::Text { text } if text == "Hello, world!")
+            );
         }
     }
 
@@ -586,7 +584,10 @@ mod tests {
         assert_eq!(records.len(), 4);
         if let HubRecord::Message(m) = &records[2] {
             assert_eq!(m.role, "assistant");
-            assert!(m.content.iter().any(|b| matches!(b, ContentBlock::ToolUse { name, .. } if name == "bash")));
+            assert!(m
+                .content
+                .iter()
+                .any(|b| matches!(b, ContentBlock::ToolUse { name, .. } if name == "bash")));
         }
         if let HubRecord::Message(m) = &records[3] {
             assert_eq!(m.role, "user");

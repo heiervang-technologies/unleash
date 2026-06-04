@@ -504,23 +504,22 @@ fn collect_message_parts(
     let mut collected = Vec::new();
 
     // If parts have _msg_idx (injected by from_hub for reliable round-tripping), use it
-    if *idx < total
-        && all_parts[*idx].get("_msg_idx").is_some() {
-            while *idx < total {
-                let part = &all_parts[*idx];
-                if part.get("_msg_idx").and_then(|v| v.as_u64()) == Some(_msg_i as u64) {
-                    let mut cleaned_part = part.clone();
-                    if let Some(obj) = cleaned_part.as_object_mut() {
-                        obj.remove("_msg_idx");
-                    }
-                    collected.push(cleaned_part);
-                    *idx += 1;
-                } else {
-                    break;
+    if *idx < total && all_parts[*idx].get("_msg_idx").is_some() {
+        while *idx < total {
+            let part = &all_parts[*idx];
+            if part.get("_msg_idx").and_then(|v| v.as_u64()) == Some(_msg_i as u64) {
+                let mut cleaned_part = part.clone();
+                if let Some(obj) = cleaned_part.as_object_mut() {
+                    obj.remove("_msg_idx");
                 }
+                collected.push(cleaned_part);
+                *idx += 1;
+            } else {
+                break;
             }
-            return collected;
         }
+        return collected;
+    }
 
     if role == "user" {
         // User messages typically have one text part, maybe tool results

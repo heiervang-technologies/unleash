@@ -187,7 +187,10 @@ fn overlay_search_index_names(sessions: &mut [SessionInfo]) {
                 eprintln!("Warning: Failed to prepare search index query");
             }
         } else if debug_mode {
-            eprintln!("Warning: Failed to open search index database {}", db_path.display());
+            eprintln!(
+                "Warning: Failed to open search index database {}",
+                db_path.display()
+            );
         }
     }
 
@@ -992,7 +995,10 @@ mod tests {
         // Verify that the lock file is created as a result of detecting that the
         // third session is missing from the DB (triggering background reindexing).
         let lock_path = unleash_dir.join("search-index.lock");
-        assert!(lock_path.exists(), "search-index.lock should be created when reindexing is needed");
+        assert!(
+            lock_path.exists(),
+            "search-index.lock should be created when reindexing is needed"
+        );
         let content = std::fs::read_to_string(&lock_path).unwrap();
         let pid = content.trim().parse::<i32>().unwrap();
         assert!(pid > 0, "lock file should contain a valid PID");

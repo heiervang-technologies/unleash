@@ -147,7 +147,11 @@ pub struct DoctorReportItem {
 fn parse_key(key: &str) -> Option<(String, String, String)> {
     let (src, target_cli) = key.split_once("->")?;
     let (source_cli, source_id) = src.split_once(':')?;
-    Some((source_cli.to_string(), source_id.to_string(), target_cli.to_string()))
+    Some((
+        source_cli.to_string(),
+        source_id.to_string(),
+        target_cli.to_string(),
+    ))
 }
 
 pub fn run_doctor(json: bool, gc: bool) -> io::Result<()> {
@@ -438,7 +442,10 @@ mod tests {
         ];
 
         let find_src = |cli: &str, id: &str| {
-            mock_sessions.iter().find(|s| s.cli == cli && s.id == id).cloned()
+            mock_sessions
+                .iter()
+                .find(|s| s.cli == cli && s.id == id)
+                .cloned()
         };
 
         // Run doctor report (without gc)
@@ -447,19 +454,31 @@ mod tests {
 
         assert_eq!(reports.len(), 4);
 
-        let r_live = reports.iter().find(|r| r.source_id == "source-live").unwrap();
+        let r_live = reports
+            .iter()
+            .find(|r| r.source_id == "source-live")
+            .unwrap();
         assert_eq!(r_live.status, DoctorStatus::Live);
         assert_eq!(r_live.reason, "");
 
-        let r_tgone = reports.iter().find(|r| r.source_id == "source-tgone").unwrap();
+        let r_tgone = reports
+            .iter()
+            .find(|r| r.source_id == "source-tgone")
+            .unwrap();
         assert_eq!(r_tgone.status, DoctorStatus::TargetGone);
         assert_eq!(r_tgone.reason, "target file missing");
 
-        let r_supd = reports.iter().find(|r| r.source_id == "source-supd").unwrap();
+        let r_supd = reports
+            .iter()
+            .find(|r| r.source_id == "source-supd")
+            .unwrap();
         assert_eq!(r_supd.status, DoctorStatus::SourceUpdated);
         assert_eq!(r_supd.reason, "source session modified");
 
-        let r_sgone = reports.iter().find(|r| r.source_id == "source-sgone").unwrap();
+        let r_sgone = reports
+            .iter()
+            .find(|r| r.source_id == "source-sgone")
+            .unwrap();
         assert_eq!(r_sgone.status, DoctorStatus::SourceGone);
         assert_eq!(r_sgone.reason, "source session not found");
 
