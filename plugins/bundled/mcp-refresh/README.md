@@ -58,48 +58,19 @@ Display current MCP server status and configuration.
 
 ## Installation
 
-1. The plugin is already included in unleash
-2. Enable it in `.claude/settings.json`:
-
-```json
-{
-  "plugins": {
-    "enabled": [
-      "mcp-refresh",
-      "process-restart"
-    ]
-  }
-}
-```
+Bundled with unleash. Enabled by default — the wrapper picks it up from `plugins/bundled/mcp-refresh/` on launch.
 
 ## Configuration
 
-Configure the plugin in `.claude/settings.json`:
+The plugin has no per-instance settings — the watched paths are hardcoded (see [How It Works](#how-it-works)) and detection runs on every `PreToolUse` event whenever the plugin is enabled.
 
-```json
-{
-  "plugins": {
-    "mcp-refresh": {
-      "autoDetect": true,
-      "configPaths": [
-        ".mcp.json",
-        ".claude.json",
-        "~/.claude.json"
-      ]
-    }
-  }
-}
+**To disable:** add an `enabled_plugins` allowlist to `~/.config/unleash/config.toml` that excludes `mcp-refresh`. See [docs/extensions/configuration.md](../../../docs/extensions/configuration.md) — the empty default (`enabled_plugins = []`) means "all bundled plugins enabled"; switching to a non-empty list makes it an explicit allowlist.
+
+```toml
+enabled_plugins = ["process-restart", "auto-mode"]   # mcp-refresh omitted = disabled
 ```
 
-### Settings
-
-- **`autoDetect`** (boolean, default: `true`)
-  - Automatically check for configuration changes before each tool use
-  - Disable if you prefer manual checking only
-
-- **`configPaths`** (array, default: `[".mcp.json", ".claude.json", "~/.claude.json"]`)
-  - Paths to monitor for MCP configuration changes
-  - Add custom paths as needed
+You can also toggle plugins from the **Plugins** tab in the unleash TUI without editing the TOML by hand.
 
 ## How It Works
 
@@ -187,18 +158,18 @@ See the [process-restart plugin](../process-restart/README.md) for details.
 **Problem**: Configuration file changed but no notification
 
 **Solutions**:
-1. Check that `autoDetect` is enabled in settings
-2. Verify the file path is in `configPaths` setting
+1. Verify the file is one of the watched paths (`.mcp.json` at project root, `~/.claude.json`, or `plugins/*/.mcp.json`). Other paths aren't monitored — extending the watch list requires a code change to `hooks-handlers/check-mcp-changes.sh`.
+2. Confirm the plugin is enabled (`enabled_plugins` either empty or includes `mcp-refresh` in `~/.config/unleash/config.toml`, or check the Plugins tab in the TUI).
 3. Clear cache: `rm -rf ~/.cache/unleash/mcp-refresh/`
-4. Manually run `/reload-mcps` to check
+4. Manually run `/reload-mcps` to check.
 
 ### False positives
 
 **Problem**: Notified about changes when none were made
 
 **Solutions**:
-1. Check for automatic file formatting (e.g., JSON prettier)
-2. Verify no other process is modifying config files
+1. Check for automatic file formatting (e.g. JSON prettier rewriting whitespace).
+2. Verify no other process is modifying config files.
 3. Clear cache and let it rebuild: `rm -rf ~/.cache/unleash/mcp-refresh/`
 
 ### Automatic detection too frequent
@@ -206,9 +177,9 @@ See the [process-restart plugin](../process-restart/README.md) for details.
 **Problem**: Notifications appearing too often
 
 **Solutions**:
-1. Disable auto-detect: Set `autoDetect: false` in settings
-2. Use manual checking with `/reload-mcps` instead
-3. Move frequently-changing configs to a non-monitored path
+1. Disable the plugin entirely via `enabled_plugins` allowlist (see [Configuration](#configuration)) or the TUI Plugins tab — there is no granular auto-detect-off toggle today.
+2. Use manual checking with `/reload-mcps` after disabling.
+3. Move frequently-changing configs to a path outside the watched set.
 
 ## Development
 
