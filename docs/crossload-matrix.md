@@ -82,7 +82,7 @@ Hub-and-spoke model: O(N) converters, not O(N²) direct pairs.
 
 ## Planned Improvements
 
-### Index Sync (#303)
+### Index Sync
 
 On crossload, automatically update the target CLI's session index:
 - **Claude**: append to `~/.claude/history.jsonl`
@@ -90,7 +90,7 @@ On crossload, automatically update the target CLI's session index:
 - **Gemini**: write `logs.json` entries (already implemented)
 - **OpenCode**: INSERT into SQLite (implemented)
 
-### Session List UX (#303)
+### Session List UX
 
 `unleash sessions` should display a clear tabular view:
 
@@ -111,7 +111,7 @@ Columns:
 
 ## Tracked Issues
 
-- [#303](https://github.com/heiervang-technologies/unleash/issues/303) — Index sync, session list UX, real session filtering, OpenCode SQLite injection
+None of the items above currently have a dedicated GitHub issue — see the section headings for what's planned. Open a new issue if you're picking one up so it can be linked back here.
 
 ## Test Fixtures
 
