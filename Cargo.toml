@@ -2,9 +2,14 @@
 name = "unleash"
 version = "0.1.65"
 edition = "2021"
-description = "unleash - Extended CLI for AI Code Agents"
+description = "Extended CLI for AI code agents — version manager, polyfill layer, cross-CLI session crossload, plugins"
 authors = ["Heiervang Technologies"]
 license = "MIT"
+repository = "https://github.com/heiervang-technologies/unleash"
+homepage = "https://unleash.software"
+readme = "README.md"
+keywords = ["cli", "ai", "claude", "llm", "agent"]
+categories = ["command-line-utilities", "development-tools"]
 
 # Binaries auto-discovered from src/bin/*.rs
 # Each is a thin wrapper calling unleash::run()
