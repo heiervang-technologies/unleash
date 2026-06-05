@@ -192,9 +192,10 @@ unleash claude -x                    # Interactive session picker
 
 :green_circle: Lossless · :yellow_circle: Partial · :white_circle: Pending — [Full matrix](docs/crossload-matrix.md)
 
+Pi / Hermes / Antigravity (`agy`) are wired but not in the headline matrix yet — see [Additional CLIs](docs/crossload-matrix.md#additional-clis).
+
 ### On the Roadmap
 
-- Custom agent CLI support (bring your own agent binary with unified flag mapping)
 - Directory navigation and workspace management
 - PTY terminal middleware for session scripting
 
