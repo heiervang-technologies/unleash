@@ -401,15 +401,52 @@ fn run_agent_with_polyfill(
                     .ok_or_else(|| io::Error::other(format!("Session not found: {query}")))?;
                 let hub_records = interchange::inject::source_to_hub(&session)
                     .map_err(|e| io::Error::other(e.to_string()))?;
+
+                // Apply the same UNLEASH_CROSSLOAD_MAX_TOKENS budget the inject
+                // path uses, so the rendered transcript doesn't overrun the
+                // target agent's context window or the OS's ARG_MAX
+                // (typically ~128 KB on Linux).
+                let total_records = hub_records.len();
+                let hub_records = if let Some(max_tokens) = interchange::inject::context_budget() {
+                    let (trimmed, dropped) =
+                        interchange::inject::truncate_hub_to_budget(hub_records, max_tokens);
+                    if dropped > 0 {
+                        eprintln!(
+                            "\x1b[33minfo:\x1b[0m Context guard: dropped {dropped} oldest \
+                                 messages to stay within {max_tokens} token budget"
+                        );
+                    }
+                    trimmed
+                } else {
+                    hub_records
+                };
+
                 let transcript = interchange::passthrough::render_as_transcript(&hub_records);
                 let new_prompt = match polyfill_args.prompt.take() {
                     Some(user_prompt) => format!("{transcript}\n## Continue\n\n{user_prompt}"),
                     None => transcript,
                 };
+
+                // ARG_MAX safety: warn loudly if the rendered transcript will
+                // likely exceed the kernel's argv limit. Don't truncate
+                // (that's worse than failing); user can rerun with a tighter
+                // UNLEASH_CROSSLOAD_MAX_TOKENS.
+                const ARG_MAX_SAFE_BYTES: usize = 100_000;
+                if new_prompt.len() > ARG_MAX_SAFE_BYTES {
+                    eprintln!(
+                        "\x1b[33mwarn:\x1b[0m Rendered transcript is {} bytes, above the ~{}-byte \
+                         safe ARG_MAX margin. Some agents may reject the command-line. \
+                         Re-run with `UNLEASH_CROSSLOAD_MAX_TOKENS=<n>` to trim.",
+                        new_prompt.len(),
+                        ARG_MAX_SAFE_BYTES
+                    );
+                }
+
                 eprintln!(
-                    "\x1b[32m✓\x1b[0m Prepended {} bytes of transcript ({} records) as initial prompt",
+                    "\x1b[32m✓\x1b[0m Prepended {} bytes of transcript ({}/{} records) as initial prompt",
                     new_prompt.len(),
                     hub_records.len(),
+                    total_records,
                 );
                 polyfill_args.prompt = Some(new_prompt.clone());
                 flags.headless = Some(new_prompt);
