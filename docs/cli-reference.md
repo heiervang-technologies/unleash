@@ -149,6 +149,7 @@ unleash convert --from claude session.jsonl                         # Convert to
 unleash convert --from claude --to codex session.jsonl              # Convert Claude → Codex
 unleash convert --from claude --to codex session.jsonl -o out.json  # Write to file
 unleash convert --from codex session.jsonl --verify                 # round-trip lossless check
+unleash convert --from claude --to passthrough session.jsonl        # markdown transcript for prompt-paste
 ```
 
 Required:
@@ -159,7 +160,13 @@ Required:
 - `<input>`: path to the input file (positional)
 
 Optional:
-- `--to <format>`: target format (same set as `--from`; default: `hub`)
+- `--to <format>`: target format. Same set as `--from`, plus the special
+  text-output format `passthrough` (aliases `transcript`, `prompt`) — a
+  markdown-formatted chat transcript intended for piping into a target
+  CLI's `--prompt` flag when session-level injection isn't supported
+  (e.g. `agy -i "$(unleash convert --from claude --to passthrough …)"`;
+  see issue #313). Tool calls, tool results, thinking blocks, and
+  images are summarised rather than reproduced verbatim. Default: `hub`.
 - `--output <path>` / `-o <path>`: output file (default: stdout)
 - `--verify`: verify lossless round-trip instead of converting
 
