@@ -108,11 +108,17 @@ After restart:
 
 | File | Purpose |
 |------|---------|
-| `scripts/unleash-refresh` | Restart command |
-| `scripts/unleash-exit` | Exit command |
-| `~/.cache/unleash/process-restart/` | Trigger files |
+| `<repo>/scripts/unleash-refresh` | Restart command — installed to `$PATH` via `install.sh` |
+| `<repo>/scripts/unleash-exit` | Exit command — installed to `$PATH` via `install.sh` |
+| `~/.cache/unleash/process-restart/` | Trigger files (`restart-trigger-<pid>`, `restart-message-<pid>`) |
 
-Note: The old aliases `restart-claude` and `exit-claude` still work for backward compatibility.
+Both scripts live in the project's top-level `scripts/` directory, not inside
+this plugin — `install.sh:188-191` symlinks them into `$BIN_DIR` so
+`unleash-refresh` / `unleash-exit` resolve on `$PATH`.
+
+Note: the old aliases `restart-claude` and `exit-claude` still work as
+backward-compat symlinks `install.sh` creates pointing at the canonical names.
+See [CLAUDE.md](../../../CLAUDE.md) for the current canonical naming guidance.
 
 ## Troubleshooting
 
