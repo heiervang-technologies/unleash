@@ -1,7 +1,7 @@
 //! Claude launcher with wrapper features
 //!
 //! Implements the wrapper loop that enables:
-//! - Self-restart capability (restart-claude command)
+//! - Self-restart capability (unleash-refresh command)
 //! - Plugin system integration
 //! - Auto-mode via Stop hook + flag file system
 //! - Process management
@@ -686,7 +686,7 @@ fn check_authentication() {
     eprintln!();
 }
 
-/// Create restart trigger file (called by restart-claude command)
+/// Create restart trigger file (called by unleash-refresh command)
 #[allow(dead_code)]
 pub fn trigger_restart(wrapper_pid: u32, message: Option<&str>) -> io::Result<()> {
     let trigger_file = cache_dir().join(format!("restart-trigger-{}", wrapper_pid));
@@ -702,7 +702,7 @@ pub fn trigger_restart(wrapper_pid: u32, message: Option<&str>) -> io::Result<()
     Ok(())
 }
 
-/// Exit without restart (called by exit-claude command)
+/// Exit without restart (called by unleash-exit command)
 #[allow(dead_code)]
 pub fn trigger_exit(wrapper_pid: u32) -> io::Result<()> {
     // Just send SIGTERM to the wrapper process
