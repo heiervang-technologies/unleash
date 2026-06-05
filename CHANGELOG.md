@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.67](https://github.com/heiervang-technologies/unleash/compare/v0.1.66...v0.1.67) (2026-06-05)
+
+
+### Features
+
+* **crossload:** add 'passthrough' convert target — render hub as markdown transcript ([#314](https://github.com/heiervang-technologies/unleash/issues/314)) ([7cc3e3b](https://github.com/heiervang-technologies/unleash/commit/7cc3e3b569e74a98ee7967579209c0905bc3c733))
+
 ## [0.1.66](https://github.com/heiervang-technologies/unleash/compare/v0.1.65...v0.1.66) (2026-06-05)
 
 
