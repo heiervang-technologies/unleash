@@ -242,7 +242,7 @@ fn print_profile_help(profile_name: &str) {
 
 fn run_agent_with_polyfill(
     profile_name: &str,
-    polyfill_args: cli::PolyfillArgs,
+    mut polyfill_args: cli::PolyfillArgs,
     extra_args: Vec<String>,
 ) -> io::Result<()> {
     let manager = ProfileManager::new()?;
@@ -371,8 +371,48 @@ fn run_agent_with_polyfill(
                 flags.resume = Some(Some(result.session_id.clone()));
             }
             Err(e) => {
-                eprintln!("\x1b[31m✗\x1b[0m Crossload failed: {e}");
-                return Err(io::Error::other(e.to_string()));
+                // Auto-fallback: if the target CLI refused session injection
+                // (e.g. agy — server-side cascade validation, see #307), don't
+                // hard-fail. Render the source session as a markdown transcript
+                // and prepend it to the user's prompt. The agent will see the
+                // prior context as a single initial message.
+                //
+                // Disable by exporting UNLEASH_CROSSLOAD_NO_FALLBACK=1.
+                let no_fallback = std::env::var("UNLEASH_CROSSLOAD_NO_FALLBACK")
+                    .map(|v| !v.is_empty() && v != "0")
+                    .unwrap_or(false);
+                let is_refusal = matches!(
+                    &e,
+                    interchange::ConvertError::InvalidFormat(msg)
+                        if msg.contains("requires server-side")
+                            || msg.contains("not yet supported")
+                );
+                if no_fallback || !is_refusal {
+                    eprintln!("\x1b[31m✗\x1b[0m Crossload failed: {e}");
+                    return Err(io::Error::other(e.to_string()));
+                }
+
+                eprintln!(
+                    "\x1b[33minfo:\x1b[0m {target_cli} doesn't support session injection — \
+                     falling back to passthrough prompt mode \
+                     (set UNLEASH_CROSSLOAD_NO_FALLBACK=1 to disable)"
+                );
+                let session = interchange::sessions::find_session(&query)
+                    .ok_or_else(|| io::Error::other(format!("Session not found: {query}")))?;
+                let hub_records = interchange::inject::source_to_hub(&session)
+                    .map_err(|e| io::Error::other(e.to_string()))?;
+                let transcript = interchange::passthrough::render_as_transcript(&hub_records);
+                let new_prompt = match polyfill_args.prompt.take() {
+                    Some(user_prompt) => format!("{transcript}\n## Continue\n\n{user_prompt}"),
+                    None => transcript,
+                };
+                eprintln!(
+                    "\x1b[32m✓\x1b[0m Prepended {} bytes of transcript ({} records) as initial prompt",
+                    new_prompt.len(),
+                    hub_records.len(),
+                );
+                polyfill_args.prompt = Some(new_prompt.clone());
+                flags.headless = Some(new_prompt);
             }
         }
     }
