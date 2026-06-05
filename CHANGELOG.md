@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.69](https://github.com/heiervang-technologies/unleash/compare/v0.1.68...v0.1.69) (2026-06-05)
+
+
+### Features
+
+* **crossload:** apply UNLEASH_CROSSLOAD_MAX_TOKENS budget + ARG_MAX warning to passthrough fallback ([#318](https://github.com/heiervang-technologies/unleash/issues/318)) ([b5be737](https://github.com/heiervang-technologies/unleash/commit/b5be737ffa2a04b7bced11771e603c68fa47e1af))
+
 ## [0.1.68](https://github.com/heiervang-technologies/unleash/compare/v0.1.67...v0.1.68) (2026-06-05)
 
 
