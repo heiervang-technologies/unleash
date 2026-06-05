@@ -253,7 +253,7 @@ If Claude Code's source becomes available or if core APIs are exposed:
 - [MCP Refresh & Process Restart Guide](../../../docs/extensions/restart-refresh.md) - Comprehensive guide for both plugins
 - [Process Restart Plugin](../process-restart/README.md)
 
-- [Plugin Development Guide](../../../docs/extensions/plugin-development.md)
+- [Plugin Development Guide](../../../docs/internal/claude-code/plugin-development.md)
 
 ## License
 
