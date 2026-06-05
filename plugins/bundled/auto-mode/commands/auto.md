@@ -37,7 +37,7 @@ You are now in **AUTO MODE**. A Stop hook will prompt you to check MCP tools bef
 
 4. **Exit options**: The session can end when:
    - Owner says stop/quit/exit
-   - Running `exit-claude`
+   - Running `unleash-exit`
    - Running `/auto` again to toggle off
 
 ### Behavior Guidelines
@@ -45,7 +45,7 @@ You are now in **AUTO MODE**. A Stop hook will prompt you to check MCP tools bef
 - **Be proactive**: If you see something that needs doing, do it
 - **Use TodoWrite**: Track your work and pending tasks
 - **Check MCP tools**: Signal server, omni-mcp may have tasks or messages
-- **Self-restart if needed**: Use `restart-claude` to refresh context
+- **Self-restart if needed**: Use `unleash-refresh` to refresh context
 
 ---
 

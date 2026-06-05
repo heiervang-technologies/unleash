@@ -62,6 +62,6 @@ else
     echo "${CLAUDE_SESSION_ID:-unknown}" > "${AUTO_MODE_FILE}"
     echo "AUTO MODE: ON"
     echo "Stop hook enforcement active. You cannot end your turn voluntarily."
-    echo "Toggle off with /auto or exit with exit-claude"
+    echo "Toggle off with /auto or exit with unleash-exit"
     sync_cli_visual "on"
 fi

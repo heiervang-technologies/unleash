@@ -1,21 +1,21 @@
 ---
 name: restart
 description: Restart Claude Code while preserving your session
-allowed-tools: Bash(restart-claude)
+allowed-tools: Bash(unleash-refresh)
 ---
 
 # Restart Claude Code
 
-To restart, simply run the restart-claude command:
+To restart, simply run the unleash-refresh command:
 
 ```bash
-restart-claude
+unleash-refresh
 ```
 
 Or with a custom message to receive after restart:
 
 ```bash
-restart-claude "Continue working on the feature"
+unleash-refresh "Continue working on the feature"
 ```
 
 ## Requirements
@@ -24,7 +24,7 @@ You must be running under the `unleash` wrapper (check: `echo $AGENT_UNLEASH` sh
 
 ## What Happens
 
-1. The restart-claude script creates a trigger file
+1. The unleash-refresh script creates a trigger file
 2. Claude process is terminated
 3. The wrapper detects the trigger file
 4. Wrapper restarts Claude with `--continue` flag
@@ -32,8 +32,8 @@ You must be running under the `unleash` wrapper (check: `echo $AGENT_UNLEASH` sh
 
 ## Your Task
 
-Run the restart-claude command now:
+Run the unleash-refresh command now:
 
 ```bash
-restart-claude
+unleash-refresh
 ```
