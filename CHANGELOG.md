@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.63](https://github.com/heiervang-technologies/unleash/compare/v0.1.62...v0.1.63) (2026-06-05)
+
+
+### Bug Fixes
+
+* **plugins:** use canonical unleash-refresh/unleash-exit names ([#284](https://github.com/heiervang-technologies/unleash/issues/284)) ([642215d](https://github.com/heiervang-technologies/unleash/commit/642215d3a05edfd2ab53a8dff9eb172050e886b0))
+
 ## [0.1.62](https://github.com/heiervang-technologies/unleash/compare/v0.1.61...v0.1.62) (2026-06-04)
 
 
