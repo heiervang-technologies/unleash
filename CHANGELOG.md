@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.66](https://github.com/heiervang-technologies/unleash/compare/v0.1.65...v0.1.66) (2026-06-05)
+
+
+### Bug Fixes
+
+* **launcher:** restart-loop resume-detection covers all 7 agents ([#304](https://github.com/heiervang-technologies/unleash/issues/304)) ([#310](https://github.com/heiervang-technologies/unleash/issues/310)) ([2387400](https://github.com/heiervang-technologies/unleash/commit/2387400ca7db45a61f01b44f6b9a5c1234c2dc26))
+
 ## [0.1.65](https://github.com/heiervang-technologies/unleash/compare/v0.1.64...v0.1.65) (2026-06-05)
 
 
