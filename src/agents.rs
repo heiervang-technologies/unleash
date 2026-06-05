@@ -220,6 +220,14 @@ pub struct AgentPolyfillConfig {
     /// Flag name for git worktree mode, if supported
     #[serde(default)]
     pub worktree_flag: Option<String>,
+    /// Flag name for "run an initial prompt then continue interactively",
+    /// if the agent has a dedicated flag for that mode (e.g. agy's `-i` /
+    /// `--prompt-interactive`). Used by the crossload auto-fallback path
+    /// to drop the user into an interactive session pre-loaded with the
+    /// rendered transcript, instead of using the one-shot `headless` flag
+    /// which would print one response and exit.
+    #[serde(default)]
+    pub interactive_prompt_flag: Option<String>,
 }
 
 fn default_sandbox_unsupported() -> SandboxStrategy {
@@ -362,6 +370,7 @@ impl AgentDefinition {
                 add_dir_flag: Some("--add-dir".to_string()),
                 approval_mode_flag: Some("--permission-mode".to_string()),
                 worktree_flag: Some("--worktree".to_string()),
+                interactive_prompt_flag: None,
             },
             github_repo: Some("anthropics/claude-code".to_string()),
             npm_package: Some("@anthropic-ai/claude-code".to_string()),
@@ -399,6 +408,7 @@ impl AgentDefinition {
                 add_dir_flag: Some("--add-dir".to_string()),
                 approval_mode_flag: Some("-a".to_string()),
                 worktree_flag: None,
+                interactive_prompt_flag: None,
             },
             github_repo: Some("openai/codex".to_string()),
             npm_package: None,
@@ -439,6 +449,12 @@ impl AgentDefinition {
                 add_dir_flag: Some("--include-directories".to_string()),
                 approval_mode_flag: None,
                 worktree_flag: Some("--worktree".to_string()),
+                // agy supports `-i` / `--prompt-interactive`: load the prompt
+                // as the first message and then drop into an interactive
+                // session. The crossload auto-fallback uses this so the user
+                // can keep typing after the prior context loads, instead of
+                // getting a single response and exiting via `-p` / `--print`.
+                interactive_prompt_flag: Some("-i".to_string()),
             },
             github_repo: None,
             // No npm package exists for antigravity — `@google/antigravity-cli`
@@ -476,6 +492,7 @@ impl AgentDefinition {
                 add_dir_flag: Some("--include-directories".to_string()),
                 approval_mode_flag: Some("--approval-mode".to_string()),
                 worktree_flag: Some("--worktree".to_string()),
+                interactive_prompt_flag: None,
             },
             github_repo: Some("google-gemini/gemini-cli".to_string()),
             npm_package: Some("@google/gemini-cli".to_string()),
@@ -510,6 +527,7 @@ impl AgentDefinition {
                 add_dir_flag: None,
                 approval_mode_flag: None,
                 worktree_flag: None,
+                interactive_prompt_flag: None,
             },
             github_repo: Some("anomalyco/opencode".to_string()),
             npm_package: Some("opencode-ai".to_string()),
@@ -544,6 +562,7 @@ impl AgentDefinition {
                 add_dir_flag: None,
                 approval_mode_flag: None,
                 worktree_flag: None,
+                interactive_prompt_flag: None,
             },
             github_repo: None,
             npm_package: Some("@mariozechner/pi-coding-agent".to_string()),
@@ -578,6 +597,7 @@ impl AgentDefinition {
                 add_dir_flag: None,
                 approval_mode_flag: None,
                 worktree_flag: Some("--worktree".to_string()),
+                interactive_prompt_flag: None,
             },
             github_repo: Some("NousResearch/hermes-agent".to_string()),
             npm_package: None,
@@ -1486,6 +1506,45 @@ mod tests {
                 "agy resume-by-id must use --conversation, not --resume"
             ),
             other => panic!("expected resume_strategy::Flag, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn antigravity_has_interactive_prompt_flag() {
+        // The crossload auto-fallback path (lib.rs) uses
+        // `interactive_prompt_flag` to drop the user into an interactive
+        // REPL pre-loaded with the rendered transcript, instead of `-p` /
+        // `--print` which would emit one response and exit. agy exposes
+        // this as `-i` / `--prompt-interactive`. Without this field set,
+        // `unleash agy -x <session>` (no `-p`) silently degrades to a
+        // one-shot run — which defeats the purpose of crossloading.
+        let agy = AgentDefinition::antigravity();
+        assert_eq!(
+            agy.polyfill.interactive_prompt_flag.as_deref(),
+            Some("-i"),
+            "agy must expose its `-i` flag for the crossload auto-fallback path"
+        );
+    }
+
+    #[test]
+    fn non_agy_agents_have_no_interactive_prompt_flag() {
+        // Currently agy is the only target that hits the crossload
+        // auto-fallback (every other CLI has real session injection). Until
+        // someone identifies an analogous flag elsewhere, leave them at
+        // None so the fallback uses the existing one-shot path.
+        for def in [
+            AgentDefinition::claude(),
+            AgentDefinition::codex(),
+            AgentDefinition::gemini(),
+            AgentDefinition::opencode(),
+            AgentDefinition::pi(),
+            AgentDefinition::hermes(),
+        ] {
+            assert!(
+                def.polyfill.interactive_prompt_flag.is_none(),
+                "{} should not set interactive_prompt_flag yet",
+                def.name
+            );
         }
     }
 
