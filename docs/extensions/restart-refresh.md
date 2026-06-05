@@ -2,6 +2,33 @@
 
 Comprehensive guide to the MCP hot-reload and process restart functionality in unleash.
 
+> ## ⚠️ Stale-content notice (2026-06-05)
+>
+> Parts of this guide predate the current implementation. In particular,
+> **any reference to an `autoDetect` or `configPaths` setting in
+> `.claude/settings.json` is fabricated** — no code reads those fields
+> (verified by `grep -rE "autoDetect|configPaths" src/ plugins/`). The
+> mcp-refresh plugin's `plugin.json` has no `settings` block; its watch
+> paths are hardcoded in `hooks-handlers/check-mcp-changes.sh`.
+>
+> Canonical sources for the current state:
+>
+> - **Enable/disable plugins**: `enabled_plugins` allowlist in
+>   `~/.config/unleash/config.toml`, or the TUI's **Plugins** tab.
+>   See [`docs/extensions/configuration.md`](configuration.md).
+> - **Plugin-specific docs**: per-plugin READMEs under
+>   `plugins/bundled/<name>/README.md` (mcp-refresh refreshed in PR #293,
+>   process-restart in PR #297, auto-mode in PR #294, omnihook in PR #295).
+> - **Restart command naming**: see [`CLAUDE.md`](../../CLAUDE.md) — the
+>   canonical names are `unleash-refresh` / `unleash-exit`; the old
+>   `restart-claude` / `exit-claude` continue to work as install.sh
+>   symlinks.
+>
+> The pre-deprecation content below remains useful for the architectural
+> rationale and the hash-detection algorithm sketch. Treat the settings
+> JSON snippets, configuration sections, and "Settings" subheadings as
+> historical / aspirational rather than as instructions.
+
 ## Table of Contents
 
 1. [Overview](#overview)
@@ -738,17 +765,12 @@ Configure in `.claude/settings.json`:
 }
 ```
 
-**Settings**:
+**Settings** *(see top-of-doc stale-content notice — these settings don't exist in the shipped plugin; see `plugins/bundled/mcp-refresh/README.md` for the real configuration model)*:
 
-- **`autoDetect`** (boolean, default: `true`)
-  - Enable automatic change detection via PreToolUse hook
-  - Disable if you prefer manual checking only
-  - Reduces notification frequency
+- ~~**`autoDetect`** — fabricated; no plugin setting reads this. Detection runs on every `PreToolUse` event whenever the plugin is enabled.~~
+- ~~**`configPaths`** — fabricated; watched paths are hardcoded to `.mcp.json`, `~/.claude.json`, and `plugins/*/.mcp.json` in `hooks-handlers/check-mcp-changes.sh`.~~
 
-- **`configPaths`** (array, default: `[".mcp.json", ".claude.json", "~/.claude.json"]`)
-  - Paths to monitor for changes
-  - Relative paths resolved from working directory
-  - Add custom paths as needed
+To disable detection entirely, exclude `mcp-refresh` from the `enabled_plugins` allowlist in `~/.config/unleash/config.toml`, or toggle it off in the TUI Plugins tab.
 
 ### How It Works
 
