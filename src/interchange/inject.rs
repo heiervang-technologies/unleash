@@ -99,26 +99,35 @@ pub fn inject_session(
         "codex" => inject_into_codex(&session, &hub_records)?,
         "gemini" | "gemini-cli" => inject_into_gemini(&session, &hub_records)?,
         "antigravity" | "antigravity-cli" | "agy" => {
-            // agy does NOT share gemini's session storage. It uses
-            // ~/.gemini/antigravity-cli/conversations/<uuid>.pb (protobuf
-            // for short sessions, SQLite .db files for long ones), keyed
-            // by working directory in
-            // ~/.gemini/antigravity-cli/cache/last_conversations.json.
-            // Writing gemini-format JSON into ~/.gemini/tmp/<proj>/chats/
-            // (what the prior `agy → gemini` routing did) produces a file
-            // agy can't read, then `agy --conversation <id>` fails with
-            // "conversation not found".
+            // agy does NOT share gemini's session storage. Storage details
+            // (from a reverse-engineering pass — see issue #307):
             //
-            // Honest failure is better than fake success. Real support
-            // requires (a) encoding the .pb / .db conversation format,
-            // and (b) updating last_conversations.json so agy's --continue
-            // discovers the new session. Both are non-trivial — tracked
-            // as follow-up work.
+            // - ~/.gemini/antigravity-cli/conversations/<uuid>.pb — AES-encrypted
+            //   protobuf (Google's google3/.../cortex_pb types). Encryption key
+            //   is device-local, can't be reproduced from outside agy.
+            // - ~/.gemini/antigravity-cli/conversations/<uuid>.db — plain SQLite
+            //   with plaintext protobuf blobs. Local-only writes load successfully.
+            // - ~/.gemini/antigravity-cli/cache/last_conversations.json — plaintext
+            //   cwd→cascade_id map.
+            //
+            // But: even a perfectly-encoded `.db` plus correct cache plumbing
+            // fails at send-time with `cascade ID mismatch, executor: <empty>,
+            // input: <our_cascade>`. agy validates the cascade_id against an
+            // executor cascade fetched **server-side** from Google's CodeAssist
+            // API. The server doesn't know about our locally-written conversation,
+            // returns an empty executor, and the equality check fires.
+            //
+            // Conclusion: real agy crossload would need server-side cooperation
+            // (register the cascade with CodeAssist), which is outside scope.
+            // PR #302 chose honest refusal over the prior fake-success behavior.
             return Err(ConvertError::InvalidFormat(
-                "Crossloading into Antigravity (agy) is not yet supported — agy uses a \
-                 protobuf conversation format at ~/.gemini/antigravity-cli/conversations/ \
-                 that differs from gemini's JSON chats. Workaround: crossload into another \
-                 CLI (claude/codex/gemini/opencode/pi) and run that instead."
+                "Crossloading into Antigravity (agy) requires server-side \
+                 conversation registration with Google's CodeAssist API — agy \
+                 validates every cascade_id against a server-fetched executor, \
+                 and locally-written conversations fail with `cascade ID \
+                 mismatch` at send time. See issue #307 for the reverse-engineering \
+                 evidence. Workaround: crossload into another CLI \
+                 (claude/codex/gemini/opencode/pi/hermes) and run that instead."
                     .to_string(),
             ));
         }
