@@ -26,7 +26,7 @@ Or with a custom message to receive after restart:
 unleash-refresh "Continue working on the feature"
 ```
 
-> **Note:** The old aliases `restart-claude` and `exit-claude` have been removed. Use `unleash-refresh` and `unleash-exit`.
+> **Note:** Prefer `unleash-refresh` / `unleash-exit` — these are the canonical names. The old `restart-claude` / `exit-claude` are still available as backward-compat symlinks created by `scripts/install.sh` and will keep working, but new code and docs should use the canonical names.
 
 ### What Happens When You Restart
 
