@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.68](https://github.com/heiervang-technologies/unleash/compare/v0.1.67...v0.1.68) (2026-06-05)
+
+
+### Features
+
+* **crossload:** auto-fall-back to passthrough when inject refuses ([#316](https://github.com/heiervang-technologies/unleash/issues/316)) ([f28c7ef](https://github.com/heiervang-technologies/unleash/commit/f28c7efdb378c01b4517f4b7f62fba90c3aee22e))
+
 ## [0.1.67](https://github.com/heiervang-technologies/unleash/compare/v0.1.66...v0.1.67) (2026-06-05)
 
 
