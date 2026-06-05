@@ -52,7 +52,7 @@ The plugin uses Claude Code's `Stop` hook to prevent Claude from ending its turn
 │  Claude continues working...                                │
 │       │                                                     │
 │       ↓                                                     │
-│  Owner says "stop" OR runs exit-claude                      │
+│  Owner says "stop" OR runs unleash-exit                      │
 │       │                                                     │
 │       ↓                                                     │
 │  Flag file removed → Stop hook allows exit                  │
@@ -67,13 +67,13 @@ When you run `/auto`, Claude enters autonomous mode with these behaviors:
 1. **No voluntary exit** - Stop hook blocks Claude from ending its turn
 2. **Continuous operation** - After each task, Claude looks for more work
 3. **Owner contact** - Claude checks for MCP notification tools to contact you
-4. **Exit only by command** - Only `exit-claude` or owner's explicit "stop" ends the session
+4. **Exit only by command** - Only `unleash-exit` or owner's explicit "stop" ends the session
 
 ## Exit Conditions
 
 Claude will only exit auto mode when:
 - You explicitly tell it to stop ("quit", "exit", "stop", "that's enough")
-- You run `exit-claude` (automatically deactivates auto mode)
+- You run `unleash-exit` (automatically deactivates auto mode)
 - A critical unrecoverable error occurs
 
 ## MCP Integration
@@ -120,7 +120,7 @@ The Stop hook must be configured in `~/.claude/settings.json`:
 
 By default, when Claude tries to exit in auto mode, it receives the message:
 ```
-To exit: run 'exit-claude' via Bash tool. Do not end your turn without taking action.
+To exit: run 'unleash-exit' via Bash tool. Do not end your turn without taking action.
 ```
 
 You can customize this message globally using either the CLI or TUI.
@@ -167,7 +167,7 @@ The stop hook uses the following priority when determining which message to show
 
 ## Requirements
 
-- Must run under `unleash` wrapper for `exit-claude` to work
+- Must run under `unleash` wrapper for `unleash-exit` to work
 - Stop hook must be configured in settings
 - Optional: MCP server with notification capabilities
 
@@ -176,7 +176,7 @@ The stop hook uses the following priority when determining which message to show
 - **1.1.0** (2026-01-07) - Stop hook enforcement
   - Added Stop hook to block Claude from ending turn
   - Flag file system for activation/deactivation
-  - Integration with exit-claude for clean shutdown
+  - Integration with unleash-exit for clean shutdown
 
 - **1.0.0** (2026-01-07) - Initial release
   - Basic /auto command with instructions
