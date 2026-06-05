@@ -1,7 +1,12 @@
 # token-usage
 
-Track token usage across all agent CLIs (Claude, Codex, Gemini, OpenCode, Pi)
-via multiple, independently-toggleable collection methods.
+Track token usage from agent CLIs into a single append-only log via
+multiple, independently-toggleable collection methods.
+
+**Current coverage**: Claude only — both the live Stop-hook tail and the
+on-demand session scan. The other six built-in agents (Codex, Antigravity,
+Gemini, OpenCode, Pi, Hermes) each have a different usage schema; extending
+the scan is tracked in the [Limitations](#limitations) section.
 
 ## Why
 
@@ -59,10 +64,11 @@ treats the plugin as enabled rather than crashing the session.
 
 ## Limitations
 
-- Codex/Gemini/OpenCode/Pi session-scan is not yet wired up. Each CLI has a
-  different usage schema (Codex mirrors OpenAI's `prompt_tokens`/`completion_tokens`,
-  Gemini uses `usageMetadata.{promptTokenCount,candidatesTokenCount}`, etc.).
-  Tracked for v0.2.
+- Codex/Antigravity/Gemini/OpenCode/Pi/Hermes session-scan is not yet wired
+  up. Each CLI has a different usage schema (Codex mirrors OpenAI's
+  `prompt_tokens`/`completion_tokens`, Gemini uses
+  `usageMetadata.{promptTokenCount,candidatesTokenCount}`, Hermes and
+  Antigravity haven't been audited yet). Tracked for v0.2.
 - Provider-API polling is gated on having admin keys per provider and a small
   daemon that won't get caught by network sandboxing. v0.1 reserves the
   setting; v0.2 will implement.
