@@ -20,6 +20,11 @@ unleash sandbox run
 unleash sandbox status
 ```
 
+**Supported agents in the sandbox:** `claude`, `codex`, `gemini`,
+`opencode`, `pi`, plus `bash` and `unleash` itself. Hermes and
+Antigravity (`agy`) are not yet wired into the sandbox image / compose
+services — run those on the host or build a custom image.
+
 ### Named Sandboxes
 
 Run multiple independent sandboxes with `--name`:
