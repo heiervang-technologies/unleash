@@ -1,4 +1,5 @@
-//! Session discovery: find and list conversation sessions across all 4 CLIs.
+//! Session discovery: find and list conversation sessions across the supported CLIs
+//! (claude, codex, gemini, opencode, pi, hermes — agy shares the gemini path).
 
 use crate::interchange::CliFormat;
 use serde::Serialize;
@@ -1055,15 +1056,29 @@ mod tests {
 
         // Give the spawned child a moment to flush its echo. The script is
         // trivial; even on slow runners it completes in milliseconds.
-        for _ in 0..20 {
-            if marker.exists() {
-                break;
+        //
+        // Wait for NON-EMPTY marker content, not just existence: under
+        // llvm-cov instrumentation on the GHA runners the `echo "$VAR" >
+        // file` redirection can leave the file visible-but-empty for a
+        // few ms (file-create races ahead of the write-flush), causing
+        // an empty `content.trim()` and an inscrutable string-mismatch
+        // assertion failure. Observed once on #295. Polling for content
+        // size > 0 removes that race without slowing the happy path.
+        for _ in 0..40 {
+            if let Ok(meta) = std::fs::metadata(&marker) {
+                if meta.len() > 0 {
+                    break;
+                }
             }
             std::thread::sleep(std::time::Duration::from_millis(50));
         }
 
         assert!(marker.exists(), "fake child should have written the marker");
         let content = std::fs::read_to_string(&marker).unwrap();
+        assert!(
+            !content.trim().is_empty(),
+            "marker exists but is empty — child likely raced before flushing the echo redirection"
+        );
         let received_path = content.trim();
         assert_eq!(
             received_path,
