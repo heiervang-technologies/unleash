@@ -97,7 +97,15 @@ If found, Claude uses these to request clarification when blocked or report prog
 
 ## Configuration
 
-The Stop hook must be configured in `~/.claude/settings.json`:
+The Stop hook is wired automatically — `unleash`'s launcher syncs every
+bundled plugin's `hooks/hooks.json` into `~/.claude/settings.json` on
+startup via `HookManager::sync_plugin_hooks` (see `src/launcher.rs`
+around the `manager.sync_plugin_hooks(&plugin_dirs)` call). No manual
+JSON editing required.
+
+The canonical entry the wrapper installs (using `${CLAUDE_PLUGIN_ROOT}`
+so it resolves whether unleash is installed via curl, npm, Docker, or
+in-tree):
 
 ```json
 {
@@ -107,7 +115,7 @@ The Stop hook must be configured in `~/.claude/settings.json`:
         "hooks": [
           {
             "type": "command",
-            "command": "$HOME/unleash/plugins/bundled/auto-mode/hooks/auto-mode-stop.sh"
+            "command": "${CLAUDE_PLUGIN_ROOT}/hooks/auto-mode-stop.sh"
           }
         ]
       }
@@ -115,6 +123,11 @@ The Stop hook must be configured in `~/.claude/settings.json`:
   }
 }
 ```
+
+To disable auto-mode entirely, add an `enabled_plugins` allowlist to
+`~/.config/unleash/config.toml` that excludes `auto-mode`, or toggle it
+from the **Plugins** tab in the unleash TUI. See
+[docs/extensions/configuration.md](../../../docs/extensions/configuration.md).
 
 ### Customizing the Stop Prompt
 
