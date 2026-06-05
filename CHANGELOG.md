@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.70](https://github.com/heiervang-technologies/unleash/compare/v0.1.69...v0.1.70) (2026-06-05)
+
+
+### Features
+
+* **crossload:** use agy -i (interactive prompt) for auto-fallback when user didn't request -p ([#320](https://github.com/heiervang-technologies/unleash/issues/320)) ([01e6688](https://github.com/heiervang-technologies/unleash/commit/01e6688af39badd6aab24231755f4dbff6891956))
+
 ## [0.1.69](https://github.com/heiervang-technologies/unleash/compare/v0.1.68...v0.1.69) (2026-06-05)
 
 
