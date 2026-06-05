@@ -11,21 +11,36 @@ Type "target/release/splash"
 Enter
 Sleep 2s
 
-# Cycle to codex (grey)
-Right
-Sleep 1.5s
+# Splash picker cycles through all 7 supported agents.
+# Order (from src/bin/splash.rs): claude → codex → antigravity → opencode → pi → hermes → gemini → claude
 
-# Cycle to gemini (purple)
+# claude → codex (grey)
 Right
-Sleep 1.5s
+Sleep 1.2s
 
-# Cycle to opencode (blue)
+# codex → antigravity (purple)
 Right
-Sleep 1.5s
+Sleep 1.2s
 
-# Cycle back to claude (orange)
+# antigravity → opencode (green)
 Right
-Sleep 1.5s
+Sleep 1.2s
+
+# opencode → pi (purple)
+Right
+Sleep 1.2s
+
+# pi → hermes (indigo)
+Right
+Sleep 1.2s
+
+# hermes → gemini (blue)
+Right
+Sleep 1.2s
+
+# gemini → claude (back to orange)
+Right
+Sleep 1.2s
 
 # Confirm selection
 Enter
