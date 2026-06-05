@@ -24,16 +24,40 @@ When using Jessica (voice assistant) with Claude Code:
 
 **After (with omnihook):**
 1. User speaks via voice input
-2. Transcription calls `unleash-queue --notify "transcribed text"`
-3. Claude's `unleash-wait` unblocks immediately
+2. Transcription pipeline writes to the queue via the plugin's
+   `unleash-queue` script (path: `${CLAUDE_PLUGIN_ROOT}/scripts/unleash-queue`)
+3. Claude's `/voice-wait` invocation of `unleash-wait` unblocks immediately
 4. Message injected via next hook event
 5. Near-instant response
 
 ## Installation
 
-The plugin is automatically available when using unleash. The hooks register for all event types.
+Bundled with unleash and enabled by default. The wrapper auto-syncs
+the hook registrations (Stop / PreToolUse / PostToolUse /
+SessionStart / Notification) into `~/.claude/settings.json` via
+`HookManager::sync_plugin_hooks` (`src/launcher.rs`). No manual
+configuration required.
 
-## CLI Tools
+To disable, exclude `omnihook` from the `enabled_plugins` allowlist
+in `~/.config/unleash/config.toml`, or toggle it off in the **Plugins**
+tab in the TUI.
+
+## Plugin Scripts
+
+These are *plugin-internal* scripts, NOT globally-installed CLI tools.
+They live at `plugins/bundled/omnihook/scripts/` and are invoked
+either through the slash commands below or directly from external
+pipelines via `${CLAUDE_PLUGIN_ROOT}/scripts/<name>` (Claude Code
+substitutes `CLAUDE_PLUGIN_ROOT` at hook/command time).
+
+If you want to call them from outside Claude Code (e.g. a voice
+transcription daemon), resolve the path yourself:
+
+```bash
+OMNIHOOK="$HOME/.local/share/unleash/plugins/omnihook/scripts"   # installed layout
+# or
+OMNIHOOK="$(git rev-parse --show-toplevel)/plugins/bundled/omnihook/scripts"  # in-tree
+```
 
 ### unleash-queue
 
@@ -41,22 +65,22 @@ Add messages to the omnihook queue:
 
 ```bash
 # Queue a message for the current session
-unleash-queue "Please search for files containing auth"
+"$OMNIHOOK/unleash-queue" "Please search for files containing auth"
 
 # From voice transcription pipeline
-echo "$TRANSCRIPTION" | unleash-queue --stdin --notify
+echo "$TRANSCRIPTION" | "$OMNIHOOK/unleash-queue" --stdin --notify
 
 # Target a specific session
-unleash-queue --pid 12345 "Message for that session"
+"$OMNIHOOK/unleash-queue" --pid 12345 "Message for that session"
 
 # Send to all active sessions
-unleash-queue --all "Attention all sessions"
+"$OMNIHOOK/unleash-queue" --all "Attention all sessions"
 
 # List active queues
-unleash-queue --list
+"$OMNIHOOK/unleash-queue" --list
 
 # Clear the queue
-unleash-queue --clear
+"$OMNIHOOK/unleash-queue" --clear
 ```
 
 ### unleash-wait
@@ -65,19 +89,19 @@ Block until a message arrives:
 
 ```bash
 # Wait with 60 second timeout
-unleash-wait --timeout 60
+"$OMNIHOOK/unleash-wait" --timeout 60
 
 # Wait indefinitely
-unleash-wait
+"$OMNIHOOK/unleash-wait"
 
 # Just check if messages exist
-unleash-wait --check
+"$OMNIHOOK/unleash-wait" --check
 
 # Setup FIFO for this session
-unleash-wait --setup
+"$OMNIHOOK/unleash-wait" --setup
 
 # Cleanup when done
-unleash-wait --cleanup
+"$OMNIHOOK/unleash-wait" --cleanup
 ```
 
 ## Slash Commands
@@ -140,11 +164,13 @@ External Tool (jessica-listen)
 ```bash
 #!/bin/bash
 # Example: jessica-listen integration
+# Resolve the plugin scripts dir (installed layout shown; adjust for in-tree)
+OMNIHOOK="$HOME/.local/share/unleash/plugins/omnihook/scripts"
 
 # Start listening
 jessica-listen --continuous | while read -r transcription; do
   # Queue the transcription with notification
-  unleash-queue --notify "${transcription}"
+  "$OMNIHOOK/unleash-queue" --notify "${transcription}"
 done
 ```
 
@@ -154,8 +180,8 @@ done
 # In auto-mode loop, instead of:
 sleep 30
 
-# Use:
-unleash-wait --timeout 60
+# Use (path resolved as above):
+"$OMNIHOOK/unleash-wait" --timeout 60
 if [[ $? -eq 0 ]]; then
   echo "Voice message received!"
 fi
@@ -184,9 +210,9 @@ cat ~/.cache/unleash/omnihook/queue-*
 # Check if FIFO exists
 ls -la ~/.cache/unleash/omnihook/fifo-*
 
-# Test queue manually
-AGENT_WRAPPER_PID=$$ unleash-queue "Test message"
-AGENT_WRAPPER_PID=$$ unleash-wait --check
+# Test queue manually (resolve $OMNIHOOK as in the Integration Example above)
+AGENT_WRAPPER_PID=$$ "$OMNIHOOK/unleash-queue" "Test message"
+AGENT_WRAPPER_PID=$$ "$OMNIHOOK/unleash-wait" --check
 ```
 
 ## Environment Variables
