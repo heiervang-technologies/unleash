@@ -38,6 +38,8 @@ For per-session overrides without touching the TUI:
 ```
 /supercompact-budget                       # show current overrides
 /supercompact-budget <N>                   # set BUDGET to N tokens (manual mode)
+/supercompact-budget budget <N>            # set BUDGET (explicit form of the above)
+/supercompact-budget budget auto           # switch BUDGET back to auto (percentage-of-current)
 /supercompact-budget threshold <N>         # set the trigger THRESHOLD
 /supercompact-budget threshold default     # restore default threshold (180000)
 /supercompact-budget floor <N>             # set BUDGET floor (auto-mode min)
