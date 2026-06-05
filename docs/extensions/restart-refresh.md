@@ -2690,7 +2690,7 @@ interface RestartState {
 
 - [MCP Refresh Plugin README](<REPO_ROOT>/plugins/bundled/mcp-refresh/README.md)
 - [Process Restart Plugin README](<REPO_ROOT>/plugins/bundled/process-restart/README.md)
-- [Plugin Development Guide](<REPO_ROOT>/docs/extensions/plugin-development.md)
+- [Plugin Development Guide](<REPO_ROOT>/docs/internal/claude-code/plugin-development.md)
 
 - [Testing Guide](<REPO_ROOT>/docs/extensions/testing-guide.md)
 
@@ -2698,7 +2698,7 @@ interface RestartState {
 
 Contributions to improve these plugins are welcome! Please:
 
-1. Read the [Plugin Development Guide](<REPO_ROOT>/docs/extensions/plugin-development.md)
+1. Read the [Plugin Development Guide](<REPO_ROOT>/docs/internal/claude-code/plugin-development.md)
 2. Test changes locally with `--plugin-dir`
 3. Update documentation
 4. Submit PR with clear description
