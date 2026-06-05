@@ -97,8 +97,30 @@ pub fn inject_session(
     let (result, target_path) = match target_cli {
         "claude" | "claude-code" => inject_into_claude(&session, &hub_records)?,
         "codex" => inject_into_codex(&session, &hub_records)?,
-        "gemini" | "gemini-cli" | "antigravity" | "antigravity-cli" | "agy" => {
-            inject_into_gemini(&session, &hub_records)?
+        "gemini" | "gemini-cli" => inject_into_gemini(&session, &hub_records)?,
+        "antigravity" | "antigravity-cli" | "agy" => {
+            // agy does NOT share gemini's session storage. It uses
+            // ~/.gemini/antigravity-cli/conversations/<uuid>.pb (protobuf
+            // for short sessions, SQLite .db files for long ones), keyed
+            // by working directory in
+            // ~/.gemini/antigravity-cli/cache/last_conversations.json.
+            // Writing gemini-format JSON into ~/.gemini/tmp/<proj>/chats/
+            // (what the prior `agy → gemini` routing did) produces a file
+            // agy can't read, then `agy --conversation <id>` fails with
+            // "conversation not found".
+            //
+            // Honest failure is better than fake success. Real support
+            // requires (a) encoding the .pb / .db conversation format,
+            // and (b) updating last_conversations.json so agy's --continue
+            // discovers the new session. Both are non-trivial — tracked
+            // as follow-up work.
+            return Err(ConvertError::InvalidFormat(
+                "Crossloading into Antigravity (agy) is not yet supported — agy uses a \
+                 protobuf conversation format at ~/.gemini/antigravity-cli/conversations/ \
+                 that differs from gemini's JSON chats. Workaround: crossload into another \
+                 CLI (claude/codex/gemini/opencode/pi) and run that instead."
+                    .to_string(),
+            ));
         }
         "hermes" | "hermes-agent" => inject_into_hermes(&session, &hub_records)?,
         "opencode" => inject_into_opencode(&session, &hub_records)?,
@@ -132,7 +154,13 @@ fn normalize_target_cli(target: &str) -> &str {
         "claude" | "claude-code" => "claude",
         "codex" => "codex",
         "gemini" | "gemini-cli" => "gemini",
-        "antigravity" | "antigravity-cli" | "agy" => "gemini", // Map to gemini since they share storage layout and resume strategy
+        // agy is intentionally NOT mapped to gemini here. They don't share
+        // storage layout (gemini = JSON chats, agy = protobuf .pb files at
+        // ~/.gemini/antigravity-cli/conversations/) and the dispatch above
+        // refuses agy injection. Keeping the raw "agy" string means stale
+        // cache entries from older builds (which used the wrong mapping)
+        // don't shadow the explicit error.
+        "antigravity" | "antigravity-cli" | "agy" => "agy",
         "hermes" | "hermes-agent" => "hermes",
         "opencode" => "opencode",
         "pi" | "pi-coding-agent" => "pi",
@@ -2306,5 +2334,23 @@ mod tests {
         assert_eq!(context_budget(), None);
 
         std::env::remove_var("UNLEASH_CROSSLOAD_MAX_TOKENS");
+    }
+
+    #[test]
+    fn normalize_target_cli_keeps_agy_distinct_from_gemini() {
+        // Prior behavior mapped agy → gemini, which made `inject_into_gemini`
+        // write JSON chats into ~/.gemini/tmp/<proj>/chats/ — a file agy
+        // can't read because agy's conversations live at
+        // ~/.gemini/antigravity-cli/conversations/<uuid>.pb (protobuf).
+        // The new behavior keeps the cli string as "agy" so the dispatch
+        // can refuse it with a clear error, and stale cache entries from
+        // older builds don't shadow that refusal.
+        assert_eq!(normalize_target_cli("agy"), "agy");
+        assert_eq!(normalize_target_cli("antigravity"), "agy");
+        assert_eq!(normalize_target_cli("antigravity-cli"), "agy");
+        // gemini still resolves to "gemini" — the two CLIs share the
+        // `~/.gemini/` prefix but nothing else.
+        assert_eq!(normalize_target_cli("gemini"), "gemini");
+        assert_eq!(normalize_target_cli("gemini-cli"), "gemini");
     }
 }
