@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.64](https://github.com/heiervang-technologies/unleash/compare/v0.1.63...v0.1.64) (2026-06-05)
+
+
+### Bug Fixes
+
+* **agents/tui:** src-side alias drift + remove false antigravity npm gate ([#286](https://github.com/heiervang-technologies/unleash/issues/286)) ([017026b](https://github.com/heiervang-technologies/unleash/commit/017026b5e40892f0615610a49aa8f62cbd12db75))
+
 ## [0.1.63](https://github.com/heiervang-technologies/unleash/compare/v0.1.62...v0.1.63) (2026-06-05)
 
 
