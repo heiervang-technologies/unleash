@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.1.65](https://github.com/heiervang-technologies/unleash/compare/v0.1.64...v0.1.65) (2026-06-05)
+
+
+### Bug Fixes
+
+* **agents:** agy uses --continue / --conversation, not --resume ([#302](https://github.com/heiervang-technologies/unleash/issues/302)) ([4b84de7](https://github.com/heiervang-technologies/unleash/commit/4b84de7f848071e02897a7af7f01cf499c4c2a74))
+* **test:** wait for non-empty marker to deflake background-reindex test ([#303](https://github.com/heiervang-technologies/unleash/issues/303)) ([2d019ae](https://github.com/heiervang-technologies/unleash/commit/2d019aea3a14c815d2cf8d715c1e151842de6011))
+
 ## [0.1.64](https://github.com/heiervang-technologies/unleash/compare/v0.1.63...v0.1.64) (2026-06-05)
 
 
