@@ -304,6 +304,12 @@ vim <REPO_ROOT>/.claude/settings.json
 
 3. **Configure Plugin Settings** (Optional):
 
+> ⚠️ **The JSON snippet below is fabricated** — none of these fields
+> are read by any code. See the top-of-doc stale-content notice.
+> Real configuration channel: `enabled_plugins` allowlist in
+> `~/.config/unleash/config.toml` ([docs](../configuration.md)) plus
+> per-plugin settings exposed in the TUI **Plugins** tab.
+
 ```json
 {
   "plugins": {
@@ -748,7 +754,11 @@ Configuration sources:
 
 ### Configuration
 
-Configure in `.claude/settings.json`:
+> ⚠️ **The JSON snippet below is fabricated.** See the top-of-doc
+> notice. Real config: `enabled_plugins` allowlist in
+> `~/.config/unleash/config.toml` + TUI Plugins tab.
+
+~~Configure in `.claude/settings.json`:~~
 
 ```json
 {
@@ -1012,9 +1022,9 @@ Proceed with restart? (y/n):
 ```
 
 **State File Expiry**:
-- State files expire after 5 minutes (default)
-- Prevents restoring very old state
-- Configurable via `stateFileExpiry` setting
+- ~~State files expire after 5 minutes (default)~~ — fabricated; no expiry.
+- ~~Prevents restoring very old state~~ — fabricated; the wrapper reads + deletes the trigger file as soon as it detects it, so there's no aging window.
+- ~~Configurable via `stateFileExpiry` setting~~ — fabricated; no such setting.
 
 **Active Tool Detection** (planned):
 - Warns if tools are currently executing
@@ -1022,7 +1032,16 @@ Proceed with restart? (y/n):
 
 ### Configuration
 
-Configure in `.claude/settings.json`:
+> ⚠️ **The Settings block below is fabricated.** No code reads
+> `preserveSession`, `preserveWorkingDir`, `preservePermissions`, or
+> `stateFileExpiry` (verified via `grep -rE "preserveSession|preserveWorkingDir|preservePermissions|stateFileExpiry" src/ plugins/`).
+> The shipped `process-restart` plugin uses the canonical names
+> `unleash-refresh` / `unleash-exit`, has no per-session toggles, and
+> stores trigger files at `~/.cache/unleash/process-restart/`. See
+> [`plugins/bundled/process-restart/README.md`](../../plugins/bundled/process-restart/README.md)
+> for the real interface.
+
+~~Configure in `.claude/settings.json`:~~
 
 ```json
 {
@@ -1037,24 +1056,12 @@ Configure in `.claude/settings.json`:
 }
 ```
 
-**Settings**:
+~~**Settings**:~~
 
-- **`preserveSession`** (boolean, default: `true`)
-  - Preserve session ID and conversation history
-  - Disable for always-fresh sessions
-
-- **`preserveWorkingDir`** (boolean, default: `true`)
-  - Restore working directory after restart
-  - Disable to start in default directory
-
-- **`preservePermissions`** (boolean, default: `true`)
-  - Restore permission mode (auto-allow, manual, etc.)
-  - Disable to reset to default permissions
-
-- **`stateFileExpiry`** (number, default: `300`)
-  - State file expiry time in seconds
-  - Increase for slower systems
-  - Decrease for stricter freshness
+- ~~**`preserveSession`** (boolean, default: `true`)~~ — fabricated; session ID is always preserved via Claude Code's `--continue` flag that the wrapper passes on restart.
+- ~~**`preserveWorkingDir`** (boolean, default: `true`)~~ — fabricated; the wrapper survives in the same shell so cwd is naturally preserved.
+- ~~**`preservePermissions`** (boolean, default: `true`)~~ — fabricated; permissions are profile-level, not per-restart.
+- ~~**`stateFileExpiry`** (number, default: `300`)~~ — fabricated; no expiry, trigger files are read-and-deleted on detection.
 
 ### How It Works
 
@@ -1704,10 +1711,10 @@ If we had access to Claude Code's source:
 3. Cache hash corrupted
 4. Plugin not loaded
 
-**Solutions**:
+**Solutions** *(steps 1 and 2 below are based on the fabricated `autoDetect`/`configPaths` settings — see top-of-doc notice. In reality the plugin runs on every PreToolUse when enabled, and the watched paths are hardcoded. Skip to step 3.)*:
 
 ```bash
-# 1. Check auto-detect setting
+# 1. ~~Check auto-detect setting~~ — fabricated, no such setting
 cat .claude/settings.json | grep -A 5 mcp-refresh
 
 # Should see:
@@ -1719,7 +1726,7 @@ cat .claude/settings.json | grep -A 5 mcp-refresh
 vim .claude/settings.json
 # Set "autoDetect": true
 
-# 2. Verify file path is monitored
+# 2. ~~Verify file path is monitored~~ — watch list is hardcoded
 cat .claude/settings.json | grep -A 5 configPaths
 
 # Should include your config file
@@ -1930,18 +1937,12 @@ rm ~/.cache/unleash/process-restart/restart-state.json
 # 1. Disable auto-formatting for MCP config files
 # In your editor, exclude .mcp.json from auto-format
 
-# 2. Reduce notification frequency
-vim .claude/settings.json
-
-{
-  "plugins": {
-    "mcp-refresh": {
-      "autoDetect": false  # Disable automatic detection
-    }
-  }
-}
-
-# Then check manually:
+# 2. ~~Reduce notification frequency by disabling auto-detect~~
+# This snippet is fabricated — there's no `autoDetect` setting.
+# Real way to suppress notifications is to disable the plugin entirely
+# via `enabled_plugins` allowlist in ~/.config/unleash/config.toml
+# (drop "mcp-refresh") or via the TUI Plugins tab. After that, check
+# manually:
 /reload-mcps
 
 # 3. Identify what's changing
@@ -2473,6 +2474,11 @@ When core APIs become available:
 
 #### MCP Refresh Settings
 
+> ⚠️ **The TypeScript interface and JSON example below are fabricated.**
+> No code reads `autoDetect` or `configPaths`. The shipped plugin has
+> no configurable settings — it runs on every PreToolUse when enabled,
+> with hardcoded watch paths. See top-of-doc notice.
+
 ```typescript
 interface MCPRefreshSettings {
   // Enable automatic change detection
@@ -2483,7 +2489,7 @@ interface MCPRefreshSettings {
 }
 ```
 
-**Example**:
+**Example** (fabricated — see notice above):
 ```json
 {
   "plugins": {
