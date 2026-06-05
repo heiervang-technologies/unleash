@@ -435,7 +435,10 @@ impl AgentDefinition {
                 worktree_flag: Some("--worktree".to_string()),
             },
             github_repo: None,
-            npm_package: Some("@google/antigravity-cli".to_string()),
+            // No npm package exists for antigravity — `@google/antigravity-cli`
+            // is not published. Real install path is the AUR helper (see
+            // VersionManager::install_antigravity_version_streaming and PR #259).
+            npm_package: None,
             enabled: true,
         }
     }
@@ -704,7 +707,8 @@ impl AgentManager {
                 }
             }
 
-            // Fallback for npm-based global installations (@google/antigravity-cli) or custom paths
+            // Fallback for binaries installed outside the agent's canonical path
+            // (e.g. AUR-installed `agy`, custom `--prefix`, or distro packages).
             if version.is_none() {
                 if let Ok(bin_path) = which::which(&agent.binary) {
                     if let Ok(output) = Command::new(&bin_path).arg("--version").output() {
@@ -1439,6 +1443,19 @@ mod tests {
             hermes.github_repo.as_deref(),
             Some("NousResearch/hermes-agent")
         );
+    }
+
+    #[test]
+    fn antigravity_has_no_npm_package() {
+        // `@google/antigravity-cli` is not published on npm. Setting it on
+        // the definition causes false "npm required" warnings, wasted 404
+        // queries in the version-check path, and pointless `npm uninstall`
+        // attempts. The real install path is the AUR helper — see
+        // VersionManager::install_antigravity_version_streaming.
+        let agy = AgentDefinition::antigravity();
+        assert!(agy.npm_package.is_none());
+        assert_eq!(agy.binary, "agy");
+        assert_eq!(agy.agent_type, AgentType::Antigravity);
     }
 
     #[test]

@@ -1583,7 +1583,7 @@ impl App {
     /// Get the default stop prompt from the hook script (source of truth)
     fn get_default_stop_prompt(&self) -> String {
         const HOOK_RELATIVE: &str = "plugins/bundled/auto-mode/hooks/auto-mode-stop.sh";
-        const FALLBACK_MSG: &str = "You ended your turn, but you are in auto-mode. If you are awaiting a decision, select your recommended decision. If you are done, consider that you have covered all other diligences, testing, documentation, technical debt and cleanup. Use the executables (in PATH) 'restart-claude' if you need to restart yourself, and 'exit-claude' if you are truly done with all your tasks.";
+        const FALLBACK_MSG: &str = "You ended your turn, but you are in auto-mode. If you are awaiting a decision, select your recommended decision. If you are done, consider that you have covered all other diligences, testing, documentation, technical debt and cleanup. Use the executables (in PATH) 'unleash-refresh' if you need to restart yourself, and 'unleash-exit' if you are truly done with all your tasks.";
 
         // Build candidate paths to search
         let mut candidates: Vec<String> = Vec::new();
