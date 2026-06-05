@@ -243,7 +243,7 @@ fn print_profile_help(profile_name: &str) {
 fn run_agent_with_polyfill(
     profile_name: &str,
     mut polyfill_args: cli::PolyfillArgs,
-    extra_args: Vec<String>,
+    mut extra_args: Vec<String>,
 ) -> io::Result<()> {
     let manager = ProfileManager::new()?;
     let profile = manager.load_profile(profile_name).map_err(|e| {
@@ -421,6 +421,15 @@ fn run_agent_with_polyfill(
                     hub_records
                 };
 
+                // Did the user explicitly request a one-shot headless run
+                // (`-p "do X"`)? If so, the transcript merges into their prompt
+                // and we keep `-p` semantics (single response, exit). If not,
+                // and the target agent has a dedicated "load prompt then go
+                // interactive" flag (e.g. agy's `-i`), use that instead so the
+                // session drops the user into a live REPL with prior context
+                // pre-loaded — much better UX for the common
+                // `unleash <agent> -x <session>` invocation.
+                let was_user_headless = polyfill_args.prompt.is_some();
                 let transcript = interchange::passthrough::render_as_transcript(&hub_records);
                 let new_prompt = match polyfill_args.prompt.take() {
                     Some(user_prompt) => format!("{transcript}\n## Continue\n\n{user_prompt}"),
@@ -442,14 +451,34 @@ fn run_agent_with_polyfill(
                     );
                 }
 
-                eprintln!(
-                    "\x1b[32m✓\x1b[0m Prepended {} bytes of transcript ({}/{} records) as initial prompt",
-                    new_prompt.len(),
-                    hub_records.len(),
-                    total_records,
-                );
-                polyfill_args.prompt = Some(new_prompt.clone());
-                flags.headless = Some(new_prompt);
+                let interactive_flag = (!was_user_headless)
+                    .then_some(agent_def.polyfill.interactive_prompt_flag.as_ref())
+                    .flatten();
+                if let Some(iflag) = interactive_flag {
+                    eprintln!(
+                        "\x1b[32m✓\x1b[0m Prepended {} bytes of transcript ({}/{} records) \
+                         via interactive flag `{iflag}` — session will drop into REPL after \
+                         loading prior context",
+                        new_prompt.len(),
+                        hub_records.len(),
+                        total_records,
+                    );
+                    // Bypass the polyfill headless machinery entirely: push the
+                    // interactive flag + prompt directly so the agent gets `-i
+                    // "<transcript>"` (or whatever the target uses) instead of
+                    // `-p "<transcript>"`.
+                    extra_args.push(iflag.clone());
+                    extra_args.push(new_prompt);
+                } else {
+                    eprintln!(
+                        "\x1b[32m✓\x1b[0m Prepended {} bytes of transcript ({}/{} records) as initial prompt",
+                        new_prompt.len(),
+                        hub_records.len(),
+                        total_records,
+                    );
+                    polyfill_args.prompt = Some(new_prompt.clone());
+                    flags.headless = Some(new_prompt);
+                }
             }
         }
     }

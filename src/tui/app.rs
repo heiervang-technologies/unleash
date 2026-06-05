@@ -832,6 +832,7 @@ impl CustomAgentDraft {
                 add_dir_flag: None,
                 approval_mode_flag: None,
                 worktree_flag: None,
+                interactive_prompt_flag: None,
             },
             github_repo: None,
             npm_package: None,
