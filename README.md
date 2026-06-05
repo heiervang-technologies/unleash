@@ -117,8 +117,8 @@ unleash claude -m opus -- --effort max --verbose
 | unleash | Claude | Codex | Antigravity (`agy`) | Gemini | OpenCode | Pi | Hermes |
 |---------|--------|-------|---------------------|--------|----------|----|--------|
 | `-p <prompt>` | `-p <prompt>` | `exec <prompt>` | `-p <prompt>` | `-p <prompt>` | `run <prompt>` | `-p <prompt>` | `-z <prompt>` |
-| `-c` | `--continue` | `resume --last` | `--resume latest` | `--resume latest` | `--continue` | `--continue` | `--continue` |
-| `-r [id]` | `--resume [id]` | `resume [id]` | `--resume [id]` | `--resume [id]` | `-s <id>` | `--session <id>` | `--resume [id]` |
+| `-c` | `--continue` | `resume --last` | `--continue` | `--resume latest` | `--continue` | `--continue` | `--continue` |
+| `-r [id]` | `--resume [id]` | `resume [id]` | `--conversation [id]` | `--resume [id]` | `-s <id>` | `--session <id>` | `--resume [id]` |
 | `--fork` | `--fork-session` | `fork` subcommand | *(unsupported)* | *(unsupported)* | `--fork` | `--fork` | `--worktree` |
 | *(default)* | `--dangerously-skip-permissions` | `--dangerously-bypass-approvals-and-sandbox` | `--dangerously-skip-permissions` | `--yolo` | *(no-op)* | *(no-op)* | `--yolo` |
 

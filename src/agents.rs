@@ -415,9 +415,15 @@ impl AgentDefinition {
             description: "Google's Antigravity CLI".to_string(),
             polyfill: AgentPolyfillConfig {
                 headless: HeadlessStrategy::Flag("-p".to_string()),
+                // agy uses `--continue` for "continue last conversation" and
+                // `--conversation <id>` for "resume by ID" — verified at
+                // `agy --help`. Previously the polyfill mapped both to
+                // `--resume [latest|<id>]` which agy doesn't accept,
+                // breaking `unleash agy -c` and `unleash agy -x <session>`
+                // with `flags provided but not defined: -resume`.
                 session: SessionStrategy {
-                    continue_strategy: ResumeStrategy::Flag("--resume latest".to_string()),
-                    resume_strategy: ResumeStrategy::Flag("--resume".to_string()),
+                    continue_strategy: ResumeStrategy::Flag("--continue".to_string()),
+                    resume_strategy: ResumeStrategy::Flag("--conversation".to_string()),
                 },
                 fork: ForkStrategy::Unsupported,
                 yolo_flag: Some("--dangerously-skip-permissions".to_string()),
@@ -1456,6 +1462,31 @@ mod tests {
         assert!(agy.npm_package.is_none());
         assert_eq!(agy.binary, "agy");
         assert_eq!(agy.agent_type, AgentType::Antigravity);
+    }
+
+    #[test]
+    fn antigravity_uses_continue_and_conversation_flags() {
+        // agy doesn't accept `--resume`. Verified via `agy --help` (which
+        // shows `--continue` for "most recent" and `--conversation <id>`
+        // for "by ID"). The previous polyfill mapped both to `--resume`,
+        // which broke `unleash agy -c` and `unleash agy -x <session>` with
+        //   flags provided but not defined: -resume
+        // User-reported regression.
+        let agy = AgentDefinition::antigravity();
+        match &agy.polyfill.session.continue_strategy {
+            ResumeStrategy::Flag(s) => assert_eq!(
+                s, "--continue",
+                "agy continue must use --continue, not --resume"
+            ),
+            other => panic!("expected continue_strategy::Flag, got {other:?}"),
+        }
+        match &agy.polyfill.session.resume_strategy {
+            ResumeStrategy::Flag(s) => assert_eq!(
+                s, "--conversation",
+                "agy resume-by-id must use --conversation, not --resume"
+            ),
+            other => panic!("expected resume_strategy::Flag, got {other:?}"),
+        }
     }
 
     #[test]
