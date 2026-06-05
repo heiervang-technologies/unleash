@@ -11,6 +11,7 @@ pub mod inject;
 #[cfg(test)]
 mod lossless_tests;
 pub mod opencode;
+pub mod passthrough;
 pub mod pi;
 pub mod semantic_eq;
 pub mod sessions;
@@ -315,9 +316,25 @@ pub fn convert_command(
                 }
                 return Ok(());
             }
+            "passthrough" | "transcript" | "prompt" => {
+                // Render the prior conversation as a single human-readable
+                // markdown transcript. Intended for piping into CLIs that
+                // refuse session-level injection (e.g. agy — see #313 / #307)
+                // via `<cli> -p|--prompt "$(unleash convert --from X --to passthrough …)"`.
+                let text = passthrough::render_as_transcript(&hub_records);
+                match output {
+                    Some(path) => {
+                        let mut f = std::fs::File::create(path)?;
+                        std::io::Write::write_all(&mut f, text.as_bytes())?;
+                        eprintln!("Wrote passthrough transcript to {path}");
+                    }
+                    None => print!("{text}"),
+                }
+                return Ok(());
+            }
             _ => {
                 return Err(ConvertError::InvalidFormat(format!(
-                    "Unsupported target format: {to}. Supported: claude, codex, gemini, antigravity, opencode, pi, hub"
+                    "Unsupported target format: {to}. Supported: claude, codex, gemini, antigravity, opencode, pi, hub, passthrough"
                 )));
             }
         };
