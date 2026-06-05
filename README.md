@@ -7,9 +7,9 @@
 
 **unleash** is...
   
-* an **agent CLI verison manager**. `nvm` for AI agents such as claude code, codex, gemini and opencode with a ritch TUI 
-  
-* a compatibility layer that lets you start in claude code, then continue where you left off in codex.  
+* an **agent CLI version manager**. `nvm` for AI agents — claude code, codex, antigravity, gemini, opencode, pi, hermes — with a rich TUI
+
+* a compatibility layer that lets you start in claude code, then continue where you left off in codex.
 
 * a **unified cli** that brings all your code agents under the same signature. No more confusion about `claude -p` vs `codex run`
 
@@ -33,7 +33,7 @@ docker run -it --rm -e ANTHROPIC_API_KEY -e CLAUDE_CODE_OAUTH_TOKEN -e OPENAI_AP
 
 > See [Installation](#installation) for build-from-source, platform details, and non-interactive mode.
 
-> **unleash is best run in a sandbox.** Bring your own or use ours — see the [Docker + gVisor sandbox guide](docs/docker.md) for for more  hardened containers with LAN isolation.
+> **unleash is best run in a sandbox.** Bring your own or use ours — see the [Docker + gVisor sandbox guide](docs/docker.md) for more hardened containers with LAN isolation.
 
 
 
@@ -42,6 +42,7 @@ docker run -it --rm -e ANTHROPIC_API_KEY -e CLAUDE_CODE_OAUTH_TOKEN -e OPENAI_AP
 unleash          # Launch TUI (profiles, versions, settings)
 unleash claude   # Start Claude with unleash features
 unleash codex    # Start Codex with unleash features
+unleash agy      # Start Antigravity CLI with unleash features
 unleash gemini   # Start Gemini CLI with unleash features
 unleash opencode # Start OpenCode with unleash features
 unleash pi       # Start Pi with unleash features
