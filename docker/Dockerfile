@@ -1,11 +1,15 @@
 # unleash Docker Image
 #
-# Sandboxed container with all 5 supported coder CLIs:
+# Sandboxed container with 5 of unleash's 7 built-in coder CLIs:
 #   - Claude Code (Anthropic)
 #   - Codex (OpenAI)
 #   - Gemini CLI (Google)
 #   - OpenCode
 #   - Pi (mariozechner/pi-coding-agent)
+#
+# Not bundled: Hermes Agent (curl install script) and Antigravity CLI
+# (AUR helper; see PR #259) — both have install paths that don't fit
+# the npm/binary pattern this image uses. Run them on the host.
 #
 # Build:
 #   docker build -f docker/Dockerfile -t unleash .
@@ -147,7 +151,7 @@ RUN chown unleash:unleash /home/unleash/.config/starship.toml \
 USER unleash
 WORKDIR /workspace
 
-# -- Install all 5 agent CLIs using unleash's own install paths --
+# -- Install the 5 bundled agent CLIs using unleash's own install paths --
 # Claude Code: native GCS binary (not npm)
 # Codex: prebuilt binary from GitHub releases
 # Gemini CLI: npm

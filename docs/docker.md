@@ -125,7 +125,8 @@ docker run --gpus all -it --rm marksverdhei/unleash:cuda
 ```
 
 This image adds CUDA 12.8 toolkit, PyTorch with GPU support, and Python 3 on
-top of the standard unleash image with all agent CLIs.
+top of the standard unleash image with the 5 bundled agent CLIs
+(claude/codex/gemini/opencode/pi).
 
 ### Build Locally
 
@@ -162,7 +163,7 @@ vastai search offers 'gpu_ram>=24 cuda_vers>=12.0' --limit 5
 vastai create instance <template-id> <offer-id> --disk 50
 ```
 
-Inside the instance, all agent CLIs and PyTorch are ready:
+Inside the instance, the 5 bundled agent CLIs and PyTorch are ready:
 
 ```bash
 unleash claude                                    # start coding

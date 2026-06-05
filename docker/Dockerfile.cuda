@@ -1,12 +1,15 @@
 # unleash CUDA Docker Image
 #
 # GPU-enabled development environment for AI training on Vast.ai and other GPU clouds.
-# Includes CUDA 12.8 toolkit, PyTorch, all 5 supported coder CLIs:
+# Includes CUDA 12.8 toolkit, PyTorch, and 5 of unleash's 7 built-in coder CLIs:
 #   - Claude Code (Anthropic)
 #   - Codex (OpenAI)
 #   - Gemini CLI (Google)
 #   - OpenCode
 #   - Pi (mariozechner/pi-coding-agent)
+#
+# Not bundled: Hermes Agent and Antigravity CLI — see docker/Dockerfile
+# header for the reason. Run them on the host.
 #
 # Build:
 #   docker build -f docker/Dockerfile.cuda -t marksverdhei/unleash:cuda .
@@ -49,7 +52,7 @@ RUN cargo build --release \
 FROM nvidia/cuda:12.8.0-devel-ubuntu24.04 AS cuda
 
 LABEL maintainer="Heiervang Technologies"
-LABEL description="unleash CUDA - GPU-enabled dev environment with all 5 agent CLIs, CUDA 12.8 toolkit, PyTorch"
+LABEL description="unleash CUDA - GPU-enabled dev environment with 5 agent CLIs (claude/codex/gemini/opencode/pi), CUDA 12.8 toolkit, PyTorch"
 LABEL org.opencontainers.image.source="https://github.com/heiervang-technologies/unleash"
 
 # Install Node 22 via nodesource + dev tools
@@ -128,8 +131,10 @@ ENV SANDBOX_NAME=cuda-sandbox
 USER unleash
 WORKDIR /workspace
 
-# -- Install all 5 agent CLIs --
-# TODO: Once antigravity-cli lands (PR #198), add: npm install -g @google/antigravity-cli
+# -- Install the 5 bundled agent CLIs --
+# Antigravity install path is the AUR helper (PR #259) — incompatible with
+# the Ubuntu base; not installed here. Hermes uses a curl install script
+# that isn't run at build time either. Both can be installed at runtime.
 RUN unleash install claude codex gemini pi \
     && npm install -g opencode-ai@latest
 
