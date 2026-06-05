@@ -179,7 +179,7 @@ fn normalize_target_cli(target: &str) -> &str {
 
 /// Read the optional context budget from `UNLEASH_CROSSLOAD_MAX_TOKENS`.
 /// Returns `None` when the variable is unset or zero (no limit).
-fn context_budget() -> Option<usize> {
+pub(crate) fn context_budget() -> Option<usize> {
     std::env::var("UNLEASH_CROSSLOAD_MAX_TOKENS")
         .ok()
         .and_then(|v| v.parse::<usize>().ok())
@@ -217,7 +217,10 @@ fn estimate_block_chars(block: &crate::interchange::hub::ContentBlock) -> usize 
 /// the estimated token count fits within `max_tokens`.
 /// The session header (first record) is always kept.
 /// Returns (trimmed_records, num_messages_dropped).
-fn truncate_hub_to_budget(records: Vec<HubRecord>, max_tokens: usize) -> (Vec<HubRecord>, usize) {
+pub(crate) fn truncate_hub_to_budget(
+    records: Vec<HubRecord>,
+    max_tokens: usize,
+) -> (Vec<HubRecord>, usize) {
     if estimate_tokens(&records) <= max_tokens {
         return (records, 0);
     }
