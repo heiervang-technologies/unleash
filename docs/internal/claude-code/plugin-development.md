@@ -573,7 +573,7 @@ EOF
 
 2. **Test Command**:
 ```bash
-cc --plugin-dir plugins/bundled/my-plugin
+claude --plugin-dir plugins/bundled/my-plugin
 # In Claude: /my-command
 ```
 
@@ -676,7 +676,7 @@ Brief description of what this plugin does.
 
 Install from local development:
 ```bash
-cc --plugin-dir /path/to/my-plugin
+claude --plugin-dir /path/to/my-plugin
 ```
 
 ## Commands
@@ -721,7 +721,7 @@ See [Testing Plugins Locally](#testing-plugins-locally) section.
 
 1. **Use --plugin-dir Flag**:
 ```bash
-cc --plugin-dir plugins/bundled/my-plugin
+claude --plugin-dir plugins/bundled/my-plugin
 ```
 
 This loads only your plugin for isolated testing.
@@ -746,7 +746,7 @@ This loads only your plugin for isolated testing.
 
 5. **Test Hooks with Debug Mode**:
 ```bash
-cc --plugin-dir /path/to/plugin --debug
+claude --plugin-dir /path/to/plugin --debug
 ```
 
 Look for hook execution logs in output.
@@ -769,7 +769,7 @@ Look for hook execution logs in output.
 Load multiple plugins for integration testing:
 
 ```bash
-cc --plugin-dir /path/to/plugin1 --plugin-dir /path/to/plugin2
+claude --plugin-dir /path/to/plugin1 --plugin-dir /path/to/plugin2
 ```
 
 ### Debug Mode Testing
@@ -777,7 +777,7 @@ cc --plugin-dir /path/to/plugin1 --plugin-dir /path/to/plugin2
 Enable detailed logging:
 
 ```bash
-cc --plugin-dir /path/to/plugin --debug
+claude --plugin-dir /path/to/plugin --debug
 ```
 
 Look for:
@@ -1060,7 +1060,7 @@ git checkout -b feature/my-plugin-name
 ```bash
 # Create plugin in plugins/bundled/
 # Test locally
-cc --plugin-dir plugins/bundled/my-plugin
+claude --plugin-dir plugins/bundled/my-plugin
 
 # Run any tests
 # Verify functionality
