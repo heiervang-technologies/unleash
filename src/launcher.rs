@@ -70,6 +70,43 @@ pub(crate) fn exec_meta_command(
     Ok(status.code().unwrap_or(1))
 }
 
+/// Returns true if `args` already encodes a resume/continue signal in any of
+/// the polyfill-emitted forms across the 7 supported agents. Used by the
+/// restart loop to decide whether to inject its own `--continue` or leave the
+/// existing intent alone.
+///
+/// Coverage map (mirrors `AgentDefinition::*` polyfill strategies):
+///
+/// | Agent      | continue form            | resume-by-id form        |
+/// |------------|--------------------------|--------------------------|
+/// | Claude     | `--continue`, `-c`       | `--resume`, `-r`         |
+/// | Codex      | `resume` (subcommand)    | `resume` (subcommand)    |
+/// | Gemini     | `--resume` (`latest`)    | `--resume`               |
+/// | OpenCode   | `--continue`             | `-s`                     |
+/// | Pi         | `--continue`             | `--session`              |
+/// | Hermes     | `--continue`             | `--resume`               |
+/// | Antigravity| `--continue`             | `--conversation`         |
+///
+/// Bare-token match against the first whitespace-delimited token of each
+/// arg covers both flag-style (`--continue`) and subcommand-style (`resume`,
+/// where the polyfill inserts it as the first positional arg).
+pub(crate) fn args_already_signal_resume(args: &[String]) -> bool {
+    const RESUME_TOKENS: &[&str] = &[
+        "--continue",
+        "-c",
+        "--resume",
+        "-r",
+        "resume", // codex
+        "--conversation",
+        "-s",
+        "--session",
+    ];
+    args.iter().any(|a| {
+        let first_token = a.split_whitespace().next().unwrap_or("");
+        RESUME_TOKENS.contains(&first_token)
+    })
+}
+
 /// Configuration for [`run_loop`]: bundles the inputs the auto-mode restart
 /// state machine needs without having to read from the user's profile, env,
 /// or `dirs::cache_dir()`. Production callers build this from real config in
@@ -139,7 +176,7 @@ pub fn run_loop(config: LauncherConfig) -> io::Result<i32> {
 
         // If this is a restart, add --continue and message
         if restart_count > 0 {
-            if !args.iter().any(|a| a == "--continue" || a == "--resume") {
+            if !args_already_signal_resume(&args) {
                 args.insert(0, "--continue".to_string());
                 // Only Claude Code supports --dangerously-skip-permissions
                 if is_claude {
@@ -755,5 +792,65 @@ mod tests {
         // Substrings must not match — only exact arg equality.
         assert!(!is_meta_command(&s(&["--version-check"])));
         assert!(!is_meta_command(&s(&["--help-mcp"])));
+    }
+
+    // Coverage for args_already_signal_resume — one assertion per agent's
+    // polyfill-emitted form. Matches the table in the function's doc comment;
+    // any agent whose polyfill changes shape should add a row here.
+    #[test]
+    fn resume_detection_claude_long_and_short() {
+        assert!(args_already_signal_resume(&s(&["--continue"])));
+        assert!(args_already_signal_resume(&s(&["-c"])));
+        assert!(args_already_signal_resume(&s(&["--resume", "abc"])));
+        assert!(args_already_signal_resume(&s(&["-r", "abc"])));
+    }
+
+    #[test]
+    fn resume_detection_codex_subcommand() {
+        // Codex polyfill emits `resume --last` (continue) or `resume <id>` (resume).
+        // Previously these slipped past the literal "--continue/--resume" check
+        // and the wrapper would prepend its own --continue on every restart.
+        assert!(args_already_signal_resume(&s(&["resume", "--last"])));
+        assert!(args_already_signal_resume(&s(&[
+            "resume",
+            "01234567-89ab-cdef-0123-456789abcdef"
+        ])));
+    }
+
+    #[test]
+    fn resume_detection_gemini() {
+        // Gemini polyfill: continue = "--resume latest" (single space-joined
+        // string token in the polyfill table), resume = "--resume".
+        assert!(args_already_signal_resume(&s(&["--resume latest"])));
+        assert!(args_already_signal_resume(&s(&["--resume", "abc"])));
+    }
+
+    #[test]
+    fn resume_detection_opencode_and_pi_short_forms() {
+        // OpenCode resume-by-id uses -s; Pi uses --session.
+        assert!(args_already_signal_resume(&s(&["-s", "abc"])));
+        assert!(args_already_signal_resume(&s(&["--session", "abc"])));
+    }
+
+    #[test]
+    fn resume_detection_antigravity() {
+        // After PR #302: agy continue → --continue, resume-by-id → --conversation.
+        // Previously this slipped past the check and the wrapper would prepend
+        // --continue on top of an existing --conversation invocation.
+        assert!(args_already_signal_resume(&s(&["--continue"])));
+        assert!(args_already_signal_resume(&s(&["--conversation", "abc"])));
+    }
+
+    #[test]
+    fn resume_detection_ignores_unrelated_args() {
+        // Bare prompts, model flags, paths — none should look like resume.
+        assert!(!args_already_signal_resume(&s(&[])));
+        assert!(!args_already_signal_resume(&s(&["--print", "hello"])));
+        assert!(!args_already_signal_resume(&s(&["-m", "opus"])));
+        assert!(!args_already_signal_resume(&s(&["--model", "gpt-5"])));
+        // Substring match should NOT trigger.
+        assert!(!args_already_signal_resume(&s(&["--continue-on-error"])));
+        assert!(!args_already_signal_resume(&s(&["--resume-id-prefix"])));
+        assert!(!args_already_signal_resume(&s(&["resume-from"])));
     }
 }
