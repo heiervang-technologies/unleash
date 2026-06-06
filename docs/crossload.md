@@ -54,6 +54,46 @@ unleash convert --from claude --to codex session.jsonl -o out.jsonl  # Claude �
 | OpenCode -> Claude | Partial | Thinking blocks converted to text |
 | -> OpenCode (all) | Pending | SQLite injection not yet implemented |
 
+## Passthrough Fallback
+
+Some target CLIs reject session-level injection. Antigravity (`agy`), for
+example, validates every cascade_id against a server-fetched executor from
+Google's CodeAssist API, so a locally-written conversation always fails with
+`cascade ID mismatch` at send time (see issue #307).
+
+When session-level injection refuses, unleash automatically falls back to
+**passthrough mode**: the source session is rendered as a markdown transcript
+and prepended as a single initial prompt. Tool calls, tool results, thinking
+blocks, and images are summarised rather than reproduced verbatim, so the
+result fits in one prompt without escape-sequence or signature issues.
+
+```bash
+# Crossload a Claude session into agy — falls back automatically
+unleash agy -x claude:heierchat
+```
+
+For agents that expose a "load prompt then drop into REPL" flag
+(currently just `agy -i` / `--prompt-interactive`), passthrough uses that
+instead of the one-shot `-p` so the user keeps an interactive session.
+
+### Tuning the fallback
+
+| Variable | Effect |
+|---|---|
+| `UNLEASH_CROSSLOAD_MAX_TOKENS` | Trim the oldest messages so the rendered transcript stays under this token budget. Also applies to the inject path. Unset/0 = no limit. |
+| `UNLEASH_CROSSLOAD_NO_FALLBACK` | Refuse to fall back — surface the original injection error instead. |
+
+```bash
+# Tighter budget for a very large source session (avoids ARG_MAX overflow)
+UNLEASH_CROSSLOAD_MAX_TOKENS=20000 unleash agy -x claude:huge-session
+
+# Hard-error if injection refuses (don't render as passthrough prompt)
+UNLEASH_CROSSLOAD_NO_FALLBACK=1 unleash agy -x claude:huge-session
+```
+
+Manual passthrough is also available via `unleash convert --to passthrough`
+— see [cli-reference.md](cli-reference.md#unleash-convert).
+
 ## Known Limitations
 
 - **Thinking blocks**: Claude requires signed thinking blocks. Foreign
@@ -65,6 +105,9 @@ unleash convert --from claude --to codex session.jsonl -o out.jsonl  # Claude �
   context, progress) are stripped during extraction.
 - **OpenCode**: SQLite writes not yet implemented. Currently exports to hub
   format only.
+- **Passthrough lossiness**: When the fallback fires, the entire source
+  conversation becomes one user-turn from the target's perspective — tool-call
+  structure, model attribution, and thinking blocks are not preserved.
 
 ## Detailed Matrix
 
