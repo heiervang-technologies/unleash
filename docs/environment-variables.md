@@ -17,6 +17,8 @@ These can be set before launching `unleash` to change behavior.
 | `OAI_CHAT_BASE` | Optional separate base URL for chat completions (title regeneration) | falls back to `OAI_BASE` |
 | `OAI_CHAT_MODEL` | Chat model used for `sessions name` title generation. **Unset = skip naming** | unset |
 | `ALPHA` | Hybrid-search rank fusion: dense-vs-BM25 weight (0–1, higher = more dense) | `0.4` |
+| `UNLEASH_CROSSLOAD_MAX_TOKENS` | Hub-records budget for `--crossload` / `-x`. Trims the oldest messages when the rendered transcript would exceed this many tokens. Applies to both the inject path (session-level injection) and the passthrough fallback (when the target CLI refuses injection, e.g. `agy`). Unset / `0` = no limit | unset |
+| `UNLEASH_CROSSLOAD_NO_FALLBACK` | Disable the passthrough auto-fallback when session-level injection fails — `-x` will hard-error instead of rendering the source session as a single initial prompt | unset |
 
 ### Examples
 
@@ -29,6 +31,13 @@ AU_HYPRLAND_FOCUS=0 unleash claude
 
 # Silence hook sounds
 HOOK_NO_SOUND=1 unleash claude
+
+# Crossload a large Claude session into agy with a tighter token budget
+# (avoids ARG_MAX overflow when the rendered transcript is multi-MB)
+UNLEASH_CROSSLOAD_MAX_TOKENS=20000 unleash agy -x claude:heierchat
+
+# Refuse to fall back to passthrough — surface the original injection error
+UNLEASH_CROSSLOAD_NO_FALLBACK=1 unleash agy -x claude:heierchat
 ```
 
 Animations can also be toggled persistently via `animations = true` in
