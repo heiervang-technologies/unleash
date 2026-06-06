@@ -52,7 +52,8 @@ unleash convert --from claude --to codex session.jsonl -o out.jsonl  # Claude �
 | Gemini -> Claude | Lossless | Chain intact |
 | Claude -> Codex | Lossless | State DB registered |
 | OpenCode -> Claude | Partial | Thinking blocks converted to text |
-| -> OpenCode (all) | Pending | SQLite injection not yet implemented |
+| -> OpenCode (all) | Implemented | Writes directly to OpenCode SQLite |
+| -> Antigravity (`agy`) | Passthrough | Server-side cascade validation blocks injection (#307); auto-falls back to a rendered transcript prepended as initial prompt — `agy -i` interactive when no `-p` given |
 
 ## Passthrough Fallback
 
@@ -103,8 +104,9 @@ Manual passthrough is also available via `unleash convert --to passthrough`
   exists, tool calls are rendered as descriptive text.
 - **System preamble**: Claude-specific system events (permissions, environment
   context, progress) are stripped during extraction.
-- **OpenCode**: SQLite writes not yet implemented. Currently exports to hub
-  format only.
+- **Antigravity**: Direct injection blocked server-side (see Passthrough
+  Fallback section above). Falls back to a single rendered prompt — tool
+  structure, model attribution, and thinking blocks are flattened to text.
 - **Passthrough lossiness**: When the fallback fires, the entire source
   conversation becomes one user-turn from the target's perspective — tool-call
   structure, model attribution, and thinking blocks are not preserved.
