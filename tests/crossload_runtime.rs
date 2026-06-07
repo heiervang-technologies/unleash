@@ -568,26 +568,3 @@ fn find_jsonl_with_stem(dir: &Path, stem: &str) -> Option<PathBuf> {
     None
 }
 
-fn find_json_for_session(dir: &Path, session_id: &str) -> Option<PathBuf> {
-    if !dir.exists() {
-        return None;
-    }
-    for entry in std::fs::read_dir(dir).ok()?.flatten() {
-        let path = entry.path();
-        if path.is_dir() {
-            if let Some(found) = find_json_for_session(&path, session_id) {
-                return Some(found);
-            }
-        } else if path.extension().and_then(|e| e.to_str()) == Some("json") {
-            // Read and parse to see if it matches session_id
-            if let Ok(content) = std::fs::read_to_string(&path) {
-                if let Ok(val) = serde_json::from_str::<serde_json::Value>(&content) {
-                    if val.get("id").and_then(|id| id.as_str()) == Some(session_id) {
-                        return Some(path);
-                    }
-                }
-            }
-        }
-    }
-    None
-}
