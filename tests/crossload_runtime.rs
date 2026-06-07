@@ -400,9 +400,8 @@ fn inject_codex_into_claude() {
     );
 }
 
-/// claude → antigravity: drop a Claude JSONL session, inject into the
-/// (tempdir) Antigravity store (which uses Gemini's underlying store),
-/// and assert a session JSON file landed in the expected chats layout.
+/// claude → antigravity: drop a Claude JSONL session, attempt to inject into the
+/// Antigravity store, and assert it is rejected with the expected ConvertError.
 #[test]
 fn inject_claude_into_antigravity() {
     let guard = EnvGuard::new(&[
@@ -416,30 +415,21 @@ fn inject_claude_into_antigravity() {
     let session_id = "5abf6b0c-d3a9-4692-bd17-1507f00cb3f7";
     place_claude_source(&home, &fixture("claude-10turn.jsonl"), session_id);
 
-    let result = inject_session(&format!("claude:{session_id}"), "antigravity")
-        .expect("inject_session claude→antigravity failed");
+    let err = match inject_session(&format!("claude:{session_id}"), "antigravity") {
+        Err(e) => e,
+        Ok(_) => panic!("expected inject_session claude→antigravity to fail"),
+    };
 
-    // Sanity: a target session id and resume args were produced.
-    assert!(!result.session_id.is_empty(), "empty target session id");
-    assert_eq!(
-        result.resume_args,
-        vec!["--resume".to_string(), result.session_id.clone()],
-        "antigravity resume args must be --resume <id>"
-    );
-
-    // Antigravity sessions land under `$HOME/.gemini/tmp/` because it takes place of Gemini CLI.
-    let gemini_tmp = home.join(".gemini").join("tmp");
-    let written = find_json_for_session(&gemini_tmp, &result.session_id)
-        .expect("no <session_id>.json appeared under .gemini/tmp");
-    let body = std::fs::read_to_string(&written).unwrap();
-    assert!(!body.is_empty(), "antigravity json should not be empty");
-
-    // Parse the written JSON and verify session id matches.
-    let val: serde_json::Value = serde_json::from_str(&body).unwrap();
-    assert_eq!(
-        val.get("id").and_then(|id| id.as_str()),
-        Some(result.session_id.as_str())
-    );
+    match err {
+        unleash::interchange::ConvertError::InvalidFormat(msg) => {
+            assert!(
+                msg.contains("Crossloading into Antigravity (agy)"),
+                "unexpected error message: {}",
+                msg
+            );
+        }
+        other => panic!("expected ConvertError::InvalidFormat, got {:?}", other),
+    }
 }
 
 /// gemini → opencode: drop a Gemini session JSON, set up an OpenCode
@@ -573,30 +563,6 @@ fn find_jsonl_with_stem(dir: &Path, stem: &str) -> Option<PathBuf> {
             && path.file_stem().and_then(|s| s.to_str()) == Some(stem)
         {
             return Some(path);
-        }
-    }
-    None
-}
-
-fn find_json_for_session(dir: &Path, session_id: &str) -> Option<PathBuf> {
-    if !dir.exists() {
-        return None;
-    }
-    for entry in std::fs::read_dir(dir).ok()?.flatten() {
-        let path = entry.path();
-        if path.is_dir() {
-            if let Some(found) = find_json_for_session(&path, session_id) {
-                return Some(found);
-            }
-        } else if path.extension().and_then(|e| e.to_str()) == Some("json") {
-            // Read and parse to see if it matches session_id
-            if let Ok(content) = std::fs::read_to_string(&path) {
-                if let Ok(val) = serde_json::from_str::<serde_json::Value>(&content) {
-                    if val.get("id").and_then(|id| id.as_str()) == Some(session_id) {
-                        return Some(path);
-                    }
-                }
-            }
         }
     }
     None
