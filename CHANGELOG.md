@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.71](https://github.com/heiervang-technologies/unleash/compare/v0.1.70...v0.1.71) (2026-06-07)
+
+
+### Bug Fixes
+
+* **crossload:** update inject_claude_into_antigravity test to expect failure ([#325](https://github.com/heiervang-technologies/unleash/issues/325)) ([b4d1d0c](https://github.com/heiervang-technologies/unleash/commit/b4d1d0c901e3cdad8d5259f4784520d295e73eb9))
+
 ## [0.1.70](https://github.com/heiervang-technologies/unleash/compare/v0.1.69...v0.1.70) (2026-06-05)
 
 
