@@ -567,4 +567,3 @@ fn find_jsonl_with_stem(dir: &Path, stem: &str) -> Option<PathBuf> {
     }
     None
 }
-
