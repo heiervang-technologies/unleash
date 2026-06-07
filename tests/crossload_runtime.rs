@@ -400,9 +400,8 @@ fn inject_codex_into_claude() {
     );
 }
 
-/// claude → antigravity: drop a Claude JSONL session, inject into the
-/// (tempdir) Antigravity store (which uses Gemini's underlying store),
-/// and assert a session JSON file landed in the expected chats layout.
+/// claude → antigravity: drop a Claude JSONL session, attempt to inject into the
+/// Antigravity store, and assert it is rejected with the expected ConvertError.
 #[test]
 fn inject_claude_into_antigravity() {
     let guard = EnvGuard::new(&[
@@ -416,30 +415,21 @@ fn inject_claude_into_antigravity() {
     let session_id = "5abf6b0c-d3a9-4692-bd17-1507f00cb3f7";
     place_claude_source(&home, &fixture("claude-10turn.jsonl"), session_id);
 
-    let result = inject_session(&format!("claude:{session_id}"), "antigravity")
-        .expect("inject_session claude→antigravity failed");
+    let err = match inject_session(&format!("claude:{session_id}"), "antigravity") {
+        Err(e) => e,
+        Ok(_) => panic!("expected inject_session claude→antigravity to fail"),
+    };
 
-    // Sanity: a target session id and resume args were produced.
-    assert!(!result.session_id.is_empty(), "empty target session id");
-    assert_eq!(
-        result.resume_args,
-        vec!["--resume".to_string(), result.session_id.clone()],
-        "antigravity resume args must be --resume <id>"
-    );
-
-    // Antigravity sessions land under `$HOME/.gemini/tmp/` because it takes place of Gemini CLI.
-    let gemini_tmp = home.join(".gemini").join("tmp");
-    let written = find_json_for_session(&gemini_tmp, &result.session_id)
-        .expect("no <session_id>.json appeared under .gemini/tmp");
-    let body = std::fs::read_to_string(&written).unwrap();
-    assert!(!body.is_empty(), "antigravity json should not be empty");
-
-    // Parse the written JSON and verify session id matches.
-    let val: serde_json::Value = serde_json::from_str(&body).unwrap();
-    assert_eq!(
-        val.get("id").and_then(|id| id.as_str()),
-        Some(result.session_id.as_str())
-    );
+    match err {
+        unleash::interchange::ConvertError::InvalidFormat(msg) => {
+            assert!(
+                msg.contains("Crossloading into Antigravity (agy)"),
+                "unexpected error message: {}",
+                msg
+            );
+        }
+        other => panic!("expected ConvertError::InvalidFormat, got {:?}", other),
+    }
 }
 
 /// gemini → opencode: drop a Gemini session JSON, set up an OpenCode
