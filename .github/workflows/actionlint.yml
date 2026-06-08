@@ -36,9 +36,14 @@ permissions:
 jobs:
   actionlint:
     name: actionlint
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, linux, x64]
     steps:
       - uses: actions/checkout@v6
+
+      - name: Install shellcheck (self-hosted runner image lacks it; actionlint -shellcheck needs it)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y shellcheck
 
       - name: Install actionlint
         id: install
