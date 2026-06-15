@@ -1,0 +1,60 @@
+name: Trailer Hygiene
+
+on:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  trailer-hygiene:
+    name: Trailer hygiene (no Claude attribution)
+    runs-on: ubuntu-latest
+    if: github.event_name == 'pull_request'
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Reject Co-Authored-By Claude trailers in PR commits
+        run: |
+          # This org does not accept `Co-Authored-By: Claude ...` trailers.
+          # `git interpret-trailers --parse` reads the real trailer block, so
+          # prose/comments that mention the string don't false-flag.
+          range="origin/${{ github.base_ref }}...HEAD"
+          offenders=""
+          while IFS= read -r sha; do
+            [[ -z "$sha" ]] && continue
+            msg=$(git log -1 --format=%B "$sha")
+            trailers=$(printf '%s\n' "$msg" | git interpret-trailers --parse --no-divider)
+            if printf '%s' "$trailers" | grep -iE '^Co-Authored-By:.*Claude' > /dev/null; then
+              offenders="$offenders$sha"$'\n'
+            fi
+          done < <(git rev-list "$range")
+          if [[ -n "$offenders" ]]; then
+            echo "::error::PR commits include Co-Authored-By: Claude trailer(s):"
+            while IFS= read -r sha; do
+              [[ -z "$sha" ]] && continue
+              git log -1 --oneline "$sha"
+            done <<<"$offenders"
+            echo ""
+            echo "Strip the trailer(s) before merging (squash rewrites history;"
+            echo "for multi-commit PRs, rebase -i and drop the lines)."
+            exit 1
+          fi
+          echo "No Claude trailers in PR commits."
+
+      - name: Reject 'Generated with Claude' footer in PR body
+        env:
+          PR_BODY: ${{ github.event.pull_request.body }}
+        run: |
+          # Match the structural signature — a markdown link whose text is
+          # `Claude Code` pointing at claude.com. Prose mentions aren't flagged.
+          if printf '%s' "$PR_BODY" | grep -qE '\[Claude Code\]\(https?://[^)]*claude\.com'; then
+            echo "::error::PR body contains a 'Generated with [Claude Code](https://claude.com/...)' footer."
+            echo "Edit the PR description to remove it before merging."
+            exit 1
+          fi
+          echo "No Generated-with-Claude footer in PR body."
