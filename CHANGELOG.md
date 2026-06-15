@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.72](https://github.com/heiervang-technologies/unleash/compare/v0.1.71...v0.1.72) (2026-06-15)
+
+
+### Bug Fixes
+
+* **ci:** prevent cross compiler from aborting on metadata warnings ([#327](https://github.com/heiervang-technologies/unleash/issues/327)) ([862383b](https://github.com/heiervang-technologies/unleash/commit/862383b210abbf98112b5148adc5a1a3a252a0f2))
+
 ## [0.1.71](https://github.com/heiervang-technologies/unleash/compare/v0.1.70...v0.1.71) (2026-06-07)
 
 
