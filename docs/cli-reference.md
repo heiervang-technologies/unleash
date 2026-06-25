@@ -97,9 +97,25 @@ unleash auth                # Human-readable status
 unleash auth --json         # Machine-readable JSON output
 ```
 
-### `unleash agents status`
+### `unleash agents`
 
-Show all agent versions and update status in a single table.
+Manage agent CLIs (built-in or custom).
+
+```bash
+unleash agents status                # All agent versions + update status (default)
+unleash agents list                  # Available agents (built-in + registered custom)
+unleash agents check [agent]         # Query latest releases (all, or one)
+unleash agents update <agent>        # Install the latest release of one agent
+unleash agents info <agent>          # Detailed info for one agent
+unleash agents add <name> --binary <path> --headless-flag=<flag>  # Register a custom agent
+```
+
+`unleash agents add` writes both a `[[custom_agents]]` entry to
+`~/.config/unleash/config.toml` and a matching profile file at
+`~/.config/unleash/profiles/<name>.toml`, so `unleash <name>` works
+immediately. See [docs/custom-agents.md](custom-agents.md) for full
+field reference and examples; `--dry-run` previews the TOML without
+touching disk.
 
 ### `unleash sessions`
 

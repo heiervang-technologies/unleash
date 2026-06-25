@@ -11,7 +11,35 @@ What's deferred: automatic version install/update for custom agents. Use the bin
 
 ## Quick start
 
-Two steps: declare the agent's capabilities, then create a profile that launches it.
+The fastest path is `unleash agents add`, which writes both the
+`[[custom_agents]]` entry and the matching profile file in one shot:
+
+```bash
+unleash agents add aider \
+  --binary aider \
+  --headless-flag=--message \
+  --model-flag=--model \
+  --yolo-flag=--yes \
+  --github-repo paul-gauthier/aider
+```
+
+Then launch:
+
+```bash
+unleash aider              # launch interactive
+unleash aider -p "fix it"  # headless — translated to `aider --message "fix it"`
+unleash aider -m gpt-4 -c  # model + continue
+```
+
+Use `--dry-run` to preview the TOML that would be written without
+touching disk. Pass values starting with `--` either via `=` syntax
+(`--headless-flag=--message`) or quoted (`--headless-flag '--message'`) —
+clap won't accept an unquoted `--message` as a value otherwise.
+
+### Or do it by hand
+
+If you'd rather edit the config files directly (e.g. to script bulk
+registration or check the result into a dotfiles repo):
 
 **1.** Add a `[[custom_agents]]` block to `~/.config/unleash/config.toml`:
 
@@ -44,15 +72,7 @@ theme = "orange"
 
 The profile's `name` must match the `[[custom_agents]].name` exactly — that's how the launcher resolves which polyfill to apply. `agent_cli_path` is what gets exec'd; usually identical to `binary` (or an absolute path if the binary isn't on `$PATH`).
 
-Then:
-
-```bash
-unleash aider              # launch
-unleash aider -p "fix it"  # headless — translated to `aider --message "fix it"`
-unleash aider -m gpt-4 -c  # model + continue
-```
-
-> The TUI's "Add custom agent" wizard does step 1 automatically and points the *currently-editing* profile at the new binary. To get a dedicated `unleash <name>` subcommand, you still need a profile file with the matching name — copy any built-in profile and adjust.
+> The TUI's "Add custom agent" wizard writes the same files. `unleash agents add` is the headless/scriptable equivalent.
 
 ## Required fields
 
