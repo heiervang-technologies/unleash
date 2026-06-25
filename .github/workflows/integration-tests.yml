@@ -9,6 +9,7 @@ on:
     paths:
       - 'src/**'
       - 'Cargo.toml'
+      - 'Cargo.lock'
       - 'plugins/**'
       - 'scripts/**'
       - 'tests/**'
@@ -18,6 +19,7 @@ on:
     paths:
       - 'src/**'
       - 'Cargo.toml'
+      - 'Cargo.lock'
       - 'plugins/**'
       - 'scripts/**'
       - 'tests/**'
