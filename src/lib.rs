@@ -1093,6 +1093,23 @@ pub fn run() -> io::Result<()> {
                     }
                     Ok(())
                 }
+                Some(AgentsAction::Add(args)) => {
+                    agents::add_custom_agent_cli(agents::AddCustomAgentArgs {
+                        name: args.name,
+                        binary: args.binary,
+                        headless_flag: args.headless_flag,
+                        headless_subcommand: args.headless_subcommand,
+                        description: args.description,
+                        continue_flag: args.continue_flag,
+                        resume_flag: args.resume_flag,
+                        model_flag: args.model_flag,
+                        yolo_flag: args.yolo_flag,
+                        github_repo: args.github_repo,
+                        npm_package: args.npm_package,
+                        dry_run: args.dry_run,
+                        force: args.force,
+                    })
+                }
             }
         }
         Some(Commands::Install { agents, all }) => {
