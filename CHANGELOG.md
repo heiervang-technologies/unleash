@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.73](https://github.com/heiervang-technologies/unleash/compare/v0.1.72...v0.1.73) (2026-06-25)
+
+
+### Features
+
+* **cli:** `unleash agents add` subcommand for custom agent registration ([#342](https://github.com/heiervang-technologies/unleash/issues/342)) ([26a875a](https://github.com/heiervang-technologies/unleash/commit/26a875aa3a102ab87f4f0bae63efd5ea40f13a1d))
+
 ## [0.1.72](https://github.com/heiervang-technologies/unleash/compare/v0.1.71...v0.1.72) (2026-06-15)
 
 
