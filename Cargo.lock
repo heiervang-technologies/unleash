@@ -4429,7 +4429,7 @@ dependencies = [
 
 [[package]]
 name = "unleash"
-version = "0.1.73"
+version = "0.1.75"
 dependencies = [
  "clap",
  "crossterm",

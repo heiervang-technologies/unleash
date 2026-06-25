@@ -1,5 +1,19 @@
 # Changelog
 
+## [0.1.75](https://github.com/heiervang-technologies/unleash/compare/v0.1.74...v0.1.75) (2026-06-25)
+
+
+### Bug Fixes
+
+* **agents:** `add` preserves user profile customizations on re-add ([#349](https://github.com/heiervang-technologies/unleash/issues/349)) ([ccbddfe](https://github.com/heiervang-technologies/unleash/commit/ccbddfe482548682c852b3264ff947de9a750466))
+
+## [0.1.74](https://github.com/heiervang-technologies/unleash/compare/v0.1.73...v0.1.74) (2026-06-25)
+
+
+### Bug Fixes
+
+* **agents:** custom agent profile inherits its own description, not Claude's ([#344](https://github.com/heiervang-technologies/unleash/issues/344)) ([632d540](https://github.com/heiervang-technologies/unleash/commit/632d540e24f2f89744a86caa52aad0d01955eee6))
+
 ## [0.1.73](https://github.com/heiervang-technologies/unleash/compare/v0.1.72...v0.1.73) (2026-06-25)
 
 
