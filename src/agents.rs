@@ -718,6 +718,22 @@ impl AgentManager {
         self.agents.values().collect()
     }
 
+    /// Resolve a user-supplied name to an AgentType.
+    /// Tries the built-in alias table first (`AgentType::from_str`), then
+    /// falls back to a `Custom(name)` lookup against agents registered from
+    /// the user's `[[custom_agents]]` config. Returns None when no match.
+    pub fn resolve_agent_type(&self, name: &str) -> Option<AgentType> {
+        if let Some(t) = AgentType::from_str(name) {
+            return Some(t);
+        }
+        let custom = AgentType::Custom(name.to_string());
+        if self.agents.contains_key(&custom) {
+            Some(custom)
+        } else {
+            None
+        }
+    }
+
     fn parse_asar_version(content: &[u8]) -> Option<String> {
         let pattern1 = b"\"name\": \"antigravity\"";
         let pattern2 = b"\"name\":\"antigravity\"";
@@ -1783,6 +1799,37 @@ mod tests {
         assert_eq!(
             def.unwrap().github_repo.as_deref(),
             Some("paul-gauthier/aider")
+        );
+    }
+
+    #[test]
+    fn resolve_agent_type_handles_builtin_aliases() {
+        let mgr = AgentManager::new_with_custom_for_tests(vec![]).expect("manager");
+        assert_eq!(mgr.resolve_agent_type("claude"), Some(AgentType::Claude));
+        assert_eq!(
+            mgr.resolve_agent_type("claude-code"),
+            Some(AgentType::Claude)
+        );
+        assert_eq!(mgr.resolve_agent_type("agy"), Some(AgentType::Antigravity));
+    }
+
+    #[test]
+    fn resolve_agent_type_finds_registered_custom_agent() {
+        let mgr = AgentManager::new_with_custom_for_tests(vec![aider_def()]).expect("manager");
+        assert_eq!(
+            mgr.resolve_agent_type("aider"),
+            Some(AgentType::Custom("aider".to_string())),
+            "registered custom agent must resolve via its name"
+        );
+    }
+
+    #[test]
+    fn resolve_agent_type_returns_none_for_unregistered_custom() {
+        let mgr = AgentManager::new_with_custom_for_tests(vec![]).expect("manager");
+        assert_eq!(
+            mgr.resolve_agent_type("unknown-agent-xyz"),
+            None,
+            "must not invent Custom() for unregistered names"
         );
     }
 
