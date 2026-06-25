@@ -1406,9 +1406,329 @@ impl AgentManager {
     }
 }
 
+/// Fields collected from the `unleash agents add` CLI subcommand.
+pub struct AddCustomAgentArgs {
+    pub name: String,
+    pub binary: String,
+    pub headless_flag: Option<String>,
+    pub headless_subcommand: Option<String>,
+    pub description: Option<String>,
+    pub continue_flag: Option<String>,
+    pub resume_flag: Option<String>,
+    pub model_flag: Option<String>,
+    pub yolo_flag: Option<String>,
+    pub github_repo: Option<String>,
+    pub npm_package: Option<String>,
+    pub dry_run: bool,
+    pub force: bool,
+}
+
+/// Build a `CustomAgentConfig` from CLI args, mirroring the TUI wizard's
+/// `CustomAgentDraft::into_config` defaults so both code paths produce
+/// equivalent TOML for equivalent input.
+pub fn build_custom_agent_config(
+    args: &AddCustomAgentArgs,
+) -> Result<crate::config::CustomAgentConfig, String> {
+    if args.name.trim().is_empty() {
+        return Err("Custom agent name is required".into());
+    }
+    if args.binary.trim().is_empty() {
+        return Err("Custom agent binary is required".into());
+    }
+    if AgentType::from_str(args.name.trim()).is_some() {
+        return Err(format!(
+            "'{}' clashes with a built-in agent name",
+            args.name.trim()
+        ));
+    }
+
+    let headless = match (
+        args.headless_flag
+            .as_deref()
+            .map(str::trim)
+            .filter(|s| !s.is_empty()),
+        args.headless_subcommand
+            .as_deref()
+            .map(str::trim)
+            .filter(|s| !s.is_empty()),
+    ) {
+        (Some(f), None) => HeadlessStrategy::Flag(f.to_string()),
+        (None, Some(s)) => HeadlessStrategy::Subcommand(s.to_string()),
+        (Some(_), Some(_)) => unreachable!("clap conflicts_with prevents this"),
+        (None, None) => {
+            return Err("Either --headless-flag or --headless-subcommand is required".into())
+        }
+    };
+
+    Ok(crate::config::CustomAgentConfig {
+        name: args.name.trim().to_string(),
+        binary: args.binary.trim().to_string(),
+        description: args
+            .description
+            .clone()
+            .unwrap_or_else(|| format!("Custom agent: {}", args.name.trim())),
+        polyfill: AgentPolyfillConfig {
+            headless,
+            session: SessionStrategy {
+                continue_strategy: ResumeStrategy::Flag(
+                    args.continue_flag
+                        .clone()
+                        .unwrap_or_else(|| "--continue".into()),
+                ),
+                resume_strategy: ResumeStrategy::Flag(
+                    args.resume_flag
+                        .clone()
+                        .unwrap_or_else(|| "--resume".into()),
+                ),
+            },
+            fork: ForkStrategy::Unsupported,
+            yolo_flag: args.yolo_flag.clone(),
+            model_flag: args.model_flag.clone().unwrap_or_else(|| "--model".into()),
+            effort_flag: None,
+            auto_flag: None,
+            verbose_flag: None,
+            output_format_flag: None,
+            system_prompt_flag: None,
+            allowed_tools_flag: None,
+            sandbox: SandboxStrategy::Unsupported,
+            name_flag: None,
+            add_dir_flag: None,
+            approval_mode_flag: None,
+            worktree_flag: None,
+            interactive_prompt_flag: None,
+        },
+        github_repo: args.github_repo.clone(),
+        npm_package: args.npm_package.clone(),
+        enabled: true,
+    })
+}
+
+/// Handler for `unleash agents add`. Builds the config, validates, then either
+/// prints the rendered TOML (`--dry-run`) or commits both the app-config entry
+/// and a matching profile file. Re-adds with the same name overwrite in place
+/// (warns unless `--force` is set).
+pub fn add_custom_agent_cli(args: AddCustomAgentArgs) -> io::Result<()> {
+    let mgr = crate::config::ProfileManager::new()?;
+    add_custom_agent_with(&mgr, args)
+}
+
+/// Testable inner of `add_custom_agent_cli` — takes an explicit ProfileManager
+/// (typically constructed via `ProfileManager::with_config_dir(tempdir())` in
+/// tests) so the disk-touching path is exercisable without env-var fiddling.
+pub fn add_custom_agent_with(
+    mgr: &crate::config::ProfileManager,
+    args: AddCustomAgentArgs,
+) -> io::Result<()> {
+    let agent = build_custom_agent_config(&args)
+        .map_err(|e| io::Error::new(io::ErrorKind::InvalidInput, e))?;
+
+    if args.dry_run {
+        let rendered = toml::to_string_pretty(&agent)
+            .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e.to_string()))?;
+        println!("# Would write to ~/.config/unleash/config.toml under [[custom_agents]]");
+        println!("{}", rendered);
+        println!(
+            "# Would write profile to ~/.config/unleash/profiles/{}.toml",
+            agent.name
+        );
+        return Ok(());
+    }
+
+    let mut app_config = mgr.load_app_config()?;
+
+    let existing_idx = app_config
+        .custom_agents
+        .iter()
+        .position(|c| c.name == agent.name);
+    if let Some(idx) = existing_idx {
+        if !args.force {
+            eprintln!(
+                "warn: custom agent '{}' already registered — overwriting (pass --force to silence)",
+                agent.name
+            );
+        }
+        app_config.custom_agents[idx] = agent.clone();
+    } else {
+        app_config.custom_agents.push(agent.clone());
+    }
+    mgr.save_app_config(&app_config)?;
+
+    let resolved_binary = which::which(&agent.binary)
+        .ok()
+        .map(|p| p.to_string_lossy().to_string())
+        .unwrap_or_else(|| agent.binary.clone());
+    let profile = crate::config::Profile {
+        name: agent.name.clone(),
+        agent_cli_path: resolved_binary,
+        ..crate::config::Profile::default()
+    };
+    mgr.save_profile(&profile)?;
+
+    println!(
+        "✓ Registered custom agent '{}' — run `unleash {}` to use it.",
+        agent.name, agent.name
+    );
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn add_args(name: &str) -> AddCustomAgentArgs {
+        AddCustomAgentArgs {
+            name: name.into(),
+            binary: format!("{}-bin", name),
+            headless_flag: Some("-p".into()),
+            headless_subcommand: None,
+            description: None,
+            continue_flag: None,
+            resume_flag: None,
+            model_flag: None,
+            yolo_flag: None,
+            github_repo: None,
+            npm_package: None,
+            dry_run: false,
+            force: false,
+        }
+    }
+
+    #[test]
+    fn build_custom_agent_config_uses_defaults_for_omitted_flags() {
+        let cfg = build_custom_agent_config(&add_args("aider")).unwrap();
+        assert_eq!(cfg.name, "aider");
+        assert_eq!(cfg.binary, "aider-bin");
+        assert_eq!(cfg.description, "Custom agent: aider");
+        assert_eq!(cfg.polyfill.model_flag, "--model");
+        assert!(cfg.enabled);
+        assert!(matches!(cfg.polyfill.headless, HeadlessStrategy::Flag(ref s) if s == "-p"));
+        assert!(matches!(cfg.polyfill.fork, ForkStrategy::Unsupported));
+        match &cfg.polyfill.session.continue_strategy {
+            ResumeStrategy::Flag(s) => assert_eq!(s, "--continue"),
+            _ => panic!("expected continue flag"),
+        }
+    }
+
+    #[test]
+    fn build_custom_agent_config_rejects_empty_name() {
+        let mut a = add_args("aider");
+        a.name = "  ".into();
+        assert!(build_custom_agent_config(&a).is_err());
+    }
+
+    #[test]
+    fn build_custom_agent_config_rejects_empty_binary() {
+        let mut a = add_args("aider");
+        a.binary = "".into();
+        assert!(build_custom_agent_config(&a).is_err());
+    }
+
+    #[test]
+    fn build_custom_agent_config_rejects_builtin_name_clash() {
+        for builtin in [
+            "claude", "codex", "gemini", "opencode", "pi", "hermes", "agy",
+        ] {
+            assert!(
+                build_custom_agent_config(&add_args(builtin)).is_err(),
+                "expected '{}' to clash with built-in",
+                builtin
+            );
+        }
+    }
+
+    #[test]
+    fn build_custom_agent_config_requires_some_headless_strategy() {
+        let mut a = add_args("aider");
+        a.headless_flag = None;
+        a.headless_subcommand = None;
+        assert!(build_custom_agent_config(&a).is_err());
+    }
+
+    #[test]
+    fn build_custom_agent_config_subcommand_headless() {
+        let mut a = add_args("aider");
+        a.headless_flag = None;
+        a.headless_subcommand = Some("exec".into());
+        let cfg = build_custom_agent_config(&a).unwrap();
+        assert!(
+            matches!(cfg.polyfill.headless, HeadlessStrategy::Subcommand(ref s) if s == "exec")
+        );
+    }
+
+    #[test]
+    fn add_custom_agent_with_writes_app_config_and_profile() {
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let mgr = crate::config::ProfileManager::with_config_dir(tmp.path().to_path_buf())
+            .expect("manager");
+
+        add_custom_agent_with(&mgr, add_args("myagent")).expect("add");
+
+        let cfg = mgr.load_app_config().expect("load");
+        assert_eq!(cfg.custom_agents.len(), 1);
+        assert_eq!(cfg.custom_agents[0].name, "myagent");
+
+        let profile_path = tmp.path().join("profiles").join("myagent.toml");
+        assert!(profile_path.exists(), "profile file should exist");
+    }
+
+    #[test]
+    fn add_custom_agent_with_is_idempotent_on_reregister() {
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let mgr = crate::config::ProfileManager::with_config_dir(tmp.path().to_path_buf())
+            .expect("manager");
+
+        add_custom_agent_with(&mgr, add_args("twice")).expect("first add");
+        let mut a2 = add_args("twice");
+        a2.binary = "different-bin".into();
+        a2.force = true;
+        add_custom_agent_with(&mgr, a2).expect("second add");
+
+        let cfg = mgr.load_app_config().expect("load");
+        assert_eq!(cfg.custom_agents.len(), 1, "should overwrite, not append");
+        assert_eq!(cfg.custom_agents[0].binary, "different-bin");
+    }
+
+    #[test]
+    fn add_custom_agent_with_dry_run_does_not_touch_disk() {
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let mgr = crate::config::ProfileManager::with_config_dir(tmp.path().to_path_buf())
+            .expect("manager");
+
+        let mut a = add_args("nope");
+        a.dry_run = true;
+        add_custom_agent_with(&mgr, a).expect("dry run");
+
+        let cfg = mgr.load_app_config().expect("load");
+        assert!(cfg.custom_agents.is_empty());
+        let profile_path = tmp.path().join("profiles").join("nope.toml");
+        assert!(!profile_path.exists());
+    }
+
+    #[test]
+    fn build_custom_agent_config_honors_overrides() {
+        let mut a = add_args("aider");
+        a.description = Some("Pair programmer".into());
+        a.continue_flag = Some("-c".into());
+        a.resume_flag = Some("-r".into());
+        a.model_flag = Some("-m".into());
+        a.yolo_flag = Some("--yes".into());
+        a.github_repo = Some("paul-gauthier/aider".into());
+        a.npm_package = Some("aider-chat".into());
+        let cfg = build_custom_agent_config(&a).unwrap();
+        assert_eq!(cfg.description, "Pair programmer");
+        assert_eq!(cfg.polyfill.model_flag, "-m");
+        assert_eq!(cfg.polyfill.yolo_flag.as_deref(), Some("--yes"));
+        assert_eq!(cfg.github_repo.as_deref(), Some("paul-gauthier/aider"));
+        assert_eq!(cfg.npm_package.as_deref(), Some("aider-chat"));
+        match &cfg.polyfill.session.continue_strategy {
+            ResumeStrategy::Flag(s) => assert_eq!(s, "-c"),
+            _ => panic!("wrong continue strategy"),
+        }
+        match &cfg.polyfill.session.resume_strategy {
+            ResumeStrategy::Flag(s) => assert_eq!(s, "-r"),
+            _ => panic!("wrong resume strategy"),
+        }
+    }
 
     #[test]
     fn gemini_npm_package_is_google() {

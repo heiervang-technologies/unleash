@@ -886,6 +886,82 @@ pub enum AgentsAction {
         /// Agent name (claude, codex, antigravity, gemini, opencode)
         agent: String,
     },
+
+    /// Register a custom agent CLI from the shell (CLI parity with the TUI wizard).
+    ///
+    /// Writes a `[[custom_agents]]` entry to ~/.config/unleash/config.toml and a
+    /// matching profile at ~/.config/unleash/profiles/<name>.toml so `unleash <name>`
+    /// works immediately. Re-running with the same name updates the existing entry
+    /// in place.
+    ///
+    /// Required: NAME, --binary, and one of --headless-flag or --headless-subcommand.
+    ///
+    /// Examples:
+    ///   unleash agents add aider --binary aider --headless-flag --message
+    ///   unleash agents add cursor-cli --binary cursor --headless-subcommand exec \
+    ///     --yolo-flag --yes --model-flag --model
+    Add(Box<AgentsAddArgs>),
+}
+
+/// Arguments for `unleash agents add`. Boxed via its own struct (rather than
+/// inlined as named fields on the enum variant) so the AgentsAction enum stays
+/// small per clippy::large_enum_variant.
+#[derive(clap::Args, Debug)]
+pub struct AgentsAddArgs {
+    /// Name to register (must not collide with a built-in like `claude`, `codex`, etc.)
+    pub name: String,
+
+    /// Binary name on PATH (e.g. `aider`) or absolute path (e.g. `/usr/local/bin/aider`).
+    #[arg(long)]
+    pub binary: String,
+
+    /// Headless invocation as a flag: `<binary> <flag> "<prompt>"`. Mutually exclusive with --headless-subcommand.
+    #[arg(
+        long,
+        conflicts_with = "headless_subcommand",
+        allow_hyphen_values = true
+    )]
+    pub headless_flag: Option<String>,
+
+    /// Headless invocation as a subcommand: `<binary> <subcommand> "<prompt>"`. Mutually exclusive with --headless-flag.
+    #[arg(long, conflicts_with = "headless_flag")]
+    pub headless_subcommand: Option<String>,
+
+    /// Free-text description. Defaults to "Custom agent: <name>".
+    #[arg(long)]
+    pub description: Option<String>,
+
+    /// Flag the agent uses to continue its most-recent session (defaults to `--continue`).
+    #[arg(long, allow_hyphen_values = true)]
+    pub continue_flag: Option<String>,
+
+    /// Flag the agent uses to resume an explicit session id (defaults to `--resume`).
+    #[arg(long, allow_hyphen_values = true)]
+    pub resume_flag: Option<String>,
+
+    /// Flag the agent uses to select a model (defaults to `--model`).
+    #[arg(long, allow_hyphen_values = true)]
+    pub model_flag: Option<String>,
+
+    /// Flag the agent uses to bypass permission prompts (no default — many agents lack this).
+    #[arg(long, allow_hyphen_values = true)]
+    pub yolo_flag: Option<String>,
+
+    /// GitHub repo in `owner/repo` form, used by future version-management work.
+    #[arg(long)]
+    pub github_repo: Option<String>,
+
+    /// npm package name, used by future version-management work.
+    #[arg(long)]
+    pub npm_package: Option<String>,
+
+    /// Print the resulting TOML to stdout and exit; don't touch disk.
+    #[arg(long)]
+    pub dry_run: bool,
+
+    /// Replace an existing custom agent with the same name without warning.
+    #[arg(long)]
+    pub force: bool,
 }
 
 #[cfg(test)]
