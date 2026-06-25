@@ -1557,12 +1557,17 @@ pub fn add_custom_agent_with(
         .ok()
         .map(|p| p.to_string_lossy().to_string())
         .unwrap_or_else(|| agent.binary.clone());
-    let profile = crate::config::Profile {
-        name: agent.name.clone(),
-        description: agent.description.clone(),
-        agent_cli_path: resolved_binary,
-        ..crate::config::Profile::default()
-    };
+    // Preserve user customizations (theme, env, defaults, agents overrides,
+    // agent_cli_args, stop_prompt) when re-adding an agent whose profile
+    // already exists. Only overwrite the fields this subcommand actually
+    // owns: name, description, agent_cli_path. The fresh-install path
+    // (load_profile returns Err) still falls back to Profile::default.
+    let mut profile = mgr
+        .load_profile(&agent.name)
+        .unwrap_or_else(|_| crate::config::Profile::default());
+    profile.name = agent.name.clone();
+    profile.description = agent.description.clone();
+    profile.agent_cli_path = resolved_binary;
     mgr.save_profile(&profile)?;
 
     println!(
@@ -1670,6 +1675,57 @@ mod tests {
 
         let profile_path = tmp.path().join("profiles").join("myagent.toml");
         assert!(profile_path.exists(), "profile file should exist");
+    }
+
+    #[test]
+    fn add_custom_agent_with_preserves_user_profile_customizations() {
+        // Regression: re-adding an agent whose profile already exists must NOT
+        // clobber user-customized fields (theme, env, defaults, agents
+        // overrides, agent_cli_args, stop_prompt). Only name, description, and
+        // agent_cli_path are owned by this subcommand.
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let mgr = crate::config::ProfileManager::with_config_dir(tmp.path().to_path_buf())
+            .expect("manager");
+
+        // Pre-create a profile with hand-customized fields the user added in
+        // the TUI editor.
+        let mut existing = crate::config::Profile {
+            name: "aider".into(),
+            agent_cli_path: "/old/path/to/aider".into(),
+            theme: "orange".into(),
+            agent_cli_args: vec!["--my-custom-arg".into()],
+            stop_prompt: Some("Custom stop prompt".into()),
+            ..crate::config::Profile::default()
+        };
+        existing
+            .env
+            .insert("CUSTOM_KEY".into(), "custom_value".into());
+        mgr.save_profile(&existing).expect("pre-save");
+
+        // Re-add with new binary — should overwrite name/description/path only.
+        let mut a = add_args("aider");
+        a.description = Some("Pair programmer".into());
+        a.force = true;
+        add_custom_agent_with(&mgr, a).expect("re-add");
+
+        let after = mgr.load_profile("aider").expect("load");
+        assert_eq!(after.description, "Pair programmer", "description updated");
+        assert_eq!(after.theme, "orange", "theme preserved");
+        assert_eq!(
+            after.agent_cli_args,
+            vec!["--my-custom-arg".to_string()],
+            "agent_cli_args preserved"
+        );
+        assert_eq!(
+            after.stop_prompt.as_deref(),
+            Some("Custom stop prompt"),
+            "stop_prompt preserved"
+        );
+        assert_eq!(
+            after.env.get("CUSTOM_KEY").map(String::as_str),
+            Some("custom_value"),
+            "env entries preserved"
+        );
     }
 
     #[test]
