@@ -261,6 +261,147 @@ fn auto_mode_restart_loop_injects_dangerously_skip_permissions_for_claude() {
 }
 
 #[test]
+fn auto_mode_restart_loop_injects_codex_resume_subcommand_not_continue_flag() {
+    // Regression: prior to this test, the restart loop unconditionally
+    // injected the literal `--continue` flag on every restart. That works
+    // for Claude/OpenCode/Pi/Hermes/Antigravity (all use `--continue`) but
+    // would have made Codex error out — Codex resumes via `resume --last`
+    // subcommand, not a `--continue` flag. Now the loop consults the
+    // agent's polyfill continue_strategy and injects whatever native form
+    // the agent expects.
+    if bash_path().is_none() {
+        eprintln!("skipping: bash not available on PATH");
+        return;
+    }
+
+    let workspace = TempDir::new().expect("tempdir");
+    let cache_dir = workspace.path().join("cache");
+    fs::create_dir_all(&cache_dir).unwrap();
+    let home_guard = ScopedEnv::set("HOME", workspace.path());
+
+    let scripts_dir = workspace.path().join("bin");
+    fs::create_dir_all(&scripts_dir).unwrap();
+    let real_script = write_fake_agent(workspace.path(), &cache_dir);
+    let codex_path = scripts_dir.join("codex");
+    std::os::unix::fs::symlink(&real_script, &codex_path).unwrap();
+
+    let config = LauncherConfig {
+        agent_cmd: codex_path,
+        agent_type: Some(unleash::agents::AgentType::Codex),
+        cache_dir: cache_dir.clone(),
+        auto_mode: false,
+        prompt: None,
+        extra_args: vec![],
+        profile_env: HashMap::new(),
+        include_plugin_args: false,
+    };
+
+    let (tx, rx) = std::sync::mpsc::channel();
+    let handle = std::thread::spawn(move || {
+        let _ = tx.send(run_loop(config));
+    });
+    let result = rx
+        .recv_timeout(std::time::Duration::from_secs(30))
+        .expect("run_loop did not return within 30s");
+    handle.join().expect("worker thread panicked");
+    drop(home_guard);
+
+    assert_eq!(result.expect("io error from run_loop"), 0);
+
+    let scratch = workspace.path().join("scratch");
+    let args2 = read_argv(&scratch.join("run-2.argv"));
+    assert!(
+        args2.iter().any(|a| a == "resume"),
+        "Codex run 2 must inject `resume` subcommand, got: {:?}",
+        args2
+    );
+    assert!(
+        args2.iter().any(|a| a == "--last"),
+        "Codex run 2 must inject `--last` after `resume`, got: {:?}",
+        args2
+    );
+    assert!(
+        !args2.iter().any(|a| a == "--continue"),
+        "Codex run 2 must NOT inject `--continue` (codex doesn't support it), got: {:?}",
+        args2
+    );
+    assert!(
+        !args2.iter().any(|a| a == "--dangerously-skip-permissions"),
+        "non-Claude agent must not get --dangerously-skip-permissions, got: {:?}",
+        args2
+    );
+}
+
+#[test]
+fn auto_mode_restart_loop_injects_gemini_resume_latest_flag_not_continue() {
+    // Regression: same shape as the Codex case above, but Gemini uses a
+    // flag-style continue (`--resume latest`) rather than a subcommand.
+    // The polyfill table at src/agents.rs encodes both forms; the launcher
+    // delegates to it so the two stay in sync.
+    if bash_path().is_none() {
+        eprintln!("skipping: bash not available on PATH");
+        return;
+    }
+
+    let workspace = TempDir::new().expect("tempdir");
+    let cache_dir = workspace.path().join("cache");
+    fs::create_dir_all(&cache_dir).unwrap();
+    let home_guard = ScopedEnv::set("HOME", workspace.path());
+
+    let scripts_dir = workspace.path().join("bin");
+    fs::create_dir_all(&scripts_dir).unwrap();
+    let real_script = write_fake_agent(workspace.path(), &cache_dir);
+    let gemini_path = scripts_dir.join("gemini");
+    std::os::unix::fs::symlink(&real_script, &gemini_path).unwrap();
+
+    let config = LauncherConfig {
+        agent_cmd: gemini_path,
+        agent_type: Some(unleash::agents::AgentType::Gemini),
+        cache_dir: cache_dir.clone(),
+        auto_mode: false,
+        prompt: None,
+        extra_args: vec![],
+        profile_env: HashMap::new(),
+        include_plugin_args: false,
+    };
+
+    let (tx, rx) = std::sync::mpsc::channel();
+    let handle = std::thread::spawn(move || {
+        let _ = tx.send(run_loop(config));
+    });
+    let result = rx
+        .recv_timeout(std::time::Duration::from_secs(30))
+        .expect("run_loop did not return within 30s");
+    handle.join().expect("worker thread panicked");
+    drop(home_guard);
+
+    assert_eq!(result.expect("io error from run_loop"), 0);
+
+    let scratch = workspace.path().join("scratch");
+    let args2 = read_argv(&scratch.join("run-2.argv"));
+    assert!(
+        args2.iter().any(|a| a == "--resume"),
+        "Gemini run 2 must inject `--resume`, got: {:?}",
+        args2
+    );
+    assert!(
+        args2.iter().any(|a| a == "latest"),
+        "Gemini run 2 must inject `latest` after `--resume`, got: {:?}",
+        args2
+    );
+    assert!(
+        !args2.iter().any(|a| a == "--continue"),
+        "Gemini run 2 must NOT inject `--continue` (gemini doesn't support it), got: {:?}",
+        args2
+    );
+    assert!(
+        !args2.iter().any(|a| a == "--dangerously-skip-permissions"),
+        "non-Claude agent must not get --dangerously-skip-permissions, got: {:?}",
+        args2
+    );
+}
+
+#[test]
 fn auto_mode_restart_loop_no_trigger_returns_immediately() {
     if bash_path().is_none() {
         eprintln!("skipping: bash not available on PATH");

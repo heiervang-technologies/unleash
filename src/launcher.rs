@@ -107,6 +107,24 @@ pub(crate) fn args_already_signal_resume(args: &[String]) -> bool {
     })
 }
 
+/// Args to prepend on restart to make the agent resume its last session.
+/// Each agent has its own native form (Claude `--continue`, Codex `resume
+/// --last`, Gemini `--resume latest`, etc.); we delegate to the same
+/// `AgentDefinition::polyfill.session.continue_strategy` the polyfill uses
+/// at first launch so the two stay in sync. Unknown / custom / wrapper
+/// agents fall back to `--continue` since that's also the default the
+/// `unleash agents add` subcommand picks for custom polyfills.
+pub(crate) fn restart_continue_args(agent_type: Option<&AgentType>) -> Vec<String> {
+    match agent_type {
+        Some(t) if !matches!(t, AgentType::Unleash | AgentType::Custom(_)) => {
+            crate::agents::AgentDefinition::from_type(t.clone())
+                .polyfill
+                .get_continue_args()
+        }
+        _ => vec!["--continue".to_string()],
+    }
+}
+
 /// Configuration for [`run_loop`]: bundles the inputs the auto-mode restart
 /// state machine needs without having to read from the user's profile, env,
 /// or `dirs::cache_dir()`. Production callers build this from real config in
@@ -174,13 +192,21 @@ pub fn run_loop(config: LauncherConfig) -> io::Result<i32> {
         // Build command arguments
         let mut args = extra_args.clone();
 
-        // If this is a restart, add --continue and message
+        // If this is a restart, add the agent's continue form and message
         if restart_count > 0 {
             if !args_already_signal_resume(&args) {
-                args.insert(0, "--continue".to_string());
+                // Use the agent's native continue form. Claude → `--continue`,
+                // Codex → `resume --last`, Gemini → `--resume latest`, etc.
+                // Injecting a literal `--continue` for non-Claude agents
+                // would have made codex/gemini error on restart.
+                let continue_args = restart_continue_args(agent_type.as_ref());
+                let injected = continue_args.len();
+                for (i, arg) in continue_args.into_iter().enumerate() {
+                    args.insert(i, arg);
+                }
                 // Only Claude Code supports --dangerously-skip-permissions
                 if is_claude {
-                    args.insert(1, "--dangerously-skip-permissions".to_string());
+                    args.insert(injected, "--dangerously-skip-permissions".to_string());
                 }
             }
 
