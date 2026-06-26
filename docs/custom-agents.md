@@ -36,6 +36,23 @@ touching disk. Pass values starting with `--` either via `=` syntax
 (`--headless-flag=--message`) or quoted (`--headless-flag '--message'`) —
 clap won't accept an unquoted `--message` as a value otherwise.
 
+### Re-running `agents add` is a merge, not a replace
+
+If an agent with the same `name` is already registered, `agents add` updates
+the existing entry in place. The CLI invocation owns `binary` and the
+`headless` strategy — those always take the values you pass. Optional fields
+(`description`, `continue_flag`, `resume_flag`, `model_flag`, `yolo_flag`,
+`github_repo`, `npm_package`) are only overwritten when the corresponding flag
+is provided. Everything else — `enabled`, `effort_flag`, `sandbox`, `fork`,
+`verbose_flag`, and every other polyfill knob without a dedicated CLI flag —
+is preserved verbatim from the existing config. The matching profile file
+follows the same rule (theme, env, agent_cli_args, stop_prompt all preserved).
+
+This means you can hand-edit `config.toml` to set fields the CLI doesn't expose
+yet, and a later `unleash agents add <name> --binary <new> --headless-flag=…`
+won't wipe them. `--dry-run` previews the merged result with a "merging with
+existing entry" hint so you can confirm before committing.
+
 ### Or do it by hand
 
 If you'd rather edit the config files directly (e.g. to script bulk
