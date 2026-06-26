@@ -6,6 +6,8 @@
 ### Bug Fixes
 
 * **agents:** `add` preserves existing config-block fields on re-add ([#351](https://github.com/heiervang-technologies/unleash/issues/351)) ([7de048b](https://github.com/heiervang-technologies/unleash/commit/7de048b8fb1ced2cf2aa44972376e4f6581336a1))
+* **launcher:** inject agent-native continue form on restart, not literal --continue ([#352](https://github.com/heiervang-technologies/unleash/issues/352)) ([bec59b4](https://github.com/heiervang-technologies/unleash/commit/bec59b489a16844508fd4da13be5dc98cf618255))
+* **updater:** self-update uses mktemp + trap-cleanup so failures don't orphan /tmp dir ([#354](https://github.com/heiervang-technologies/unleash/issues/354)) ([97fefef](https://github.com/heiervang-technologies/unleash/commit/97fefef8d640f744c21ac2d301331ab4ab120c77))
 
 ## [0.1.75](https://github.com/heiervang-technologies/unleash/compare/v0.1.74...v0.1.75) (2026-06-25)
 
