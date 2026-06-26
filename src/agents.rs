@@ -1844,36 +1844,38 @@ mod tests {
             .expect("manager");
 
         let mut existing = mgr.load_app_config().expect("load");
-        existing.custom_agents.push(crate::config::CustomAgentConfig {
-            name: "aider".into(),
-            binary: "aider-old".into(),
-            description: "Hand-tuned description".into(),
-            polyfill: AgentPolyfillConfig {
-                headless: HeadlessStrategy::Flag("--old-prompt".into()),
-                session: SessionStrategy {
-                    continue_strategy: ResumeStrategy::Flag("--restore-chat".into()),
-                    resume_strategy: ResumeStrategy::Flag("--restore-chat".into()),
+        existing
+            .custom_agents
+            .push(crate::config::CustomAgentConfig {
+                name: "aider".into(),
+                binary: "aider-old".into(),
+                description: "Hand-tuned description".into(),
+                polyfill: AgentPolyfillConfig {
+                    headless: HeadlessStrategy::Flag("--old-prompt".into()),
+                    session: SessionStrategy {
+                        continue_strategy: ResumeStrategy::Flag("--restore-chat".into()),
+                        resume_strategy: ResumeStrategy::Flag("--restore-chat".into()),
+                    },
+                    fork: ForkStrategy::Unsupported,
+                    yolo_flag: Some("--yes".into()),
+                    model_flag: "--mdl".into(),
+                    effort_flag: Some("--effort".into()),
+                    auto_flag: None,
+                    verbose_flag: Some("--verbose".into()),
+                    output_format_flag: None,
+                    system_prompt_flag: None,
+                    allowed_tools_flag: None,
+                    sandbox: SandboxStrategy::BoolFlag("--sandbox".into()),
+                    name_flag: None,
+                    add_dir_flag: None,
+                    approval_mode_flag: None,
+                    worktree_flag: None,
+                    interactive_prompt_flag: None,
                 },
-                fork: ForkStrategy::Unsupported,
-                yolo_flag: Some("--yes".into()),
-                model_flag: "--mdl".into(),
-                effort_flag: Some("--effort".into()),
-                auto_flag: None,
-                verbose_flag: Some("--verbose".into()),
-                output_format_flag: None,
-                system_prompt_flag: None,
-                allowed_tools_flag: None,
-                sandbox: SandboxStrategy::BoolFlag("--sandbox".into()),
-                name_flag: None,
-                add_dir_flag: None,
-                approval_mode_flag: None,
-                worktree_flag: None,
-                interactive_prompt_flag: None,
-            },
-            github_repo: Some("paul-gauthier/aider".into()),
-            npm_package: None,
-            enabled: false,
-        });
+                github_repo: Some("paul-gauthier/aider".into()),
+                npm_package: None,
+                enabled: false,
+            });
         mgr.save_app_config(&existing).expect("pre-save");
 
         // Re-add specifying only binary + headless-flag (and the description) —
