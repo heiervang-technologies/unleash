@@ -1519,13 +1519,28 @@ pub fn add_custom_agent_with(
     mgr: &crate::config::ProfileManager,
     args: AddCustomAgentArgs,
 ) -> io::Result<()> {
-    let agent = build_custom_agent_config(&args)
+    let fresh_agent = build_custom_agent_config(&args)
         .map_err(|e| io::Error::new(io::ErrorKind::InvalidInput, e))?;
+
+    let mut app_config = mgr.load_app_config()?;
+    let existing_idx = app_config
+        .custom_agents
+        .iter()
+        .position(|c| c.name == fresh_agent.name);
+    let merged_with_existing = existing_idx.is_some();
+    let agent = if let Some(idx) = existing_idx {
+        merge_args_into_existing(&app_config.custom_agents[idx], &args, &fresh_agent)
+    } else {
+        fresh_agent
+    };
 
     if args.dry_run {
         let rendered = toml::to_string_pretty(&agent)
             .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e.to_string()))?;
         println!("# Would write to ~/.config/unleash/config.toml under [[custom_agents]]");
+        if merged_with_existing {
+            println!("# (merging with existing entry — preserving fields not specified)");
+        }
         println!("{}", rendered);
         println!(
             "# Would write profile to ~/.config/unleash/profiles/{}.toml",
@@ -1534,16 +1549,10 @@ pub fn add_custom_agent_with(
         return Ok(());
     }
 
-    let mut app_config = mgr.load_app_config()?;
-
-    let existing_idx = app_config
-        .custom_agents
-        .iter()
-        .position(|c| c.name == agent.name);
     if let Some(idx) = existing_idx {
         if !args.force {
             eprintln!(
-                "warn: custom agent '{}' already registered — overwriting (pass --force to silence)",
+                "warn: custom agent '{}' already registered — merging with existing entry (pass --force to silence)",
                 agent.name
             );
         }
@@ -1575,6 +1584,44 @@ pub fn add_custom_agent_with(
         agent.name, agent.name
     );
     Ok(())
+}
+
+/// Overlay CLI args onto an existing custom-agent entry. Required fields
+/// (`binary`, `headless`) come from the CLI invocation; optional fields are
+/// overwritten only when the user explicitly passed the corresponding flag.
+/// Fields with no CLI surface (e.g. `effort_flag`, `sandbox`, `fork`,
+/// `enabled`) are preserved verbatim from the existing config. Mirrors the
+/// profile-level preservation introduced in #349.
+fn merge_args_into_existing(
+    existing: &crate::config::CustomAgentConfig,
+    args: &AddCustomAgentArgs,
+    fresh: &crate::config::CustomAgentConfig,
+) -> crate::config::CustomAgentConfig {
+    let mut merged = existing.clone();
+    merged.binary = fresh.binary.clone();
+    merged.polyfill.headless = fresh.polyfill.headless.clone();
+    if let Some(d) = args.description.clone() {
+        merged.description = d;
+    }
+    if let Some(f) = args.continue_flag.clone() {
+        merged.polyfill.session.continue_strategy = ResumeStrategy::Flag(f);
+    }
+    if let Some(f) = args.resume_flag.clone() {
+        merged.polyfill.session.resume_strategy = ResumeStrategy::Flag(f);
+    }
+    if let Some(f) = args.model_flag.clone() {
+        merged.polyfill.model_flag = f;
+    }
+    if let Some(y) = args.yolo_flag.clone() {
+        merged.polyfill.yolo_flag = Some(y);
+    }
+    if let Some(r) = args.github_repo.clone() {
+        merged.github_repo = Some(r);
+    }
+    if let Some(p) = args.npm_package.clone() {
+        merged.npm_package = Some(p);
+    }
+    merged
 }
 
 #[cfg(test)]
@@ -1782,6 +1829,95 @@ mod tests {
         assert!(cfg.custom_agents.is_empty());
         let profile_path = tmp.path().join("profiles").join("nope.toml");
         assert!(!profile_path.exists());
+    }
+
+    #[test]
+    fn add_custom_agent_with_preserves_existing_config_fields_on_readd() {
+        // Regression: re-running `unleash agents add` without specifying every
+        // optional CLI flag must NOT clobber hand-edited [[custom_agents]]
+        // fields (effort_flag, sandbox, fork, model_flag override, github_repo,
+        // yolo_flag, enabled). Only fields the user explicitly passes on the
+        // CLI — plus the always-required binary + headless — should change.
+        // Mirrors #349 at the config-block level rather than profile level.
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let mgr = crate::config::ProfileManager::with_config_dir(tmp.path().to_path_buf())
+            .expect("manager");
+
+        let mut existing = mgr.load_app_config().expect("load");
+        existing
+            .custom_agents
+            .push(crate::config::CustomAgentConfig {
+                name: "aider".into(),
+                binary: "aider-old".into(),
+                description: "Hand-tuned description".into(),
+                polyfill: AgentPolyfillConfig {
+                    headless: HeadlessStrategy::Flag("--old-prompt".into()),
+                    session: SessionStrategy {
+                        continue_strategy: ResumeStrategy::Flag("--restore-chat".into()),
+                        resume_strategy: ResumeStrategy::Flag("--restore-chat".into()),
+                    },
+                    fork: ForkStrategy::Unsupported,
+                    yolo_flag: Some("--yes".into()),
+                    model_flag: "--mdl".into(),
+                    effort_flag: Some("--effort".into()),
+                    auto_flag: None,
+                    verbose_flag: Some("--verbose".into()),
+                    output_format_flag: None,
+                    system_prompt_flag: None,
+                    allowed_tools_flag: None,
+                    sandbox: SandboxStrategy::BoolFlag("--sandbox".into()),
+                    name_flag: None,
+                    add_dir_flag: None,
+                    approval_mode_flag: None,
+                    worktree_flag: None,
+                    interactive_prompt_flag: None,
+                },
+                github_repo: Some("paul-gauthier/aider".into()),
+                npm_package: None,
+                enabled: false,
+            });
+        mgr.save_app_config(&existing).expect("pre-save");
+
+        // Re-add specifying only binary + headless-flag (and the description) —
+        // every other optional flag is omitted.
+        let mut a = add_args("aider");
+        a.binary = "aider-new".into();
+        a.headless_flag = Some("--new-prompt".into());
+        a.description = Some("Updated description".into());
+        a.force = true;
+        add_custom_agent_with(&mgr, a).expect("re-add");
+
+        let after = mgr.load_app_config().expect("load");
+        assert_eq!(after.custom_agents.len(), 1, "no duplicate entry");
+        let entry = &after.custom_agents[0];
+
+        // Required fields took the CLI values.
+        assert_eq!(entry.binary, "aider-new");
+        assert!(matches!(
+            entry.polyfill.headless,
+            HeadlessStrategy::Flag(ref f) if f == "--new-prompt"
+        ));
+        // Explicit CLI overrides applied.
+        assert_eq!(entry.description, "Updated description");
+        // Omitted CLI flags must NOT have wiped existing values.
+        assert_eq!(entry.polyfill.effort_flag.as_deref(), Some("--effort"));
+        assert_eq!(entry.polyfill.verbose_flag.as_deref(), Some("--verbose"));
+        assert_eq!(entry.polyfill.yolo_flag.as_deref(), Some("--yes"));
+        assert_eq!(entry.polyfill.model_flag, "--mdl");
+        assert!(matches!(
+            entry.polyfill.session.continue_strategy,
+            ResumeStrategy::Flag(ref f) if f == "--restore-chat"
+        ));
+        assert!(matches!(
+            entry.polyfill.session.resume_strategy,
+            ResumeStrategy::Flag(ref f) if f == "--restore-chat"
+        ));
+        assert!(matches!(
+            entry.polyfill.sandbox,
+            SandboxStrategy::BoolFlag(ref f) if f == "--sandbox"
+        ));
+        assert_eq!(entry.github_repo.as_deref(), Some("paul-gauthier/aider"));
+        assert!(!entry.enabled, "enabled state preserved across re-add");
     }
 
     #[test]
