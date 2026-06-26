@@ -79,7 +79,10 @@ fn epoch_to_iso(secs: u64) -> String {
 fn iso_to_epoch(s: &str) -> Option<f64> {
     // Accepts: "YYYY-MM-DDTHH:MM:SS[.fff][Z|+00:00|±HH:MM]"
     let s = s.trim();
-    if s.len() < 19 {
+    // The fixed-offset byte slices below assume ASCII; a multibyte char in a
+    // corrupt/hand-edited timestamp would otherwise panic (not a char boundary)
+    // and abort the whole injection. A valid ISO-8601 timestamp is always ASCII.
+    if s.len() < 19 || !s.is_ascii() {
         return None;
     }
     let year: i64 = s[0..4].parse().ok()?;
@@ -486,6 +489,18 @@ mod tests {
         // 2026-05-24T02:00:00+02:00 = 2026-05-24T00:00:00Z = 1779580800
         let epoch = iso_to_epoch("2026-05-24T02:00:00+02:00").unwrap();
         assert_eq!(epoch as u64, 1779580800);
+    }
+
+    #[test]
+    fn iso_to_epoch_multibyte_is_none_not_panic() {
+        // A multibyte char inside the fixed-offset region used to panic the byte
+        // slices (not a char boundary), aborting injection. It must now return
+        // None instead. The 'é' sits where s[8..10] would split it.
+        assert!(iso_to_epoch("2026-06-é7T12:00:00Z").is_none());
+        // A multibyte char in the sub-seconds / tz tail must not panic either.
+        assert!(iso_to_epoch("2026-06-27T12:00:00.5世Z").is_none());
+        // Valid ASCII timestamps still parse.
+        assert!(iso_to_epoch("2026-06-27T12:00:00Z").is_some());
     }
 
     #[test]

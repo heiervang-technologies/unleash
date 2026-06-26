@@ -379,6 +379,11 @@ fn unix_ms_to_iso(ms: f64) -> String {
 
 fn iso_to_unix_ms(iso: &str) -> f64 {
     // Parse ISO 8601 format: YYYY-MM-DDTHH:MM:SS.mmmZ
+    // Reject non-ASCII up front: the sub-seconds byte slice below would panic on
+    // a multibyte char (not a char boundary), and a valid timestamp is ASCII.
+    if !iso.is_ascii() {
+        return 0.0;
+    }
     let parts: Vec<&str> = iso.split('T').collect();
     if parts.len() != 2 {
         return 0.0;
@@ -1292,6 +1297,17 @@ fn hub_content_to_opencode_parts(blocks: &[ContentBlock]) -> Vec<Value> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn iso_to_unix_ms_multibyte_is_zero_not_panic() {
+        // A multibyte char in the sub-seconds used to panic the `&frac[..3]`
+        // byte slice (not a char boundary), aborting injection. It must now
+        // return the 0.0 fallback instead.
+        assert_eq!(iso_to_unix_ms("2026-06-27T12:00:00.5世Z"), 0.0);
+        assert_eq!(iso_to_unix_ms("2026-06-é7T12:00:00Z"), 0.0);
+        // Valid ASCII timestamps still parse to a positive epoch.
+        assert!(iso_to_unix_ms("2026-06-27T12:00:00.123Z") > 0.0);
+    }
 
     fn make_input(messages: &str, parts: &str) -> OpenCodeInput {
         OpenCodeInput {
