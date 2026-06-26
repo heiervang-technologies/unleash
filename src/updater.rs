@@ -417,6 +417,31 @@ fn print_summary(check_results: &[CheckResult], outcomes: &[UpdateOutcome]) -> u
 // Per-agent check logic (runs in worker thread)
 // ---------------------------------------------------------------------------
 
+/// Bash script that performs an in-place unleash self-update by cloning
+/// fresh and running the install script. Returns the script as a string so
+/// the shape is unit-testable.
+///
+/// Three things the previous version got wrong:
+///
+/// 1. **Hardcoded `/tmp/unleash-update`** — once a prior run failed mid-way,
+///    the next `unleash update --include-self` saw `gh repo clone` fail
+///    because the destination already existed, and never recovered.
+/// 2. **Stderr redirected to /dev/null** — `gh`'s failure message was lost,
+///    so the user saw "update failed:" with an empty reason.
+/// 3. **`rm -rf` chained with `&&`** — cleanup only ran on success, so the
+///    orphan dir from #1 above persisted indefinitely.
+///
+/// The replacement uses `mktemp -d` so concurrent runs don't collide, a
+/// trap-on-EXIT for guaranteed cleanup, and explicit `|| exit 1` on each
+/// fallible step so the caller gets a non-zero exit (and the real stderr)
+/// when something breaks.
+fn self_update_script() -> &'static str {
+    "tmp=$(mktemp -d -t unleash-update.XXXXXXXX) || exit 1\n\
+     trap 'rm -rf \"$tmp\"' EXIT\n\
+     gh repo clone heiervang-technologies/unleash \"$tmp\" || exit 1\n\
+     bash \"$tmp/scripts/install.sh\""
+}
+
 /// Check or update unleash itself.
 fn check_or_update_self(check_only: bool) -> io::Result<()> {
     let current = env!("CARGO_PKG_VERSION");
@@ -434,9 +459,9 @@ fn check_or_update_self(check_only: bool) -> io::Result<()> {
                 );
             } else {
                 println!("  unleash          updating {} -> {}...", current, ver);
-                // Self-update: re-run install script
                 let output = Command::new("bash")
-                    .args(["-c", "gh repo clone heiervang-technologies/unleash /tmp/unleash-update 2>/dev/null && bash /tmp/unleash-update/scripts/install.sh && rm -rf /tmp/unleash-update"])
+                    .arg("-c")
+                    .arg(self_update_script())
                     .output()?;
                 if output.status.success() {
                     println!("  unleash          {} -> {} (updated)", current, ver);
@@ -1629,6 +1654,68 @@ mod tests {
         assert_eq!(
             latest_embedded_version(&AgentType::Custom("foo".into())),
             None
+        );
+    }
+
+    // ── self_update_script: shape-pinning for the self-update bash ────
+    // The previous version hardcoded `/tmp/unleash-update`, which left an
+    // orphan directory on any failed run (`gh repo clone` errors with
+    // "destination already exists" on retry, and the cleanup `rm -rf` was
+    // chained with `&&` so it only ran on success). These tests pin the
+    // three properties of the fix so a future refactor can't regress:
+    //   1. Per-run unique destination via mktemp.
+    //   2. Cleanup runs unconditionally via trap-on-EXIT.
+    //   3. Failures in fallible steps propagate as non-zero exit.
+
+    #[test]
+    fn self_update_script_uses_mktemp_not_hardcoded_path() {
+        let script = self_update_script();
+        assert!(
+            script.contains("mktemp -d"),
+            "self-update must use mktemp to avoid colliding with prior runs: {script}"
+        );
+        assert!(
+            !script.contains("/tmp/unleash-update"),
+            "self-update must not hardcode /tmp/unleash-update: {script}"
+        );
+    }
+
+    #[test]
+    fn self_update_script_traps_cleanup_on_exit() {
+        let script = self_update_script();
+        assert!(
+            script.contains("trap") && script.contains("EXIT"),
+            "self-update must use trap-on-EXIT so cleanup runs on failure too: {script}"
+        );
+        assert!(
+            script.contains("rm -rf"),
+            "self-update must clean up the temp dir: {script}"
+        );
+    }
+
+    #[test]
+    fn self_update_script_propagates_fallible_step_failures() {
+        let script = self_update_script();
+        // Both mktemp and gh repo clone must short-circuit with || exit on
+        // failure so the calling Rust sees output.status.success() == false
+        // and surfaces stderr to the user instead of swallowing it.
+        let exit_count = script.matches("|| exit").count();
+        assert!(
+            exit_count >= 2,
+            "expected at least 2 `|| exit` guards (mktemp + clone), got {exit_count}: {script}"
+        );
+    }
+
+    #[test]
+    fn self_update_script_does_not_suppress_stderr() {
+        let script = self_update_script();
+        // The previous `2>/dev/null` masked gh's stderr so users saw
+        // "update failed:" with no reason. The replacement must leave stderr
+        // intact so the Rust caller can surface it.
+        assert!(
+            !script.contains("2>/dev/null"),
+            "self-update must not redirect stderr to /dev/null — \
+             that's why prior failures were unactionable: {script}"
         );
     }
 }
