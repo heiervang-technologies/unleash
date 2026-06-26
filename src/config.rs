@@ -8,7 +8,33 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::fs;
 use std::io;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
+
+/// Write `content` to `path` atomically: write a temp file in the same
+/// directory, then rename it over the target. POSIX rename is atomic on the
+/// same filesystem, so a crash, kill, or full disk mid-write leaves either the
+/// old file or the new one intact — never a truncated config that would fail to
+/// parse (and, via the migration path, panic) on the next launch.
+fn atomic_write(path: &Path, content: &str) -> io::Result<()> {
+    let (Some(dir), Some(name)) = (
+        path.parent().filter(|p| !p.as_os_str().is_empty()),
+        path.file_name(),
+    ) else {
+        // Unusual path with no parent/name — fall back to a direct write.
+        return fs::write(path, content);
+    };
+    let tmp = dir.join(format!(
+        ".{}.tmp.{}",
+        name.to_string_lossy(),
+        std::process::id()
+    ));
+    fs::write(&tmp, content)?;
+    if let Err(e) = fs::rename(&tmp, path) {
+        let _ = fs::remove_file(&tmp);
+        return Err(e);
+    }
+    Ok(())
+}
 
 /// Per-agent settings override
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
@@ -479,8 +505,21 @@ impl ProfileManager {
         }
 
         let content = fs::read_to_string(&config_path)?;
-        let legacy: LegacyAppConfig = toml::from_str(&content)
-            .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e.to_string()))?;
+        // A corrupt or unparseable config.toml must NOT brick startup: this runs
+        // from ProfileManager::new(), whose Default impl `.expect()`s, so a hard
+        // error here panics every invocation (including `uninstall`). Warn and
+        // skip migration instead — the file is either already-migrated, in the
+        // new format, or damaged, and none of those need legacy migration.
+        let legacy: LegacyAppConfig = match toml::from_str(&content) {
+            Ok(legacy) => legacy,
+            Err(e) => {
+                eprintln!(
+                    "Warning: could not parse {} for migration ({e}); skipping",
+                    config_path.display()
+                );
+                return Ok(());
+            }
+        };
 
         if !legacy.needs_migration() {
             return Ok(());
@@ -576,7 +615,7 @@ impl ProfileManager {
         let path = self.profile_path(&profile.name);
         let content = toml::to_string_pretty(profile)
             .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e.to_string()))?;
-        fs::write(&path, content)
+        atomic_write(&path, &content)
     }
 
     /// Delete a profile
@@ -641,7 +680,7 @@ impl ProfileManager {
         let path = self.app_config_path();
         let content = toml::to_string_pretty(config)
             .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e.to_string()))?;
-        fs::write(&path, content)
+        atomic_write(&path, &content)
     }
 
     /// Get the config directory path
@@ -1140,5 +1179,41 @@ model_flag = "--model"
         assert_eq!(config.custom_agents.len(), 2);
         assert!(config.custom_agents[0].enabled);
         assert!(!config.custom_agents[1].enabled);
+    }
+
+    #[test]
+    fn corrupt_config_toml_does_not_brick_startup() {
+        // A truncated/garbage config.toml (e.g. from a crash mid-write) must not
+        // error out of ProfileManager construction — its Default impl `.expect()`s,
+        // so a hard error there panics every invocation. Migration must warn+skip.
+        let temp = TempDir::new().unwrap();
+        std::fs::write(
+            temp.path().join("config.toml"),
+            "this is [[[ not valid = = toml",
+        )
+        .unwrap();
+        let manager = ProfileManager::with_config_dir(temp.path().to_path_buf());
+        assert!(
+            manager.is_ok(),
+            "corrupt config.toml bricked startup: {:?}",
+            manager.err()
+        );
+    }
+
+    #[test]
+    fn atomic_write_overwrites_and_leaves_no_temp() {
+        let temp = TempDir::new().unwrap();
+        let path = temp.path().join("config.toml");
+        atomic_write(&path, "first").unwrap();
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), "first");
+        atomic_write(&path, "second").unwrap();
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), "second");
+        // The temp-file + rename dance must not leave scratch behind.
+        let leftovers: Vec<_> = std::fs::read_dir(temp.path())
+            .unwrap()
+            .filter_map(|e| e.ok())
+            .filter(|e| e.file_name().to_string_lossy().contains(".tmp."))
+            .collect();
+        assert!(leftovers.is_empty(), "atomic_write left temp files behind");
     }
 }
