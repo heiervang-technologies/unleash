@@ -933,6 +933,7 @@ pub fn run_agent(
     agent: &str,
     name: &str,
     extra_args: &[String],
+    unsafe_override: bool,
 ) -> io::Result<()> {
     // Validate sandbox name (used as Docker hostname, must be RFC 1123 compliant)
     validate_sandbox_name(name)?;
@@ -962,16 +963,27 @@ pub fn run_agent(
         return Err(io::Error::other("image not built"));
     }
 
+    let mut network_ok = true;
     if !network_exists() {
+        network_ok = false;
         eprintln!(
-            "\x1b[33mwarning:\x1b[0m Sandbox network not found. LAN isolation may not be active."
+            "\x1b[31merror:\x1b[0m Sandbox network not found. LAN isolation is not active."
         );
         eprintln!("  Fix: sudo unleash sandbox setup");
     }
 
     if !iptables_rules_active() {
-        eprintln!("\x1b[33mwarning:\x1b[0m Cannot verify iptables rules (need root, or rules missing after reboot).");
+        network_ok = false;
+        eprintln!("\x1b[31merror:\x1b[0m Cannot verify iptables rules (need root, or rules missing after reboot).");
         eprintln!("  Fix: sudo ./docker/sandbox-network.sh setup");
+    }
+
+    if !network_ok {
+        if unsafe_override {
+            eprintln!("\x1b[33mwarning:\x1b[0m Proceeding without network isolation because --i-know-its-unsafe was provided.");
+        } else {
+            return Err(io::Error::other("Sandbox network/firewall not fully configured. Use --i-know-its-unsafe to run anyway."));
+        }
     }
 
     if let Some(dir) = docker_dir {
@@ -1153,6 +1165,9 @@ pub fn run_list() -> io::Result<()> {
 }
 
 pub fn run_enter(target: &str, shell: &str) -> io::Result<()> {
+    // Validate target to prevent argument injection in docker exec
+    validate_sandbox_name(target)?;
+
     if !docker_running() {
         eprintln!("\x1b[31merror:\x1b[0m Docker is not running.");
         return Err(io::Error::other("Docker not running"));
@@ -1205,7 +1220,7 @@ pub fn run_enter(target: &str, shell: &str) -> io::Result<()> {
 
     // Exec into the container
     let status = Command::new("docker")
-        .args(["exec", "-it", &container_id, shell])
+        .args(["exec", "-it", &container_id, "--", shell])
         .stdin(Stdio::inherit())
         .stdout(Stdio::inherit())
         .stderr(Stdio::inherit())
@@ -1233,8 +1248,8 @@ pub fn handle_sandbox(action: Option<&SandboxAction>) -> io::Result<()> {
         Some(SandboxAction::Status) => return run_status(docker_dir.as_deref()),
         Some(SandboxAction::List) => return run_list(),
         Some(SandboxAction::Enter { target, shell }) => return run_enter(target, shell),
-        Some(SandboxAction::Run { name, agent, args }) => {
-            return run_agent(docker_dir.as_deref(), agent, name, args.as_slice())
+        Some(SandboxAction::Run { name, agent, args, i_know_its_unsafe }) => {
+            return run_agent(docker_dir.as_deref(), agent, name, args.as_slice(), *i_know_its_unsafe)
         }
         _ => {}
     }
@@ -1332,6 +1347,10 @@ pub enum SandboxAction {
         /// Sandbox name (used as hostname; allows multiple sandboxes)
         #[arg(long, default_value = "sandbox")]
         name: String,
+
+        /// Bypass the network isolation checks and run the sandbox even if LAN-blocking iptables rules are missing or unverified.
+        #[arg(long)]
+        i_know_its_unsafe: bool,
 
         /// Agent to run: claude, codex, gemini, opencode, pi, bash, unleash
         /// Defaults to bash if omitted.
