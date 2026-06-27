@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.78](https://github.com/heiervang-technologies/unleash/compare/v0.1.77...v0.1.78) (2026-06-27)
+
+
+### Features
+
+* **agents:** register custom agents in AgentManager (subset of [#338](https://github.com/heiervang-technologies/unleash/issues/338)) ([#346](https://github.com/heiervang-technologies/unleash/issues/346)) ([0abc589](https://github.com/heiervang-technologies/unleash/commit/0abc589e0c68dcd5bc69e8508418c5f0ac070662))
+
 ## [0.1.77](https://github.com/heiervang-technologies/unleash/compare/v0.1.76...v0.1.77) (2026-06-27)
 
 
