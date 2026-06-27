@@ -782,9 +782,31 @@ fn check_authentication() {
     eprintln!();
 }
 
+fn verify_wrapper_pid(pid: u32) -> io::Result<()> {
+    let comm_path = format!("/proc/{}/comm", pid);
+    match fs::read_to_string(&comm_path) {
+        Ok(comm) => {
+            if !comm.trim().starts_with("unleash") {
+                return Err(io::Error::other(format!(
+                    "PID {} is not an unleash process (comm: {})",
+                    pid,
+                    comm.trim()
+                )));
+            }
+            Ok(())
+        }
+        Err(e) => Err(io::Error::other(format!(
+            "PID {} not found or inaccessible: {}",
+            pid, e
+        ))),
+    }
+}
+
 /// Create restart trigger file (called by unleash-refresh command)
 #[allow(dead_code)]
 pub fn trigger_restart(wrapper_pid: u32, message: Option<&str>) -> io::Result<()> {
+    verify_wrapper_pid(wrapper_pid)?;
+
     let trigger_file = cache_dir().join(format!("restart-trigger-{}", wrapper_pid));
     let message_file = cache_dir().join(format!("restart-message-{}", wrapper_pid));
 
@@ -801,6 +823,8 @@ pub fn trigger_restart(wrapper_pid: u32, message: Option<&str>) -> io::Result<()
 /// Exit without restart (called by unleash-exit command)
 #[allow(dead_code)]
 pub fn trigger_exit(wrapper_pid: u32) -> io::Result<()> {
+    verify_wrapper_pid(wrapper_pid)?;
+
     // Just send SIGTERM to the wrapper process
     use nix::sys::signal::{kill, Signal};
     use nix::unistd::Pid;
