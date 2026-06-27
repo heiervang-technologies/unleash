@@ -20,8 +20,8 @@ enum ChecksumResult {
     Verified,
     /// Checksum did not match.
     Mismatch { expected: String, actual: String },
-    /// Verification was skipped (no manifest, no tool, etc.).
-    Skipped(String),
+    /// Verification failed because a required tool or network call failed.
+    Failed(String),
 }
 
 /// GCS bucket base URL for Claude Code native releases
@@ -193,6 +193,14 @@ pub struct VersionManager {
 impl VersionManager {
     pub fn new() -> Self {
         Self::default()
+    }
+
+    /// Set an explicit `PATH` override applied to every subprocess this manager
+    /// spawns. Used to inject `npm` paths dynamically without mutating the
+    /// parent process's environment (which is racy under multithreaded updates).
+    pub fn with_command_path_override(mut self, path: impl Into<std::ffi::OsString>) -> Self {
+        self.command_path_override = Some(path.into());
+        self
     }
 
     /// Constructor for tests: disables real native-binary downloads so tests
@@ -664,13 +672,13 @@ impl VersionManager {
     ) -> ChecksumResult {
         let manifest_output = match Command::new("curl").args(["-fsSL", manifest_url]).output() {
             Ok(o) if o.status.success() => o,
-            _ => return ChecksumResult::Skipped("manifest not available".into()),
+            _ => return ChecksumResult::Failed("manifest download failed".into()),
         };
 
         let manifest = String::from_utf8_lossy(&manifest_output.stdout);
         let expected = match Self::extract_checksum_from_manifest(&manifest, platform) {
             Some(e) => e,
-            None => return ChecksumResult::Skipped("no checksum in manifest".into()),
+            None => return ChecksumResult::Failed("no checksum in manifest".into()),
         };
 
         let checksum_cmd = if cfg!(target_os = "macos") {
@@ -697,7 +705,7 @@ impl VersionManager {
                     }
                 }
             }
-            _ => ChecksumResult::Skipped("sha256sum failed".into()),
+            _ => ChecksumResult::Failed("sha256sum/shasum execution failed".into()),
         }
     }
 
@@ -931,8 +939,15 @@ impl VersionManager {
                     error: Some("Checksum verification failed".to_string()),
                 });
             }
-            ChecksumResult::Skipped(reason) => {
-                eprintln!("  \x1b[33m-\x1b[0m Checksum skipped ({})", reason);
+            ChecksumResult::Failed(reason) => {
+                let _ = std::fs::remove_file(&temp_path);
+                eprintln!("  \x1b[31mx\x1b[0m Checksum FAILED: {}", reason);
+                return Ok(InstallResult {
+                    success: false,
+                    stdout: String::new(),
+                    stderr: format!("Checksum failure: {}", reason),
+                    error: Some("Checksum verification failed".to_string()),
+                });
             }
         }
 
@@ -1593,8 +1608,15 @@ impl VersionManager {
                     error: Some("Checksum verification failed".to_string()),
                 });
             }
-            ChecksumResult::Skipped(reason) => {
-                let _ = log_tx.send(format!("\x1b[33m-\x1b[0m Checksum skipped ({})", reason));
+            ChecksumResult::Failed(reason) => {
+                let _ = fs::remove_file(&temp_path);
+                let _ = log_tx.send(format!("\x1b[31mx\x1b[0m Checksum FAILED: {}", reason));
+                return Ok(InstallResult {
+                    success: false,
+                    stdout: String::new(),
+                    stderr: format!("Checksum failure: {}", reason),
+                    error: Some("Checksum verification failed".to_string()),
+                });
             }
         }
 
@@ -2358,8 +2380,14 @@ pub fn install_latest_streaming(
             let versions = vm.get_version_list();
             let v = versions
                 .into_iter()
+                .filter(|i| !i.version.contains('-')) // Filter out pre-releases
                 .find(|i| !i.is_installed)
-                .or_else(|| vm.get_version_list().into_iter().next())
+                .or_else(|| {
+                    vm.get_version_list()
+                        .into_iter()
+                        .filter(|i| !i.version.contains('-'))
+                        .next()
+                })
                 .map(|i| i.version)
                 .ok_or_else(|| io::Error::other("no Claude version available"))?;
             let r = vm.install_version_streaming(&v, log_tx)?;
@@ -2380,6 +2408,7 @@ pub fn install_latest_streaming(
             let versions = vm.get_gemini_version_list(None);
             let v = versions
                 .into_iter()
+                .filter(|i| !i.version.contains('-')) // Filter out pre-releases
                 .next()
                 .map(|i| i.version)
                 .ok_or_else(|| io::Error::other("no Gemini version available"))?;
@@ -2410,6 +2439,7 @@ pub fn install_latest_streaming(
             let versions = vm.get_pi_version_list(None);
             let v = versions
                 .into_iter()
+                .filter(|i| !i.version.contains('-')) // Filter out pre-releases
                 .next()
                 .map(|i| i.version)
                 .ok_or_else(|| io::Error::other("no Pi version available"))?;

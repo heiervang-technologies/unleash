@@ -435,11 +435,38 @@ fn print_summary(check_results: &[CheckResult], outcomes: &[UpdateOutcome]) -> u
 /// trap-on-EXIT for guaranteed cleanup, and explicit `|| exit 1` on each
 /// fallible step so the caller gets a non-zero exit (and the real stderr)
 /// when something breaks.
-fn self_update_script() -> &'static str {
-    "tmp=$(mktemp -d -t unleash-update.XXXXXXXX) || exit 1\n\
-     trap 'rm -rf \"$tmp\"' EXIT\n\
-     gh repo clone heiervang-technologies/unleash \"$tmp\" || exit 1\n\
-     bash \"$tmp/scripts/install.sh\""
+fn self_update_script(version: &str, platform: &str) -> String {
+    format!(
+        "tmp=$(mktemp -d -t unleash-update.XXXXXXXX) || exit 1\n\
+         trap 'rm -rf \"$tmp\"' EXIT\n\
+         cd \"$tmp\"\n\
+         echo \"Downloading prebuilt unleash...\"\n\
+         gh release download {} --repo heiervang-technologies/unleash --pattern 'unleash-{}' --pattern 'splash-{}' --pattern 'checksums.txt' || exit 1\n\
+         echo \"Verifying checksums...\"\n\
+         if command -v sha256sum >/dev/null; then\n\
+             sha256sum --ignore-missing -c checksums.txt || exit 1\n\
+         elif command -v shasum >/dev/null; then\n\
+             shasum -a 256 --ignore-missing -c checksums.txt || exit 1\n\
+         else\n\
+             echo \"Warning: No checksum tool found, skipping verification\" >&2\n\
+         fi\n\
+         echo \"Swapping binaries...\"\n\
+         BIN_DIR=\"$HOME/.local/bin\"\n\
+         mkdir -p \"$BIN_DIR\"\n\
+         # Stage then atomic swap to avoid Text file busy\n\
+         mv \"unleash-{}\" \"$BIN_DIR/unleash.tmp\" || exit 1\n\
+         chmod +x \"$BIN_DIR/unleash.tmp\"\n\
+         mv \"$BIN_DIR/unleash.tmp\" \"$BIN_DIR/unleash\" || exit 1\n\
+         if [ -f \"splash-{}\" ]; then\n\
+             mv \"splash-{}\" \"$BIN_DIR/splash.tmp\" || exit 1\n\
+             chmod +x \"$BIN_DIR/splash.tmp\"\n\
+             mv \"$BIN_DIR/splash.tmp\" \"$BIN_DIR/splash\" || exit 1\n\
+         fi\n\
+         echo \"Updating plugins and docker files...\"\n\
+         gh repo clone heiervang-technologies/unleash source -- -b {} || exit 1\n\
+         bash source/scripts/install.sh --no-build",
+        version, platform, platform, platform, platform, platform, version
+    )
 }
 
 /// Check or update unleash itself.
@@ -458,10 +485,24 @@ fn check_or_update_self(check_only: bool) -> io::Result<()> {
                     current, ver
                 );
             } else {
+                let arch = std::env::consts::ARCH;
+                let os = std::env::consts::OS;
+                
+                let platform = match (os, arch) {
+                    ("linux", "x86_64") => "linux-x86_64",
+                    ("linux", "aarch64") => "linux-aarch64",
+                    ("macos", "x86_64") => "macos-x86_64",
+                    ("macos", "aarch64") => "macos-aarch64",
+                    _ => {
+                        eprintln!("  unleash          update failed: Unsupported platform for prebuilt binaries ({} {})", os, arch);
+                        return Ok(());
+                    }
+                };
+
                 println!("  unleash          updating {} -> {}...", current, ver);
                 let output = Command::new("bash")
                     .arg("-c")
-                    .arg(self_update_script())
+                    .arg(self_update_script(ver, platform))
                     .output()?;
                 if output.status.success() {
                     println!("  unleash          {} -> {} (updated)", current, ver);
@@ -593,10 +634,13 @@ fn latest_embedded_version(agent_type: &AgentType) -> Option<String> {
         AgentType::Hermes => "hermes",
         AgentType::Unleash | AgentType::Custom(_) => return None,
     };
-    crate::version::load_embedded_versions()
-        .get(key)
-        .and_then(|v| v.first())
-        .cloned()
+
+    let embedded = crate::version::load_embedded_versions();
+    if let Some(list) = embedded.get(key) {
+        list.iter().filter(|v| !v.contains('-')).cloned().next()
+    } else {
+        None
+    }
 }
 
 fn get_latest_npm_version(package: &str) -> io::Result<Option<String>> {
@@ -1086,14 +1130,14 @@ fn update_codex(
 
 /// Ensure npm is available, offering to install Node.js if missing.
 /// Returns Ok(true) if npm is available, Ok(false) if user declined.
-fn ensure_npm() -> io::Result<bool> {
+fn ensure_npm() -> io::Result<Option<String>> {
     if crate::version::VersionManager::has_npm() {
-        return Ok(true);
+        return Ok(None);
     }
 
     // Check if nvm is already installed but not sourced
-    if try_source_nvm() {
-        return Ok(true);
+    if let Some(path) = try_source_nvm() {
+        return Ok(Some(path));
     }
 
     // In TUI/non-interactive mode, can't prompt — return error
@@ -1111,7 +1155,7 @@ fn ensure_npm() -> io::Result<bool> {
     std::io::stdin().read_line(&mut input)?;
     let answer = input.trim().to_lowercase();
     if !answer.is_empty() && answer != "y" && answer != "yes" {
-        return Ok(false);
+        return Err(io::Error::other("npm required to install this agent (user declined nvm)"));
     }
 
     eprintln!("Installing nvm and Node.js LTS...");
@@ -1135,19 +1179,19 @@ fn ensure_npm() -> io::Result<bool> {
         return Err(io::Error::other("Failed to install Node.js via nvm"));
     }
 
-    // Add nvm node to PATH for this process
-    if try_source_nvm() {
+    // Return the new PATH for this process
+    if let Some(path) = try_source_nvm() {
         eprintln!("\x1b[32m✓\x1b[0m Node.js installed successfully\n");
-        Ok(true)
+        Ok(Some(path))
     } else {
         eprintln!("\x1b[33m!\x1b[0m nvm installed but npm not found in current session.");
         eprintln!("  Restart your shell and try again.\n");
-        Ok(false)
+        Err(io::Error::other("npm required to install this agent (nvm install failed)"))
     }
 }
 
 /// Try to find nvm's npm and add it to PATH. Returns true if npm is now available.
-fn try_source_nvm() -> bool {
+fn try_source_nvm() -> Option<String> {
     if let Ok(output) = Command::new("bash")
         .args([
             "-c",
@@ -1159,12 +1203,11 @@ fn try_source_nvm() -> bool {
             let npm_path = String::from_utf8_lossy(&output.stdout).trim().to_string();
             if let Some(bin_dir) = std::path::Path::new(&npm_path).parent() {
                 let current_path = std::env::var("PATH").unwrap_or_default();
-                std::env::set_var("PATH", format!("{}:{}", bin_dir.display(), current_path));
-                return crate::version::VersionManager::has_npm();
+                return Some(format!("{}:{}", bin_dir.display(), current_path));
             }
         }
     }
-    false
+    None
 }
 
 /// Update Gemini CLI via npm.
@@ -1181,11 +1224,13 @@ fn update_gemini(
         },
     ));
 
-    if !ensure_npm()? {
-        return Err(io::Error::other("npm required to install Gemini CLI"));
-    }
+    let path_override = ensure_npm()?;
 
-    let output = crate::version::VersionManager::npm_global_command()
+    let mut vm = crate::version::VersionManager::new();
+    if let Some(path) = path_override {
+        vm = vm.with_command_path_override(path);
+    }
+    let output = vm.npm_global_command_for_self()
         .args(["install", "-g", "@google/gemini-cli@latest"])
         .output()?;
 
@@ -1302,12 +1347,13 @@ fn update_pi(
         },
     ));
 
-    if !ensure_npm()? {
-        return Err(io::Error::other("npm required to install Pi"));
-    }
+    let path_override = ensure_npm()?;
 
     let label = latest_version.clone().unwrap_or_else(|| "latest".into());
-    let vm = crate::version::VersionManager::new();
+    let mut vm = crate::version::VersionManager::new();
+    if let Some(path) = path_override {
+        vm = vm.with_command_path_override(path);
+    }
     let result = run_install_with_phase_updates(tx, index, label.clone(), |log_tx| {
         vm.install_pi_version_streaming("latest", log_tx)
     })?;
