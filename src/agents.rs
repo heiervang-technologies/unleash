@@ -1032,13 +1032,199 @@ impl AgentManager {
             AgentType::OpenCode => self.update_opencode(),
             AgentType::Pi => self.update_npm_agent("@mariozechner/pi-coding-agent", "Pi"),
             AgentType::Hermes => self.update_hermes(),
-            AgentType::Custom(name) => Err(io::Error::other(format!(
-                "Updating custom agent '{}' is not yet supported. \
-                 `unleash agents check {}` / `info {}` work (if a github_repo is set). \
-                 Update the binary manually for now; see issue #338 for the upstream plan.",
-                name, name, name
-            ))),
+            AgentType::Custom(name) => self.update_custom(&name),
         }
+    }
+
+    /// Update a custom agent. Implements the Shape B (convention) + Shape A
+    /// (asset_template escape hatch) install path agreed on issue #338.
+    ///
+    /// 1. Loads the custom agent's config from AppConfig.
+    /// 2. Fetches the latest GitHub release for the configured `github_repo`.
+    /// 3. Picks an asset name — either by substituting placeholders in
+    ///    `asset_template` (Shape A) or by walking a small set of
+    ///    `<name>-<arch>-<os>` conventions (Shape B).
+    /// 4. Downloads, extracts (if `.tar.gz` / `.zip`), and installs the binary
+    ///    to `~/.local/bin/<binary>`.
+    fn update_custom(&self, name: &str) -> io::Result<String> {
+        let mgr = crate::config::ProfileManager::new()?;
+        self.update_custom_with_manager(name, &mgr)
+    }
+
+    /// Testable inner of `update_custom` — takes an explicit ProfileManager
+    /// so the config-resolution + github_repo-missing branches are exercisable
+    /// against a tempdir without touching the user's real `~/.config/unleash`.
+    fn update_custom_with_manager(
+        &self,
+        name: &str,
+        mgr: &crate::config::ProfileManager,
+    ) -> io::Result<String> {
+        let app_config = mgr.load_app_config()?;
+        let cfg = app_config
+            .custom_agents
+            .iter()
+            .find(|c| c.name == name)
+            .ok_or_else(|| {
+                io::Error::other(format!(
+                    "Custom agent '{}' is not registered. Run `unleash agents add {}` first.",
+                    name, name
+                ))
+            })?;
+
+        let repo = cfg.github_repo.as_deref().ok_or_else(|| {
+            io::Error::other(format!(
+                "Custom agent '{}' has no github_repo set. Add one to ~/.config/unleash/config.toml \
+                 under `[[custom_agents]]` so the updater knows where to fetch releases.",
+                name
+            ))
+        })?;
+
+        let (arch, os) = detect_arch_os().ok_or_else(|| {
+            io::Error::other(
+                "Unsupported platform: custom-agent install only supports Linux/macOS on x86_64/aarch64.",
+            )
+        })?;
+
+        // Fetch latest release
+        let url = format!("https://api.github.com/repos/{}/releases/latest", repo);
+        let curl_args: Vec<String> = vec![
+            "-s".into(),
+            "-H".into(),
+            "Accept: application/vnd.github.v3+json".into(),
+            url,
+        ];
+        let resp = Command::new("curl")
+            .args(&curl_args)
+            .output()
+            .map_err(|e| io::Error::other(format!("curl failed: {}", e)))?;
+        if !resp.status.success() {
+            return Err(io::Error::other(format!(
+                "Failed to fetch release from GitHub ({}): {}",
+                repo,
+                String::from_utf8_lossy(&resp.stderr)
+            )));
+        }
+        let json: serde_json::Value = serde_json::from_slice(&resp.stdout)
+            .map_err(|e| io::Error::other(format!("Malformed GitHub response: {}", e)))?;
+
+        let tag = json
+            .get("tag_name")
+            .and_then(|t| t.as_str())
+            .ok_or_else(|| io::Error::other("No tag_name in GitHub release response"))?;
+        let version = tag.trim_start_matches("rust-v").trim_start_matches('v');
+
+        let asset_names: Vec<String> = json
+            .get("assets")
+            .and_then(|a| a.as_array())
+            .map(|arr| {
+                arr.iter()
+                    .filter_map(|a| a.get("name").and_then(|n| n.as_str()).map(String::from))
+                    .collect()
+            })
+            .unwrap_or_default();
+
+        let picked = pick_asset_name(
+            name,
+            cfg.asset_template.as_deref(),
+            arch,
+            os,
+            version,
+            tag,
+            &asset_names,
+        )
+        .ok_or_else(|| {
+            io::Error::other(format!(
+                "Could not find a matching asset in {}'s release {}. \
+                 Available assets: [{}]. \
+                 Set `asset_template = \"...\"` in the [[custom_agents]] block to override.",
+                repo,
+                tag,
+                asset_names.join(", ")
+            ))
+        })?;
+
+        let download_url = format!(
+            "https://github.com/{}/releases/download/{}/{}",
+            repo, tag, picked
+        );
+
+        // Download
+        let tmp_dir = dirs::cache_dir()
+            .unwrap_or_else(|| PathBuf::from("/tmp"))
+            .join(format!("unleash/custom-download-{}", cfg.name));
+        let _ = fs::remove_dir_all(&tmp_dir);
+        fs::create_dir_all(&tmp_dir)?;
+        let tmp_archive = tmp_dir.join(&picked);
+        let dl = Command::new("curl")
+            .args(["-fsSL", "-o", &tmp_archive.to_string_lossy(), &download_url])
+            .output()?;
+        if !dl.status.success() {
+            return Err(io::Error::other(format!(
+                "Download failed ({}): {}",
+                download_url,
+                String::from_utf8_lossy(&dl.stderr)
+            )));
+        }
+
+        // Install path
+        let install_dir = dirs::home_dir()
+            .ok_or_else(|| io::Error::new(io::ErrorKind::NotFound, "Home dir not found"))?
+            .join(".local/bin");
+        fs::create_dir_all(&install_dir)?;
+        let install_path = install_dir.join(&cfg.binary);
+
+        // Extract or copy
+        if picked.ends_with(".tar.gz") || picked.ends_with(".tgz") {
+            let extract = Command::new("tar")
+                .args([
+                    "xzf",
+                    &tmp_archive.to_string_lossy(),
+                    "-C",
+                    &tmp_dir.to_string_lossy(),
+                ])
+                .output()?;
+            if !extract.status.success() {
+                return Err(io::Error::other(format!(
+                    "tar extraction failed: {}",
+                    String::from_utf8_lossy(&extract.stderr)
+                )));
+            }
+            install_extracted_binary(&tmp_dir, &cfg.binary, &install_path)?;
+        } else if picked.ends_with(".zip") {
+            let extract = Command::new("unzip")
+                .args([
+                    "-o",
+                    &tmp_archive.to_string_lossy(),
+                    "-d",
+                    &tmp_dir.to_string_lossy(),
+                ])
+                .output()?;
+            if !extract.status.success() {
+                return Err(io::Error::other(format!(
+                    "unzip extraction failed: {}",
+                    String::from_utf8_lossy(&extract.stderr)
+                )));
+            }
+            install_extracted_binary(&tmp_dir, &cfg.binary, &install_path)?;
+        } else {
+            // Plain binary
+            fs::copy(&tmp_archive, &install_path)?;
+        }
+
+        // chmod +x
+        use std::os::unix::fs::PermissionsExt;
+        let mut perms = fs::metadata(&install_path)?.permissions();
+        perms.set_mode(0o755);
+        fs::set_permissions(&install_path, perms)?;
+
+        let _ = fs::remove_dir_all(&tmp_dir);
+
+        Ok(format!(
+            "Installed {} {} to {}",
+            cfg.name,
+            version,
+            install_path.display()
+        ))
     }
 
     /// Update Claude Code via npm
@@ -1486,6 +1672,149 @@ pub struct AddCustomAgentArgs {
     pub force: bool,
 }
 
+/// Detect the current process's (arch, os) pair, normalized to the names
+/// most commonly used in GitHub release asset filenames.
+///
+/// Returns the canonical pair; aliases are handled by the resolver. Linux
+/// is `linux`, macOS is `macos`, x86_64 is `x86_64`, aarch64 is `aarch64`.
+/// Returns None on platforms we don't support yet (Windows, freebsd, …).
+fn detect_arch_os() -> Option<(&'static str, &'static str)> {
+    #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+    {
+        return Some(("x86_64", "linux"));
+    }
+    #[cfg(all(target_os = "linux", target_arch = "aarch64"))]
+    {
+        return Some(("aarch64", "linux"));
+    }
+    #[cfg(all(target_os = "macos", target_arch = "x86_64"))]
+    {
+        return Some(("x86_64", "macos"));
+    }
+    #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+    {
+        return Some(("aarch64", "macos"));
+    }
+    #[allow(unreachable_code)]
+    None
+}
+
+/// Pick an asset name from `available` for a custom agent's release.
+///
+/// Two shapes per the #338 design call:
+///
+/// - **Shape A (template):** if `asset_template` is Some, substitutes
+///   `{name}`, `{arch}`, `{os}`, `{version}`, `{tag}` and uses the result
+///   verbatim. Returns `Some(rendered)` if that exact string is in the
+///   release's asset list, else `None` so the caller can surface the
+///   available-asset list to the user.
+/// - **Shape B (convention):** walks a small set of `<name>-<arch>-<os>[.ext]`
+///   patterns with sensible architecture/OS aliases (amd64↔x86_64,
+///   arm64↔aarch64, darwin↔macos) and the most common archive extensions
+///   (`.tar.gz`, `.tgz`, `.zip`, plain). The first pattern that matches an
+///   actual asset name in `available` wins.
+///
+/// Pure function — no I/O, no env reads — so the picker logic is exhaustively
+/// unit-testable without spinning up a real release fixture.
+pub(crate) fn pick_asset_name(
+    name: &str,
+    asset_template: Option<&str>,
+    arch: &str,
+    os: &str,
+    version: &str,
+    tag: &str,
+    available: &[String],
+) -> Option<String> {
+    if let Some(template) = asset_template {
+        let rendered = template
+            .replace("{name}", name)
+            .replace("{arch}", arch)
+            .replace("{os}", os)
+            .replace("{version}", version)
+            .replace("{tag}", tag);
+        return if available.iter().any(|a| a == &rendered) {
+            Some(rendered)
+        } else {
+            None
+        };
+    }
+
+    let arch_alts: &[&str] = match arch {
+        "x86_64" => &["x86_64", "amd64"],
+        "aarch64" => &["aarch64", "arm64"],
+        _ => return None,
+    };
+    let os_alts: &[&str] = match os {
+        "macos" => &["macos", "darwin"],
+        "linux" => &["linux"],
+        _ => return None,
+    };
+    let exts = ["", ".tar.gz", ".tgz", ".zip"];
+
+    for ext in exts {
+        for a in arch_alts {
+            for o in os_alts {
+                for candidate in [
+                    format!("{}-{}-{}{}", name, a, o, ext),
+                    format!("{}-{}-{}{}", name, o, a, ext),
+                    format!("{}_{}_{}{}", name, a, o, ext),
+                    format!("{}_{}_{}{}", name, o, a, ext),
+                ] {
+                    if available.iter().any(|x| x == &candidate) {
+                        return Some(candidate);
+                    }
+                }
+            }
+        }
+    }
+    // Universal binary fallback (no arch/os in the name)
+    for ext in exts {
+        let bare = format!("{}{}", name, ext);
+        if available.iter().any(|x| x == &bare) {
+            return Some(bare);
+        }
+    }
+    None
+}
+
+/// After extracting an archive, find the agent binary and copy it to its
+/// final install path. Searches breadth-first:
+///   1. `<tmp_dir>/<binary>` exact match
+///   2. any `<binary>` file in any subdirectory (e.g. archives that wrap
+///      the binary in a versioned dir like `aider-0.50.0/aider`)
+///
+/// Returns the io::Result of the final copy. Caller is responsible for the
+/// subsequent chmod.
+fn install_extracted_binary(
+    tmp_dir: &std::path::Path,
+    binary: &str,
+    install_path: &std::path::Path,
+) -> io::Result<u64> {
+    // Direct hit
+    let direct = tmp_dir.join(binary);
+    if direct.exists() && direct.is_file() {
+        return fs::copy(&direct, install_path);
+    }
+    // Walk one level for archives like `<repo>-<version>/<binary>`
+    for entry in fs::read_dir(tmp_dir)? {
+        let entry = entry?;
+        let path = entry.path();
+        if path.is_dir() {
+            let candidate = path.join(binary);
+            if candidate.exists() && candidate.is_file() {
+                return fs::copy(&candidate, install_path);
+            }
+        }
+    }
+    Err(io::Error::other(format!(
+        "Could not find binary '{}' in extracted archive at {}. \
+         The archive layout may not be supported — try setting an explicit \
+         install location or extract manually.",
+        binary,
+        tmp_dir.display()
+    )))
+}
+
 /// Build a `CustomAgentConfig` from CLI args, mirroring the TUI wizard's
 /// `CustomAgentDraft::into_config` defaults so both code paths produce
 /// equivalent TOML for equivalent input.
@@ -1562,6 +1891,7 @@ pub fn build_custom_agent_config(
         },
         github_repo: args.github_repo.clone(),
         npm_package: args.npm_package.clone(),
+        asset_template: None,
         enabled: true,
     })
 }
@@ -1881,25 +2211,66 @@ mod tests {
     }
 
     #[test]
-    fn update_custom_agent_returns_helpful_error() {
-        let mut mgr = AgentManager::new_with_custom_for_tests(vec![aider_def()]).expect("manager");
-        let err = mgr
-            .update_agent(AgentType::Custom("aider".into()))
-            .expect_err("update must error for custom");
+    fn update_custom_agent_errors_when_not_in_config() {
+        // Per the #338 install/update implementation: update_custom reads from
+        // AppConfig (the persisted [[custom_agents]] block), not just the
+        // in-memory AgentManager registry. If the agent isn't there, the
+        // error must point at `unleash agents add` as the fix.
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let pm = crate::config::ProfileManager::with_config_dir(tmp.path().to_path_buf())
+            .expect("manager");
+        let am = AgentManager::new_with_custom_for_tests(vec![aider_def()]).expect("manager");
+        let err = am
+            .update_custom_with_manager("unregistered-xyz", &pm)
+            .expect_err("must error when agent missing from AppConfig");
         let msg = err.to_string();
         assert!(
-            msg.contains("aider"),
-            "error should name the agent: {}",
+            msg.contains("unregistered-xyz"),
+            "error should name the missing agent: {}",
             msg
         );
         assert!(
-            msg.contains("check") && msg.contains("info"),
-            "error should point at the working subcommands: {}",
+            msg.contains("agents add"),
+            "error should point at the `unleash agents add` fix path: {}",
+            msg
+        );
+    }
+
+    #[test]
+    fn update_custom_agent_errors_when_github_repo_missing() {
+        // Per #338: convention/template both resolve from a GitHub release.
+        // An agent registered without a github_repo can't be auto-updated,
+        // so we error with a hint pointing the user at the config field
+        // they need to set rather than silently doing nothing.
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let pm = crate::config::ProfileManager::with_config_dir(tmp.path().to_path_buf())
+            .expect("manager");
+        let mut existing = pm.load_app_config().expect("load");
+        existing.custom_agents.push(crate::config::CustomAgentConfig {
+            name: "noupdate".into(),
+            binary: "noupdate".into(),
+            description: "no repo".into(),
+            polyfill: aider_def().polyfill,
+            github_repo: None,
+            npm_package: None,
+            asset_template: None,
+            enabled: true,
+        });
+        pm.save_app_config(&existing).expect("save");
+
+        let am = AgentManager::new_with_custom_for_tests(vec![]).expect("manager");
+        let err = am
+            .update_custom_with_manager("noupdate", &pm)
+            .expect_err("must error when github_repo missing");
+        let msg = err.to_string();
+        assert!(
+            msg.contains("github_repo"),
+            "error must name the missing field so user knows what to set: {}",
             msg
         );
         assert!(
-            msg.contains("#338"),
-            "error should reference the tracking issue: {}",
+            msg.contains("noupdate"),
+            "error must name the agent: {}",
             msg
         );
     }
@@ -2054,6 +2425,7 @@ mod tests {
                 },
                 github_repo: Some("paul-gauthier/aider".into()),
                 npm_package: None,
+                asset_template: None,
                 enabled: false,
             });
         mgr.save_app_config(&existing).expect("pre-save");
@@ -2317,6 +2689,198 @@ mod tests {
         // Non-numeric content in parens
         assert_eq!(
             AgentManager::parse_hermes_calver("Hermes Agent v0.13.0 (dev)"),
+            None
+        );
+    }
+
+    // ── pick_asset_name: Shape B (convention) + Shape A (template) ────────
+    // These tests pin the #338 install/update path's resolver behavior.
+    // The function is pure (no I/O), so the full asset-picking decision tree
+    // is exercisable without network or fixture-release files.
+
+    fn assets(names: &[&str]) -> Vec<String> {
+        names.iter().map(|s| s.to_string()).collect()
+    }
+
+    #[test]
+    fn pick_asset_convention_arch_os_canonical() {
+        // Default Shape B: <name>-<arch>-<os> matches the canonical aliases.
+        let avail = assets(&["aider-x86_64-linux", "checksums.txt"]);
+        assert_eq!(
+            pick_asset_name("aider", None, "x86_64", "linux", "0.50.0", "v0.50.0", &avail),
+            Some("aider-x86_64-linux".to_string())
+        );
+    }
+
+    #[test]
+    fn pick_asset_convention_arch_alias_amd64() {
+        // amd64 is the most common x86_64 alias in GitHub releases.
+        let avail = assets(&["aider-amd64-linux"]);
+        assert_eq!(
+            pick_asset_name("aider", None, "x86_64", "linux", "0.50.0", "v0.50.0", &avail),
+            Some("aider-amd64-linux".to_string())
+        );
+    }
+
+    #[test]
+    fn pick_asset_convention_arch_alias_arm64() {
+        let avail = assets(&["aider-arm64-linux"]);
+        assert_eq!(
+            pick_asset_name("aider", None, "aarch64", "linux", "0.50.0", "v0.50.0", &avail),
+            Some("aider-arm64-linux".to_string())
+        );
+    }
+
+    #[test]
+    fn pick_asset_convention_os_alias_darwin() {
+        let avail = assets(&["aider-x86_64-darwin"]);
+        assert_eq!(
+            pick_asset_name("aider", None, "x86_64", "macos", "0.50.0", "v0.50.0", &avail),
+            Some("aider-x86_64-darwin".to_string())
+        );
+    }
+
+    #[test]
+    fn pick_asset_convention_os_arch_order_reversed() {
+        // Some projects publish <name>-<os>-<arch> instead of -<arch>-<os>.
+        let avail = assets(&["aider-linux-x86_64"]);
+        assert_eq!(
+            pick_asset_name("aider", None, "x86_64", "linux", "0.50.0", "v0.50.0", &avail),
+            Some("aider-linux-x86_64".to_string())
+        );
+    }
+
+    #[test]
+    fn pick_asset_convention_underscore_separator() {
+        // Some projects use underscores instead of hyphens.
+        let avail = assets(&["aider_amd64_linux"]);
+        assert_eq!(
+            pick_asset_name("aider", None, "x86_64", "linux", "0.50.0", "v0.50.0", &avail),
+            Some("aider_amd64_linux".to_string())
+        );
+    }
+
+    #[test]
+    fn pick_asset_convention_tarball_extension() {
+        // .tar.gz extension covers archive-distributed binaries.
+        let avail = assets(&["aider-x86_64-linux.tar.gz"]);
+        assert_eq!(
+            pick_asset_name("aider", None, "x86_64", "linux", "0.50.0", "v0.50.0", &avail),
+            Some("aider-x86_64-linux.tar.gz".to_string())
+        );
+    }
+
+    #[test]
+    fn pick_asset_convention_zip_extension() {
+        let avail = assets(&["aider-x86_64-linux.zip"]);
+        assert_eq!(
+            pick_asset_name("aider", None, "x86_64", "linux", "0.50.0", "v0.50.0", &avail),
+            Some("aider-x86_64-linux.zip".to_string())
+        );
+    }
+
+    #[test]
+    fn pick_asset_convention_bare_name_fallback() {
+        // Universal binary: just the agent name with no arch/os qualifier.
+        let avail = assets(&["aider", "README.md"]);
+        assert_eq!(
+            pick_asset_name("aider", None, "x86_64", "linux", "0.50.0", "v0.50.0", &avail),
+            Some("aider".to_string())
+        );
+    }
+
+    #[test]
+    fn pick_asset_convention_no_match_returns_none() {
+        // No asset matches the convention — caller will surface the asset
+        // list to the user with an asset_template hint.
+        let avail = assets(&["foo.dmg", "bar.exe", "weird-name-1.0.0.pkg"]);
+        assert_eq!(
+            pick_asset_name("aider", None, "x86_64", "linux", "0.50.0", "v0.50.0", &avail),
+            None
+        );
+    }
+
+    #[test]
+    fn pick_asset_convention_prefers_no_extension_over_archive() {
+        // When both `aider-x86_64-linux` and `aider-x86_64-linux.tar.gz` exist,
+        // pick the bare binary first — saves an extraction step and matches
+        // what `which aider` would find on a real system.
+        let avail = assets(&["aider-x86_64-linux", "aider-x86_64-linux.tar.gz"]);
+        assert_eq!(
+            pick_asset_name("aider", None, "x86_64", "linux", "0.50.0", "v0.50.0", &avail),
+            Some("aider-x86_64-linux".to_string())
+        );
+    }
+
+    #[test]
+    fn pick_asset_template_substitutes_placeholders() {
+        // Shape A: explicit template overrides convention.
+        let avail = assets(&["my-cli-0.50.0-x86_64-linux.tar.gz"]);
+        assert_eq!(
+            pick_asset_name(
+                "my-cli",
+                Some("{name}-{version}-{arch}-{os}.tar.gz"),
+                "x86_64",
+                "linux",
+                "0.50.0",
+                "v0.50.0",
+                &avail
+            ),
+            Some("my-cli-0.50.0-x86_64-linux.tar.gz".to_string())
+        );
+    }
+
+    #[test]
+    fn pick_asset_template_supports_tag_with_v_prefix() {
+        // {tag} preserves the literal tag (with `v`), {version} strips it.
+        let avail = assets(&["my-cli-v0.50.0-x86_64-linux.tar.gz"]);
+        assert_eq!(
+            pick_asset_name(
+                "my-cli",
+                Some("{name}-{tag}-{arch}-{os}.tar.gz"),
+                "x86_64",
+                "linux",
+                "0.50.0",
+                "v0.50.0",
+                &avail
+            ),
+            Some("my-cli-v0.50.0-x86_64-linux.tar.gz".to_string())
+        );
+    }
+
+    #[test]
+    fn pick_asset_template_no_match_returns_none() {
+        // If the user-specified template doesn't match any asset, the caller
+        // surfaces the asset list with a "set asset_template" hint. We must
+        // NOT silently fall back to the convention — that would mask user
+        // intent and surprise them.
+        let avail = assets(&[
+            "my-cli-x86_64-linux", // would match Shape B convention
+            "my-cli-0.50.0.zip",
+        ]);
+        assert_eq!(
+            pick_asset_name(
+                "my-cli",
+                Some("{name}-{version}-{arch}-{os}.tar.gz"),
+                "x86_64",
+                "linux",
+                "0.50.0",
+                "v0.50.0",
+                &avail
+            ),
+            None,
+            "explicit template miss must NOT fall back to convention"
+        );
+    }
+
+    #[test]
+    fn pick_asset_unsupported_arch_returns_none() {
+        // arch we don't have alias coverage for (e.g. riscv64) — the caller
+        // should still get None and surface a clear error rather than picking
+        // a nonsense asset.
+        let avail = assets(&["aider-riscv64-linux"]);
+        assert_eq!(
+            pick_asset_name("aider", None, "riscv64", "linux", "0.50.0", "v0.50.0", &avail),
             None
         );
     }
