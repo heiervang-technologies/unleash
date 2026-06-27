@@ -999,7 +999,7 @@ pub fn run() -> io::Result<()> {
                 }
                 Some(AgentsAction::Check { agent }) => {
                     let agents_to_check: Vec<AgentType> = if let Some(name) = agent {
-                        vec![AgentType::from_str(&name).ok_or_else(|| {
+                        vec![manager.resolve_agent_type(&name).ok_or_else(|| {
                             io::Error::new(
                                 io::ErrorKind::InvalidInput,
                                 format!("Unknown agent: {}", name),
@@ -1030,7 +1030,7 @@ pub fn run() -> io::Result<()> {
                     Ok(())
                 }
                 Some(AgentsAction::Update { agent }) => {
-                    let agent_type = AgentType::from_str(&agent).ok_or_else(|| {
+                    let agent_type = manager.resolve_agent_type(&agent).ok_or_else(|| {
                         io::Error::new(
                             io::ErrorKind::InvalidInput,
                             format!("Unknown agent: {}", agent),
@@ -1050,7 +1050,7 @@ pub fn run() -> io::Result<()> {
                     Ok(())
                 }
                 Some(AgentsAction::Info { agent }) => {
-                    let agent_type = AgentType::from_str(&agent).ok_or_else(|| {
+                    let agent_type = manager.resolve_agent_type(&agent).ok_or_else(|| {
                         io::Error::new(
                             io::ErrorKind::InvalidInput,
                             format!("Unknown agent: {}", agent),

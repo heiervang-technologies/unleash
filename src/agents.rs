@@ -653,9 +653,53 @@ impl AgentManager {
         manager.register_agent(AgentDefinition::pi());
         manager.register_agent(AgentDefinition::hermes());
 
+        // Register user-defined custom agents from the AppConfig. Without this,
+        // any `unleash agents <cmd> <custom-name>` invocation hits "Agent not
+        // found" before reaching the explicit "not yet supported" branch.
+        // Failure to read the config is non-fatal (e.g. first-time install) —
+        // built-ins keep working.
+        if let Ok(mgr) = crate::config::ProfileManager::new() {
+            if let Ok(app_config) = mgr.load_app_config() {
+                for custom in &app_config.custom_agents {
+                    if !custom.enabled {
+                        continue;
+                    }
+                    manager.register_agent(AgentDefinition::from_custom_config(custom));
+                }
+            }
+        }
+
         // Load cached versions
         manager.load_version_cache()?;
 
+        Ok(manager)
+    }
+
+    /// Constructor variant for tests: takes pre-built custom agent definitions
+    /// instead of reading from disk. Lets unit tests exercise the custom-agent
+    /// surface (status, list, check, info) without env-var fiddling.
+    #[cfg(test)]
+    pub fn new_with_custom_for_tests(custom: Vec<AgentDefinition>) -> io::Result<Self> {
+        let tmp = tempfile::tempdir()?;
+        let mut manager = Self {
+            agents: HashMap::new(),
+            versions: HashMap::new(),
+            config_dir: tmp.path().to_path_buf(),
+        };
+        manager.register_agent(AgentDefinition::claude());
+        manager.register_agent(AgentDefinition::codex());
+        manager.register_agent(AgentDefinition::gemini());
+        manager.register_agent(AgentDefinition::antigravity());
+        manager.register_agent(AgentDefinition::opencode());
+        manager.register_agent(AgentDefinition::pi());
+        manager.register_agent(AgentDefinition::hermes());
+        for c in custom {
+            manager.register_agent(c);
+        }
+        // Leak the tempdir so the config_dir path stays valid for the
+        // lifetime of the manager. Tests are short-lived; this is acceptable
+        // here even though it would be a leak in production code.
+        std::mem::forget(tmp);
         Ok(manager)
     }
 
@@ -672,6 +716,22 @@ impl AgentManager {
     /// List all registered agents
     pub fn list_agents(&self) -> Vec<&AgentDefinition> {
         self.agents.values().collect()
+    }
+
+    /// Resolve a user-supplied name to an AgentType.
+    /// Tries the built-in alias table first (`AgentType::from_str`), then
+    /// falls back to a `Custom(name)` lookup against agents registered from
+    /// the user's `[[custom_agents]]` config. Returns None when no match.
+    pub fn resolve_agent_type(&self, name: &str) -> Option<AgentType> {
+        if let Some(t) = AgentType::from_str(name) {
+            return Some(t);
+        }
+        let custom = AgentType::Custom(name.to_string());
+        if self.agents.contains_key(&custom) {
+            Some(custom)
+        } else {
+            None
+        }
     }
 
     fn parse_asar_version(content: &[u8]) -> Option<String> {
@@ -972,9 +1032,12 @@ impl AgentManager {
             AgentType::OpenCode => self.update_opencode(),
             AgentType::Pi => self.update_npm_agent("@mariozechner/pi-coding-agent", "Pi"),
             AgentType::Hermes => self.update_hermes(),
-            AgentType::Custom(_) => Err(io::Error::other(
-                "Version management is not yet supported for custom agents",
-            )),
+            AgentType::Custom(name) => Err(io::Error::other(format!(
+                "Updating custom agent '{}' is not yet supported. \
+                 `unleash agents check {}` / `info {}` work (if a github_repo is set). \
+                 Update the binary manually for now; see issue #338 for the upstream plan.",
+                name, name, name
+            ))),
         }
     }
 
@@ -1722,6 +1785,123 @@ mod tests {
 
         let profile_path = tmp.path().join("profiles").join("myagent.toml");
         assert!(profile_path.exists(), "profile file should exist");
+    }
+
+    fn aider_def() -> AgentDefinition {
+        AgentDefinition {
+            agent_type: AgentType::Custom("aider".into()),
+            name: "aider".into(),
+            binary: "aider".into(),
+            description: "AI pair programmer".into(),
+            polyfill: AgentPolyfillConfig {
+                headless: HeadlessStrategy::Flag("--message".into()),
+                session: SessionStrategy {
+                    continue_strategy: ResumeStrategy::Flag("--restore-chat-history".into()),
+                    resume_strategy: ResumeStrategy::Flag("--restore-chat-history".into()),
+                },
+                fork: ForkStrategy::Unsupported,
+                yolo_flag: Some("--yes-always".into()),
+                model_flag: "--model".into(),
+                effort_flag: None,
+                auto_flag: None,
+                verbose_flag: None,
+                output_format_flag: None,
+                system_prompt_flag: None,
+                allowed_tools_flag: None,
+                sandbox: SandboxStrategy::Unsupported,
+                name_flag: None,
+                add_dir_flag: None,
+                approval_mode_flag: None,
+                worktree_flag: None,
+                interactive_prompt_flag: None,
+            },
+            github_repo: Some("paul-gauthier/aider".into()),
+            npm_package: None,
+            enabled: true,
+        }
+    }
+
+    #[test]
+    fn manager_includes_custom_agents_in_listing() {
+        let mgr = AgentManager::new_with_custom_for_tests(vec![aider_def()]).expect("manager");
+        let agents: Vec<_> = mgr
+            .list_agents()
+            .into_iter()
+            .map(|d| d.name.clone())
+            .collect();
+        assert!(
+            agents.contains(&"aider".to_string()),
+            "custom agent must surface in list_agents"
+        );
+    }
+
+    #[test]
+    fn manager_resolves_custom_agent_by_type() {
+        let mgr = AgentManager::new_with_custom_for_tests(vec![aider_def()]).expect("manager");
+        let def = mgr.get_agent(AgentType::Custom("aider".into()));
+        assert!(
+            def.is_some(),
+            "get_agent must return registered custom agent"
+        );
+        assert_eq!(
+            def.unwrap().github_repo.as_deref(),
+            Some("paul-gauthier/aider")
+        );
+    }
+
+    #[test]
+    fn resolve_agent_type_handles_builtin_aliases() {
+        let mgr = AgentManager::new_with_custom_for_tests(vec![]).expect("manager");
+        assert_eq!(mgr.resolve_agent_type("claude"), Some(AgentType::Claude));
+        assert_eq!(
+            mgr.resolve_agent_type("claude-code"),
+            Some(AgentType::Claude)
+        );
+        assert_eq!(mgr.resolve_agent_type("agy"), Some(AgentType::Antigravity));
+    }
+
+    #[test]
+    fn resolve_agent_type_finds_registered_custom_agent() {
+        let mgr = AgentManager::new_with_custom_for_tests(vec![aider_def()]).expect("manager");
+        assert_eq!(
+            mgr.resolve_agent_type("aider"),
+            Some(AgentType::Custom("aider".to_string())),
+            "registered custom agent must resolve via its name"
+        );
+    }
+
+    #[test]
+    fn resolve_agent_type_returns_none_for_unregistered_custom() {
+        let mgr = AgentManager::new_with_custom_for_tests(vec![]).expect("manager");
+        assert_eq!(
+            mgr.resolve_agent_type("unknown-agent-xyz"),
+            None,
+            "must not invent Custom() for unregistered names"
+        );
+    }
+
+    #[test]
+    fn update_custom_agent_returns_helpful_error() {
+        let mut mgr = AgentManager::new_with_custom_for_tests(vec![aider_def()]).expect("manager");
+        let err = mgr
+            .update_agent(AgentType::Custom("aider".into()))
+            .expect_err("update must error for custom");
+        let msg = err.to_string();
+        assert!(
+            msg.contains("aider"),
+            "error should name the agent: {}",
+            msg
+        );
+        assert!(
+            msg.contains("check") && msg.contains("info"),
+            "error should point at the working subcommands: {}",
+            msg
+        );
+        assert!(
+            msg.contains("#338"),
+            "error should reference the tracking issue: {}",
+            msg
+        );
     }
 
     #[test]
