@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.79](https://github.com/heiervang-technologies/unleash/compare/v0.1.78...v0.1.79) (2026-06-27)
+
+
+### Bug Fixes
+
+* **launcher:** forward directed signals to the agent child ([#355](https://github.com/heiervang-technologies/unleash/issues/355)) ([91b6fc8](https://github.com/heiervang-technologies/unleash/commit/91b6fc855e8b94075c6c474a0ce1856bd1704e64))
+
 ## [0.1.78](https://github.com/heiervang-technologies/unleash/compare/v0.1.77...v0.1.78) (2026-06-27)
 
 
