@@ -2246,16 +2246,18 @@ mod tests {
         let pm = crate::config::ProfileManager::with_config_dir(tmp.path().to_path_buf())
             .expect("manager");
         let mut existing = pm.load_app_config().expect("load");
-        existing.custom_agents.push(crate::config::CustomAgentConfig {
-            name: "noupdate".into(),
-            binary: "noupdate".into(),
-            description: "no repo".into(),
-            polyfill: aider_def().polyfill,
-            github_repo: None,
-            npm_package: None,
-            asset_template: None,
-            enabled: true,
-        });
+        existing
+            .custom_agents
+            .push(crate::config::CustomAgentConfig {
+                name: "noupdate".into(),
+                binary: "noupdate".into(),
+                description: "no repo".into(),
+                polyfill: aider_def().polyfill,
+                github_repo: None,
+                npm_package: None,
+                asset_template: None,
+                enabled: true,
+            });
         pm.save_app_config(&existing).expect("save");
 
         let am = AgentManager::new_with_custom_for_tests(vec![]).expect("manager");
