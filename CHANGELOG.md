@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.80](https://github.com/heiervang-technologies/unleash/compare/v0.1.79...v0.1.80) (2026-06-27)
+
+
+### Bug Fixes
+
+* address several HIGH and MED security/stability findings from [#353](https://github.com/heiervang-technologies/unleash/issues/353) ([#364](https://github.com/heiervang-technologies/unleash/issues/364)) ([1700824](https://github.com/heiervang-technologies/unleash/commit/17008240f433448e96f05fb87fd7a6c9b5b94783))
+
 ## [0.1.79](https://github.com/heiervang-technologies/unleash/compare/v0.1.78...v0.1.79) (2026-06-27)
 
 
