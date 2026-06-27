@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.1.77](https://github.com/heiervang-technologies/unleash/compare/v0.1.76...v0.1.77) (2026-06-27)
+
+
+### Bug Fixes
+
+* **config:** atomic config writes + don't brick on a corrupt config.toml ([#357](https://github.com/heiervang-technologies/unleash/issues/357)) ([560e7df](https://github.com/heiervang-technologies/unleash/commit/560e7dfc13c29a42586ccf2da431d8d39e28d717))
+* **interchange:** reject non-ASCII timestamps instead of panicking ([#356](https://github.com/heiervang-technologies/unleash/issues/356)) ([821b236](https://github.com/heiervang-technologies/unleash/commit/821b236b2331c7c1efce52dedfdc879ecd6e0792))
+
 ## [0.1.76](https://github.com/heiervang-technologies/unleash/compare/v0.1.75...v0.1.76) (2026-06-26)
 
 
