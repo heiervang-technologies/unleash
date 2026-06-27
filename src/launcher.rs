@@ -23,8 +23,34 @@ use which::which;
 /// 0 = no signal, >0 = signal number (e.g. 2 for SIGINT, 15 for SIGTERM).
 static CHILD_SIGNAL: AtomicI32 = AtomicI32::new(0);
 
+/// PID of the agent child currently being waited on, or 0 when none.
+/// Read by [`child_signal_handler`] so a signal directed at the wrapper can be
+/// forwarded to the child. Set right after spawn, cleared right after reap.
+static CHILD_PID: AtomicI32 = AtomicI32::new(0);
+
+/// Signal handler installed while waiting on the agent child.
+///
+/// Records the signal (so [`run_loop`] can report a signalled exit) AND forwards
+/// it to the child. The forward is essential: terminal-generated signals
+/// (Ctrl-C) reach the child directly because it shares our process group, but a
+/// **directed** `kill(wrapper_pid, …)` — exactly what `unleash-exit` /
+/// [`trigger_exit`] and external process managers send — only hits the wrapper.
+/// Without forwarding, the child keeps running (orphaned) while `child.wait()`
+/// blocks forever. We signal the child PID specifically rather than the process
+/// group, since the child shares our group and `killpg` would re-signal us.
+///
+/// Async-signal-safe: only an atomic load and the `kill(2)` syscall.
 extern "C" fn child_signal_handler(sig: libc::c_int) {
     CHILD_SIGNAL.store(sig, Ordering::Relaxed);
+    let pid = CHILD_PID.load(Ordering::Relaxed);
+    if pid > 0 {
+        // SAFETY: `kill` is async-signal-safe. Forwarding to a since-reaped or
+        // reused PID is guarded by clearing CHILD_PID before reaping; a stray
+        // ESRCH here is harmless.
+        unsafe {
+            libc::kill(pid, sig);
+        }
+    }
 }
 
 /// Environment variable set when running under the wrapper
@@ -685,26 +711,33 @@ fn run_agent(
     // Add user arguments
     cmd.args(args);
 
-    // Reset signal flag before spawning
+    // Reset signal state before spawning.
     CHILD_SIGNAL.store(0, Ordering::Relaxed);
 
     let mut child = cmd.spawn()?;
 
-    // While the child runs, catch SIGINT/SIGTERM instead of dying immediately.
-    // The child shares our process group and receives terminal signals directly;
-    // we just need to stay alive until it exits so we can reap it cleanly.
+    // Publish the child PID so the handler can forward signals to it, then
+    // install the handler. Order matters: the PID must be visible before a
+    // signal can be delivered. While the child runs we catch SIGINT/SIGTERM/
+    // SIGHUP and forward them (see child_signal_handler) so that a directed
+    // kill of the wrapper terminates the child too instead of orphaning it.
+    CHILD_PID.store(child.id() as i32, Ordering::Relaxed);
     unsafe {
         let handler = child_signal_handler as *const () as libc::sighandler_t;
         libc::signal(libc::SIGINT, handler);
         libc::signal(libc::SIGTERM, handler);
+        libc::signal(libc::SIGHUP, handler);
     }
 
     let status = child.wait()?;
 
-    // Restore default signal handlers now that the child has exited
+    // Stop forwarding to the now-reaped child before restoring defaults, so a
+    // signal racing the reap can't be delivered to a reused PID.
+    CHILD_PID.store(0, Ordering::Relaxed);
     unsafe {
         libc::signal(libc::SIGINT, libc::SIG_DFL);
         libc::signal(libc::SIGTERM, libc::SIG_DFL);
+        libc::signal(libc::SIGHUP, libc::SIG_DFL);
     }
 
     Ok(status)
@@ -878,5 +911,57 @@ mod tests {
         assert!(!args_already_signal_resume(&s(&["--continue-on-error"])));
         assert!(!args_already_signal_resume(&s(&["--resume-id-prefix"])));
         assert!(!args_already_signal_resume(&s(&["resume-from"])));
+    }
+
+    // ── Signal forwarding (the orphaned-child fix, issue #353 H1) ───────────
+    // These mutate the process-global CHILD_PID/CHILD_SIGNAL, so they share a
+    // lock to avoid racing each other under the default parallel test runner.
+    fn signal_test_lock() -> std::sync::MutexGuard<'static, ()> {
+        use std::sync::{Mutex, OnceLock};
+        static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+        LOCK.get_or_init(|| Mutex::new(()))
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+    }
+
+    #[test]
+    #[cfg(unix)]
+    fn handler_forwards_signal_to_child() {
+        use std::os::unix::process::ExitStatusExt;
+        let _guard = signal_test_lock();
+
+        // A long-lived child the handler is expected to terminate.
+        let mut child = std::process::Command::new("sleep")
+            .arg("60")
+            .spawn()
+            .expect("spawn sleep");
+        CHILD_PID.store(child.id() as i32, Ordering::SeqCst);
+        CHILD_SIGNAL.store(0, Ordering::SeqCst);
+
+        // Invoke the handler exactly as a delivered SIGTERM would.
+        child_signal_handler(libc::SIGTERM);
+
+        // It must have (a) recorded the signal and (b) forwarded it to the child,
+        // which therefore dies promptly instead of running its full 60s.
+        let status = child.wait().expect("wait child");
+        CHILD_PID.store(0, Ordering::SeqCst);
+        assert_eq!(CHILD_SIGNAL.load(Ordering::SeqCst), libc::SIGTERM);
+        assert_eq!(
+            status.signal(),
+            Some(libc::SIGTERM),
+            "child should die from the forwarded SIGTERM, not survive (orphan bug)"
+        );
+    }
+
+    #[test]
+    #[cfg(unix)]
+    fn handler_is_noop_when_no_child() {
+        let _guard = signal_test_lock();
+        CHILD_PID.store(0, Ordering::SeqCst);
+        CHILD_SIGNAL.store(0, Ordering::SeqCst);
+        // With pid 0 the handler must NOT call kill (kill(0, …) would signal our
+        // whole process group). It should only record the signal.
+        child_signal_handler(libc::SIGTERM);
+        assert_eq!(CHILD_SIGNAL.load(Ordering::SeqCst), libc::SIGTERM);
     }
 }
