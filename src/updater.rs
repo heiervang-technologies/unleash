@@ -487,7 +487,7 @@ fn check_or_update_self(check_only: bool) -> io::Result<()> {
             } else {
                 let arch = std::env::consts::ARCH;
                 let os = std::env::consts::OS;
-                
+
                 let platform = match (os, arch) {
                     ("linux", "x86_64") => "linux-x86_64",
                     ("linux", "aarch64") => "linux-aarch64",
@@ -637,7 +637,7 @@ fn latest_embedded_version(agent_type: &AgentType) -> Option<String> {
 
     let embedded = crate::version::load_embedded_versions();
     if let Some(list) = embedded.get(key) {
-        list.iter().filter(|v| !v.contains('-')).cloned().next()
+        list.iter().find(|v| !v.contains('-')).cloned()
     } else {
         None
     }
@@ -1155,7 +1155,9 @@ fn ensure_npm() -> io::Result<Option<String>> {
     std::io::stdin().read_line(&mut input)?;
     let answer = input.trim().to_lowercase();
     if !answer.is_empty() && answer != "y" && answer != "yes" {
-        return Err(io::Error::other("npm required to install this agent (user declined nvm)"));
+        return Err(io::Error::other(
+            "npm required to install this agent (user declined nvm)",
+        ));
     }
 
     eprintln!("Installing nvm and Node.js LTS...");
@@ -1186,7 +1188,9 @@ fn ensure_npm() -> io::Result<Option<String>> {
     } else {
         eprintln!("\x1b[33m!\x1b[0m nvm installed but npm not found in current session.");
         eprintln!("  Restart your shell and try again.\n");
-        Err(io::Error::other("npm required to install this agent (nvm install failed)"))
+        Err(io::Error::other(
+            "npm required to install this agent (nvm install failed)",
+        ))
     }
 }
 
@@ -1230,7 +1234,8 @@ fn update_gemini(
     if let Some(path) = path_override {
         vm = vm.with_command_path_override(path);
     }
-    let output = vm.npm_global_command_for_self()
+    let output = vm
+        .npm_global_command_for_self()
         .args(["install", "-g", "@google/gemini-cli@latest"])
         .output()?;
 

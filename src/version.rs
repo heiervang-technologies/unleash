@@ -2384,9 +2384,7 @@ pub fn install_latest_streaming(
                 .find(|i| !i.is_installed)
                 .or_else(|| {
                     vm.get_version_list()
-                        .into_iter()
-                        .filter(|i| !i.version.contains('-'))
-                        .next()
+                        .into_iter().find(|i| !i.version.contains('-'))
                 })
                 .map(|i| i.version)
                 .ok_or_else(|| io::Error::other("no Claude version available"))?;
@@ -2407,9 +2405,7 @@ pub fn install_latest_streaming(
         AgentType::Gemini => {
             let versions = vm.get_gemini_version_list(None);
             let v = versions
-                .into_iter()
-                .filter(|i| !i.version.contains('-')) // Filter out pre-releases
-                .next()
+                .into_iter().find(|i| !i.version.contains('-'))
                 .map(|i| i.version)
                 .ok_or_else(|| io::Error::other("no Gemini version available"))?;
             let r = vm.install_gemini_version_streaming(&v, log_tx)?;
@@ -2438,9 +2434,7 @@ pub fn install_latest_streaming(
         AgentType::Pi => {
             let versions = vm.get_pi_version_list(None);
             let v = versions
-                .into_iter()
-                .filter(|i| !i.version.contains('-')) // Filter out pre-releases
-                .next()
+                .into_iter().find(|i| !i.version.contains('-'))
                 .map(|i| i.version)
                 .ok_or_else(|| io::Error::other("no Pi version available"))?;
             let r = vm.install_pi_version_streaming(&v, log_tx)?;
