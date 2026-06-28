@@ -309,6 +309,18 @@ pub struct CustomAgentConfig {
     /// NPM package name, if applicable
     #[serde(default)]
     pub npm_package: Option<String>,
+    /// Optional asset-name template for the install/update path
+    /// (Shape A escape hatch per the #338 design call). When set, overrides
+    /// the convention-based discovery and is used verbatim with the
+    /// placeholders `{name}`, `{arch}`, `{os}`, `{version}` substituted.
+    /// Examples:
+    ///   `"{name}-{version}-{arch}-{os}.tar.gz"`
+    ///   `"my-cli_{os}_{arch}"`
+    /// When unset, `unleash agents update` falls back to convention-based
+    /// discovery: it tries a handful of common `<name>-<arch>-<os>[.ext]`
+    /// patterns against the latest GitHub release's asset list.
+    #[serde(default)]
+    pub asset_template: Option<String>,
     /// Whether this custom agent is enabled
     #[serde(default = "default_true_config")]
     pub enabled: bool,

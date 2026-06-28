@@ -836,6 +836,7 @@ impl CustomAgentDraft {
             },
             github_repo: None,
             npm_package: None,
+            asset_template: None,
             enabled: true,
         })
     }
@@ -8081,6 +8082,7 @@ mod tests {
             polyfill: AgentDefinition::claude().polyfill,
             github_repo: None,
             npm_package: None,
+            asset_template: None,
             enabled: true,
         };
         app.app_config.custom_agents.push(cfg);
@@ -8166,6 +8168,7 @@ mod tests {
             polyfill: AgentDefinition::claude().polyfill,
             github_repo: None,
             npm_package: None,
+            asset_template: None,
             enabled: true,
         };
         app.install_custom_agent(cfg);
