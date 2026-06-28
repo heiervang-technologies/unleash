@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.81](https://github.com/heiervang-technologies/unleash/compare/v0.1.80...v0.1.81) (2026-06-28)
+
+
+### Features
+
+* **custom-agents:** install/update via Shape B convention + Shape A template ([#338](https://github.com/heiervang-technologies/unleash/issues/338)) ([#363](https://github.com/heiervang-technologies/unleash/issues/363)) ([fb1ead9](https://github.com/heiervang-technologies/unleash/commit/fb1ead94db7c84c5f69759d5621c77dc69197d57))
+
 ## [0.1.80](https://github.com/heiervang-technologies/unleash/compare/v0.1.79...v0.1.80) (2026-06-27)
 
 
