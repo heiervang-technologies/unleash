@@ -165,6 +165,7 @@ Features that unleash adds on top of the base agent CLIs:
 - **Voice output**: Multi-provider TTS for agent responses (VibeVoice, OpenAI, ElevenLabs)
 - **Profile system**: Named configurations with per-agent settings, env vars, and themes
 - **Parallel updates**: Update all agents simultaneously with progress visualization
+- **Skill synchronization**: Sync custom agent skills and instruction sets across all harnesses (`unleash skills sync`)
 
 ### Cross-CLI Session Crossload
 
@@ -194,6 +195,18 @@ unleash claude -x                    # Interactive session picker
 :green_circle: Lossless · :yellow_circle: Partial · :white_circle: Pending — [Full matrix](docs/crossload-matrix.md)
 
 Pi / Hermes / Antigravity (`agy`) are wired but not in the headline matrix yet — see [Additional CLIs](docs/crossload-matrix.md#additional-clis).
+
+### Cross-CLI Skill Synchronization
+
+Sync custom agent skills, custom commands, and references across all your harnesses. Define a skill once in Claude or OpenCode, and run everywhere:
+
+```bash
+unleash skills sync                 # Sync from source to all targets
+unleash skills list                 # List active skills across harnesses
+unleash skills status               # Show the status matrix
+```
+
+See [Skill Synchronization](docs/skillsync.md) and the [Fidelity Matrix](docs/skillsync-matrix.md) for full details.
 
 ### On the Roadmap
 
@@ -247,6 +260,7 @@ All extended functionality is implemented as plugins in `plugins/bundled/`:
 | **process-restart** | Self-restart with session preservation |
 | **hyprland-focus** | Window transparency on Hyprland during agent work |
 | **omnihook** | Unified hook handler with voice input integration |
+| **skillsync** | Cross-CLI skill & prompt synchronization |
 
 ### Creating Plugins
 

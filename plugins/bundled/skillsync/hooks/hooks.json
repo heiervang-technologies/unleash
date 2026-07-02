@@ -1,0 +1,15 @@
+{
+  "description": "SkillSync SessionStart hook: synchronize configured agent skills across harnesses",
+  "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "${CLAUDE_PLUGIN_ROOT}/hooks-handlers/skillsync-session-start.sh"
+          }
+        ]
+      }
+    ]
+  }
+}

@@ -1,0 +1,32 @@
+{
+  "name": "skillsync",
+  "description": "Cross-CLI Skill Synchronization - automatically synchronizes active agent skills, custom commands, and references across all terminal AI harnesses",
+  "version": "1.0.0",
+  "author": {
+    "name": "Heiervang Technologies",
+    "email": "support@heiervang.com"
+  },
+  "settings": {
+    "source": {
+      "type": "choice",
+      "choices": ["claude", "codex", "gemini", "opencode", "hub"],
+      "default": "claude",
+      "label": "Source Harness",
+      "description": "The primary source CLI to synchronize skills from"
+    },
+    "sync_on_launch": {
+      "type": "choice",
+      "choices": ["on", "off"],
+      "default": "on",
+      "label": "Sync on Launch",
+      "description": "Trigger synchronization automatically when starting a session"
+    },
+    "delete_orphans": {
+      "type": "choice",
+      "choices": ["on", "off"],
+      "default": "off",
+      "label": "Delete Orphans",
+      "description": "Remove skills from target harnesses when deleted from the source"
+    }
+  }
+}
