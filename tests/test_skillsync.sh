@@ -6,6 +6,14 @@ set -uo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(dirname "$SCRIPT_DIR")"
 PLUGIN_DIR="$REPO_ROOT/plugins/bundled/skillsync"
+SANDBOX_HOME="$(mktemp -d)"
+export HOME="$SANDBOX_HOME"
+export XDG_DATA_HOME="$SANDBOX_HOME/.local/share"
+
+cleanup() {
+  rm -rf "$SANDBOX_HOME"
+}
+trap cleanup EXIT
 
 TESTS_RUN=0
 TESTS_FAILED=0
@@ -41,17 +49,15 @@ for script in "$PLUGIN_DIR/scripts/check-enabled.sh" "$PLUGIN_DIR/hooks-handlers
   fi
 done
 
-tmp_home="$(mktemp -d)"
 PATH_BACKUP="$PATH"
 BASH_BIN="$(command -v bash)"
 PATH="/usr/bin:/bin"
-if HOME="$tmp_home" PATH="$PATH" "$BASH_BIN" "$PLUGIN_DIR/hooks-handlers/skillsync-session-start.sh" <<<"{}"; then
+if PATH="$PATH" "$BASH_BIN" "$PLUGIN_DIR/hooks-handlers/skillsync-session-start.sh" <<<"{}"; then
   pass "SessionStart hook survives empty JSON payload without unleash on PATH"
 else
   fail "SessionStart hook survives empty JSON payload without unleash on PATH"
 fi
 PATH="$PATH_BACKUP"
-rm -rf "$tmp_home"
 
 if [[ -s "$PLUGIN_DIR/commands/skillsync.md" ]]; then
   pass "slash command exists"
