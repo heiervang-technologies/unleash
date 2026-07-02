@@ -1395,23 +1395,23 @@ fn handle_skills(action: cli::SkillsAction, json: bool) -> io::Result<()> {
                 );
                 println!("{}", "-".repeat(110));
                 for row in rows {
-                    let cell = |h| -> &'static str {
+                    let cell = |h| -> String {
                         let present = row.present.get(&h).copied().unwrap_or(false);
                         let enabled = row.enabled.get(&h).copied().unwrap_or(true);
                         if !enabled {
-                            return "off";
+                            return "🔴 off".to_string();
                         }
                         if !present {
-                            return "-";
+                            return "-".to_string();
                         }
                         match h {
-                            skillsync::Harness::Claude => "Native",
-                            skillsync::Harness::Codex => "Prompt",
-                            skillsync::Harness::Gemini => "Command",
-                            skillsync::Harness::OpenCode => "Reference",
-                            skillsync::Harness::Pi => "Reference",
-                            skillsync::Harness::Hermes => "Reference",
-                            skillsync::Harness::Agy => "Command",
+                            skillsync::Harness::Claude => "🟢 Native".to_string(),
+                            skillsync::Harness::Codex => "🟡 Prompt".to_string(),
+                            skillsync::Harness::Gemini => "🟡 Command".to_string(),
+                            skillsync::Harness::OpenCode => "⚪ Reference".to_string(),
+                            skillsync::Harness::Pi => "⚪ Reference".to_string(),
+                            skillsync::Harness::Hermes => "⚪ Reference".to_string(),
+                            skillsync::Harness::Agy => "🟡 Command".to_string(),
                         }
                     };
                     println!(
