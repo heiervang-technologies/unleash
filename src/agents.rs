@@ -799,9 +799,8 @@ impl AgentManager {
                 if let Ok(bin_path) = which::which(&agent.binary) {
                     if let Ok(output) = Command::new(&bin_path).arg("--version").output() {
                         let stdout = String::from_utf8_lossy(&output.stdout);
-                        version = Self::parse_version(&stdout).or_else(|| {
-                            stdout.lines().next().map(|s| s.trim().to_string())
-                        });
+                        version = Self::parse_version(&stdout)
+                            .or_else(|| stdout.lines().next().map(|s| s.trim().to_string()));
                     }
                 }
             }
