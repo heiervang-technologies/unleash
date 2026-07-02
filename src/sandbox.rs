@@ -966,9 +966,7 @@ pub fn run_agent(
     let mut network_ok = true;
     if !network_exists() {
         network_ok = false;
-        eprintln!(
-            "\x1b[31merror:\x1b[0m Sandbox network not found. LAN isolation is not active."
-        );
+        eprintln!("\x1b[31merror:\x1b[0m Sandbox network not found. LAN isolation is not active.");
         eprintln!("  Fix: sudo unleash sandbox setup");
     }
 
@@ -1248,8 +1246,19 @@ pub fn handle_sandbox(action: Option<&SandboxAction>) -> io::Result<()> {
         Some(SandboxAction::Status) => return run_status(docker_dir.as_deref()),
         Some(SandboxAction::List) => return run_list(),
         Some(SandboxAction::Enter { target, shell }) => return run_enter(target, shell),
-        Some(SandboxAction::Run { name, agent, args, i_know_its_unsafe }) => {
-            return run_agent(docker_dir.as_deref(), agent, name, args.as_slice(), *i_know_its_unsafe)
+        Some(SandboxAction::Run {
+            name,
+            agent,
+            args,
+            i_know_its_unsafe,
+        }) => {
+            return run_agent(
+                docker_dir.as_deref(),
+                agent,
+                name,
+                args.as_slice(),
+                *i_know_its_unsafe,
+            )
         }
         _ => {}
     }
