@@ -54,7 +54,7 @@ Different harnesses support different concepts of "skills". Unleash maps them in
 | Target Harness | Target Representation | Sync Fidelity | Notes |
 |---|---|---|---|
 | **Claude** | `~/.claude/skills/<name>/SKILL.md` | **Native** | Native format, supports support files and triggers. |
-| **OpenCode** | `~/.config/opencode/agent/<name>.md` | **Native** | Native markdown layout, supports directory-based lookup. |
+| **OpenCode** | `~/.config/opencode/AGENTS.md` | **Reference** | Appended as instruction reference block. |
 | **Codex** | `~/.codex/prompts/<name>.md` | **Degraded** | Converted to custom prompt template. |
 | **Gemini** | `~/.gemini/commands/<name>.toml` | **Degraded** | Converted to custom `/` slash command. |
 | **Agy** | `~/.gemini/commands/<name>.toml` | **Degraded** | Inherits Gemini command layout. |
@@ -70,9 +70,9 @@ The `unleash skills status` command prints a tabular matrix showing the current 
 ```
 SKILL                  CLAUDE       CODEX        GEMINI       OPENCODE     PI           HERMES       AGY
 -------------------------------------------------------------------------------------------------------------
-git-expert             🟢 Native    🟡 Prompt    🟡 Command   🟢 Native    ⚪ Reference ⚪ Reference  🟡 Command
-ui-builder             🟢 Native    🟡 Prompt    🟡 Command   🟢 Native    ⚪ Reference ⚪ Reference  🟡 Command
-db-debugger            🟢 Native    🟡 Prompt    🟡 Command   🟢 Native    ⚪ Reference ⚪ Reference  🟡 Command
+git-expert             🟢 Native    🟡 Prompt    🟡 Command   ⚪ Reference ⚪ Reference ⚪ Reference  🟡 Command
+ui-builder             🟢 Native    🟡 Prompt    🟡 Command   ⚪ Reference ⚪ Reference ⚪ Reference  🟡 Command
+db-debugger            🟢 Native    🟡 Prompt    🟡 Command   ⚪ Reference ⚪ Reference ⚪ Reference  🟡 Command
 ```
 
 *   `🟢 Native`: Lossless synchronization of the full skill directory.
@@ -83,7 +83,7 @@ db-debugger            🟢 Native    🟡 Prompt    🟡 Command   🟢 Native 
 
 ## Known Limitations
 
-*   **Auto-activation triggers**: Claude and OpenCode support auto-activating skills based on file matches or queries. Converted prompts (Codex) and commands (Gemini) must be triggered manually by name (e.g. `/git-expert` or `/refactor`).
+*   **Auto-activation triggers**: Claude supports auto-activating skills based on file matches or queries. Converted prompts (Codex) and commands (Gemini) must be triggered manually by name (e.g. `/git-expert` or `/refactor`).
 *   **Support Files**: Non-native targets (Codex, Gemini, Pi, Hermes) discard helper scripts and resources (e.g. `scripts/` or `templates/` folders) because they only accept flat text instructions.
 *   **Deletions**: If `delete_orphans` is disabled, deleting a skill from the source harness will leave the degraded files intact on the targets.
 
