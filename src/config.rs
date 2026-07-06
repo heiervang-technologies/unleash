@@ -15,7 +15,7 @@ use std::path::{Path, PathBuf};
 /// same filesystem, so a crash, kill, or full disk mid-write leaves either the
 /// old file or the new one intact — never a truncated config that would fail to
 /// parse (and, via the migration path, panic) on the next launch.
-fn atomic_write(path: &Path, content: &str) -> io::Result<()> {
+pub(crate) fn atomic_write(path: &Path, content: &str) -> io::Result<()> {
     let (Some(dir), Some(name)) = (
         path.parent().filter(|p| !p.as_os_str().is_empty()),
         path.file_name(),
