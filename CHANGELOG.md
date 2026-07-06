@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.83](https://github.com/heiervang-technologies/unleash/compare/v0.1.82...v0.1.83) (2026-07-06)
+
+
+### Bug Fixes
+
+* update anyhow to 1.0.103 to fix RUSTSEC-2026-0190 ([#372](https://github.com/heiervang-technologies/unleash/issues/372)) ([a647c8f](https://github.com/heiervang-technologies/unleash/commit/a647c8f9d6deb8ca2f81eacfcb7c06a293fc6428))
+
 ## [0.1.82](https://github.com/heiervang-technologies/unleash/compare/v0.1.81...v0.1.82) (2026-07-02)
 
 
