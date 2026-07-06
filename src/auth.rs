@@ -56,24 +56,22 @@ impl AuthStatus {
 
 /// Check Claude Code authentication status
 pub fn check_auth() -> AuthStatus {
-    // 1. Check OAuth token environment variable
-    if env::var("CLAUDE_CODE_OAUTH_TOKEN").is_ok() {
-        return AuthStatus::OAuthToken;
+    // 1. Check OAuth token environment variable — must be non-empty
+    if let Ok(token) = env::var("CLAUDE_CODE_OAUTH_TOKEN") {
+        if !token.trim().is_empty() {
+            return AuthStatus::OAuthToken;
+        }
     }
 
     // 2. Check credentials file
     if let Some(home) = dirs::home_dir() {
         let creds_file = home.join(".claude/.credentials.json");
         if creds_file.exists() && creds_file.is_file() {
-            // Verify it's valid JSON with OAuth data
             if let Ok(contents) = fs::read_to_string(&creds_file) {
-                // Check for required OAuth fields
-                if contents.contains("claudeAiOauth") && contents.contains("accessToken") {
+                if credentials_json_is_valid(&contents) {
                     return AuthStatus::CredentialsFile(creds_file);
                 }
-                // File exists but doesn't have required OAuth fields - not valid
             }
-            // Can't read the file or missing OAuth fields - not valid authentication
         }
     }
 
@@ -83,6 +81,23 @@ pub fn check_auth() -> AuthStatus {
     }
 
     AuthStatus::NotFound
+}
+
+/// Return true iff the credentials file JSON has a non-empty
+/// `claudeAiOauth.accessToken` string. Substring matching is unsafe
+/// here — a stale file with the right field *names* but empty values
+/// would look valid, and unleash would report "authenticated" while
+/// Claude Code fails at runtime.
+fn credentials_json_is_valid(contents: &str) -> bool {
+    let Ok(value) = serde_json::from_str::<serde_json::Value>(contents) else {
+        return false;
+    };
+    value
+        .get("claudeAiOauth")
+        .and_then(|oauth| oauth.get("accessToken"))
+        .and_then(|token| token.as_str())
+        .map(|token| !token.is_empty())
+        .unwrap_or(false)
 }
 
 /// Check if Claude credentials exist in macOS Keychain
@@ -98,6 +113,19 @@ fn check_macos_keychain() -> bool {
 #[cfg(not(target_os = "macos"))]
 fn check_macos_keychain() -> bool {
     false
+}
+
+/// Redact the middle of a token for diagnostic display. Char-based,
+/// so a stray multibyte character in a malformed token doesn't abort
+/// the process on `--verbose`.
+fn token_preview(token: &str) -> String {
+    let char_count = token.chars().count();
+    if char_count <= 20 {
+        return token.to_string();
+    }
+    let head: String = token.chars().take(10).collect();
+    let tail: String = token.chars().skip(char_count - 10).collect();
+    format!("{head}...{tail}")
 }
 
 /// Run the auth-check command
@@ -140,12 +168,7 @@ pub fn run(verbose: bool, json: bool, quiet: bool) -> io::Result<ExitCode> {
                 AuthStatus::OAuthToken => {
                     println!("  • OAuth token from CLAUDE_CODE_OAUTH_TOKEN environment variable");
                     if let Ok(token) = env::var("CLAUDE_CODE_OAUTH_TOKEN") {
-                        let preview = if token.len() > 20 {
-                            format!("{}...{}", &token[..10], &token[token.len() - 10..])
-                        } else {
-                            token
-                        };
-                        println!("  • Token preview: {}", preview);
+                        println!("  • Token preview: {}", token_preview(&token));
                     }
                 }
                 AuthStatus::CredentialsFile(path) => {
@@ -239,5 +262,71 @@ mod tests {
         assert!(AuthStatus::CredentialsFile(PathBuf::new()).is_authenticated());
         assert!(AuthStatus::MacOSKeychain.is_authenticated());
         assert!(!AuthStatus::NotFound.is_authenticated());
+    }
+
+    // ── credentials_json_is_valid ────────────────────────────
+
+    #[test]
+    fn credentials_valid_when_access_token_non_empty() {
+        let json = r#"{"claudeAiOauth":{"accessToken":"sk-ant-oat-abc123"}}"#;
+        assert!(credentials_json_is_valid(json));
+    }
+
+    #[test]
+    fn credentials_invalid_when_access_token_empty() {
+        let json = r#"{"claudeAiOauth":{"accessToken":""}}"#;
+        assert!(!credentials_json_is_valid(json));
+    }
+
+    #[test]
+    fn credentials_invalid_when_access_token_null() {
+        let json = r#"{"claudeAiOauth":{"accessToken":null}}"#;
+        assert!(!credentials_json_is_valid(json));
+    }
+
+    #[test]
+    fn credentials_invalid_when_oauth_missing() {
+        let json = r#"{"other":"data"}"#;
+        assert!(!credentials_json_is_valid(json));
+    }
+
+    #[test]
+    fn credentials_invalid_when_not_json() {
+        // Prior substring check accepted any file mentioning the two field
+        // names; a comment-only file used to pass.
+        let text = "# note: removed claudeAiOauth and accessToken from this file";
+        assert!(!credentials_json_is_valid(text));
+    }
+
+    #[test]
+    fn credentials_invalid_when_access_token_is_number() {
+        let json = r#"{"claudeAiOauth":{"accessToken":123}}"#;
+        assert!(!credentials_json_is_valid(json));
+    }
+
+    // ── token_preview ────────────────────────────────────────
+
+    #[test]
+    fn token_preview_short_token_returned_verbatim() {
+        assert_eq!(token_preview("short"), "short");
+        assert_eq!(token_preview(""), "");
+    }
+
+    #[test]
+    fn token_preview_long_token_redacts_middle() {
+        let token = "sk-ant-oat-0123456789abcdef";
+        let preview = token_preview(token);
+        assert!(preview.starts_with("sk-ant-oat"), "got {preview}");
+        assert!(preview.contains("..."));
+        assert_eq!(preview.chars().filter(|c| *c != '.').count(), 20);
+    }
+
+    #[test]
+    fn token_preview_does_not_panic_on_multibyte() {
+        // Previously `&token[..10]` byte-indexed the string and would
+        // abort on a multibyte character boundary.
+        let token = "🔑".repeat(30);
+        let preview = token_preview(&token);
+        assert_eq!(preview.chars().filter(|c| *c == '🔑').count(), 20);
     }
 }
