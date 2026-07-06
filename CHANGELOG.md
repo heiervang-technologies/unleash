@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.84](https://github.com/heiervang-technologies/unleash/compare/v0.1.83...v0.1.84) (2026-07-06)
+
+
+### Bug Fixes
+
+* **hooks:** atomic write for ~/.claude/settings.json ([#377](https://github.com/heiervang-technologies/unleash/issues/377)) ([f88165b](https://github.com/heiervang-technologies/unleash/commit/f88165ba7f257e6d4f40b7767dcc9ca15cc3a658)), closes [#353](https://github.com/heiervang-technologies/unleash/issues/353)
+
 ## [0.1.83](https://github.com/heiervang-technologies/unleash/compare/v0.1.82...v0.1.83) (2026-07-06)
 
 
