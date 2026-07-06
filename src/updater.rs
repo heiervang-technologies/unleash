@@ -1720,7 +1720,7 @@ mod tests {
 
     #[test]
     fn self_update_script_uses_mktemp_not_hardcoded_path() {
-        let script = self_update_script();
+        let script = self_update_script("v0.1.82", "linux");
         assert!(
             script.contains("mktemp -d"),
             "self-update must use mktemp to avoid colliding with prior runs: {script}"
@@ -1733,7 +1733,7 @@ mod tests {
 
     #[test]
     fn self_update_script_traps_cleanup_on_exit() {
-        let script = self_update_script();
+        let script = self_update_script("v0.1.82", "linux");
         assert!(
             script.contains("trap") && script.contains("EXIT"),
             "self-update must use trap-on-EXIT so cleanup runs on failure too: {script}"
@@ -1746,7 +1746,7 @@ mod tests {
 
     #[test]
     fn self_update_script_propagates_fallible_step_failures() {
-        let script = self_update_script();
+        let script = self_update_script("v0.1.82", "linux");
         // Both mktemp and gh repo clone must short-circuit with || exit on
         // failure so the calling Rust sees output.status.success() == false
         // and surfaces stderr to the user instead of swallowing it.
@@ -1759,7 +1759,7 @@ mod tests {
 
     #[test]
     fn self_update_script_does_not_suppress_stderr() {
-        let script = self_update_script();
+        let script = self_update_script("v0.1.82", "linux");
         // The previous `2>/dev/null` masked gh's stderr so users saw
         // "update failed:" with no reason. The replacement must leave stderr
         // intact so the Rust caller can surface it.
