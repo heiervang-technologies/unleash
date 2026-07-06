@@ -1,6 +1,6 @@
 [package]
 name = "unleash"
-version = "0.1.83"
+version = "0.1.84"
 edition = "2021"
 description = "Extended CLI for AI code agents — version manager, polyfill layer, cross-CLI session crossload, plugins"
 authors = ["Heiervang Technologies"]
