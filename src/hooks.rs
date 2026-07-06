@@ -176,16 +176,21 @@ impl HookManager {
         }
     }
 
-    /// Write Claude Code settings
+    /// Write Claude Code settings atomically.
+    ///
+    /// A crash or concurrent unleash run mid-write on
+    /// `~/.claude/settings.json` used to leave the file truncated, which
+    /// Claude Code refuses to start against. The write now goes through a
+    /// temp file + rename in the same directory (POSIX-atomic on same-fs),
+    /// so the file is either fully old or fully new — never partial.
     pub fn write_settings(&self, settings: &Value) -> io::Result<()> {
-        // Ensure ~/.claude directory exists
         if let Some(parent) = self.installation.settings_path.parent() {
             fs::create_dir_all(parent)?;
         }
 
         let content = serde_json::to_string_pretty(settings)
             .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e.to_string()))?;
-        fs::write(&self.installation.settings_path, content)
+        crate::config::atomic_write(&self.installation.settings_path, &content)
     }
 
     /// Install a hook script to the hooks directory
@@ -1192,6 +1197,43 @@ mod tests {
             stop[0].contains("omnihook"),
             "omnihook should remain, got: {stop:?}"
         );
+    }
+
+    // ── atomic write ─────────────────────────────────────────
+
+    #[test]
+    fn test_write_settings_is_atomic_no_temp_leftover() {
+        let tmp = tempfile::tempdir().unwrap();
+        let mgr = test_manager(tmp.path());
+
+        // Two successive writes, then verify no temp files remain
+        // (regression guard for the old non-atomic path leaving `.tmp.*`
+        // fragments on error, and for future refactors that might drop
+        // the atomic wrapper).
+        mgr.register_hook(HookEvent::PreCompact, "/a.sh", None)
+            .unwrap();
+        mgr.register_hook(HookEvent::Stop, "/b.sh", None).unwrap();
+
+        let dir = mgr.installation.settings_path.parent().unwrap();
+        let leftovers: Vec<_> = fs::read_dir(dir)
+            .unwrap()
+            .filter_map(|e| e.ok())
+            .filter(|e| {
+                e.file_name()
+                    .to_string_lossy()
+                    .contains("settings.json.tmp")
+            })
+            .collect();
+        assert!(
+            leftovers.is_empty(),
+            "atomic write left temp files behind: {leftovers:?}"
+        );
+
+        // File is valid JSON and contains both registrations.
+        let content = fs::read_to_string(&mgr.installation.settings_path).unwrap();
+        let parsed: serde_json::Value = serde_json::from_str(&content).unwrap();
+        assert!(parsed["hooks"]["PreCompact"].is_array());
+        assert!(parsed["hooks"]["Stop"].is_array());
     }
 
     #[test]
