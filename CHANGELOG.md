@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.88](https://github.com/heiervang-technologies/unleash/compare/v0.1.87...v0.1.88) (2026-07-08)
+
+
+### Bug Fixes
+
+* **tui:** use char indices in TextInput to avoid multibyte panic ([#378](https://github.com/heiervang-technologies/unleash/issues/378)) ([e90a696](https://github.com/heiervang-technologies/unleash/commit/e90a696a30a51f42030f324a847e43d00e96dafd)), closes [#353](https://github.com/heiervang-technologies/unleash/issues/353)
+
 ## [0.1.87](https://github.com/heiervang-technologies/unleash/compare/v0.1.86...v0.1.87) (2026-07-08)
 
 
