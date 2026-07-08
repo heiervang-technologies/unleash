@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.89](https://github.com/heiervang-technologies/unleash/compare/v0.1.88...v0.1.89) (2026-07-08)
+
+
+### Bug Fixes
+
+* **tui:** truncate text input at char boundary ([#390](https://github.com/heiervang-technologies/unleash/issues/390)) ([191b501](https://github.com/heiervang-technologies/unleash/commit/191b5013c6bfa09a04e222bca9e8243b72eb276a))
+
 ## [0.1.88](https://github.com/heiervang-technologies/unleash/compare/v0.1.87...v0.1.88) (2026-07-08)
 
 
