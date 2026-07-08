@@ -742,6 +742,12 @@ pub enum Commands {
         verify: bool,
     },
 
+    /// Synchronize Agent Skills across supported agent CLIs
+    Skills {
+        #[command(subcommand)]
+        action: SkillsAction,
+    },
+
     /// Run agents in a sandboxed Docker container with gVisor + LAN isolation
     ///
     /// Examples:
@@ -809,6 +815,37 @@ pub enum SessionsAction {
         /// Garbage collect: remove source-gone entries from the cache
         #[arg(long)]
         gc: bool,
+    },
+}
+
+#[derive(Subcommand, Debug)]
+pub enum SkillsAction {
+    /// List discovered skills across all harnesses
+    List,
+
+    /// Synchronize skills from a source harness or the unleash hub
+    Sync {
+        /// Source harness (claude, codex, gemini, opencode, agy, pi, hermes, hub)
+        #[arg(long)]
+        from: Option<String>,
+
+        /// Delete skills from the hub and targets when absent from the source
+        #[arg(long)]
+        delete_orphans: bool,
+    },
+
+    /// Show per-harness skill availability and installation status
+    Status,
+
+    /// Show what sync would change without writing
+    Diff {
+        /// Source harness (claude, codex, gemini, opencode, agy, pi, hermes, hub)
+        #[arg(long)]
+        from: Option<String>,
+
+        /// Include orphan deletions that would happen with sync --delete-orphans
+        #[arg(long)]
+        delete_orphans: bool,
     },
 }
 

@@ -22,6 +22,7 @@ pub mod polyfill;
 mod progress;
 mod sandbox;
 pub mod search;
+pub mod skillsync;
 #[cfg(feature = "tui")]
 mod text_input;
 pub mod theme;
@@ -562,6 +563,7 @@ pub(crate) fn is_known_subcommand(first_arg: &str) -> bool {
             | "sessions"
             | "search"
             | "convert"
+            | "skills"
             | "sandbox"
             | "token-count"
             | "config"
@@ -1298,6 +1300,7 @@ pub fn run() -> io::Result<()> {
                 .map_err(|e| io::Error::other(e.to_string()))?;
             Ok(())
         }
+        Some(Commands::Skills { action }) => handle_skills(action, cli.json),
         Some(Commands::Search {
             query,
             reindex,
@@ -1326,6 +1329,135 @@ pub fn run() -> io::Result<()> {
                 println!();
                 Ok(())
             }
+        }
+    }
+}
+
+fn handle_skills(action: cli::SkillsAction, json: bool) -> io::Result<()> {
+    match action {
+        cli::SkillsAction::List => {
+            let locations =
+                skillsync::discover_all().map_err(|e| io::Error::other(e.to_string()))?;
+            if json {
+                json_output::print_json(&locations);
+            } else if locations.is_empty() {
+                println!("No skills found.");
+            } else {
+                println!(
+                    "{:<10} {:<10} {:<28} LOCATION",
+                    "HARNESS", "FIDELITY", "NAME"
+                );
+                println!("{}", "-".repeat(96));
+                for loc in locations {
+                    println!(
+                        "{:<10} {:<10} {:<28} {}",
+                        loc.harness,
+                        loc.fidelity,
+                        loc.skill.name,
+                        loc.skill.path.display()
+                    );
+                }
+            }
+            Ok(())
+        }
+        cli::SkillsAction::Sync {
+            from,
+            delete_orphans,
+        } => {
+            let source = match from.as_deref() {
+                Some("hub") => None,
+                None => Some(skillsync::Harness::Claude),
+                Some(value) => Some(
+                    value
+                        .parse::<skillsync::Harness>()
+                        .map_err(|e| io::Error::other(e.to_string()))?,
+                ),
+            };
+            let changes = skillsync::sync(source, delete_orphans)
+                .map_err(|e| io::Error::other(e.to_string()))?;
+            if json {
+                json_output::print_json(&changes);
+            } else if changes.is_empty() {
+                println!("No skill changes.");
+            } else {
+                for change in changes {
+                    println!("{change}");
+                }
+            }
+            Ok(())
+        }
+        cli::SkillsAction::Status => {
+            let rows = skillsync::status().map_err(|e| io::Error::other(e.to_string()))?;
+            if json {
+                json_output::print_json(&rows);
+            } else if rows.is_empty() {
+                println!("No skills found.");
+            } else {
+                println!(
+                    "{:<22} {:<12} {:<12} {:<12} {:<12} {:<12} {:<12} {:<12}",
+                    "SKILL", "CLAUDE", "CODEX", "GEMINI", "OPENCODE", "PI", "HERMES", "AGY"
+                );
+                println!("{}", "-".repeat(110));
+                for row in rows {
+                    let cell = |h| -> String {
+                        let present = row.present.get(&h).copied().unwrap_or(false);
+                        let enabled = row.enabled.get(&h).copied().unwrap_or(true);
+                        if !enabled {
+                            return "🔴 off".to_string();
+                        }
+                        if !present {
+                            return "-".to_string();
+                        }
+                        match h {
+                            skillsync::Harness::Claude => "🟢 Native".to_string(),
+                            skillsync::Harness::Codex => "🟡 Prompt".to_string(),
+                            skillsync::Harness::Gemini => "🟡 Command".to_string(),
+                            skillsync::Harness::OpenCode => "⚪ Reference".to_string(),
+                            skillsync::Harness::Pi => "⚪ Reference".to_string(),
+                            skillsync::Harness::Hermes => "⚪ Reference".to_string(),
+                            skillsync::Harness::Agy => "🟡 Command".to_string(),
+                        }
+                    };
+                    println!(
+                        "{:<22} {:<12} {:<12} {:<12} {:<12} {:<12} {:<12} {:<12}",
+                        row.name.chars().take(21).collect::<String>(),
+                        cell(skillsync::Harness::Claude),
+                        cell(skillsync::Harness::Codex),
+                        cell(skillsync::Harness::Gemini),
+                        cell(skillsync::Harness::OpenCode),
+                        cell(skillsync::Harness::Pi),
+                        cell(skillsync::Harness::Hermes),
+                        cell(skillsync::Harness::Agy),
+                    );
+                }
+            }
+            Ok(())
+        }
+        cli::SkillsAction::Diff {
+            from,
+            delete_orphans,
+        } => {
+            let source = match from.as_deref() {
+                Some("hub") => None,
+                None => Some(skillsync::Harness::Claude),
+                Some(value) => Some(
+                    value
+                        .parse::<skillsync::Harness>()
+                        .map_err(|e| io::Error::other(e.to_string()))?,
+                ),
+            };
+            let planned = skillsync::diff(source, delete_orphans)
+                .map_err(|e| io::Error::other(e.to_string()))?;
+            if json {
+                json_output::print_json(&planned);
+            } else if planned.is_empty() {
+                println!("No skill changes.");
+            } else {
+                for line in planned {
+                    println!("{line}");
+                }
+            }
+            Ok(())
         }
     }
 }
