@@ -343,12 +343,11 @@ fn extract_content_blocks(val: &Value, msg_type: &str) -> Result<Vec<ContentBloc
     let message = val.get("message");
 
     if msg_type == "assistant" {
-        let content_arr = message
-            .and_then(|m| m.get("content"))
-            .and_then(|c| c.as_array());
-        match content_arr {
-            Some(arr) => arr.iter().map(claude_content_to_hub).collect(),
-            None => Ok(vec![]),
+        let content = message.and_then(|m| m.get("content"));
+        match content {
+            Some(Value::String(s)) => Ok(vec![ContentBlock::Text { text: s.clone() }]),
+            Some(Value::Array(arr)) => arr.iter().map(claude_content_to_hub).collect(),
+            _ => Ok(vec![]),
         }
     } else {
         let content = message.and_then(|m| m.get("content"));
@@ -416,22 +415,32 @@ fn claude_content_to_hub(block: &Value) -> Result<ContentBlock, ConvertError> {
             encrypted_data: None,
             timestamp: None,
         }),
-        "image" => Ok(ContentBlock::Image {
-            media_type: block
-                .get("source")
-                .and_then(|s| s.get("media_type"))
+        "image" => {
+            let source = block.get("source");
+            let source_url = source
+                .and_then(|s| s.get("url"))
                 .and_then(|v| v.as_str())
-                .unwrap_or("image/png")
-                .to_string(),
-            encoding: "base64".to_string(),
-            data: block
-                .get("source")
+                .map(String::from);
+            let data = source
                 .and_then(|s| s.get("data"))
                 .and_then(|v| v.as_str())
                 .unwrap_or("")
-                .to_string(),
-            source_url: None,
-        }),
+                .to_string();
+            Ok(ContentBlock::Image {
+                media_type: source
+                    .and_then(|s| s.get("media_type"))
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("image/png")
+                    .to_string(),
+                encoding: if source_url.is_some() && data.is_empty() {
+                    "url".to_string()
+                } else {
+                    "base64".to_string()
+                },
+                data,
+                source_url,
+            })
+        }
         _ => Ok(ContentBlock::Text {
             text: format!("[Unknown block type: {block_type}]"),
         }),
@@ -808,13 +817,20 @@ fn hub_content_to_claude(blocks: &[ContentBlock]) -> Vec<Value> {
                 }
             }
             ContentBlock::Image {
-                media_type, data, ..
-            } => {
-                serde_json::json!({
+                media_type,
+                data,
+                source_url,
+                ..
+            } => match source_url {
+                Some(url) if data.is_empty() => serde_json::json!({
+                    "type": "image",
+                    "source": {"type": "url", "url": url}
+                }),
+                _ => serde_json::json!({
                     "type": "image",
                     "source": {"type": "base64", "media_type": media_type, "data": data}
-                })
-            }
+                }),
+            },
             _ => serde_json::json!({"type": "text", "text": "[unconverted block]"}),
         })
         .collect()
@@ -892,6 +908,55 @@ mod tests {
 
         let orig_val: Value = serde_json::from_str(original).unwrap();
         semantic_eq(&orig_val, &back[0]).unwrap();
+    }
+
+    #[test]
+    fn test_assistant_string_content_is_preserved() {
+        let original = r#"{"type":"assistant","message":{"role":"assistant","content":"plain assistant text"},"uuid":"a1","timestamp":"2026-03-29T12:01:00Z","sessionId":"s1"}"#;
+
+        let reader = std::io::BufReader::new(original.as_bytes());
+        let hub = to_hub(reader).unwrap();
+        let message = hub
+            .iter()
+            .find_map(|record| match record {
+                HubRecord::Message(msg) => Some(msg),
+                _ => None,
+            })
+            .expect("assistant message should be converted");
+
+        assert!(matches!(
+            message.content.first(),
+            Some(ContentBlock::Text { text }) if text == "plain assistant text"
+        ));
+    }
+
+    #[test]
+    fn test_image_url_source_is_preserved() {
+        let original = r#"{"type":"assistant","message":{"role":"assistant","content":[{"type":"image","source":{"type":"url","url":"https://example.test/image.png"}}]},"uuid":"a1","timestamp":"2026-03-29T12:01:00Z","sessionId":"s1"}"#;
+
+        let reader = std::io::BufReader::new(original.as_bytes());
+        let hub = to_hub(reader).unwrap();
+        let message = hub
+            .iter()
+            .find_map(|record| match record {
+                HubRecord::Message(msg) => Some(msg),
+                _ => None,
+            })
+            .expect("assistant message should be converted");
+
+        assert!(matches!(
+            message.content.first(),
+            Some(ContentBlock::Image { source_url: Some(url), encoding, data, .. })
+                if url == "https://example.test/image.png" && encoding == "url" && data.is_empty()
+        ));
+
+        let back = from_hub(&hub).unwrap();
+        let source = &back[0]["message"]["content"][0]["source"];
+        assert_eq!(source["type"].as_str(), Some("url"));
+        assert_eq!(
+            source["url"].as_str(),
+            Some("https://example.test/image.png")
+        );
     }
 
     #[test]

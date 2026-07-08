@@ -411,24 +411,38 @@ fn response_item_to_hub(payload: &Value, timestamp: &str) -> Result<HubMessage, 
     // Determine hub role and content based on payload type
     let (hub_role, content) = match payload_type {
         "reasoning" => {
-            let text = payload
+            let mut text_parts: Vec<String> = payload
                 .get("content")
                 .and_then(|c| c.as_array())
-                .and_then(|arr| arr.first())
-                .and_then(|b| b.get("text"))
-                .and_then(|t| t.as_str())
-                .unwrap_or("")
-                .to_string();
+                .map(|arr| {
+                    arr.iter()
+                        .filter_map(|b| b.get("text").and_then(|t| t.as_str()))
+                        .map(String::from)
+                        .collect()
+                })
+                .unwrap_or_default();
+            if let Some(summary) = payload.get("summary").and_then(|s| s.as_array()) {
+                text_parts.extend(
+                    summary
+                        .iter()
+                        .filter_map(|b| b.get("text").and_then(|t| t.as_str()))
+                        .map(String::from),
+                );
+            }
+            let encrypted_data = payload
+                .get("encrypted_content")
+                .and_then(|v| v.as_str())
+                .map(String::from);
             (
                 "assistant",
                 vec![ContentBlock::Thinking {
-                    text,
+                    text: text_parts.join("\n"),
                     subject: None,
                     description: None,
                     signature: None,
-                    encrypted: false,
+                    encrypted: encrypted_data.is_some(),
                     encryption_format: None,
-                    encrypted_data: None,
+                    encrypted_data,
                     timestamp: None,
                 }],
             )
@@ -468,18 +482,29 @@ fn response_item_to_hub(payload: &Value, timestamp: &str) -> Result<HubMessage, 
                 .and_then(|v| v.as_str())
                 .unwrap_or("")
                 .to_string();
-            let output = payload
-                .get("output")
-                .and_then(|o| o.as_str())
-                .unwrap_or("")
-                .to_string();
+            let output_value = payload.get("output").unwrap_or(&Value::Null);
+            let output = match output_value {
+                Value::String(s) => s.clone(),
+                Value::Object(obj) => obj
+                    .get("output")
+                    .or_else(|| obj.get("content"))
+                    .and_then(|v| v.as_str())
+                    .map(String::from)
+                    .unwrap_or_else(|| output_value.to_string()),
+                _ => output_value.as_str().unwrap_or("").to_string(),
+            };
+            let exit_code = output_value
+                .get("metadata")
+                .and_then(|m| m.get("exit_code"))
+                .and_then(|v| v.as_i64())
+                .and_then(|n| i32::try_from(n).ok());
             (
                 "user",
                 vec![ContentBlock::ToolResult {
                     tool_use_id: call_id,
                     content: vec![ContentBlock::Text { text: output }],
-                    is_error: false,
-                    exit_code: None,
+                    is_error: exit_code.is_some_and(|code| code != 0),
+                    exit_code,
                     interrupted: false,
                     status: None,
                     duration_ms: None,
@@ -759,7 +784,13 @@ fn hub_message_to_codex(msg: &HubMessage) -> Result<Value, ConvertError> {
     let role = cc
         .get("original_role")
         .and_then(|v| v.as_str())
-        .unwrap_or(&msg.role);
+        .unwrap_or_else(|| {
+            if msg.role == "system" {
+                "developer"
+            } else {
+                &msg.role
+            }
+        });
 
     let content: Vec<Value> = msg
         .content
@@ -773,10 +804,21 @@ fn hub_message_to_codex(msg: &HubMessage) -> Result<Value, ConvertError> {
                 }
             }
             ContentBlock::Image {
-                media_type, data, ..
-            } => Some(
-                serde_json::json!({"type": "input_image", "media_type": media_type, "data": data}),
-            ),
+                media_type,
+                data,
+                source_url,
+                ..
+            } => {
+                let mut image = serde_json::json!({
+                    "type": "input_image",
+                    "media_type": media_type,
+                    "data": data
+                });
+                if let Some(url) = source_url {
+                    image["url"] = Value::String(url.clone());
+                }
+                Some(image)
+            }
             ContentBlock::Thinking { text, .. } => {
                 if !text.is_empty() {
                     Some(serde_json::json!({"type": "output_text", "text": text}))
@@ -892,6 +934,88 @@ mod tests {
         let orig_val: Value = serde_json::from_str(original).unwrap();
         // The response_item is at index 1 (after session)
         semantic_eq(&orig_val, &back[1]).unwrap();
+    }
+
+    #[test]
+    fn test_function_call_output_object_preserves_output_and_exit_code() {
+        let original = r#"{"timestamp":"2026-03-29T16:20:39.620Z","type":"response_item","payload":{"type":"function_call_output","call_id":"call_1","output":{"output":"command failed","metadata":{"exit_code":7}}}}"#;
+
+        let reader = std::io::BufReader::new(original.as_bytes());
+        let hub = to_hub(reader).unwrap();
+        let message = hub
+            .iter()
+            .find_map(|record| match record {
+                HubRecord::Message(msg) => Some(msg),
+                _ => None,
+            })
+            .expect("tool result message should be converted");
+
+        match message.content.first() {
+            Some(ContentBlock::ToolResult {
+                content,
+                exit_code,
+                is_error,
+                ..
+            }) => {
+                assert_eq!(*exit_code, Some(7));
+                assert!(*is_error);
+                assert!(matches!(
+                    content.first(),
+                    Some(ContentBlock::Text { text }) if text == "command failed"
+                ));
+            }
+            other => panic!("expected tool result, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn test_reasoning_summary_and_encrypted_content_preserved() {
+        let original = r#"{"timestamp":"2026-03-29T16:20:39.620Z","type":"response_item","payload":{"type":"reasoning","summary":[{"type":"summary_text","text":"summary text"}],"encrypted_content":"encrypted_blob"}}"#;
+
+        let reader = std::io::BufReader::new(original.as_bytes());
+        let hub = to_hub(reader).unwrap();
+        let message = hub
+            .iter()
+            .find_map(|record| match record {
+                HubRecord::Message(msg) => Some(msg),
+                _ => None,
+            })
+            .expect("reasoning message should be converted");
+
+        assert!(matches!(
+            message.content.first(),
+            Some(ContentBlock::Thinking {
+                text,
+                encrypted: true,
+                encrypted_data: Some(data),
+                ..
+            }) if text == "summary text" && data == "encrypted_blob"
+        ));
+    }
+
+    #[test]
+    fn test_hub_system_message_maps_to_codex_developer_role() {
+        let records = vec![HubRecord::Message(HubMessage {
+            id: "sys-1".into(),
+            api_message_id: None,
+            parent_id: None,
+            timestamp: "2026-03-29T16:20:39.620Z".into(),
+            completed_at: None,
+            role: "system".into(),
+            content: vec![ContentBlock::Text {
+                text: "follow these instructions".into(),
+            }],
+            metadata: MessageMetadata::default(),
+            extensions: Value::Null,
+        })];
+
+        let lines = from_hub(&records).unwrap();
+        let payload = &lines[0]["payload"];
+        assert_eq!(payload["role"].as_str(), Some("developer"));
+        assert_eq!(
+            payload["content"][0]["text"].as_str(),
+            Some("follow these instructions")
+        );
     }
 
     #[test]
