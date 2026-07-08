@@ -33,7 +33,8 @@ From your shell, you can use:
 *   `unleash skills list` -- Lists all synchronized skills and their targets.
 *   `unleash skills status` -- Displays the tabular status matrix.
 *   `unleash skills sync` -- Runs synchronization on-demand.
-*   `unleash skills diff` -- Performs a dry-run showing proposed changes.
+*   `unleash skills sync --delete-orphans` -- Removes target copies that disappeared from the source.
+*   `unleash skills diff --delete-orphans` -- Performs a dry-run showing proposed changes, including orphan cleanup.
 
 ## Native vs. Degraded Fidelity
 

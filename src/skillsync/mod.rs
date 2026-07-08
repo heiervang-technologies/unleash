@@ -271,6 +271,7 @@ pub fn parse_skill_dir(path: &Path) -> Result<Skill, SkillSyncError> {
         .ok_or_else(|| {
             SkillSyncError::InvalidSkill(format!("missing name in {}", skill_md.display()))
         })?;
+    validate_skill_name(&name)?;
     let description = frontmatter_value(frontmatter, "description").unwrap_or_default();
     Ok(Skill {
         name,
@@ -281,7 +282,11 @@ pub fn parse_skill_dir(path: &Path) -> Result<Skill, SkillSyncError> {
 }
 
 fn split_frontmatter(content: &str) -> Result<(&str, &str), SkillSyncError> {
-    let Some(rest) = content.strip_prefix("---\n") else {
+    let rest = if let Some(rest) = content.strip_prefix("---\n") {
+        rest
+    } else if let Some(rest) = content.strip_prefix("---\r\n") {
+        rest
+    } else {
         return Ok(("", content));
     };
     let Some(end) = rest.find("\n---") else {
@@ -295,19 +300,70 @@ fn split_frontmatter(content: &str) -> Result<(&str, &str), SkillSyncError> {
 }
 
 fn frontmatter_value(frontmatter: &str, key: &str) -> Option<String> {
-    for line in frontmatter.lines() {
-        let line = line.trim();
-        let Some((k, v)) = line.split_once(':') else {
+    let lines: Vec<&str> = frontmatter.lines().collect();
+    let mut i = 0;
+    while i < lines.len() {
+        let line = lines[i];
+        let trimmed = line.trim();
+        let Some((k, v)) = trimmed.split_once(':') else {
+            i += 1;
             continue;
         };
-        if k.trim() == key {
-            let value = v.trim().trim_matches('"').trim_matches('\'');
-            if !value.is_empty() {
-                return Some(value.to_string());
-            }
+        if k.trim() != key {
+            i += 1;
+            continue;
         }
+
+        let value = v.trim();
+        if !value.is_empty() && value != "|" && value != ">" {
+            return Some(unquote_yaml_scalar(value));
+        }
+
+        let mut collected = Vec::new();
+        i += 1;
+        while i < lines.len() {
+            let next = lines[i];
+            if !next.starts_with(' ') && !next.starts_with('\t') && next.contains(':') {
+                break;
+            }
+            let piece = next.trim();
+            if !piece.is_empty() {
+                collected.push(piece);
+            }
+            i += 1;
+        }
+        if !collected.is_empty() {
+            return Some(collected.join(" "));
+        }
+        return None;
     }
     None
+}
+
+fn unquote_yaml_scalar(value: &str) -> String {
+    value.trim_matches('"').trim_matches('\'').to_string()
+}
+
+pub fn validate_skill_name(name: &str) -> Result<(), SkillSyncError> {
+    if name.is_empty() || name.len() > 64 {
+        return Err(SkillSyncError::InvalidSkill(format!(
+            "invalid skill name '{name}': must be 1-64 characters"
+        )));
+    }
+    if name.starts_with('-') || name.ends_with('-') || name.contains("--") {
+        return Err(SkillSyncError::InvalidSkill(format!(
+            "invalid skill name '{name}': hyphens cannot lead, trail, or repeat"
+        )));
+    }
+    if !name
+        .bytes()
+        .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'-')
+    {
+        return Err(SkillSyncError::InvalidSkill(format!(
+            "invalid skill name '{name}': use lowercase letters, digits, and hyphens only"
+        )));
+    }
+    Ok(())
 }
 
 pub fn discover_skill_dirs(root: &Path) -> Result<Vec<Skill>, SkillSyncError> {
@@ -350,6 +406,7 @@ pub fn copy_skill_dir(src: &Path, dest: &Path) -> Result<(), SkillSyncError> {
 }
 
 pub fn materialize_skill_dir(skill: &Skill, dest: &Path) -> Result<(), SkillSyncError> {
+    validate_skill_name(&skill.name)?;
     if skill.path.is_dir() && skill.path.join("SKILL.md").is_file() {
         copy_skill_dir(&skill.path, dest)?;
         return Ok(());
@@ -437,6 +494,7 @@ pub fn context_reference_discover(path: &Path) -> Result<Vec<Skill>, SkillSyncEr
             break;
         };
         let name = rest[..name_end].trim().to_string();
+        validate_skill_name(&name)?;
         let block_start = name_end + " -->".len();
         let end_marker = format!("<!-- unleash-skillsync-end: {name} -->");
         let Some(end_idx) = rest[block_start..].find(&end_marker) else {
@@ -467,6 +525,7 @@ pub fn context_reference_discover(path: &Path) -> Result<Vec<Skill>, SkillSyncEr
 }
 
 pub fn context_reference_install(path: &Path, skill: &Skill) -> Result<(), SkillSyncError> {
+    validate_skill_name(&skill.name)?;
     if let Some(parent) = path.parent() {
         fs::create_dir_all(parent)?;
     }
@@ -480,6 +539,7 @@ pub fn context_reference_install(path: &Path, skill: &Skill) -> Result<(), Skill
 }
 
 pub fn context_reference_uninstall(path: &Path, name: &str) -> Result<(), SkillSyncError> {
+    validate_skill_name(name)?;
     if !path.exists() {
         return Ok(());
     }
@@ -583,12 +643,14 @@ impl SkillAdapter for DirectoryAdapter {
     }
 
     fn install(&self, skill: &Skill) -> Result<(), SkillSyncError> {
+        validate_skill_name(&skill.name)?;
         let root = self.root();
         fs::create_dir_all(&root)?;
         copy_skill_dir(&skill.path, &root.join(&skill.name))
     }
 
     fn uninstall(&self, name: &str) -> Result<(), SkillSyncError> {
+        validate_skill_name(name)?;
         let path = self.root().join(name);
         if path.exists() {
             fs::remove_dir_all(path)?;
@@ -616,12 +678,17 @@ pub fn discover_hub() -> Result<Vec<Skill>, SkillSyncError> {
     discover_skill_dirs(&hub_root())
 }
 
-pub fn sync(source: Option<Harness>) -> Result<Vec<String>, SkillSyncError> {
+pub fn sync(source: Option<Harness>, delete_orphans: bool) -> Result<Vec<String>, SkillSyncError> {
     let mut manifest = load_manifest()?;
     let source_skills = match source {
         Some(harness) => harness.adapter().discover()?,
         None => discover_hub()?,
     };
+    let source_names: BTreeSet<String> = source_skills
+        .iter()
+        .map(|skill| skill.name.clone())
+        .collect();
+    let mut changes = Vec::new();
 
     fs::create_dir_all(hub_root())?;
     for skill in &source_skills {
@@ -629,8 +696,30 @@ pub fn sync(source: Option<Harness>) -> Result<Vec<String>, SkillSyncError> {
         materialize_skill_dir(skill, &hub_root().join(&skill.name))?;
     }
 
+    if delete_orphans && source.is_some() {
+        for skill in discover_hub()? {
+            if source_names.contains(&skill.name) {
+                continue;
+            }
+
+            for harness in Harness::ALL {
+                if Some(harness) == source {
+                    continue;
+                }
+                harness.adapter().uninstall(&skill.name)?;
+                changes.push(format!("deleted orphan {} from {}", skill.name, harness));
+            }
+
+            let hub_path = hub_root().join(&skill.name);
+            if hub_path.exists() {
+                fs::remove_dir_all(hub_path)?;
+                changes.push(format!("deleted orphan {} from hub", skill.name));
+            }
+            manifest.skills.remove(&skill.name);
+        }
+    }
+
     let hub_skills = discover_hub()?;
-    let mut changes = Vec::new();
     for skill in &hub_skills {
         manifest.ensure_skill(&skill.name);
         for harness in Harness::ALL {
@@ -651,13 +740,14 @@ pub fn sync(source: Option<Harness>) -> Result<Vec<String>, SkillSyncError> {
     Ok(changes)
 }
 
-pub fn diff(source: Option<Harness>) -> Result<Vec<String>, SkillSyncError> {
+pub fn diff(source: Option<Harness>, delete_orphans: bool) -> Result<Vec<String>, SkillSyncError> {
     let mut planned = Vec::new();
     let manifest = load_manifest()?;
     let skills = match source {
         Some(harness) => harness.adapter().discover()?,
         None => discover_hub()?,
     };
+    let source_names: BTreeSet<String> = skills.iter().map(|skill| skill.name.clone()).collect();
     for skill in &skills {
         for harness in Harness::ALL {
             if Some(harness) == source {
@@ -668,6 +758,23 @@ pub fn diff(source: Option<Harness>) -> Result<Vec<String>, SkillSyncError> {
             } else {
                 planned.push(format!("would uninstall {} from {}", skill.name, harness));
             }
+        }
+    }
+    if delete_orphans && source.is_some() {
+        for skill in discover_hub()? {
+            if source_names.contains(&skill.name) {
+                continue;
+            }
+            for harness in Harness::ALL {
+                if Some(harness) == source {
+                    continue;
+                }
+                planned.push(format!(
+                    "would delete orphan {} from {}",
+                    skill.name, harness
+                ));
+            }
+            planned.push(format!("would delete orphan {} from hub", skill.name));
         }
     }
     Ok(planned)

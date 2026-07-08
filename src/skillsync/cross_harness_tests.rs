@@ -2,10 +2,11 @@
 mod tests {
     use crate::skillsync::{
         self, agy::AgyAdapter, claude::ClaudeAdapter, codex::CodexAdapter, copy_skill_dir,
-        gemini::GeminiAdapter, hermes::HermesAdapter, opencode::OpenCodeAdapter, parse_skill_dir,
-        pi::PiAdapter, Harness, Skill, SkillAdapter,
+        gemini::GeminiAdapter, hermes::HermesAdapter, materialize_skill_dir,
+        opencode::OpenCodeAdapter, parse_skill_dir, pi::PiAdapter, Harness, Skill, SkillAdapter,
     };
     use std::ffi::OsString;
+    use std::fs;
     use std::path::{Path, PathBuf};
     use std::sync::{Mutex, OnceLock};
 
@@ -86,6 +87,48 @@ mod tests {
     }
 
     #[test]
+    fn skill_names_reject_path_traversal() {
+        let _guard = env_lock().lock().unwrap();
+        let env = SandboxEnv::new();
+        let mut skill = fixture("minimal-skill");
+        skill.name = "../escape".to_string();
+
+        let err = CodexAdapter
+            .install(&skill)
+            .expect_err("invalid name rejected");
+        assert!(err.to_string().contains("invalid skill name"));
+        assert!(!env.home().join(".codex/escape.md").exists());
+
+        let hub_dest = env.home().join(".local/share/unleash/skills/../escape");
+        let err = materialize_skill_dir(&skill, &hub_dest).expect_err("invalid hub name rejected");
+        assert!(err.to_string().contains("invalid skill name"));
+        assert!(!env.home().join(".local/share/unleash/escape").exists());
+    }
+
+    #[test]
+    fn multiline_frontmatter_description_is_preserved() {
+        let temp = tempfile::tempdir().expect("temp skill");
+        let skill_dir = temp.path().join("multiline-skill");
+        fs::create_dir_all(&skill_dir).expect("skill dir");
+        fs::write(
+            skill_dir.join("SKILL.md"),
+            r#"---
+name: multiline-skill
+description: >
+  Use this skill for one
+  and two.
+---
+Body text.
+"#,
+        )
+        .expect("write skill");
+
+        let skill = parse_skill_dir(&skill_dir).expect("parse multiline frontmatter");
+        assert_eq!(skill.name, "multiline-skill");
+        assert_eq!(skill.description, "Use this skill for one and two.");
+    }
+
+    #[test]
     fn synthetic_skills_round_trip_through_adapters() {
         let _guard = env_lock().lock().unwrap();
         let _env = SandboxEnv::new();
@@ -120,7 +163,7 @@ mod tests {
         let source = env.home().join(".claude/skills/minimal-skill");
         copy_skill_dir(&fixtures_root().join("minimal-skill"), &source).expect("copy fixture");
 
-        let changes = skillsync::sync(Some(Harness::Claude)).expect("sync from temp claude");
+        let changes = skillsync::sync(Some(Harness::Claude), false).expect("sync from temp claude");
         assert!(changes.iter().any(|line| line.contains("minimal-skill")));
 
         assert!(env.home().join(".codex/prompts/minimal-skill.md").is_file());
@@ -136,5 +179,38 @@ mod tests {
             .home()
             .join(".local/share/unleash/skills/skillsync.toml")
             .is_file());
+    }
+
+    #[test]
+    fn sync_delete_orphans_removes_sandboxed_targets_and_manifest_entry() {
+        let _guard = env_lock().lock().unwrap();
+        let env = SandboxEnv::new();
+
+        let source = env.home().join(".claude/skills/minimal-skill");
+        copy_skill_dir(&fixtures_root().join("minimal-skill"), &source).expect("copy fixture");
+        skillsync::sync(Some(Harness::Claude), false).expect("initial sync");
+        fs::remove_dir_all(&source).expect("remove source skill");
+
+        let changes = skillsync::sync(Some(Harness::Claude), true).expect("orphan cleanup");
+        assert!(changes
+            .iter()
+            .any(|line| line == "deleted orphan minimal-skill from hub"));
+
+        assert!(!env.home().join(".codex/prompts/minimal-skill.md").exists());
+        assert!(!env
+            .home()
+            .join(".gemini/commands/minimal-skill.toml")
+            .exists());
+        assert!(!env
+            .home()
+            .join(".local/share/unleash/skills/minimal-skill")
+            .exists());
+
+        let manifest = fs::read_to_string(
+            env.home()
+                .join(".local/share/unleash/skills/skillsync.toml"),
+        )
+        .expect("manifest");
+        assert!(!manifest.contains("minimal-skill"));
     }
 }

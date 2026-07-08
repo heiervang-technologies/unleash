@@ -18,6 +18,9 @@ unleash skills sync
 # Sync from a specific source harness (defaults to claude)
 unleash skills sync --from codex
 
+# Remove hub/target copies that disappeared from the source harness
+unleash skills sync --from claude --delete-orphans
+
 # Display a status matrix of all skills and their target fidelity
 unleash skills status
 
@@ -86,7 +89,7 @@ unleash skills diff
 ## Known Limitations
 
 *   **Trigger Lossiness**: Native triggers (e.g. `glob` matches for automatic activation) only execute under Claude in the verified implementation. Targets using custom prompts/commands (Codex, Gemini, Agy) or context references (OpenCode, Pi, Hermes) require manual invocation.
-*   **Orphan Cleanups**: When removing a skill from the source harness, target cleanup is disabled unless `delete_orphans` is configured to `"on"`.
+*   **Orphan Cleanups**: When removing a skill from the source harness, target cleanup is disabled unless `delete_orphans` is configured to `"on"` or `unleash skills sync --delete-orphans` is used.
 *   **Asset Stripping**: Non-native adapters (Codex, Gemini, Pi, Hermes) discard binary assets and sub-folder helper scripts. Only the primary instructions in `SKILL.md` are synchronized.
 *   **Agy Cascading**: Like session crossload, Antigravity (`agy`) inherits Gemini's command paths but may enforce server-side validation checks on execution context.
 

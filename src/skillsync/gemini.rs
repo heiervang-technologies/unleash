@@ -1,5 +1,6 @@
 use super::{
-    home_dir, render_gemini_command, Fidelity, Harness, Skill, SkillAdapter, SkillSyncError,
+    home_dir, render_gemini_command, validate_skill_name, Fidelity, Harness, Skill, SkillAdapter,
+    SkillSyncError,
 };
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -25,6 +26,7 @@ impl SkillAdapter for GeminiAdapter {
     }
 
     fn install(&self, skill: &Skill) -> Result<(), SkillSyncError> {
+        validate_skill_name(&skill.name)?;
         fs::create_dir_all(self.root())?;
         fs::write(
             self.root().join(format!("{}.toml", skill.name)),
@@ -34,6 +36,7 @@ impl SkillAdapter for GeminiAdapter {
     }
 
     fn uninstall(&self, name: &str) -> Result<(), SkillSyncError> {
+        validate_skill_name(name)?;
         let path = self.root().join(format!("{name}.toml"));
         if path.exists() {
             fs::remove_file(path)?;
@@ -85,6 +88,7 @@ fn parse_command(path: &Path) -> Result<Option<Skill>, SkillSyncError> {
         .and_then(|n| n.to_str())
         .unwrap_or_default()
         .to_string();
+    validate_skill_name(&name)?;
     let body = prompt
         .split("skill instructions:\n\n")
         .nth(1)

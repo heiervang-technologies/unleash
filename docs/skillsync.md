@@ -36,11 +36,14 @@ unleash skills sync
 # Sync from a specific source harness (defaults to claude)
 unleash skills sync --from codex
 
+# Remove hub/target copies that disappeared from the source harness
+unleash skills sync --from claude --delete-orphans
+
 # Display a status matrix of all skills and their target fidelity
 unleash skills status
 
 # Dry-run showing what files and settings would change
-unleash skills diff
+unleash skills diff --delete-orphans
 ```
 
 ## Synchronization Fidelity
@@ -85,7 +88,7 @@ db-debugger            🟢 Native    🟡 Prompt    🟡 Command   ⚪ Referenc
 
 *   **Auto-activation triggers**: Claude supports auto-activating skills based on file matches or queries. Converted prompts (Codex) and commands (Gemini) must be triggered manually by name (e.g. `/git-expert` or `/refactor`).
 *   **Support Files**: Non-native targets (Codex, Gemini, Pi, Hermes) discard helper scripts and resources (e.g. `scripts/` or `templates/` folders) because they only accept flat text instructions.
-*   **Deletions**: If `delete_orphans` is disabled, deleting a skill from the source harness will leave the degraded files intact on the targets.
+*   **Deletions**: If `delete_orphans` is disabled, deleting a skill from the source harness will leave the degraded files intact on the targets. Enable it with `unleash skills sync --delete-orphans` or the bundled plugin setting.
 
 ## Detailed Matrix
 

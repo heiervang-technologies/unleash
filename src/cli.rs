@@ -828,6 +828,10 @@ pub enum SkillsAction {
         /// Source harness (claude, codex, gemini, opencode, agy, pi, hermes, hub)
         #[arg(long)]
         from: Option<String>,
+
+        /// Delete skills from the hub and targets when absent from the source
+        #[arg(long)]
+        delete_orphans: bool,
     },
 
     /// Show per-harness skill availability and installation status
@@ -838,6 +842,10 @@ pub enum SkillsAction {
         /// Source harness (claude, codex, gemini, opencode, agy, pi, hermes, hub)
         #[arg(long)]
         from: Option<String>,
+
+        /// Include orphan deletions that would happen with sync --delete-orphans
+        #[arg(long)]
+        delete_orphans: bool,
     },
 }
 

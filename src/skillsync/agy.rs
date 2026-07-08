@@ -1,6 +1,6 @@
 use super::{
-    gemini::discover_commands, home_dir, render_gemini_command, Fidelity, Harness, Skill,
-    SkillAdapter, SkillSyncError,
+    gemini::discover_commands, home_dir, render_gemini_command, validate_skill_name, Fidelity,
+    Harness, Skill, SkillAdapter, SkillSyncError,
 };
 use std::fs;
 use std::path::PathBuf;
@@ -26,6 +26,7 @@ impl SkillAdapter for AgyAdapter {
     }
 
     fn install(&self, skill: &Skill) -> Result<(), SkillSyncError> {
+        validate_skill_name(&skill.name)?;
         fs::create_dir_all(self.root())?;
         fs::write(
             self.root().join(format!("{}.toml", skill.name)),
@@ -35,6 +36,7 @@ impl SkillAdapter for AgyAdapter {
     }
 
     fn uninstall(&self, name: &str) -> Result<(), SkillSyncError> {
+        validate_skill_name(name)?;
         let path = self.root().join(format!("{name}.toml"));
         if path.exists() {
             fs::remove_file(path)?;

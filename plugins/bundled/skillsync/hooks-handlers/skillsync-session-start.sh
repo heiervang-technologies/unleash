@@ -13,6 +13,7 @@ fi
 SETTINGS_FILE="${HOME}/.config/unleash/plugins/skillsync/settings.env"
 PLUGIN_SETTING_SYNC_ON_LAUNCH="on"
 PLUGIN_SETTING_SOURCE="claude"
+PLUGIN_SETTING_DELETE_ORPHANS="off"
 
 if [[ -r "${SETTINGS_FILE}" ]]; then
   # shellcheck disable=SC1090
@@ -27,5 +28,10 @@ if ! command -v unleash >/dev/null 2>&1; then
   exit 0
 fi
 
-env -u AGENT_CMD -u AGENT_UNLEASH unleash skills sync --from "${PLUGIN_SETTING_SOURCE:-claude}" >/dev/null 2>&1 || true
+sync_args=(skills sync --from "${PLUGIN_SETTING_SOURCE:-claude}")
+if [[ "${PLUGIN_SETTING_DELETE_ORPHANS,,}" == "on" ]]; then
+  sync_args+=(--delete-orphans)
+fi
+
+env -u AGENT_CMD -u AGENT_UNLEASH unleash "${sync_args[@]}" >/dev/null 2>&1 || true
 exit 0

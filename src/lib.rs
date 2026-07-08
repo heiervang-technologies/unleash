@@ -1360,7 +1360,10 @@ fn handle_skills(action: cli::SkillsAction, json: bool) -> io::Result<()> {
             }
             Ok(())
         }
-        cli::SkillsAction::Sync { from } => {
+        cli::SkillsAction::Sync {
+            from,
+            delete_orphans,
+        } => {
             let source = match from.as_deref() {
                 Some("hub") => None,
                 None => Some(skillsync::Harness::Claude),
@@ -1370,7 +1373,8 @@ fn handle_skills(action: cli::SkillsAction, json: bool) -> io::Result<()> {
                         .map_err(|e| io::Error::other(e.to_string()))?,
                 ),
             };
-            let changes = skillsync::sync(source).map_err(|e| io::Error::other(e.to_string()))?;
+            let changes = skillsync::sync(source, delete_orphans)
+                .map_err(|e| io::Error::other(e.to_string()))?;
             if json {
                 json_output::print_json(&changes);
             } else if changes.is_empty() {
@@ -1429,7 +1433,10 @@ fn handle_skills(action: cli::SkillsAction, json: bool) -> io::Result<()> {
             }
             Ok(())
         }
-        cli::SkillsAction::Diff { from } => {
+        cli::SkillsAction::Diff {
+            from,
+            delete_orphans,
+        } => {
             let source = match from.as_deref() {
                 Some("hub") => None,
                 None => Some(skillsync::Harness::Claude),
@@ -1439,7 +1446,8 @@ fn handle_skills(action: cli::SkillsAction, json: bool) -> io::Result<()> {
                         .map_err(|e| io::Error::other(e.to_string()))?,
                 ),
             };
-            let planned = skillsync::diff(source).map_err(|e| io::Error::other(e.to_string()))?;
+            let planned = skillsync::diff(source, delete_orphans)
+                .map_err(|e| io::Error::other(e.to_string()))?;
             if json {
                 json_output::print_json(&planned);
             } else if planned.is_empty() {

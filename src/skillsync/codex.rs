@@ -1,5 +1,6 @@
 use super::{
-    home_dir, render_codex_prompt, Fidelity, Harness, Skill, SkillAdapter, SkillSyncError,
+    home_dir, render_codex_prompt, validate_skill_name, Fidelity, Harness, Skill, SkillAdapter,
+    SkillSyncError,
 };
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -41,6 +42,7 @@ impl SkillAdapter for CodexAdapter {
     }
 
     fn install(&self, skill: &Skill) -> Result<(), SkillSyncError> {
+        validate_skill_name(&skill.name)?;
         fs::create_dir_all(self.root())?;
         fs::write(
             self.root().join(format!("{}.md", skill.name)),
@@ -50,6 +52,7 @@ impl SkillAdapter for CodexAdapter {
     }
 
     fn uninstall(&self, name: &str) -> Result<(), SkillSyncError> {
+        validate_skill_name(name)?;
         let path = self.root().join(format!("{name}.md"));
         if path.exists() {
             fs::remove_file(path)?;
@@ -66,6 +69,7 @@ fn parse_codex_prompt(path: &Path) -> Result<Option<Skill>, SkillSyncError> {
     let Some(name) = first.strip_prefix("# Codex Custom Prompt: ") else {
         return Ok(None);
     };
+    validate_skill_name(name.trim())?;
     let description = content
         .lines()
         .find_map(|line| line.strip_prefix("> **Description:** "))
