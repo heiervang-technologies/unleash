@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.85](https://github.com/heiervang-technologies/unleash/compare/v0.1.84...v0.1.85) (2026-07-08)
+
+
+### Bug Fixes
+
+* **deps:** bump crossbeam-epoch to 0.9.20 for RUSTSEC-2026-0204 ([6d093fb](https://github.com/heiervang-technologies/unleash/commit/6d093fb59a00a86f4e5ef22c708ea9e3d6a456b8))
+
 ## [0.1.84](https://github.com/heiervang-technologies/unleash/compare/v0.1.83...v0.1.84) (2026-07-06)
 
 
