@@ -8,11 +8,15 @@ mod tests {
     use std::ffi::OsString;
     use std::fs;
     use std::path::{Path, PathBuf};
-    use std::sync::{Mutex, OnceLock};
+    use std::sync::{Mutex, MutexGuard, OnceLock};
 
     fn env_lock() -> &'static Mutex<()> {
         static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
         LOCK.get_or_init(|| Mutex::new(()))
+    }
+
+    fn env_guard() -> MutexGuard<'static, ()> {
+        env_lock().lock().unwrap_or_else(|err| err.into_inner())
     }
 
     fn fixture(name: &str) -> Skill {
@@ -110,7 +114,7 @@ hermes = true
 
     #[test]
     fn skill_names_reject_path_traversal() {
-        let _guard = env_lock().lock().unwrap();
+        let _guard = env_guard();
         let env = SandboxEnv::new();
         let mut skill = fixture("minimal-skill");
         skill.name = "../escape".to_string();
@@ -152,7 +156,7 @@ Body text.
 
     #[test]
     fn synthetic_skills_round_trip_through_adapters() {
-        let _guard = env_lock().lock().unwrap();
+        let _guard = env_guard();
         let _env = SandboxEnv::new();
 
         let adapters: Vec<Box<dyn SkillAdapter>> = vec![
@@ -179,7 +183,7 @@ Body text.
 
     #[test]
     fn sync_from_claude_uses_sandboxed_home_and_data_dirs() {
-        let _guard = env_lock().lock().unwrap();
+        let _guard = env_guard();
         let env = SandboxEnv::new();
 
         let source = env.home().join(".claude/skills/minimal-skill");
@@ -205,7 +209,7 @@ Body text.
 
     #[test]
     fn shared_gemini_agy_target_is_not_deleted_when_one_alias_is_disabled() {
-        let _guard = env_lock().lock().unwrap();
+        let _guard = env_guard();
         let env = SandboxEnv::new();
 
         let source = env.home().join(".claude/skills/minimal-skill");
@@ -224,7 +228,7 @@ Body text.
 
     #[test]
     fn shared_gemini_agy_target_group_is_skipped_when_source_is_gemini() {
-        let _guard = env_lock().lock().unwrap();
+        let _guard = env_guard();
         let env = SandboxEnv::new();
         let skill = fixture("minimal-skill");
 
@@ -245,7 +249,7 @@ Body text.
 
     #[test]
     fn sync_from_hub_does_not_delete_hub_skill_dir() {
-        let _guard = env_lock().lock().unwrap();
+        let _guard = env_guard();
         let env = SandboxEnv::new();
 
         let hub_skill = env.home().join(".local/share/unleash/skills/minimal-skill");
@@ -258,7 +262,7 @@ Body text.
 
     #[test]
     fn sync_delete_orphans_removes_sandboxed_targets_and_manifest_entry() {
-        let _guard = env_lock().lock().unwrap();
+        let _guard = env_guard();
         let env = SandboxEnv::new();
 
         let source = env.home().join(".claude/skills/minimal-skill");
