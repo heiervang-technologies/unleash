@@ -149,7 +149,12 @@ impl HookManager {
         let installation = ClaudeInstallation::detect()?;
 
         let hooks_dir = dirs::data_local_dir()
-            .unwrap_or_else(|| PathBuf::from("/tmp"))
+            .ok_or_else(|| {
+                io::Error::new(
+                    io::ErrorKind::NotFound,
+                    "could not determine local data directory for hooks",
+                )
+            })?
             .join("unleash/hooks");
 
         fs::create_dir_all(&hooks_dir)?;
@@ -221,6 +226,18 @@ impl HookManager {
             .unwrap_or_else(|| script_part.to_string())
     }
 
+    fn set_matcher(hook_config: &mut Value, matcher: Option<&str>) {
+        let Some(obj) = hook_config.as_object_mut() else {
+            return;
+        };
+
+        if let Some(m) = matcher {
+            obj.insert("matcher".to_string(), json!(m));
+        } else {
+            obj.remove("matcher");
+        }
+    }
+
     /// Register a hook in Claude Code settings
     pub fn register_hook(
         &self,
@@ -259,6 +276,9 @@ impl HookManager {
         let mut updated_existing = false;
 
         for h in event_hooks.iter_mut() {
+            let mut matched_exact = false;
+            let mut matched_basename = false;
+
             if let Some(hooks) = h.get_mut("hooks").and_then(|h| h.as_array_mut()) {
                 for hook in hooks.iter_mut() {
                     if let Some(c) = hook
@@ -267,14 +287,20 @@ impl HookManager {
                         .map(|s| s.to_string())
                     {
                         if c == command {
-                            found_exact = true;
+                            matched_exact = true;
                         } else if Self::command_basename(&c) == new_basename {
                             // Basename matches but path differs — update to new path
                             hook["command"] = json!(command);
-                            updated_existing = true;
+                            matched_basename = true;
                         }
                     }
                 }
+            }
+
+            if matched_exact || matched_basename {
+                Self::set_matcher(h, matcher);
+                found_exact |= matched_exact;
+                updated_existing |= matched_basename;
             }
         }
 
@@ -759,6 +785,42 @@ mod tests {
         let settings = mgr.read_settings().unwrap();
         let hooks = settings["hooks"]["PreToolUse"].as_array().unwrap();
         assert_eq!(hooks[0]["matcher"].as_str().unwrap(), "Bash");
+    }
+
+    #[test]
+    fn test_register_hook_updates_matcher_on_exact_match() {
+        let tmp = tempfile::tempdir().unwrap();
+        let mgr = test_manager(tmp.path());
+
+        mgr.register_hook(HookEvent::PreToolUse, "/path/hook.sh", Some("Bash"))
+            .unwrap();
+        mgr.register_hook(HookEvent::PreToolUse, "/path/hook.sh", Some("Write"))
+            .unwrap();
+
+        let settings = mgr.read_settings().unwrap();
+        let hooks = settings["hooks"]["PreToolUse"].as_array().unwrap();
+        assert_eq!(hooks.len(), 1, "exact match should update, not add");
+        assert_eq!(hooks[0]["matcher"].as_str().unwrap(), "Write");
+    }
+
+    #[test]
+    fn test_register_hook_updates_matcher_on_basename_match() {
+        let tmp = tempfile::tempdir().unwrap();
+        let mgr = test_manager(tmp.path());
+
+        mgr.register_hook(HookEvent::PreToolUse, "/old/path/hook.sh", Some("Bash"))
+            .unwrap();
+        mgr.register_hook(HookEvent::PreToolUse, "/new/path/hook.sh", Some("Write"))
+            .unwrap();
+
+        let settings = mgr.read_settings().unwrap();
+        let hooks = settings["hooks"]["PreToolUse"].as_array().unwrap();
+        assert_eq!(hooks.len(), 1, "basename match should update, not add");
+        assert_eq!(
+            hooks[0]["hooks"][0]["command"].as_str().unwrap(),
+            "/new/path/hook.sh"
+        );
+        assert_eq!(hooks[0]["matcher"].as_str().unwrap(), "Write");
     }
 
     // ── unregister_hook ─────────────────────────────────────
