@@ -1,11 +1,16 @@
 //! Text input component with optional hidden mode
+//!
+//! `cursor`, `scroll_offset`, and `viewport_width` are all **character**
+//! indices/counts, never byte indices. `String::insert` / `String::remove`
+//! take byte offsets that must land on a char boundary, so every mutation
+//! goes through `char_byte_index()` to translate.
 
 /// A text input field
 #[derive(Debug, Clone)]
 pub struct TextInput {
     /// Current input value
     pub value: String,
-    /// Cursor position
+    /// Cursor position — **character** index into `value` (not byte index).
     pub cursor: usize,
     /// Whether input is hidden (for passwords/keys)
     pub hidden: bool,
@@ -31,9 +36,24 @@ impl TextInput {
 
     pub fn with_value(mut self, value: &str) -> Self {
         self.value = value.to_string();
-        self.cursor = value.len();
+        self.cursor = self.char_count();
         self.ensure_cursor_visible();
         self
+    }
+
+    /// Number of characters (not bytes) in `value`.
+    fn char_count(&self) -> usize {
+        self.value.chars().count()
+    }
+
+    /// Byte offset of the char at `char_idx`, or `value.len()` when
+    /// `char_idx == char_count()` (append position).
+    fn char_byte_index(&self, char_idx: usize) -> usize {
+        self.value
+            .char_indices()
+            .nth(char_idx)
+            .map(|(b, _)| b)
+            .unwrap_or(self.value.len())
     }
 
     pub fn with_placeholder(mut self, placeholder: &str) -> Self {
@@ -49,7 +69,8 @@ impl TextInput {
 
     /// Insert a character at cursor
     pub fn insert(&mut self, c: char) {
-        self.value.insert(self.cursor, c);
+        let byte_idx = self.char_byte_index(self.cursor);
+        self.value.insert(byte_idx, c);
         self.cursor += 1;
         self.ensure_cursor_visible();
     }
@@ -58,15 +79,17 @@ impl TextInput {
     pub fn backspace(&mut self) {
         if self.cursor > 0 {
             self.cursor -= 1;
-            self.value.remove(self.cursor);
+            let byte_idx = self.char_byte_index(self.cursor);
+            self.value.remove(byte_idx);
             self.ensure_cursor_visible();
         }
     }
 
     /// Delete character at cursor (delete key)
     pub fn delete(&mut self) {
-        if self.cursor < self.value.len() {
-            self.value.remove(self.cursor);
+        if self.cursor < self.char_count() {
+            let byte_idx = self.char_byte_index(self.cursor);
+            self.value.remove(byte_idx);
         }
     }
 
@@ -80,7 +103,7 @@ impl TextInput {
 
     /// Move cursor right
     pub fn move_right(&mut self) {
-        if self.cursor < self.value.len() {
+        if self.cursor < self.char_count() {
             self.cursor += 1;
             self.ensure_cursor_visible();
         }
@@ -94,7 +117,7 @@ impl TextInput {
 
     /// Move cursor to end
     pub fn move_end(&mut self) {
-        self.cursor = self.value.len();
+        self.cursor = self.char_count();
         self.ensure_cursor_visible();
     }
 
@@ -224,7 +247,7 @@ impl TextInput {
     /// Check if there's content scrolled off to the right
     #[allow(dead_code)]
     pub fn has_right_overflow(&self) -> bool {
-        self.value.len() > self.scroll_offset + self.viewport_width
+        self.char_count() > self.scroll_offset + self.viewport_width
     }
 
     /// Get text split at cursor position for rendering.
@@ -236,7 +259,7 @@ impl TextInput {
     /// For hidden fields, characters are replaced with `'*'`.
     pub fn render_parts(&self) -> (String, Option<char>, String) {
         let display_chars: Vec<char> = if self.hidden {
-            vec!['*'; self.value.len()]
+            vec!['*'; self.char_count()]
         } else {
             self.value.chars().collect()
         };
@@ -275,7 +298,7 @@ impl TextInput {
             return self.placeholder.clone();
         }
         if self.hidden {
-            "*".repeat(self.value.len())
+            "*".repeat(self.char_count())
         } else {
             self.value.clone()
         }
@@ -296,13 +319,14 @@ impl Default for TextInput {
 /// Censor a sensitive value, showing prefix and suffix
 /// e.g., "sk-ant-api123456789xyz" -> "sk-ant-...9xyz"
 pub fn censor_sensitive(value: &str, prefix_len: usize, suffix_len: usize) -> String {
-    if value.len() <= prefix_len + suffix_len + 3 {
+    let char_count = value.chars().count();
+    if char_count <= prefix_len + suffix_len + 3 {
         // Too short to meaningfully censor - use fixed length to hide actual length
         return "*".repeat(8);
     }
 
     let prefix: String = value.chars().take(prefix_len).collect();
-    let suffix: String = value.chars().skip(value.len() - suffix_len).collect();
+    let suffix: String = value.chars().skip(char_count - suffix_len).collect();
     format!("{}...{}", prefix, suffix)
 }
 
@@ -487,5 +511,96 @@ mod tests {
         assert_eq!(before, "***");
         assert_eq!(at_cursor, Some('*'));
         assert_eq!(after, "**");
+    }
+
+    // ── Multibyte regressions ────────────────────────────────
+    //
+    // Prior to the byte/char-index refactor, `insert` and `remove` used
+    // `self.cursor` as a byte index into a `String` — inserting or deleting
+    // any multibyte character would corrupt the cursor and the next
+    // mutation would panic on a non-char-boundary offset.
+
+    #[test]
+    fn insert_multibyte_char_then_ascii_does_not_panic() {
+        let mut input = TextInput::new();
+        input.insert('é'); // 2 bytes, 1 char
+        input.insert('a'); // used to panic: byte index 1 was mid-char in "é"
+        assert_eq!(input.value, "éa");
+        assert_eq!(input.cursor, 2);
+    }
+
+    #[test]
+    fn insert_emoji_at_start_then_more_chars() {
+        let mut input = TextInput::new();
+        input.insert('🔑'); // 4 bytes, 1 char
+        input.insert('x');
+        input.insert('y');
+        assert_eq!(input.value, "🔑xy");
+        assert_eq!(input.cursor, 3);
+    }
+
+    #[test]
+    fn backspace_removes_multibyte_char() {
+        let mut input = TextInput::new().with_value("héllo");
+        assert_eq!(input.cursor, 5); // 5 chars, not 6 bytes
+        input.backspace();
+        assert_eq!(input.value, "héll");
+        input.backspace();
+        input.backspace();
+        input.backspace(); // remove 'é' — used to panic mid-char
+        assert_eq!(input.value, "h");
+        assert_eq!(input.cursor, 1);
+    }
+
+    #[test]
+    fn delete_at_multibyte_position() {
+        let mut input = TextInput::new().with_value("h🔑i");
+        input.cursor = 1; // sitting on the emoji
+        input.delete();
+        assert_eq!(input.value, "hi");
+        assert_eq!(input.cursor, 1);
+    }
+
+    #[test]
+    fn move_right_stops_at_char_count_not_byte_len() {
+        let mut input = TextInput::new().with_value("é"); // 2 bytes, 1 char
+        input.cursor = 0;
+        input.move_right();
+        assert_eq!(input.cursor, 1);
+        input.move_right(); // must not advance past char count
+        assert_eq!(input.cursor, 1);
+    }
+
+    #[test]
+    fn insert_after_backspace_on_multibyte() {
+        // Regression scenario the user actually hits: type "café", correct
+        // to "café ", correct back, retype. Byte-cursor code would panic.
+        let mut input = TextInput::new();
+        for c in "café".chars() {
+            input.insert(c);
+        }
+        input.backspace();
+        input.backspace();
+        input.insert('e');
+        input.insert('X');
+        assert_eq!(input.value, "caeX");
+    }
+
+    #[test]
+    fn censor_sensitive_multibyte() {
+        // Bytes vs chars mismatch used to cut wrong offsets. Not a panic,
+        // just a wrong result — but locking in the correct behavior.
+        let value = "sk-🔑abc🔑def🔑12345";
+        let out = censor_sensitive(value, 5, 5);
+        assert!(out.starts_with("sk-🔑a"));
+        assert!(out.ends_with("12345"));
+        assert!(out.contains("..."));
+    }
+
+    #[test]
+    fn display_value_hidden_multibyte_uses_char_count() {
+        let input = TextInput::new().with_value("🔑🔑🔑").hidden();
+        // 3 chars — should render as 3 stars, not 12 (byte length).
+        assert_eq!(input.display_value(), "***");
     }
 }
