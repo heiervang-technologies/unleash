@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.86](https://github.com/heiervang-technologies/unleash/compare/v0.1.85...v0.1.86) (2026-07-08)
+
+
+### Features
+
+* **skillsync:** add cross-harness skill synchronization ([#382](https://github.com/heiervang-technologies/unleash/issues/382)) ([229cb49](https://github.com/heiervang-technologies/unleash/commit/229cb496f4ad057ffd5eb431e04ea10450b65894))
+
 ## [0.1.85](https://github.com/heiervang-technologies/unleash/compare/v0.1.84...v0.1.85) (2026-07-08)
 
 
