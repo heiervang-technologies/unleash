@@ -180,7 +180,8 @@ impl TextInput {
 
     /// Delete from cursor to end of line (Ctrl+K)
     pub fn delete_to_end(&mut self) {
-        self.value.truncate(self.cursor);
+        let byte_idx = self.char_byte_index(self.cursor);
+        self.value.truncate(byte_idx);
         self.ensure_cursor_visible();
     }
 
@@ -442,6 +443,15 @@ mod tests {
         input.cursor = 6;
         input.delete_to_end();
         assert_eq!(input.value, "hello ");
+    }
+
+    #[test]
+    fn test_delete_to_end_with_multibyte_before_cursor() {
+        let mut input = TextInput::new().with_value("héllo world");
+        input.cursor = 2; // after "hé" in character indices
+        input.delete_to_end();
+        assert_eq!(input.value, "hé");
+        assert_eq!(input.cursor, 2);
     }
 
     #[test]
