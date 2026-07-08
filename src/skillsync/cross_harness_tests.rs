@@ -244,6 +244,19 @@ Body text.
     }
 
     #[test]
+    fn sync_from_hub_does_not_delete_hub_skill_dir() {
+        let _guard = env_lock().lock().unwrap();
+        let env = SandboxEnv::new();
+
+        let hub_skill = env.home().join(".local/share/unleash/skills/minimal-skill");
+        copy_skill_dir(&fixtures_root().join("minimal-skill"), &hub_skill).expect("copy fixture");
+
+        let changes = skillsync::sync(None, false).expect("sync from hub");
+        assert!(changes.iter().any(|line| line.contains("minimal-skill")));
+        assert!(hub_skill.join("SKILL.md").is_file());
+    }
+
+    #[test]
     fn sync_delete_orphans_removes_sandboxed_targets_and_manifest_entry() {
         let _guard = env_lock().lock().unwrap();
         let env = SandboxEnv::new();

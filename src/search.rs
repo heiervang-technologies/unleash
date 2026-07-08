@@ -1621,15 +1621,13 @@ async fn tui_loop<W: io::Write>(
                         state.selected += 1;
                     }
                 }
-                KeyCode::Enter => {
-                    if !state.scored.is_empty() {
-                        state.mode = Mode::PickingProfile;
-                        state.profile_selected = state
-                            .profiles
-                            .iter()
-                            .position(|p| p == &state.scored[state.selected].cli)
-                            .unwrap_or(0);
-                    }
+                KeyCode::Enter if !state.scored.is_empty() => {
+                    state.mode = Mode::PickingProfile;
+                    state.profile_selected = state
+                        .profiles
+                        .iter()
+                        .position(|p| p == &state.scored[state.selected].cli)
+                        .unwrap_or(0);
                 }
                 KeyCode::Backspace => {
                     state.query.pop();

@@ -47,13 +47,13 @@ impl Harness {
 
     pub fn adapter(self) -> Box<dyn SkillAdapter> {
         match self {
-            Harness::Claude => Box::new(claude::ClaudeAdapter::default()),
-            Harness::OpenCode => Box::new(opencode::OpenCodeAdapter::default()),
-            Harness::Codex => Box::new(codex::CodexAdapter::default()),
-            Harness::Gemini => Box::new(gemini::GeminiAdapter::default()),
-            Harness::Agy => Box::new(agy::AgyAdapter::default()),
-            Harness::Pi => Box::new(pi::PiAdapter::default()),
-            Harness::Hermes => Box::new(hermes::HermesAdapter::default()),
+            Harness::Claude => Box::new(claude::ClaudeAdapter),
+            Harness::OpenCode => Box::new(opencode::OpenCodeAdapter),
+            Harness::Codex => Box::new(codex::CodexAdapter),
+            Harness::Gemini => Box::new(gemini::GeminiAdapter),
+            Harness::Agy => Box::new(agy::AgyAdapter),
+            Harness::Pi => Box::new(pi::PiAdapter),
+            Harness::Hermes => Box::new(hermes::HermesAdapter),
         }
     }
 }
@@ -421,11 +421,24 @@ fn discover_skill_dirs_inner(dir: &Path, skills: &mut Vec<Skill>) -> Result<(), 
 }
 
 pub fn copy_skill_dir(src: &Path, dest: &Path) -> Result<(), SkillSyncError> {
+    if same_path(src, dest) {
+        return Ok(());
+    }
     if dest.exists() {
         fs::remove_dir_all(dest)?;
     }
     copy_dir_recursive(src, dest)?;
     Ok(())
+}
+
+fn same_path(left: &Path, right: &Path) -> bool {
+    if left == right {
+        return true;
+    }
+    match (fs::canonicalize(left), fs::canonicalize(right)) {
+        (Ok(left), Ok(right)) => left == right,
+        _ => false,
+    }
 }
 
 pub fn materialize_skill_dir(skill: &Skill, dest: &Path) -> Result<(), SkillSyncError> {
