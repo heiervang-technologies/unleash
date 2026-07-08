@@ -9,7 +9,7 @@
   "settings": {
     "source": {
       "type": "choice",
-      "choices": ["claude", "codex", "gemini", "opencode", "hub"],
+      "choices": ["claude", "codex", "gemini", "opencode", "agy", "pi", "hermes", "hub"],
       "default": "claude",
       "label": "Source Harness",
       "description": "The primary source CLI to synchronize skills from"

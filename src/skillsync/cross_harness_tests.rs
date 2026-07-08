@@ -86,6 +86,28 @@ mod tests {
         adapter.uninstall(&skill.name).expect("uninstall");
     }
 
+    fn write_minimal_skill_manifest(env: &SandboxEnv, gemini: bool, agy: bool) {
+        let manifest_path = env
+            .home()
+            .join(".local/share/unleash/skills/skillsync.toml");
+        fs::create_dir_all(manifest_path.parent().expect("manifest parent")).expect("manifest dir");
+        fs::write(
+            manifest_path,
+            format!(
+                r#"[skills."minimal-skill".enabled]
+claude = true
+opencode = true
+codex = true
+gemini = {gemini}
+agy = {agy}
+pi = true
+hermes = true
+"#
+            ),
+        )
+        .expect("write manifest");
+    }
+
     #[test]
     fn skill_names_reject_path_traversal() {
         let _guard = env_lock().lock().unwrap();
@@ -178,6 +200,46 @@ Body text.
         assert!(env
             .home()
             .join(".local/share/unleash/skills/skillsync.toml")
+            .is_file());
+    }
+
+    #[test]
+    fn shared_gemini_agy_target_is_not_deleted_when_one_alias_is_disabled() {
+        let _guard = env_lock().lock().unwrap();
+        let env = SandboxEnv::new();
+
+        let source = env.home().join(".claude/skills/minimal-skill");
+        copy_skill_dir(&fixtures_root().join("minimal-skill"), &source).expect("copy fixture");
+        write_minimal_skill_manifest(&env, true, false);
+
+        let changes = skillsync::sync(Some(Harness::Claude), false).expect("sync from temp claude");
+        assert!(changes
+            .iter()
+            .any(|line| line == "installed minimal-skill -> gemini/agy"));
+        assert!(env
+            .home()
+            .join(".gemini/commands/minimal-skill.toml")
+            .is_file());
+    }
+
+    #[test]
+    fn shared_gemini_agy_target_group_is_skipped_when_source_is_gemini() {
+        let _guard = env_lock().lock().unwrap();
+        let env = SandboxEnv::new();
+        let skill = fixture("minimal-skill");
+
+        GeminiAdapter
+            .install(&skill)
+            .expect("install gemini source");
+        write_minimal_skill_manifest(&env, true, false);
+
+        let changes = skillsync::sync(Some(Harness::Gemini), false).expect("sync from gemini");
+        assert!(!changes
+            .iter()
+            .any(|line| line.contains("minimal-skill") && line.contains("gemini/agy")));
+        assert!(env
+            .home()
+            .join(".gemini/commands/minimal-skill.toml")
             .is_file());
     }
 

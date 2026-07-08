@@ -17,7 +17,7 @@ You can configure the plugin in your Unleash settings (or via the TUI plugin set
 
 | Setting | Type | Allowed Values | Default | Description |
 |---|---|---|---|---|
-| `source` | Choice | `claude`, `codex`, `gemini`, `opencode`, `hub` | `claude` | The primary CLI from which active skills are discovered. |
+| `source` | Choice | `claude`, `codex`, `gemini`, `opencode`, `agy`, `pi`, `hermes`, `hub` | `claude` | The primary CLI from which active skills are discovered. |
 | `sync_on_launch` | Choice | `on`, `off` | `on` | Whether to automatically run `unleash skills sync` when launching any agent CLI. |
 | `delete_orphans` | Choice | `on`, `off` | `off` | If enabled, uninstalls/deletes target files when they are removed from the source. |
 
@@ -38,6 +38,6 @@ From your shell, you can use:
 
 ## Native vs. Degraded Fidelity
 
-*   **Native** (`🟢`): Synced as a full native skill directory. Claude (`~/.claude/skills/`) and OpenCode (`~/.config/opencode/agent/`) support this lossless mode, including auto-activation triggers.
+*   **Native** (`🟢`): Synced as a full native skill directory. Claude (`~/.claude/skills/`) supports this lossless mode, including auto-activation triggers.
 *   **Degraded** (`🟡`): Converted into a custom prompt template for Codex (`~/.codex/prompts/<name>.md`) or a custom slash command for Gemini/Agy (`~/.gemini/commands/<name>.toml`). Instructions are fully preserved, but automatic file-matching triggers are lost.
-*   **Reference** (`⚪`): Appended to the global context file (`AGENTS.md`) for Pi and Hermes as a direct instruction reference block.
+*   **Reference** (`⚪`): Appended to the global context file (`AGENTS.md`) for OpenCode, Pi, and Hermes as a direct instruction reference block.

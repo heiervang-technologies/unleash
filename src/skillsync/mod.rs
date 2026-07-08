@@ -58,6 +58,29 @@ impl Harness {
     }
 }
 
+const CLAUDE_TARGET_GROUP: &[Harness] = &[Harness::Claude];
+const OPENCODE_TARGET_GROUP: &[Harness] = &[Harness::OpenCode];
+const CODEX_TARGET_GROUP: &[Harness] = &[Harness::Codex];
+const GEMINI_AGY_TARGET_GROUP: &[Harness] = &[Harness::Gemini, Harness::Agy];
+const PI_TARGET_GROUP: &[Harness] = &[Harness::Pi];
+const HERMES_TARGET_GROUP: &[Harness] = &[Harness::Hermes];
+const TARGET_GROUPS: [&[Harness]; 6] = [
+    CLAUDE_TARGET_GROUP,
+    OPENCODE_TARGET_GROUP,
+    CODEX_TARGET_GROUP,
+    GEMINI_AGY_TARGET_GROUP,
+    PI_TARGET_GROUP,
+    HERMES_TARGET_GROUP,
+];
+
+fn target_group_label(group: &[Harness]) -> String {
+    group
+        .iter()
+        .map(ToString::to_string)
+        .collect::<Vec<_>>()
+        .join("/")
+}
+
 impl fmt::Display for Harness {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
@@ -702,12 +725,13 @@ pub fn sync(source: Option<Harness>, delete_orphans: bool) -> Result<Vec<String>
                 continue;
             }
 
-            for harness in Harness::ALL {
-                if Some(harness) == source {
+            for group in TARGET_GROUPS {
+                if source.is_some_and(|source| group.contains(&source)) {
                     continue;
                 }
-                harness.adapter().uninstall(&skill.name)?;
-                changes.push(format!("deleted orphan {} from {}", skill.name, harness));
+                let label = target_group_label(group);
+                group[0].adapter().uninstall(&skill.name)?;
+                changes.push(format!("deleted orphan {} from {}", skill.name, label));
             }
 
             let hub_path = hub_root().join(&skill.name);
@@ -722,17 +746,21 @@ pub fn sync(source: Option<Harness>, delete_orphans: bool) -> Result<Vec<String>
     let hub_skills = discover_hub()?;
     for skill in &hub_skills {
         manifest.ensure_skill(&skill.name);
-        for harness in Harness::ALL {
-            if Some(harness) == source {
+        for group in TARGET_GROUPS {
+            if source.is_some_and(|source| group.contains(&source)) {
                 continue;
             }
-            let adapter = harness.adapter();
-            if manifest.is_enabled(&skill.name, harness) {
+            let label = target_group_label(group);
+            let adapter = group[0].adapter();
+            if group
+                .iter()
+                .any(|harness| manifest.is_enabled(&skill.name, *harness))
+            {
                 adapter.install(skill)?;
-                changes.push(format!("installed {} -> {}", skill.name, harness));
+                changes.push(format!("installed {} -> {}", skill.name, label));
             } else {
                 adapter.uninstall(&skill.name)?;
-                changes.push(format!("uninstalled {} from {}", skill.name, harness));
+                changes.push(format!("uninstalled {} from {}", skill.name, label));
             }
         }
     }
@@ -749,14 +777,18 @@ pub fn diff(source: Option<Harness>, delete_orphans: bool) -> Result<Vec<String>
     };
     let source_names: BTreeSet<String> = skills.iter().map(|skill| skill.name.clone()).collect();
     for skill in &skills {
-        for harness in Harness::ALL {
-            if Some(harness) == source {
+        for group in TARGET_GROUPS {
+            if source.is_some_and(|source| group.contains(&source)) {
                 continue;
             }
-            if manifest.is_enabled(&skill.name, harness) {
-                planned.push(format!("would install {} -> {}", skill.name, harness));
+            let label = target_group_label(group);
+            if group
+                .iter()
+                .any(|harness| manifest.is_enabled(&skill.name, *harness))
+            {
+                planned.push(format!("would install {} -> {}", skill.name, label));
             } else {
-                planned.push(format!("would uninstall {} from {}", skill.name, harness));
+                planned.push(format!("would uninstall {} from {}", skill.name, label));
             }
         }
     }
@@ -765,13 +797,14 @@ pub fn diff(source: Option<Harness>, delete_orphans: bool) -> Result<Vec<String>
             if source_names.contains(&skill.name) {
                 continue;
             }
-            for harness in Harness::ALL {
-                if Some(harness) == source {
+            for group in TARGET_GROUPS {
+                if source.is_some_and(|source| group.contains(&source)) {
                     continue;
                 }
                 planned.push(format!(
                     "would delete orphan {} from {}",
-                    skill.name, harness
+                    skill.name,
+                    target_group_label(group)
                 ));
             }
             planned.push(format!("would delete orphan {} from hub", skill.name));
