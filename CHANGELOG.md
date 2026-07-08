@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.1.87](https://github.com/heiervang-technologies/unleash/compare/v0.1.86...v0.1.87) (2026-07-08)
+
+
+### Bug Fixes
+
+* **hooks:** keep matcher updates in sync ([#386](https://github.com/heiervang-technologies/unleash/issues/386)) ([449a2dd](https://github.com/heiervang-technologies/unleash/commit/449a2dd5d9aa4aa40400c32233fd04346f759dc7))
+* **interchange:** preserve small lossless fields ([#387](https://github.com/heiervang-technologies/unleash/issues/387)) ([45c48bb](https://github.com/heiervang-technologies/unleash/commit/45c48bb802d778ff668dd5016981f65937c9b84a))
+
 ## [0.1.86](https://github.com/heiervang-technologies/unleash/compare/v0.1.85...v0.1.86) (2026-07-08)
 
 
