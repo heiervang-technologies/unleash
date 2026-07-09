@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.92](https://github.com/heiervang-technologies/unleash/compare/v0.1.91...v0.1.92) (2026-07-09)
+
+
+### Bug Fixes
+
+* detect Antigravity CLI versions from AUR ([65a2c27](https://github.com/heiervang-technologies/unleash/commit/65a2c27acc722a29ae56334026ef453d43a8c337))
+
 ## [0.1.91](https://github.com/heiervang-technologies/unleash/compare/v0.1.90...v0.1.91) (2026-07-09)
 
 
