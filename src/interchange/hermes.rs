@@ -1,6 +1,7 @@
 use crate::interchange::hub::*;
 use crate::interchange::ConvertError;
 use serde_json::Value;
+use std::collections::HashMap;
 
 /// Output from Hub → Hermes conversion: rows ready to INSERT into state.db.
 pub struct HermesOutput {
@@ -185,6 +186,7 @@ pub fn to_hub(json: &str) -> Result<Vec<HubRecord>, ConvertError> {
             // Orphaned tool result — emit as user ToolResult block
             let content = msg["content"].as_str().unwrap_or("").to_string();
             let tool_use_id = msg["tool_call_id"].as_str().unwrap_or(&msg_id).to_string();
+            let tool_name = msg["tool_name"].as_str().map(String::from);
             records.push(HubRecord::Message(HubMessage {
                 id: msg_id,
                 api_message_id: None,
@@ -193,7 +195,7 @@ pub fn to_hub(json: &str) -> Result<Vec<HubRecord>, ConvertError> {
                 completed_at: None,
                 role: "user".to_string(),
                 content: vec![ContentBlock::ToolResult {
-                    tool_use_id,
+                    tool_use_id: tool_use_id.clone(),
                     content: vec![ContentBlock::Text { text: content }],
                     is_error: false,
                     exit_code: None,
@@ -204,7 +206,7 @@ pub fn to_hub(json: &str) -> Result<Vec<HubRecord>, ConvertError> {
                     truncated: false,
                 }],
                 metadata: MessageMetadata::default(),
-                extensions: Value::Object(Default::default()),
+                extensions: hermes_tool_name_extension(&tool_use_id, tool_name.as_deref()),
             }));
             i += 1;
             continue;
@@ -217,6 +219,7 @@ pub fn to_hub(json: &str) -> Result<Vec<HubRecord>, ConvertError> {
         }
 
         let mut result_blocks: Vec<ContentBlock> = Vec::new();
+        let mut result_tool_names: HashMap<String, String> = HashMap::new();
         let mut consumed_tool_msgs = 0usize;
 
         if role == "assistant" {
@@ -241,32 +244,38 @@ pub fn to_hub(json: &str) -> Result<Vec<HubRecord>, ConvertError> {
                         description: None,
                         input,
                     });
-
-                    // Collect matching tool result from following tool-role msgs
-                    for next in messages.iter().skip(i + 1) {
-                        if next["role"].as_str() != Some("tool") {
-                            break;
-                        }
-                        if next["tool_call_id"].as_str() == Some(&call_id) {
-                            let res = next["content"].as_str().unwrap_or("").to_string();
-                            result_blocks.push(ContentBlock::ToolResult {
-                                tool_use_id: call_id.clone(),
-                                content: vec![ContentBlock::Text { text: res }],
-                                is_error: false,
-                                exit_code: None,
-                                interrupted: false,
-                                status: None,
-                                duration_ms: None,
-                                title: None,
-                                truncated: false,
-                            });
-                            break;
-                        }
-                    }
                 }
-                // Advance past consumed tool-role messages
+
+                // Collect every immediately-following tool row. Matched rows
+                // become paired ToolResult blocks; extra rows are preserved as
+                // orphan ToolResult blocks instead of being consumed and lost.
                 let mut j = i + 1;
                 while j < messages.len() && messages[j]["role"].as_str() == Some("tool") {
+                    let next = &messages[j];
+                    let tool_use_id = next["tool_call_id"]
+                        .as_str()
+                        .map(String::from)
+                        .unwrap_or_else(|| {
+                            next["id"]
+                                .as_u64()
+                                .map(|n| n.to_string())
+                                .unwrap_or_default()
+                        });
+                    let res = next["content"].as_str().unwrap_or("").to_string();
+                    result_blocks.push(ContentBlock::ToolResult {
+                        tool_use_id: tool_use_id.clone(),
+                        content: vec![ContentBlock::Text { text: res }],
+                        is_error: false,
+                        exit_code: None,
+                        interrupted: false,
+                        status: None,
+                        duration_ms: None,
+                        title: None,
+                        truncated: false,
+                    });
+                    if let Some(name) = next["tool_name"].as_str() {
+                        result_tool_names.insert(tool_use_id.clone(), name.to_string());
+                    }
                     consumed_tool_msgs += 1;
                     j += 1;
                 }
@@ -304,7 +313,7 @@ pub fn to_hub(json: &str) -> Result<Vec<HubRecord>, ConvertError> {
                 role: "user".to_string(),
                 content: result_blocks,
                 metadata: MessageMetadata::default(),
-                extensions: Value::Object(Default::default()),
+                extensions: hermes_tool_names_extension(&result_tool_names),
             }));
         }
 
@@ -347,6 +356,7 @@ pub fn from_hub(records: &[HubRecord]) -> Result<HermesOutput, ConvertError> {
         });
 
     let mut messages: Vec<HermesMessage> = Vec::new();
+    let mut tool_names_by_id: HashMap<String, String> = HashMap::new();
 
     for record in records {
         let HubRecord::Message(msg) = record else {
@@ -370,6 +380,7 @@ pub fn from_hub(records: &[HubRecord]) -> Result<HermesOutput, ConvertError> {
                         id, name, input, ..
                     } = b
                     {
+                        tool_names_by_id.insert(id.clone(), name.clone());
                         Some(serde_json::json!({
                             "id": id,
                             "call_id": id,
@@ -442,7 +453,8 @@ pub fn from_hub(records: &[HubRecord]) -> Result<HermesOutput, ConvertError> {
                     content: Some(result_text),
                     tool_calls: None,
                     tool_call_id: Some(tool_use_id.clone()),
-                    tool_name: None,
+                    tool_name: hermes_tool_name_for_result(&msg.extensions, tool_use_id)
+                        .or_else(|| tool_names_by_id.get(tool_use_id).cloned()),
                     timestamp: ts,
                 });
             }
@@ -462,6 +474,33 @@ pub fn from_hub(records: &[HubRecord]) -> Result<HermesOutput, ConvertError> {
         },
         messages,
     })
+}
+
+fn hermes_tool_name_extension(tool_use_id: &str, tool_name: Option<&str>) -> Value {
+    let mut names = HashMap::new();
+    if let Some(name) = tool_name {
+        names.insert(tool_use_id.to_string(), name.to_string());
+    }
+    hermes_tool_names_extension(&names)
+}
+
+fn hermes_tool_names_extension(names: &HashMap<String, String>) -> Value {
+    if names.is_empty() {
+        return Value::Object(Default::default());
+    }
+    serde_json::json!({
+        "hermes": {
+            "tool_names": names,
+        }
+    })
+}
+
+fn hermes_tool_name_for_result(ext: &Value, tool_use_id: &str) -> Option<String> {
+    ext.get("hermes")
+        .and_then(|h| h.get("tool_names"))
+        .and_then(|names| names.get(tool_use_id))
+        .and_then(|name| name.as_str())
+        .map(String::from)
 }
 
 // ── Tests ────────────────────────────────────────────────────────────────────
@@ -611,6 +650,76 @@ mod tests {
     }
 
     #[test]
+    fn to_hub_preserves_extra_consecutive_tool_rows() {
+        let json = serde_json::json!({
+            "id": "tool_session",
+            "source": "claude",
+            "model": "claude-sonnet",
+            "title": null,
+            "started_at": 1779321600.0,
+            "ended_at": 1779321700.0,
+            "parent_session_id": null,
+            "messages": [
+                {
+                    "id": 1,
+                    "role": "assistant",
+                    "content": "",
+                    "tool_calls": [{"id": "call_1", "type": "function", "function": {"name": "bash", "arguments": "{\"cmd\":\"ls\"}"}}],
+                    "tool_call_id": null,
+                    "tool_name": null,
+                    "timestamp": 1779321620.0
+                },
+                {
+                    "id": 2,
+                    "role": "tool",
+                    "content": "matched",
+                    "tool_calls": null,
+                    "tool_call_id": "call_1",
+                    "tool_name": "bash",
+                    "timestamp": 1779321630.0
+                },
+                {
+                    "id": 3,
+                    "role": "tool",
+                    "content": "extra",
+                    "tool_calls": null,
+                    "tool_call_id": "call_extra",
+                    "tool_name": "grep",
+                    "timestamp": 1779321631.0
+                }
+            ]
+        })
+        .to_string();
+
+        let records = to_hub(&json).unwrap();
+        let result_msg = records
+            .iter()
+            .filter_map(|r| match r {
+                HubRecord::Message(m) if m.role == "user" => Some(m),
+                _ => None,
+            })
+            .find(|m| {
+                m.content
+                    .iter()
+                    .any(|b| matches!(b, ContentBlock::ToolResult { .. }))
+            })
+            .expect("missing tool result message");
+        let result_ids: Vec<_> = result_msg
+            .content
+            .iter()
+            .filter_map(|b| match b {
+                ContentBlock::ToolResult { tool_use_id, .. } => Some(tool_use_id.as_str()),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(result_ids, vec!["call_1", "call_extra"]);
+        assert_eq!(
+            hermes_tool_name_for_result(&result_msg.extensions, "call_extra").as_deref(),
+            Some("grep")
+        );
+    }
+
+    #[test]
     fn from_hub_roundtrip_basic() {
         let json = serde_json::json!({
             "id": "rt_session",
@@ -634,5 +743,57 @@ mod tests {
         assert_eq!(out.messages.len(), 2);
         assert_eq!(out.messages[0].role, "user");
         assert_eq!(out.messages[1].role, "assistant");
+    }
+
+    #[test]
+    fn from_hub_preserves_tool_result_names() {
+        let json = serde_json::json!({
+            "id": "tool_session",
+            "source": "claude",
+            "model": "claude-sonnet",
+            "title": null,
+            "started_at": 1779321600.0,
+            "ended_at": 1779321700.0,
+            "parent_session_id": null,
+            "messages": [
+                {
+                    "id": 1,
+                    "role": "assistant",
+                    "content": "",
+                    "tool_calls": [{"id": "call_1", "type": "function", "function": {"name": "bash", "arguments": "{\"cmd\":\"ls\"}"}}],
+                    "tool_call_id": null,
+                    "tool_name": null,
+                    "timestamp": 1779321620.0
+                },
+                {
+                    "id": 2,
+                    "role": "tool",
+                    "content": "matched",
+                    "tool_calls": null,
+                    "tool_call_id": "call_1",
+                    "tool_name": "bash",
+                    "timestamp": 1779321630.0
+                },
+                {
+                    "id": 3,
+                    "role": "tool",
+                    "content": "extra",
+                    "tool_calls": null,
+                    "tool_call_id": "call_extra",
+                    "tool_name": "grep",
+                    "timestamp": 1779321631.0
+                }
+            ]
+        })
+        .to_string();
+
+        let hub = to_hub(&json).unwrap();
+        let out = from_hub(&hub).unwrap();
+        let tools: Vec<_> = out.messages.iter().filter(|m| m.role == "tool").collect();
+        assert_eq!(tools.len(), 2);
+        assert_eq!(tools[0].tool_call_id.as_deref(), Some("call_1"));
+        assert_eq!(tools[0].tool_name.as_deref(), Some("bash"));
+        assert_eq!(tools[1].tool_call_id.as_deref(), Some("call_extra"));
+        assert_eq!(tools[1].tool_name.as_deref(), Some("grep"));
     }
 }
