@@ -1624,7 +1624,7 @@ impl AgentManager {
         let path = self.version_cache_path();
         let content = serde_json::to_string_pretty(&self.versions)
             .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e.to_string()))?;
-        fs::write(path, content)
+        crate::config::atomic_write(&path, &content)
     }
 
     /// Get status summary for all agents

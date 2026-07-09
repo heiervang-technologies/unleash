@@ -773,7 +773,7 @@ fn parts_to_content_blocks(parts: &[Value]) -> Result<Vec<ContentBlock>, Convert
                     .and_then(|s| s.get("metadata"))
                     .and_then(|m| m.get("exit"))
                     .and_then(|v| v.as_i64())
-                    .map(|v| v as i32);
+                    .and_then(|v| i32::try_from(v).ok());
                 let truncated = state
                     .and_then(|s| s.get("metadata"))
                     .and_then(|m| m.get("truncated"))
@@ -1558,6 +1558,51 @@ mod tests {
             tool_part["state"].get("output").and_then(|v| v.as_str()),
             Some("hello")
         );
+    }
+
+    #[test]
+    fn test_tool_exit_code_overflow_is_ignored() {
+        let messages = r#"[{
+            "role": "assistant",
+            "time": {"created": 1000000, "completed": 2000000},
+            "modelID": "model",
+            "providerID": "p",
+            "mode": "build",
+            "agent": "build",
+            "path": {"cwd": "/tmp", "root": "/"},
+            "cost": 0.0,
+            "tokens": {"input": 0, "output": 0, "reasoning": 0, "cache": {"read": 0, "write": 0}},
+            "finish": "tool-calls"
+        }]"#;
+        let parts = r#"[
+            {"type": "step-start", "text": ""},
+            {"type": "tool", "tool": "bash", "callID": "call_123", "state": {"status": "error", "input": {"command": "false"}, "output": "failed", "metadata": {"exit": 2147483648, "truncated": false}, "time": {"start": 1000, "end": 1500}}, "text": ""},
+            {"type": "step-finish", "reason": "tool-calls", "text": ""}
+        ]"#;
+
+        let input = make_input(messages, parts);
+        let hub = to_hub(&input).unwrap();
+        let msg = hub
+            .iter()
+            .filter_map(|r| match r {
+                HubRecord::Message(m) => Some(m),
+                _ => None,
+            })
+            .find(|m| {
+                m.content
+                    .iter()
+                    .any(|b| matches!(b, ContentBlock::ToolResult { .. }))
+            })
+            .unwrap();
+        let exit_code = msg
+            .content
+            .iter()
+            .find_map(|b| match b {
+                ContentBlock::ToolResult { exit_code, .. } => Some(exit_code),
+                _ => None,
+            })
+            .unwrap();
+        assert_eq!(*exit_code, None);
     }
 
     #[test]
