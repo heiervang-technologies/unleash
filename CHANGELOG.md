@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.93](https://github.com/heiervang-technologies/unleash/compare/v0.1.92...v0.1.93) (2026-07-09)
+
+
+### Bug Fixes
+
+* install binaries via atomic replacement ([5008aeb](https://github.com/heiervang-technologies/unleash/commit/5008aebe625a6db34be94ec1ed0da8fded996e10))
+
 ## [0.1.92](https://github.com/heiervang-technologies/unleash/compare/v0.1.91...v0.1.92) (2026-07-09)
 
 
