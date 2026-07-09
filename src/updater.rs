@@ -634,6 +634,16 @@ fn get_latest_version(agent_type: AgentType) -> io::Result<Option<String>> {
         }
     }
 
+    // Antigravity has no npm or GitHub release feed. On Arch, the AUR
+    // package is the update source, but its package version includes a build
+    // suffix (e.g. 1.1.0_4523441756438528-1) while `agy --version` reports the
+    // CLI version (1.1.0). Normalize to the CLI version before comparing.
+    if agent_type == AgentType::Antigravity {
+        if let Some(version) = get_latest_antigravity_aur_version()? {
+            return Ok(Some(version));
+        }
+    }
+
     // Both live lookups failed (npm down, GitHub rate-limited, no network,
     // etc.) — fall back to the embedded version list compiled into the
     // binary. Without this, the check phase emits "not installed (up to
@@ -714,6 +724,52 @@ fn get_latest_github_version(repo: &str) -> io::Result<Option<String>> {
         }
     }
     fetch_github_release_tag(&url, None)
+}
+
+fn get_latest_antigravity_aur_version() -> io::Result<Option<String>> {
+    for helper in ["yay", "paru"] {
+        let Ok(output) = Command::new(helper)
+            .args(["-Si", "antigravity-cli"])
+            .output()
+        else {
+            continue;
+        };
+        if !output.status.success() {
+            continue;
+        }
+
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        if let Some(version) = parse_antigravity_aur_version(&stdout) {
+            return Ok(Some(version));
+        }
+    }
+
+    Ok(None)
+}
+
+fn parse_antigravity_aur_version(output: &str) -> Option<String> {
+    let raw = output
+        .lines()
+        .find_map(|line| line.trim().strip_prefix("Version"))?
+        .split_once(':')?
+        .1
+        .trim();
+    normalize_antigravity_package_version(raw)
+}
+
+fn normalize_antigravity_package_version(raw: &str) -> Option<String> {
+    let no_epoch = raw.rsplit_once(':').map(|(_, v)| v).unwrap_or(raw);
+    let no_pkgrel = no_epoch.split_once('-').map(|(v, _)| v).unwrap_or(no_epoch);
+    let no_build = no_pkgrel
+        .split_once('_')
+        .map(|(v, _)| v)
+        .unwrap_or(no_pkgrel);
+    let version = sanitize_version(no_build.trim());
+    if version.is_empty() {
+        None
+    } else {
+        Some(version)
+    }
 }
 
 /// Make a single GitHub releases-latest API call, optionally authenticated.
@@ -1690,6 +1746,30 @@ mod tests {
     fn parse_release_tag_returns_none_for_missing_tag_name() {
         let body = br#"{"name":"Release","id":12345}"#;
         assert_eq!(parse_release_tag(body), None);
+    }
+
+    #[test]
+    fn parse_antigravity_aur_version_normalizes_pkgver_to_cli_version() {
+        let output = "\
+Repository                    : aur\n\
+Name                          : antigravity-cli\n\
+Version                       : 1.1.0_4523441756438528-1\n";
+        assert_eq!(
+            parse_antigravity_aur_version(output),
+            Some("1.1.0".to_string())
+        );
+    }
+
+    #[test]
+    fn normalize_antigravity_package_version_strips_epoch_build_and_release() {
+        assert_eq!(
+            normalize_antigravity_package_version("2:1.2.3_999999-4"),
+            Some("1.2.3".to_string())
+        );
+        assert_eq!(
+            normalize_antigravity_package_version("v1.2.3-1"),
+            Some("1.2.3".to_string())
+        );
     }
 
     #[test]

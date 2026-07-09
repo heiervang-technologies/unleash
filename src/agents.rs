@@ -776,31 +776,37 @@ impl AgentManager {
             .ok_or_else(|| io::Error::new(io::ErrorKind::NotFound, "Agent not found"))?;
 
         if agent_type == AgentType::Antigravity {
-            // Check Electron app.asar paths for system/packaged installations
+            // Prefer the CLI binary version. The desktop Antigravity app and
+            // the `agy` companion CLI use different version lines, and this
+            // manager is reporting the CLI.
+            let mut version = None;
+            if let Ok(bin_path) = which::which(&agent.binary) {
+                if let Ok(output) = Command::new(&bin_path).arg("--version").output() {
+                    let stdout = String::from_utf8_lossy(&output.stdout);
+                    let stderr = String::from_utf8_lossy(&output.stderr);
+                    version = Self::parse_version(&stdout)
+                        .or_else(|| Self::parse_version(&stderr))
+                        .or_else(|| stdout.lines().next().map(|s| s.trim().to_string()))
+                        .or_else(|| stderr.lines().next().map(|s| s.trim().to_string()));
+                }
+            }
+
+            // Fallback to Electron app.asar paths only when no `agy` binary is
+            // available. This can identify a desktop-only install, but should
+            // not override the actual CLI version.
             let paths = [
                 PathBuf::from("/opt/Antigravity/resources/app.asar"), // Arch Linux / pacman default
                 PathBuf::from("/Applications/Antigravity.app/Contents/Resources/app.asar"), // macOS default
             ];
-            let mut version = None;
-            for path in &paths {
-                if path.exists() {
-                    if let Ok(content) = fs::read(path) {
-                        if let Some(v) = Self::parse_asar_version(&content) {
-                            version = Some(v);
-                            break;
-                        }
-                    }
-                }
-            }
-
-            // Fallback for binaries installed outside the agent's canonical path
-            // (e.g. AUR-installed `agy`, custom `--prefix`, or distro packages).
             if version.is_none() {
-                if let Ok(bin_path) = which::which(&agent.binary) {
-                    if let Ok(output) = Command::new(&bin_path).arg("--version").output() {
-                        let stdout = String::from_utf8_lossy(&output.stdout);
-                        version = Self::parse_version(&stdout)
-                            .or_else(|| stdout.lines().next().map(|s| s.trim().to_string()));
+                for path in &paths {
+                    if path.exists() {
+                        if let Ok(content) = fs::read(path) {
+                            if let Some(v) = Self::parse_asar_version(&content) {
+                                version = Some(v);
+                                break;
+                            }
+                        }
                     }
                 }
             }

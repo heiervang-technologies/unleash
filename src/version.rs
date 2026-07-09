@@ -91,12 +91,11 @@ fn merge_disk_and_fallback(
         }
         // Migration: earlier builds shipped antigravity = ["2.0.1"] as the
         // embedded "latest", but that version was never published anywhere
-        // (npm 404, no GitHub release). Cached copies of that list still live
-        // in users' ~/.config/unleash/versions.json and cause `update agy` to
-        // report a perpetually-available phantom update. If the cache exactly
-        // matches the legacy stub, fall through to the in-binary fallback so
-        // the fix in data/versions.json takes effect.
-        if *key == "antigravity" && versions == ["2.0.1"] {
+        // (npm 404, no GitHub release). Some refreshed caches kept the bogus
+        // value alongside real entries, e.g. ["2.0.1", "1.0.3"], so any
+        // occurrence means the cache is contaminated. Fall through to the
+        // in-binary fallback so the fixed data/versions.json takes effect.
+        if *key == "antigravity" && versions.iter().any(|v| v == "2.0.1") {
             versions.clear();
         }
         if versions.is_empty() {
@@ -2661,9 +2660,25 @@ mod tests {
     #[test]
     fn merge_disk_strips_legacy_antigravity_2_0_1_stub() {
         let disk = serde_json::json!({ "antigravity": ["2.0.1"] });
-        let fallback = serde_json::json!({ "antigravity": ["1.0.3"] });
+        let fallback = serde_json::json!({ "antigravity": ["1.1.0", "1.0.3"] });
         let merged = merge_disk_and_fallback(&disk, &fallback);
-        assert_eq!(merged.get("antigravity"), Some(&vec!["1.0.3".to_string()]));
+        assert_eq!(
+            merged.get("antigravity"),
+            Some(&vec!["1.1.0".to_string(), "1.0.3".to_string()])
+        );
+    }
+
+    /// Refreshed caches also shipped the bogus value alongside a real
+    /// Antigravity version. Treat the whole cached list as contaminated.
+    #[test]
+    fn merge_disk_strips_legacy_antigravity_2_0_1_mixed_cache() {
+        let disk = serde_json::json!({ "antigravity": ["2.0.1", "1.0.3"] });
+        let fallback = serde_json::json!({ "antigravity": ["1.1.0", "1.0.3"] });
+        let merged = merge_disk_and_fallback(&disk, &fallback);
+        assert_eq!(
+            merged.get("antigravity"),
+            Some(&vec!["1.1.0".to_string(), "1.0.3".to_string()])
+        );
     }
 
     /// A real cached version list — e.g. once Google ships a 2.x agy — must
