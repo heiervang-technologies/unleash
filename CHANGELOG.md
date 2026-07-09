@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.90](https://github.com/heiervang-technologies/unleash/compare/v0.1.89...v0.1.90) (2026-07-09)
+
+
+### Bug Fixes
+
+* harden issue 353 follow-ups ([#392](https://github.com/heiervang-technologies/unleash/issues/392)) ([7eed5b3](https://github.com/heiervang-technologies/unleash/commit/7eed5b3ae429f9980d07f1ed0ae8dff504511795))
+
 ## [0.1.89](https://github.com/heiervang-technologies/unleash/compare/v0.1.88...v0.1.89) (2026-07-08)
 
 
