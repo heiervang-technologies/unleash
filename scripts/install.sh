@@ -32,6 +32,17 @@ success() { echo -e "${GREEN}==>${NC} $1"; }
 warn() { echo -e "${YELLOW}==>${NC} $1"; }
 error() { echo -e "${RED}==>${NC} $1"; }
 
+install_binary_atomic() {
+    local src="$1"
+    local dest="$2"
+    local tmp
+
+    tmp=$(mktemp "${dest}.tmp.XXXXXX")
+    cp "$src" "$tmp"
+    chmod +x "$tmp"
+    mv -f "$tmp" "$dest"
+}
+
 # Supported agent CLIs and their version flags
 declare -A AGENT_BINARIES=(
     [claude]="Claude Code"
@@ -166,8 +177,7 @@ if $BUILD_TUI; then
 
             # Install unleash binary
             if [[ -f "$REPO_ROOT/target/release/unleash" ]]; then
-                cp "$REPO_ROOT/target/release/unleash" "$BIN_DIR/unleash"
-                chmod +x "$BIN_DIR/unleash"
+                install_binary_atomic "$REPO_ROOT/target/release/unleash" "$BIN_DIR/unleash"
                 success "Installed: unleash"
             fi
 

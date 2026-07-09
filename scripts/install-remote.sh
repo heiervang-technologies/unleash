@@ -81,6 +81,17 @@ success() { echo -e "${GREEN}==>${NC} $1"; }
 warn() { echo -e "${YELLOW}==>${NC} $1"; }
 error() { echo -e "${RED}==>${NC} $1" >&2; }
 
+install_binary_atomic() {
+    local src="$1"
+    local dest="$2"
+    local tmp
+
+    tmp=$(mktemp "${dest}.tmp.XXXXXX")
+    cp "$src" "$tmp"
+    chmod +x "$tmp"
+    mv -f "$tmp" "$dest"
+}
+
 # Detect OS and architecture
 detect_platform() {
     OS="$(uname -s)"
@@ -618,14 +629,12 @@ download_binary() {
         fi
     fi
 
-    chmod +x "${temp_dir}/unleash"
-    mv "${temp_dir}/unleash" "${INSTALL_DIR}/unleash"
+    install_binary_atomic "${temp_dir}/unleash" "${INSTALL_DIR}/unleash"
 
     # Download splash binary (optional — interactive installer)
     local splash_name="splash-${PLATFORM}-${ARCH}"
     if download_release_asset "$version" "$splash_name" "${temp_dir}/splash" 2>/dev/null; then
-        chmod +x "${temp_dir}/splash"
-        mv "${temp_dir}/splash" "${INSTALL_DIR}/splash"
+        install_binary_atomic "${temp_dir}/splash" "${INSTALL_DIR}/splash"
         success "Splash binary installed"
     fi
 
@@ -653,12 +662,10 @@ build_from_source() {
 
     # Install binaries
     if [[ -f "target/release/unleash" ]]; then
-        cp "target/release/unleash" "${INSTALL_DIR}/unleash"
-        chmod +x "${INSTALL_DIR}/unleash"
+        install_binary_atomic "target/release/unleash" "${INSTALL_DIR}/unleash"
     fi
     if [[ -f "target/release/splash" ]]; then
-        cp "target/release/splash" "${INSTALL_DIR}/splash"
-        chmod +x "${INSTALL_DIR}/splash"
+        install_binary_atomic "target/release/splash" "${INSTALL_DIR}/splash"
     fi
 
     # Cleanup
