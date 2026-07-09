@@ -136,7 +136,7 @@ pub fn save_embedded_versions(map: &HashMap<crate::agents::AgentType, Vec<Versio
 
     let path = get_versions_file_path();
     if let Ok(json_str) = serde_json::to_string_pretty(&serde_json::Value::Object(out_map)) {
-        let _ = std::fs::write(path, json_str);
+        let _ = crate::config::atomic_write(&path, &json_str);
     }
 }
 
@@ -2184,7 +2184,7 @@ impl VersionManager {
 ///
 /// - Strips known prefixes ("v", "rust-v") from both inputs.
 /// - Pre-release versions (with `-` suffix) are less than the same base version.
-/// - Splits on `.` and compares each segment as `u32`.
+/// - Splits on `.` and compares each numeric segment without integer overflow.
 /// - Zero-pads shorter versions so "1.2" == "1.2.0".
 pub(crate) fn version_compare(a: &str, b: &str) -> std::cmp::Ordering {
     fn strip_prefix(s: &str) -> &str {
@@ -2192,13 +2192,10 @@ pub(crate) fn version_compare(a: &str, b: &str) -> std::cmp::Ordering {
     }
 
     /// Split a version string into (base numeric parts, optional pre-release suffix).
-    fn parse_parts(s: &str) -> (Vec<u32>, Option<&str>) {
+    fn parse_parts(s: &str) -> (Vec<&str>, Option<&str>) {
         let pre = s.split_once('-').map(|(_, rest)| rest);
         let base = s.split('-').next().unwrap_or(s);
-        let parts = base
-            .split('.')
-            .map(|p| p.parse::<u32>().unwrap_or(0))
-            .collect();
+        let parts = base.split('.').collect();
         (parts, pre)
     }
 
@@ -2209,9 +2206,9 @@ pub(crate) fn version_compare(a: &str, b: &str) -> std::cmp::Ordering {
 
     // Compare base numeric parts
     for i in 0..a_parts.len().max(b_parts.len()) {
-        let pa = a_parts.get(i).copied().unwrap_or(0);
-        let pb = b_parts.get(i).copied().unwrap_or(0);
-        match pa.cmp(&pb) {
+        let pa = a_parts.get(i).copied().unwrap_or("0");
+        let pb = b_parts.get(i).copied().unwrap_or("0");
+        match compare_numeric_segment(pa, pb) {
             std::cmp::Ordering::Equal => continue,
             other => return other,
         }
@@ -2223,6 +2220,28 @@ pub(crate) fn version_compare(a: &str, b: &str) -> std::cmp::Ordering {
         (None, Some(_)) => std::cmp::Ordering::Greater,
         (Some(a_suffix), Some(b_suffix)) => compare_prerelease(a_suffix, b_suffix),
         (None, None) => std::cmp::Ordering::Equal,
+    }
+}
+
+fn compare_numeric_segment(a: &str, b: &str) -> std::cmp::Ordering {
+    fn normalize(s: &str) -> &str {
+        if s.chars().all(|c| c.is_ascii_digit()) {
+            let stripped = s.trim_start_matches('0');
+            if stripped.is_empty() {
+                "0"
+            } else {
+                stripped
+            }
+        } else {
+            "0"
+        }
+    }
+
+    let a = normalize(a);
+    let b = normalize(b);
+    match a.len().cmp(&b.len()) {
+        std::cmp::Ordering::Equal => a.cmp(b),
+        other => other,
     }
 }
 
@@ -2239,11 +2258,14 @@ fn compare_prerelease(a: &str, b: &str) -> std::cmp::Ordering {
             (None, Some(_)) => return std::cmp::Ordering::Less, // fewer fields = lower precedence
             (Some(_), None) => return std::cmp::Ordering::Greater,
             (Some(a_seg), Some(b_seg)) => {
-                let ord = match (a_seg.parse::<u64>(), b_seg.parse::<u64>()) {
-                    (Ok(an), Ok(bn)) => an.cmp(&bn),
-                    (Ok(_), Err(_)) => std::cmp::Ordering::Less, // numeric < alphanumeric
-                    (Err(_), Ok(_)) => std::cmp::Ordering::Greater,
-                    (Err(_), Err(_)) => a_seg.cmp(b_seg),
+                let ord = match (
+                    a_seg.chars().all(|c| c.is_ascii_digit()),
+                    b_seg.chars().all(|c| c.is_ascii_digit()),
+                ) {
+                    (true, true) => compare_numeric_segment(a_seg, b_seg),
+                    (true, false) => std::cmp::Ordering::Less, // numeric < alphanumeric
+                    (false, true) => std::cmp::Ordering::Greater,
+                    (false, false) => a_seg.cmp(b_seg),
                 };
                 if ord != std::cmp::Ordering::Equal {
                     return ord;
@@ -2743,6 +2765,17 @@ mod tests {
         // Large numbers
         assert_eq!(version_compare("0.116.0", "0.115.9"), Ordering::Greater);
         assert_eq!(version_compare("9.4.0", "9.3.0"), Ordering::Greater);
+        assert_eq!(
+            version_compare("999999999999999999999999999999.0.0", "1.0.0"),
+            Ordering::Greater
+        );
+        assert_eq!(
+            version_compare(
+                "1.0.0-preview.999999999999999999999999999999",
+                "1.0.0-preview.2"
+            ),
+            Ordering::Greater
+        );
     }
 
     #[test]

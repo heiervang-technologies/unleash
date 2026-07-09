@@ -3,7 +3,9 @@
 use crate::interchange::crossload_index::{self, entry_is_live};
 use crate::interchange::sessions::{find_session, SessionInfo};
 use crate::interchange::{
-    claude, codex, gemini, hermes, hub::HubRecord, opencode, pi, ConvertError,
+    claude, codex, gemini, hermes,
+    hub::{ContentBlock, HubRecord},
+    opencode, pi, ConvertError,
 };
 
 /// Result of injecting a session: the session ID to resume with and any extra args.
@@ -213,6 +215,32 @@ fn estimate_block_chars(block: &crate::interchange::hub::ContentBlock) -> usize 
     }
 }
 
+fn tool_use_ids(record: &HubRecord) -> Vec<String> {
+    let HubRecord::Message(msg) = record else {
+        return Vec::new();
+    };
+    msg.content
+        .iter()
+        .filter_map(|block| match block {
+            ContentBlock::ToolUse { id, .. } => Some(id.clone()),
+            _ => None,
+        })
+        .collect()
+}
+
+fn tool_result_ids(record: &HubRecord) -> Vec<String> {
+    let HubRecord::Message(msg) = record else {
+        return Vec::new();
+    };
+    msg.content
+        .iter()
+        .filter_map(|block| match block {
+            ContentBlock::ToolResult { tool_use_id, .. } => Some(tool_use_id.clone()),
+            _ => None,
+        })
+        .collect()
+}
+
 /// Trim the oldest user+assistant message pairs from `records` until
 /// the estimated token count fits within `max_tokens`.
 /// The session header (first record) is always kept.
@@ -236,13 +264,101 @@ pub(crate) fn truncate_hub_to_budget(
         if estimate_tokens(&current) <= max_tokens {
             return (current, dropped);
         }
-        // Drop the oldest message.
-        messages.remove(0);
+        // Drop the oldest message plus any linked tool counterpart. Keeping
+        // only one side leaves downstream Claude injection with orphaned
+        // tool_result blocks, which Claude rejects.
+        let removed = messages.remove(0);
         dropped += 1;
+        let mut linked_ids = tool_use_ids(&removed);
+        linked_ids.extend(tool_result_ids(&removed));
+        if !linked_ids.is_empty() {
+            let before = messages.len();
+            messages.retain(|msg| {
+                let uses = tool_use_ids(msg);
+                let results = tool_result_ids(msg);
+                !linked_ids
+                    .iter()
+                    .any(|id| uses.contains(id) || results.contains(id))
+            });
+            dropped += before - messages.len();
+        }
     }
 
     // Couldn't fit even with all messages dropped — return just the header.
     (header, dropped)
+}
+
+fn claude_text_is_keepable(text: &str) -> bool {
+    !text.is_empty()
+        && !text.starts_with("<environment_context")
+        && !text.starts_with("<permissions")
+        && !text.starts_with("<user_shell_command")
+        && !text.starts_with("[Reasoning]: \n")
+}
+
+fn claude_block_tool_use_id(block: &serde_json::Value) -> Option<String> {
+    (block.get("type").and_then(|t| t.as_str()) == Some("tool_use"))
+        .then(|| block.get("id").and_then(|id| id.as_str()).map(String::from))
+        .flatten()
+}
+
+fn claude_block_tool_result_id(block: &serde_json::Value) -> Option<String> {
+    (block.get("type").and_then(|t| t.as_str()) == Some("tool_result"))
+        .then(|| {
+            block
+                .get("tool_use_id")
+                .and_then(|id| id.as_str())
+                .map(String::from)
+        })
+        .flatten()
+}
+
+fn claude_block_is_keepable(block: &serde_json::Value, seen_tool_uses: &[String]) -> bool {
+    match block.get("type").and_then(|t| t.as_str()) {
+        Some("text") => block
+            .get("text")
+            .and_then(|t| t.as_str())
+            .is_some_and(claude_text_is_keepable),
+        Some("tool_use") | Some("image") | Some("thinking") => true,
+        Some("tool_result") => {
+            claude_block_tool_result_id(block).is_some_and(|id| seen_tool_uses.contains(&id))
+        }
+        _ => false,
+    }
+}
+
+fn filter_claude_injection_lines(lines: Vec<serde_json::Value>) -> Vec<serde_json::Value> {
+    let mut kept = Vec::new();
+    let mut seen_tool_uses = Vec::new();
+
+    for line in lines {
+        let msg_type = line.get("type").and_then(|t| t.as_str()).unwrap_or("");
+        if msg_type != "user" && msg_type != "assistant" {
+            continue;
+        }
+
+        let content = line.get("message").and_then(|m| m.get("content"));
+        let keep = match content {
+            Some(serde_json::Value::String(s)) => claude_text_is_keepable(s),
+            Some(serde_json::Value::Array(arr)) => arr
+                .iter()
+                .any(|block| claude_block_is_keepable(block, &seen_tool_uses)),
+            _ => false,
+        };
+
+        if keep {
+            if let Some(arr) = content.and_then(|c| c.as_array()) {
+                for block in arr {
+                    if let Some(id) = claude_block_tool_use_id(block) {
+                        seen_tool_uses.push(id);
+                    }
+                }
+            }
+            kept.push(line);
+        }
+    }
+
+    kept
 }
 
 fn resume_args_for(target: &str, session_id: &str) -> Vec<String> {
@@ -412,34 +528,10 @@ fn inject_into_claude(
 ) -> Result<(InjectionResult, String), ConvertError> {
     let all_claude_lines = claude::from_hub(hub_records)?;
 
-    // Filter: only keep user/assistant messages with non-empty, non-system content
-    // Claude renders ALL JSONL lines as conversation turns — events show as blanks
-    let claude_lines: Vec<_> = all_claude_lines
-        .into_iter()
-        .filter(|line| {
-            let msg_type = line.get("type").and_then(|t| t.as_str()).unwrap_or("");
-            if msg_type != "user" && msg_type != "assistant" {
-                return false;
-            }
-            // Check content is non-empty and not system preamble
-            let content = line.get("message").and_then(|m| m.get("content"));
-            match content {
-                Some(serde_json::Value::String(s)) => {
-                    !s.is_empty()
-                        && !s.starts_with("<environment_context")
-                        && !s.starts_with("<permissions")
-                        && !s.starts_with("<user_shell_command")
-                }
-                Some(serde_json::Value::Array(arr)) => arr.iter().any(|block| {
-                    block
-                        .get("text")
-                        .and_then(|t| t.as_str())
-                        .is_some_and(|t| !t.is_empty() && !t.starts_with("[Reasoning]: \n"))
-                }),
-                _ => false,
-            }
-        })
-        .collect();
+    // Claude renders all JSONL records as conversation turns. Keep real
+    // user/assistant content, including tool/image-only turns, but avoid
+    // orphan tool_result blocks when an earlier trim dropped the tool_use.
+    let claude_lines = filter_claude_injection_lines(all_claude_lines);
 
     // Generate a fresh UUID for the Claude session
     let session_id = uuid_v4();
@@ -2275,6 +2367,52 @@ mod tests {
         })
     }
 
+    fn make_tool_use_message(id: &str, command: &str) -> HubRecord {
+        HubRecord::Message(crate::interchange::hub::HubMessage {
+            id: format!("assistant-{id}"),
+            api_message_id: None,
+            parent_id: None,
+            timestamp: "2026-01-01T00:00:00.000Z".to_string(),
+            completed_at: None,
+            role: "assistant".to_string(),
+            content: vec![ContentBlock::ToolUse {
+                id: id.to_string(),
+                name: "Bash".to_string(),
+                display_name: None,
+                description: None,
+                input: serde_json::json!({ "command": command }),
+            }],
+            metadata: Default::default(),
+            extensions: serde_json::Value::Null,
+        })
+    }
+
+    fn make_tool_result_message(id: &str, output: &str) -> HubRecord {
+        HubRecord::Message(crate::interchange::hub::HubMessage {
+            id: format!("user-{id}-result"),
+            api_message_id: None,
+            parent_id: None,
+            timestamp: "2026-01-01T00:00:01.000Z".to_string(),
+            completed_at: None,
+            role: "user".to_string(),
+            content: vec![ContentBlock::ToolResult {
+                tool_use_id: id.to_string(),
+                content: vec![ContentBlock::Text {
+                    text: output.to_string(),
+                }],
+                is_error: false,
+                exit_code: None,
+                interrupted: false,
+                status: None,
+                duration_ms: None,
+                title: None,
+                truncated: false,
+            }],
+            metadata: Default::default(),
+            extensions: serde_json::Value::Null,
+        })
+    }
+
     #[test]
     fn test_estimate_tokens_empty() {
         assert_eq!(estimate_tokens(&[]), 0);
@@ -2320,6 +2458,25 @@ mod tests {
     }
 
     #[test]
+    fn test_truncate_drops_linked_tool_result_with_tool_use() {
+        let records = vec![
+            make_session_header(),
+            make_tool_use_message("call_1", &"x".repeat(1200)),
+            make_tool_result_message("call_1", "ok"),
+            make_text_message("user", "keep"),
+        ];
+
+        let (trimmed, dropped) = truncate_hub_to_budget(records, 10);
+        assert_eq!(dropped, 2);
+        assert_eq!(trimmed.len(), 2);
+        assert!(matches!(trimmed[0], HubRecord::Session(_)));
+        assert!(matches!(
+            &trimmed[1],
+            HubRecord::Message(msg) if msg.content.iter().any(|b| matches!(b, ContentBlock::Text { text } if text == "keep"))
+        ));
+    }
+
+    #[test]
     fn test_truncate_always_keeps_header() {
         let records = vec![
             make_session_header(),
@@ -2346,6 +2503,47 @@ mod tests {
         assert_eq!(context_budget(), None);
 
         std::env::remove_var("UNLEASH_CROSSLOAD_MAX_TOKENS");
+    }
+
+    #[test]
+    fn test_claude_filter_keeps_tool_only_pair() {
+        let lines = vec![
+            serde_json::json!({
+                "type": "assistant",
+                "message": {"role": "assistant", "content": [{
+                    "type": "tool_use",
+                    "id": "toolu_1",
+                    "name": "Bash",
+                    "input": {"command": "echo hi"}
+                }]}
+            }),
+            serde_json::json!({
+                "type": "user",
+                "message": {"role": "user", "content": [{
+                    "type": "tool_result",
+                    "tool_use_id": "toolu_1",
+                    "content": "hi"
+                }]}
+            }),
+        ];
+
+        let filtered = filter_claude_injection_lines(lines);
+        assert_eq!(filtered.len(), 2);
+    }
+
+    #[test]
+    fn test_claude_filter_drops_orphan_tool_result() {
+        let lines = vec![serde_json::json!({
+            "type": "user",
+            "message": {"role": "user", "content": [{
+                "type": "tool_result",
+                "tool_use_id": "missing",
+                "content": "orphan"
+            }]}
+        })];
+
+        let filtered = filter_claude_injection_lines(lines);
+        assert!(filtered.is_empty());
     }
 
     #[test]

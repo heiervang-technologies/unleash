@@ -698,7 +698,7 @@ fn message_to_hub(msg: &Value, foreign_session: bool) -> Result<HubMessage, Conv
                     exit_code: tc
                         .get("exitCode")
                         .and_then(|v| v.as_i64())
-                        .map(|v| v as i32),
+                        .and_then(|v| i32::try_from(v).ok()),
                     is_error,
                     interrupted: status.as_deref() == Some("CANCELLED"),
                     status,
@@ -1234,11 +1234,56 @@ mod tests {
                 .filter(|b| matches!(b, ContentBlock::ToolResult { .. }))
                 .collect();
             assert_eq!(tool_results.len(), 1);
+            if let ContentBlock::ToolResult { exit_code, .. } = tool_results[0] {
+                assert_eq!(*exit_code, Some(0));
+            }
         }
 
         let back = from_hub(&hub).unwrap();
         let back_messages = back.get("messages").unwrap().as_array().unwrap();
         semantic_eq(&msg, &back_messages[1]).unwrap();
+    }
+
+    #[test]
+    fn test_tool_result_exit_code_overflow_is_ignored() {
+        let msg = serde_json::json!({
+            "id": "msg-gemini",
+            "type": "gemini",
+            "content": "",
+            "toolCalls": [{
+                "id": "tc-1",
+                "name": "shell",
+                "args": {"command": "false"},
+                "result": "failed",
+                "exitCode": 2147483648_i64,
+                "status": "ERROR"
+            }],
+            "timestamp": "2026-03-29T12:01:00.000Z"
+        });
+
+        let data = gemini_session_json(&[msg]);
+        let hub = to_hub(&data).unwrap();
+        let result_msg = hub
+            .iter()
+            .filter_map(|r| match r {
+                HubRecord::Message(m) => Some(m),
+                _ => None,
+            })
+            .find(|m| {
+                m.content
+                    .iter()
+                    .any(|b| matches!(b, ContentBlock::ToolResult { .. }))
+            })
+            .unwrap();
+        let result = result_msg
+            .content
+            .iter()
+            .find_map(|b| match b {
+                ContentBlock::ToolResult { exit_code, .. } => Some(exit_code),
+                _ => None,
+            })
+            .unwrap();
+        assert_eq!(*result, None);
     }
 
     #[test]

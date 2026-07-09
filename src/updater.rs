@@ -443,12 +443,16 @@ fn self_update_script(version: &str, platform: &str) -> String {
          echo \"Downloading prebuilt unleash...\"\n\
          gh release download {} --repo heiervang-technologies/unleash --pattern 'unleash-{}' --pattern 'splash-{}' --pattern 'checksums.txt' || exit 1\n\
          echo \"Verifying checksums...\"\n\
+         awk -v u=\"unleash-{}\" -v s=\"splash-{}\" '{{name=$2; sub(/^\\*/, \"\", name); if (name == u || name == s) print}}' checksums.txt > checksums.selected\n\
+         grep -Eq '[ *]unleash-{}$' checksums.selected || {{ echo \"Missing checksum for unleash-{}\" >&2; exit 1; }}\n\
+         if [ -f \"splash-{}\" ]; then grep -Eq '[ *]splash-{}$' checksums.selected || {{ echo \"Missing checksum for splash-{}\" >&2; exit 1; }}; fi\n\
          if command -v sha256sum >/dev/null; then\n\
-             sha256sum --ignore-missing -c checksums.txt || exit 1\n\
+             sha256sum -c checksums.selected || exit 1\n\
          elif command -v shasum >/dev/null; then\n\
-             shasum -a 256 --ignore-missing -c checksums.txt || exit 1\n\
+             shasum -a 256 -c checksums.selected || exit 1\n\
          else\n\
-             echo \"Warning: No checksum tool found, skipping verification\" >&2\n\
+             echo \"No checksum tool found; refusing to self-update without verification\" >&2\n\
+             exit 1\n\
          fi\n\
          echo \"Swapping binaries...\"\n\
          BIN_DIR=\"$HOME/.local/bin\"\n\
@@ -464,8 +468,26 @@ fn self_update_script(version: &str, platform: &str) -> String {
          fi\n\
          echo \"Updating plugins and docker files...\"\n\
          gh repo clone heiervang-technologies/unleash source -- -b {} || exit 1\n\
+         expected=$(git -C source rev-list -n 1 {}) || exit 1\n\
+         actual=$(git -C source rev-parse HEAD) || exit 1\n\
+         if [ \"$expected\" != \"$actual\" ]; then echo \"Cloned source does not match {}\" >&2; exit 1; fi\n\
          bash source/scripts/install.sh --no-build",
-        version, platform, platform, platform, platform, platform, version
+        version,
+        platform,
+        platform,
+        platform,
+        platform,
+        platform,
+        platform,
+        platform,
+        platform,
+        platform,
+        platform,
+        platform,
+        platform,
+        version,
+        version,
+        version
     )
 }
 
@@ -1767,6 +1789,47 @@ mod tests {
             !script.contains("2>/dev/null"),
             "self-update must not redirect stderr to /dev/null — \
              that's why prior failures were unactionable: {script}"
+        );
+    }
+
+    #[test]
+    fn self_update_script_fails_closed_without_checksum_tool() {
+        let script = self_update_script("v0.1.82", "linux");
+        assert!(
+            script.contains("No checksum tool found") && script.contains("exit 1"),
+            "self-update must refuse to continue without checksum verification: {script}"
+        );
+        assert!(
+            !script.contains("skipping verification"),
+            "self-update must not fail open when checksum tools are absent: {script}"
+        );
+    }
+
+    #[test]
+    fn self_update_script_verifies_selected_downloaded_assets() {
+        let script = self_update_script("v0.1.82", "linux");
+        assert!(
+            script.contains("checksums.selected"),
+            "self-update should verify a selected checksum subset: {script}"
+        );
+        assert!(
+            script.contains("Missing checksum for unleash-linux"),
+            "self-update must fail if the primary asset has no checksum: {script}"
+        );
+        assert!(
+            !script.contains("--ignore-missing"),
+            "self-update must not let checksum tools ignore downloaded assets: {script}"
+        );
+    }
+
+    #[test]
+    fn self_update_script_verifies_cloned_source_tag() {
+        let script = self_update_script("v0.1.82", "linux");
+        assert!(
+            script.contains("git -C source rev-list -n 1 v0.1.82")
+                && script.contains("git -C source rev-parse HEAD")
+                && script.contains("Cloned source does not match v0.1.82"),
+            "self-update must verify cloned source before running install.sh: {script}"
         );
     }
 }
