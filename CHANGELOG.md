@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.91](https://github.com/heiervang-technologies/unleash/compare/v0.1.90...v0.1.91) (2026-07-09)
+
+
+### Bug Fixes
+
+* **interchange:** preserve Hermes tool results ([1ac6511](https://github.com/heiervang-technologies/unleash/commit/1ac6511fcada6bc201c679d215018f2158abbc8e))
+
 ## [0.1.90](https://github.com/heiervang-technologies/unleash/compare/v0.1.89...v0.1.90) (2026-07-09)
 
 
