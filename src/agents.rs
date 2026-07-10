@@ -1810,15 +1810,23 @@ pub(crate) fn atomic_install_binary(
     let file_name = dst.file_name().and_then(|n| n.to_str()).unwrap_or("binary");
     let tmp_prefix = format!(".{file_name}.unleash-install.");
 
-    // Self-heal: sweep any stale temp a previous hard-killed install (SIGKILL
-    // between copy and rename) may have leaked into this directory.
+    // Self-heal: sweep temps a previous hard-killed install (SIGKILL between
+    // copy and rename) leaked here. Each temp carries the writer's pid as its
+    // suffix; skip any whose pid is still a live process so we never delete a
+    // *concurrent* install's in-flight temp (that racer's rename would then hit
+    // ENOENT). On non-Linux the `/proc` probe just returns false and the temp
+    // is treated as stale — a benign race, since same-binary concurrent
+    // installs are operator error and the atomic rename still protects `dst`.
     if let Ok(entries) = fs::read_dir(dir) {
         for entry in entries.flatten() {
-            if entry
-                .file_name()
-                .to_str()
-                .is_some_and(|n| n.starts_with(&tmp_prefix))
-            {
+            let name = entry.file_name();
+            let Some(rest) = name.to_str().and_then(|n| n.strip_prefix(&tmp_prefix)) else {
+                continue;
+            };
+            let pid_is_live = rest
+                .parse::<u32>()
+                .is_ok_and(|pid| std::path::Path::new(&format!("/proc/{pid}")).exists());
+            if !pid_is_live {
                 let _ = fs::remove_file(entry.path());
             }
         }
@@ -1826,7 +1834,8 @@ pub(crate) fn atomic_install_binary(
 
     // Temp file in the destination directory (guarantees same filesystem, so
     // the rename below is atomic rather than a cross-device copy). The pid
-    // keeps concurrent unleash processes from colliding on the same name.
+    // suffix keeps concurrent unleash installs from colliding on the same name
+    // and lets the sweep above tell a live racer's temp from a stale one.
     let tmp = dir.join(format!("{tmp_prefix}{}", std::process::id()));
 
     let staged = (|| -> io::Result<u64> {
@@ -3038,6 +3047,29 @@ mod tests {
 
         assert!(!stale.exists(), "stale temp must be swept");
         assert_eq!(fs::read(&dst).unwrap(), b"NEW BINARY");
+    }
+
+    #[cfg(all(unix, target_os = "linux"))]
+    #[test]
+    fn atomic_install_preserves_live_concurrent_temp() {
+        // The sweep must NOT delete a concurrent install's in-flight temp: a
+        // temp suffixed with a live pid (our own) is left alone, while one
+        // suffixed with a dead pid is swept.
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let dst = tmp.path().join("agent-bin");
+        // pid 1 (init) is always live; avoids colliding with the helper's own
+        // staging temp, which uses our pid.
+        let live = tmp.path().join(".agent-bin.unleash-install.1");
+        let dead = tmp.path().join(".agent-bin.unleash-install.999999");
+        fs::write(&live, b"racer in-flight").unwrap();
+        fs::write(&dead, b"stale leak").unwrap();
+
+        let src = tmp.path().join("freshly-downloaded");
+        fs::write(&src, b"NEW BINARY").unwrap();
+        atomic_install_binary(&src, &dst).expect("install");
+
+        assert!(live.exists(), "live concurrent temp must be preserved");
+        assert!(!dead.exists(), "dead-pid stale temp must be swept");
     }
 
     #[cfg(unix)]
