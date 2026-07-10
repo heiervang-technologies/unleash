@@ -1185,8 +1185,9 @@ fn inject_into_hermes(
     for msg in &output.messages {
         tx.execute(
             "INSERT INTO messages
-             (session_id, role, content, tool_calls, tool_call_id, tool_name, timestamp)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+             (session_id, role, content, tool_calls, tool_call_id, tool_name, timestamp,
+              reasoning, finish_reason, token_count)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
             rusqlite::params![
                 session_id,
                 msg.role,
@@ -1195,6 +1196,9 @@ fn inject_into_hermes(
                 msg.tool_call_id,
                 msg.tool_name,
                 msg.timestamp,
+                msg.reasoning,
+                msg.finish_reason,
+                msg.token_count,
             ],
         )
         .map_err(|e| ConvertError::InvalidFormat(format!("Failed to insert message: {e}")))?;
