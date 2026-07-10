@@ -1238,6 +1238,13 @@ fn hermes_insert_messages(
     // Base columns are assumed present on every Hermes schema; optional columns
     // are appended only when the probe found them. Column order and per-message
     // param order below MUST stay in lockstep.
+    //
+    // TRADEOFF: on an old schema lacking `reasoning_details`, an encrypted
+    // reasoning-only turn (empty content, no plaintext reasoning, payload only
+    // in reasoning_details) lands as a content-less "ghost" row — the payload
+    // can't be stored because the column doesn't exist. This is deliberate:
+    // preserving the turn as an empty row beats dropping it or aborting the
+    // whole injection. Such DBs simply predate encrypted-reasoning support.
     let optional_cols = [
         "reasoning",
         "reasoning_details",
