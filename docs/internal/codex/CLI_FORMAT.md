@@ -287,9 +287,10 @@ content blocks:
 {"type":"response_item","payload":{"type":"custom_tool_call_output","call_id":"call_xyz","output":[{"type":"input_text","text":"Script completed\n"},{"type":"input_text","text":"actual output"}]}}
 ```
 
-The converter wraps a non-JSON custom input as `{ "input": "..." }` so UCF and
-Claude receive a valid object without losing the freeform text. Array output
-blocks remain separate tool-result content blocks.
+The converter accepts a custom input as structured arguments only when it parses
+to a JSON object. Every other freeform value is wrapped as `{ "input": "..." }`
+so UCF and Claude receive a valid object without losing the original text. Array
+output blocks remain separate tool-result content blocks.
 
 For `file_edit`:
 

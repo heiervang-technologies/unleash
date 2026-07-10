@@ -488,8 +488,8 @@ mod tests {
             let record: HubRecord = serde_json::from_str(line).unwrap();
             records.push(record);
         }
-        // 1 session + 5 messages
-        assert_eq!(records.len(), 6);
+        // 1 session + 6 messages
+        assert_eq!(records.len(), 7);
 
         // Verify all content types present
         let all_blocks: Vec<&ContentBlock> = records

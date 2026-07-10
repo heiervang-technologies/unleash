@@ -321,10 +321,16 @@ fn claude_block_is_keepable(block: &serde_json::Value, seen_tool_uses: &[String]
             .and_then(|t| t.as_str())
             .is_some_and(claude_text_is_keepable),
         Some("tool_use") | Some("image") => true,
-        Some("thinking") => block
-            .get("thinking")
-            .and_then(|text| text.as_str())
-            .is_some_and(|text| !text.trim().is_empty()),
+        Some("thinking") => {
+            block
+                .get("thinking")
+                .and_then(|text| text.as_str())
+                .is_some_and(|text| !text.trim().is_empty())
+                || block
+                    .get("signature")
+                    .and_then(|signature| signature.as_str())
+                    .is_some_and(|signature| !signature.is_empty())
+        }
         Some("tool_result") => {
             claude_block_tool_result_id(block).is_some_and(|id| seen_tool_uses.contains(&id))
         }
@@ -2565,21 +2571,23 @@ mod tests {
         let claude_lines = claude::from_hub(&hub).unwrap();
         assert_eq!(
             claude_lines.len(),
-            4,
-            "UCF to Claude should omit reasoning with no transferable text"
+            5,
+            "Claude file should retain an empty lossless carrier for reasoning"
         );
-        assert!(!claude_lines.iter().any(|line| {
-            line.pointer("/message/content")
-                .and_then(|v| v.as_array())
-                .is_some_and(|content| {
-                    content.iter().any(|block| {
-                        block
-                            .get("text")
-                            .and_then(|v| v.as_str())
-                            .is_some_and(|text| text.trim() == "[Reasoning]:")
-                    })
-                })
-        }));
+        let reasoning_carrier = claude_lines
+            .iter()
+            .find(|line| {
+                line.pointer("/message/content")
+                    .and_then(|content| content.as_array())
+                    .is_some_and(Vec::is_empty)
+            })
+            .expect("empty reasoning should remain as a stashed carrier row");
+        assert_eq!(
+            reasoning_carrier
+                .pointer("/_ucf_hub/message/content/0/encrypted_data")
+                .and_then(|value| value.as_str()),
+            Some("opaque-codex-reasoning")
+        );
         let filtered = filter_claude_injection_lines(claude_lines);
 
         assert_eq!(filtered.len(), 4, "user, tool call, tool result, answer");
@@ -2630,6 +2638,21 @@ mod tests {
                     })
                 })
         }));
+    }
+
+    #[test]
+    fn test_claude_filter_keeps_signed_empty_thinking() {
+        let lines = vec![serde_json::json!({
+            "type": "assistant",
+            "message": {"role": "assistant", "content": [{
+                "type": "thinking",
+                "thinking": "",
+                "signature": "signed-empty"
+            }]}
+        })];
+
+        let filtered = filter_claude_injection_lines(lines);
+        assert_eq!(filtered.len(), 1);
     }
 
     #[test]

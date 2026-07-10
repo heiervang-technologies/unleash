@@ -541,9 +541,11 @@ fn codex_call_id(payload: &Value) -> String {
 
 fn codex_function_call_input(arguments: Option<&Value>) -> Value {
     match arguments {
-        Some(Value::String(arguments)) => serde_json::from_str(arguments)
-            .unwrap_or_else(|_| serde_json::json!({"arguments": arguments})),
-        Some(Value::Object(_)) => arguments.cloned().unwrap_or(Value::Null),
+        Some(Value::String(arguments)) => match serde_json::from_str(arguments) {
+            Ok(Value::Object(object)) => Value::Object(object),
+            _ => serde_json::json!({"arguments": arguments}),
+        },
+        Some(Value::Object(object)) => Value::Object(object.clone()),
         Some(other) => serde_json::json!({"arguments": other}),
         None => Value::Object(Default::default()),
     }
@@ -551,10 +553,11 @@ fn codex_function_call_input(arguments: Option<&Value>) -> Value {
 
 fn codex_custom_tool_input(input: Option<&Value>) -> Value {
     match input {
-        Some(Value::Object(_)) => input.cloned().unwrap_or(Value::Null),
-        Some(Value::String(input)) => {
-            serde_json::from_str(input).unwrap_or_else(|_| serde_json::json!({"input": input}))
-        }
+        Some(Value::Object(object)) => Value::Object(object.clone()),
+        Some(Value::String(input)) => match serde_json::from_str(input) {
+            Ok(Value::Object(object)) => Value::Object(object),
+            _ => serde_json::json!({"input": input}),
+        },
         Some(other) => serde_json::json!({"input": other}),
         None => Value::Object(Default::default()),
     }
@@ -1041,6 +1044,22 @@ mod tests {
             &content[1],
             ContentBlock::Text { text } if text == "Cargo.toml\nsrc/lib.rs\n"
         ));
+    }
+
+    #[test]
+    fn test_custom_tool_input_is_always_an_object() {
+        assert_eq!(
+            codex_custom_tool_input(Some(&Value::String("42".into()))),
+            serde_json::json!({"input": "42"})
+        );
+        assert_eq!(
+            codex_custom_tool_input(Some(&Value::String("[1,2]".into()))),
+            serde_json::json!({"input": "[1,2]"})
+        );
+        assert_eq!(
+            codex_custom_tool_input(Some(&Value::String("{\"path\":\"src\"}".into()))),
+            serde_json::json!({"path": "src"})
+        );
     }
 
     #[test]

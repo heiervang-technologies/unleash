@@ -106,9 +106,6 @@ pub fn from_hub(records: &[HubRecord]) -> Result<Vec<Value>, ConvertError> {
             }
             HubRecord::Message(msg) => {
                 let mut line = hub_message_to_claude(msg, &session_id, &version)?;
-                if line.is_null() {
-                    continue;
-                }
                 if stash_messages {
                     attach_ucf_hub_field(&mut line, "message", serde_json::to_value(msg)?);
                 }
@@ -558,26 +555,27 @@ fn hub_message_to_claude(
         .cloned()
         .unwrap_or(Value::Null);
 
-    // Build content array
-    let mut content = hub_content_to_claude(&msg.content);
-
-    // Foreign encrypted reasoning cannot be resumed by Claude without a
-    // Claude signature. If it has no transferable summary text, omit the
-    // message instead of creating an empty `[Reasoning]:` conversation turn.
-    if content.is_empty() {
-        return Ok(Value::Null);
-    }
-
-    // Merge per-block extras back from extensions
-    if let Some(extras_arr) = cc.get("content_extras").and_then(|v| v.as_array()) {
-        for (i, extras) in extras_arr.iter().enumerate() {
-            if let (Some(block), Some(obj)) = (content.get_mut(i), extras.as_object()) {
-                for (k, v) in obj {
-                    block[k] = v.clone();
+    // Apply extras using the original hub block index before filtering blocks
+    // that Claude cannot render. Applying them after filter_map would shift an
+    // omitted block's extras onto the next surviving block.
+    let extras = cc.get("content_extras").and_then(Value::as_array);
+    let content: Vec<Value> = msg
+        .content
+        .iter()
+        .enumerate()
+        .filter_map(|(index, block)| {
+            let mut converted = hub_block_to_claude(block)?;
+            if let Some(extra) = extras
+                .and_then(|items| items.get(index))
+                .and_then(Value::as_object)
+            {
+                for (key, value) in extra {
+                    converted[key] = value.clone();
                 }
             }
-        }
-    }
+            Some(converted)
+        })
+        .collect();
 
     let message = if msg.role == "assistant" {
         let mut m = serde_json::json!({
@@ -776,78 +774,73 @@ fn attach_ucf_hub_field(line: &mut Value, key: &str, value: Value) {
 }
 
 fn hub_content_to_claude(blocks: &[ContentBlock]) -> Vec<Value> {
-    blocks
-        .iter()
-        .filter_map(|block| match block {
-            ContentBlock::Text { text } => Some(serde_json::json!({"type": "text", "text": text})),
-            ContentBlock::ToolUse {
-                id, name, input, ..
-            } => Some(
-                serde_json::json!({"type": "tool_use", "id": id, "name": name, "input": input}),
-            ),
-            ContentBlock::ToolResult {
-                tool_use_id,
-                content,
-                is_error,
-                ..
-            } => {
-                let content_val = if content.len() == 1 {
-                    if let ContentBlock::Text { text } = &content[0] {
-                        Value::String(text.clone())
-                    } else {
-                        Value::Array(hub_content_to_claude(content))
-                    }
+    blocks.iter().filter_map(hub_block_to_claude).collect()
+}
+
+fn hub_block_to_claude(block: &ContentBlock) -> Option<Value> {
+    match block {
+        ContentBlock::Text { text } => Some(serde_json::json!({"type": "text", "text": text})),
+        ContentBlock::ToolUse {
+            id, name, input, ..
+        } => Some(serde_json::json!({"type": "tool_use", "id": id, "name": name, "input": input})),
+        ContentBlock::ToolResult {
+            tool_use_id,
+            content,
+            is_error,
+            ..
+        } => {
+            let content_val = if content.len() == 1 {
+                if let ContentBlock::Text { text } = &content[0] {
+                    Value::String(text.clone())
                 } else {
                     Value::Array(hub_content_to_claude(content))
-                };
-                let mut obj = serde_json::json!({
-                    "type": "tool_result",
-                    "tool_use_id": tool_use_id,
-                    "content": content_val,
-                });
-                if *is_error {
-                    obj["is_error"] = Value::Bool(true);
-                } else {
-                    obj["is_error"] = Value::Bool(false);
                 }
-                Some(obj)
+            } else {
+                Value::Array(hub_content_to_claude(content))
+            };
+            let mut obj = serde_json::json!({
+                "type": "tool_result",
+                "tool_use_id": tool_use_id,
+                "content": content_val,
+            });
+            if *is_error {
+                obj["is_error"] = Value::Bool(true);
+            } else {
+                obj["is_error"] = Value::Bool(false);
             }
-            ContentBlock::Thinking {
-                text, signature, ..
-            } => {
-                if let Some(sig) = signature {
-                    // Claude thinking block with signature — preserve
-                    Some(
-                        serde_json::json!({"type": "thinking", "thinking": text, "signature": sig}),
-                    )
-                } else if text.trim().is_empty() {
-                    None
-                } else {
-                    // Foreign thinking block (no signature) — convert to text
-                    // Claude API requires signature on thinking blocks
-                    Some(
-                        serde_json::json!({"type": "text", "text": format!("[Reasoning]: {text}")}),
-                    )
-                }
+            Some(obj)
+        }
+        ContentBlock::Thinking {
+            text, signature, ..
+        } => {
+            if let Some(sig) = signature {
+                // Claude thinking block with signature — preserve
+                Some(serde_json::json!({"type": "thinking", "thinking": text, "signature": sig}))
+            } else if text.trim().is_empty() {
+                None
+            } else {
+                // Foreign thinking block (no signature) — convert to text
+                // Claude API requires signature on thinking blocks
+                Some(serde_json::json!({"type": "text", "text": format!("[Reasoning]: {text}")}))
             }
-            ContentBlock::Image {
-                media_type,
-                data,
-                source_url,
-                ..
-            } => Some(match source_url {
-                Some(url) if data.is_empty() => serde_json::json!({
-                    "type": "image",
-                    "source": {"type": "url", "url": url}
-                }),
-                _ => serde_json::json!({
-                    "type": "image",
-                    "source": {"type": "base64", "media_type": media_type, "data": data}
-                }),
+        }
+        ContentBlock::Image {
+            media_type,
+            data,
+            source_url,
+            ..
+        } => Some(match source_url {
+            Some(url) if data.is_empty() => serde_json::json!({
+                "type": "image",
+                "source": {"type": "url", "url": url}
             }),
-            _ => Some(serde_json::json!({"type": "text", "text": "[unconverted block]"})),
-        })
-        .collect()
+            _ => serde_json::json!({
+                "type": "image",
+                "source": {"type": "base64", "media_type": media_type, "data": data}
+            }),
+        }),
+        _ => Some(serde_json::json!({"type": "text", "text": "[unconverted block]"})),
+    }
 }
 
 fn hub_event_to_claude(
@@ -1035,6 +1028,55 @@ mod tests {
             assert!(cc.get("gitBranch").is_none());
             assert!(cc.get("timestamp").is_none());
         }
+    }
+
+    #[test]
+    fn test_content_extras_stay_with_source_block_when_prior_block_is_filtered() {
+        let message = HubMessage {
+            id: "extras-alignment".into(),
+            api_message_id: None,
+            parent_id: None,
+            timestamp: "2026-01-01T00:00:00Z".into(),
+            completed_at: None,
+            role: "assistant".into(),
+            content: vec![
+                ContentBlock::Thinking {
+                    text: String::new(),
+                    subject: None,
+                    description: None,
+                    signature: None,
+                    encrypted: true,
+                    encryption_format: Some("openai".into()),
+                    encrypted_data: Some("opaque".into()),
+                    timestamp: None,
+                },
+                ContentBlock::Text {
+                    text: "visible".into(),
+                },
+            ],
+            metadata: MessageMetadata::default(),
+            extensions: serde_json::json!({
+                "claude-code": {
+                    "content_extras": [
+                        {"dropped_block_extra": true},
+                        {"citations": [{"url": "https://example.com"}]}
+                    ]
+                }
+            }),
+        };
+
+        let line = hub_message_to_claude(&message, "session", "2.1").unwrap();
+        let content = line
+            .pointer("/message/content")
+            .and_then(Value::as_array)
+            .unwrap();
+        assert_eq!(content.len(), 1);
+        assert_eq!(
+            content[0].get("text").and_then(Value::as_str),
+            Some("visible")
+        );
+        assert!(content[0].get("citations").is_some());
+        assert!(content[0].get("dropped_block_extra").is_none());
     }
 
     /// Foreign thinking blocks (no Claude signature) are converted to
