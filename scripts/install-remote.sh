@@ -631,7 +631,12 @@ download_binary() {
 
     install_binary_atomic "${temp_dir}/unleash" "${INSTALL_DIR}/unleash"
 
-    # Download splash binary (optional — interactive installer)
+    # Download splash binary (optional — the interactive agent picker).
+    # NOTE: this is fetched unconditionally, including under `--boring`. `--boring`
+    # only skips *running* the picker (see maybe_run_interactive_setup), not
+    # installing it, so the artifact is available if the user later wants the
+    # interactive setup. The download is best-effort (failure is ignored below),
+    # so a missing splash asset never fails a --boring install.
     local splash_name="splash-${PLATFORM}-${ARCH}"
     if download_release_asset "$version" "$splash_name" "${temp_dir}/splash" 2>/dev/null; then
         install_binary_atomic "${temp_dir}/splash" "${INSTALL_DIR}/splash"
@@ -844,6 +849,32 @@ check_agent_prereqs() {
     return 0
 }
 
+# Run the interactive splash/agent picker to choose a default agent, unless
+# `--boring` was passed (non-interactive install). Isolated into a function so
+# tests can drive the interactive-vs-boring decision with a stubbed splash
+# binary, without performing a real download/install. Any failure here is
+# best-effort: the binary is already installed, so we never abort the installer.
+maybe_run_interactive_setup() {
+    if [[ "$BORING" == "1" ]]; then
+        return 0
+    fi
+    if [[ -x "${INSTALL_DIR}/splash" ]]; then
+        info "Launching interactive setup..."
+        SELECTED_AGENT=$("${INSTALL_DIR}/splash") || true
+        if [[ -n "${SELECTED_AGENT:-}" ]]; then
+            info "Default profile set to $SELECTED_AGENT"
+            if ! set_default_profile "$SELECTED_AGENT"; then
+                warn "Could not write default profile to config. Run 'unleash' to set it via the TUI."
+            fi
+            # If the selected agent needs npm and npm is missing, surface it now.
+            check_agent_prereqs "$SELECTED_AGENT" || true
+        fi
+    elif [[ -x "${INSTALL_DIR}/unleash" ]]; then
+        info "Launching TUI..."
+        exec "${INSTALL_DIR}/unleash"
+    fi
+}
+
 # Main installation
 main() {
     echo ""
@@ -893,28 +924,8 @@ main() {
 
     show_path_instructions
 
-    # Interactive mode: run the splash to pick default agent
-    if [[ "$BORING" == "0" ]]; then
-        if [[ -x "${INSTALL_DIR}/splash" ]]; then
-            info "Launching interactive setup..."
-            SELECTED_AGENT=$("${INSTALL_DIR}/splash") || true
-            if [[ -n "${SELECTED_AGENT:-}" ]]; then
-                info "Default profile set to $SELECTED_AGENT"
-                # Best-effort: any failure here (existing config that's a
-                # symlink to a read-only dotfile, weird ownership, etc) must
-                # NOT abort the whole installer. The binary still installed.
-                if ! set_default_profile "$SELECTED_AGENT"; then
-                    warn "Could not write default profile to config. Run 'unleash' to set it via the TUI."
-                fi
-                # If the selected agent needs npm and npm is missing, surface
-                # it now so the user knows the next step.
-                check_agent_prereqs "$SELECTED_AGENT" || true
-            fi
-        elif [[ -x "${INSTALL_DIR}/unleash" ]]; then
-            info "Launching TUI..."
-            exec "${INSTALL_DIR}/unleash"
-        fi
-    fi
+    # Interactive mode: run the splash to pick default agent (skipped by --boring)
+    maybe_run_interactive_setup
 
     # Non-interactive (--boring) completion message
     echo ""
@@ -931,4 +942,10 @@ main() {
     success "Done! Run 'unleash' to start."
 }
 
-main "$@"
+# Run the installer, unless we're being sourced by a test that only wants the
+# function definitions. `UNLEASH_INSTALL_TEST` is used instead of the usual
+# `BASH_SOURCE == $0` guard because the canonical install path is `curl | bash`
+# (piped, read from stdin), where that comparison would wrongly skip main.
+if [[ -z "${UNLEASH_INSTALL_TEST:-}" ]]; then
+    main "$@"
+fi

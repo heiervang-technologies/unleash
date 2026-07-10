@@ -133,6 +133,9 @@ jobs:
       - name: Run install symlink tests
         run: ./tests/test-install.sh
 
+      - name: Run --boring non-interactive install tests
+        run: ./tests/test-boring-install.sh
+
       - name: Validate install-remote.sh syntax
         run: bash -n scripts/install-remote.sh
 
