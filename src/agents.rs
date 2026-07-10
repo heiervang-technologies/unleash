@@ -1211,14 +1211,11 @@ impl AgentManager {
             install_extracted_binary(&tmp_dir, &cfg.binary, &install_path)?;
         } else {
             // Plain binary
-            fs::copy(&tmp_archive, &install_path)?;
+            atomic_install_binary(&tmp_archive, &install_path)?;
         }
 
-        // chmod +x
-        use std::os::unix::fs::PermissionsExt;
-        let mut perms = fs::metadata(&install_path)?.permissions();
-        perms.set_mode(0o755);
-        fs::set_permissions(&install_path, perms)?;
+        // Both branches install atomically and already chmod +x the binary
+        // before it becomes visible at `install_path`.
 
         let _ = fs::remove_dir_all(&tmp_dir);
 
@@ -1375,15 +1372,9 @@ impl AgentManager {
             )));
         };
 
-        // Install
-        fs::copy(binary_path, install_path)?;
-
-        // Make executable
-        #[cfg(unix)]
-        {
-            use std::os::unix::fs::PermissionsExt;
-            fs::set_permissions(install_path, fs::Permissions::from_mode(0o755))?;
-        }
+        // Install atomically (chmod +x happens on the staged temp before the
+        // rename, so a running `codex` is never overwritten in place).
+        atomic_install_binary(binary_path, install_path)?;
 
         // Cleanup
         let _ = fs::remove_dir_all(&tmp_dir);
@@ -1481,7 +1472,7 @@ impl AgentManager {
 
         if output.status.success() {
             let binary_path = codex_rs_dir.join("target/release/codex");
-            fs::copy(&binary_path, install_path)?;
+            atomic_install_binary(&binary_path, install_path)?;
 
             progress.push(format!(
                 "Codex built and installed to {}",
@@ -1780,14 +1771,66 @@ pub(crate) fn pick_asset_name(
     None
 }
 
+/// Atomically install a binary from `src` to `dst`.
+///
+/// Copies to a temp file in the *same directory* as `dst` (so the final
+/// `rename` is atomic on the same filesystem), marks it executable, then
+/// renames it into place. This avoids two failure modes of a direct
+/// `fs::copy(src, dst)`:
+///
+///   1. A crash/interrupt mid-copy leaves a truncated, executable-looking
+///      binary at the canonical path (a subsequent run of a corrupt agent
+///      binary, not a clean re-download).
+///   2. `ETXTBSY` ("Text file busy") when `dst` is a currently-running
+///      executable — `fs::copy` opens `dst` for writing and fails, whereas
+///      `rename` swaps the directory entry to a fresh inode. Existing
+///      references to the old binary (a running process, a hard link) keep
+///      seeing the old inode; new lookups see the new one.
+///
+/// Returns the number of bytes copied. On any error the temp file is
+/// removed so a failed install never leaks a partial file into the
+/// install directory.
+fn atomic_install_binary(src: &std::path::Path, dst: &std::path::Path) -> io::Result<u64> {
+    let dir = dst.parent().ok_or_else(|| {
+        io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "install path has no parent directory",
+        )
+    })?;
+    fs::create_dir_all(dir)?;
+
+    // Temp file in the destination directory (guarantees same filesystem, so
+    // the rename below is atomic rather than a cross-device copy). The pid
+    // keeps concurrent unleash processes from colliding on the same name.
+    let file_name = dst.file_name().and_then(|n| n.to_str()).unwrap_or("binary");
+    let tmp = dir.join(format!(".{file_name}.unleash-install.{}", std::process::id()));
+
+    let staged = (|| -> io::Result<u64> {
+        let n = fs::copy(src, &tmp)?;
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            fs::set_permissions(&tmp, fs::Permissions::from_mode(0o755))?;
+        }
+        fs::rename(&tmp, dst)?;
+        Ok(n)
+    })();
+
+    if staged.is_err() {
+        // Best-effort cleanup; the real error is the one we return.
+        let _ = fs::remove_file(&tmp);
+    }
+    staged
+}
+
 /// After extracting an archive, find the agent binary and copy it to its
 /// final install path. Searches breadth-first:
 ///   1. `<tmp_dir>/<binary>` exact match
 ///   2. any `<binary>` file in any subdirectory (e.g. archives that wrap
 ///      the binary in a versioned dir like `aider-0.50.0/aider`)
 ///
-/// Returns the io::Result of the final copy. Caller is responsible for the
-/// subsequent chmod.
+/// Returns the io::Result of the final install. The result is already
+/// executable (0o755); callers do not need a subsequent chmod.
 fn install_extracted_binary(
     tmp_dir: &std::path::Path,
     binary: &str,
@@ -1796,7 +1839,7 @@ fn install_extracted_binary(
     // Direct hit
     let direct = tmp_dir.join(binary);
     if direct.exists() && direct.is_file() {
-        return fs::copy(&direct, install_path);
+        return atomic_install_binary(&direct, install_path);
     }
     // Walk one level for archives like `<repo>-<version>/<binary>`
     for entry in fs::read_dir(tmp_dir)? {
@@ -1805,7 +1848,7 @@ fn install_extracted_binary(
         if path.is_dir() {
             let candidate = path.join(binary);
             if candidate.exists() && candidate.is_file() {
-                return fs::copy(&candidate, install_path);
+                return atomic_install_binary(&candidate, install_path);
             }
         }
     }
@@ -2888,5 +2931,92 @@ mod tests {
             pick_asset_name("aider", None, "riscv64", "linux", "0.50.0", "v0.50.0", &avail),
             None
         );
+    }
+
+    // ── atomic_install_binary ────────────────────────────────────────────
+
+    #[cfg(unix)]
+    #[test]
+    fn atomic_install_replaces_content_and_marks_executable() {
+        use std::os::unix::fs::PermissionsExt;
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let dst = tmp.path().join("subdir").join("agent-bin");
+        // A stale, non-executable file already sits at the install path.
+        fs::create_dir_all(dst.parent().unwrap()).unwrap();
+        fs::write(&dst, b"OLD BINARY").unwrap();
+        fs::set_permissions(&dst, fs::Permissions::from_mode(0o644)).unwrap();
+
+        let src = tmp.path().join("freshly-downloaded");
+        fs::write(&src, b"NEW BINARY CONTENT").unwrap();
+
+        atomic_install_binary(&src, &dst).expect("install");
+
+        assert_eq!(fs::read(&dst).unwrap(), b"NEW BINARY CONTENT");
+        let mode = fs::metadata(&dst).unwrap().permissions().mode() & 0o777;
+        assert_eq!(mode, 0o755, "installed binary must be executable");
+
+        // No `.agent-bin.unleash-install.*` temp turd left behind.
+        let leftovers: Vec<_> = fs::read_dir(dst.parent().unwrap())
+            .unwrap()
+            .filter_map(Result::ok)
+            .filter(|e| e.file_name().to_string_lossy().contains("unleash-install"))
+            .collect();
+        assert!(leftovers.is_empty(), "temp file leaked: {leftovers:?}");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn atomic_install_swaps_inode_instead_of_writing_in_place() {
+        // Regression for #353 "remaining binary install/copy paths atomic":
+        // the previous `fs::copy(src, dst)` opened `dst` and truncated it *in
+        // place*, mutating the inode. Any other reference to that inode — a
+        // running process's executable image, or a hard link — would observe
+        // the half-written / replaced bytes. The atomic helper renames a fresh
+        // inode into place, so existing references keep seeing the old binary.
+        //
+        // A hard link is a deterministic, root-safe stand-in for "the currently
+        // running binary". With the old direct-copy behavior this test FAILS:
+        // the link reads NEW because it shares the truncated-in-place inode.
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let dst = tmp.path().join("agent-bin");
+        fs::write(&dst, b"OLD BINARY").unwrap();
+
+        let other_ref = tmp.path().join("agent-bin.inuse");
+        fs::hard_link(&dst, &other_ref).expect("hard link");
+
+        let src = tmp.path().join("freshly-downloaded");
+        fs::write(&src, b"NEW BINARY").unwrap();
+
+        atomic_install_binary(&src, &dst).expect("install");
+
+        assert_eq!(fs::read(&dst).unwrap(), b"NEW BINARY", "dst updated");
+        assert_eq!(
+            fs::read(&other_ref).unwrap(),
+            b"OLD BINARY",
+            "prior reference must still see the old inode (atomic swap, not in-place write)"
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn atomic_install_leaves_no_partial_on_missing_source() {
+        // A failed install (source vanished) must not leave a partial temp file
+        // or a truncated destination behind.
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let dst = tmp.path().join("agent-bin");
+        fs::write(&dst, b"GOOD EXISTING").unwrap();
+
+        let missing = tmp.path().join("does-not-exist");
+        let r = atomic_install_binary(&missing, &dst);
+        assert!(r.is_err(), "install from missing source must error");
+
+        // Existing good binary untouched, no temp turd.
+        assert_eq!(fs::read(&dst).unwrap(), b"GOOD EXISTING");
+        let leftovers: Vec<_> = fs::read_dir(tmp.path())
+            .unwrap()
+            .filter_map(Result::ok)
+            .filter(|e| e.file_name().to_string_lossy().contains("unleash-install"))
+            .collect();
+        assert!(leftovers.is_empty(), "temp file leaked: {leftovers:?}");
     }
 }
