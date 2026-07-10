@@ -220,7 +220,15 @@ fn claude_stream_content_to_hub(content: &Value) -> Vec<crate::interchange::hub:
         Value::String(s) => vec![ContentBlock::Text { text: s.clone() }],
         Value::Array(blocks) => blocks
             .iter()
-            .filter_map(|b| crate::interchange::claude::claude_content_to_hub(b).ok())
+            .map(|b| {
+                // A block the converter rejects must not silently vanish from
+                // `content`; the raw frame survives in `_original_frame`.
+                crate::interchange::claude::claude_content_to_hub(b).unwrap_or_else(|_| {
+                    ContentBlock::Text {
+                        text: format!("[Unparseable content block: {b}]"),
+                    }
+                })
+            })
             .collect(),
         _ => Vec::new(),
     }

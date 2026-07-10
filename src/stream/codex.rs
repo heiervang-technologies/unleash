@@ -42,7 +42,16 @@ impl CodexStreamParser {
         format!("codex-stream-{}", self.seq)
     }
 
+    /// Wrap content in a message, or pass the frame through when conversion
+    /// produced nothing — an empty `Message` would surface as a hollow row in
+    /// a persisted `.ucf.jsonl`, while passthrough keeps the frame intact.
     fn message(&mut self, role: &str, content: Vec<ContentBlock>, frame: &Value) -> StreamEvent {
+        if content.is_empty() {
+            return StreamEvent::Passthrough {
+                harness: "codex",
+                raw: frame.clone(),
+            };
+        }
         StreamEvent::Message(HubMessage {
             id: self.next_id(),
             api_message_id: None,
@@ -81,22 +90,30 @@ impl CodexStreamParser {
 
         match item_type {
             "assistant_message" => {
-                vec![self.message("assistant", vec![ContentBlock::Text { text }], frame)]
+                let content = if text.is_empty() {
+                    Vec::new()
+                } else {
+                    vec![ContentBlock::Text { text }]
+                };
+                vec![self.message("assistant", content, frame)]
             }
-            "reasoning" => vec![self.message(
-                "assistant",
-                vec![ContentBlock::Thinking {
-                    text,
-                    subject: None,
-                    description: None,
-                    signature: None,
-                    encrypted: false,
-                    encryption_format: None,
-                    encrypted_data: None,
-                    timestamp: None,
-                }],
-                frame,
-            )],
+            "reasoning" => {
+                let content = if text.is_empty() {
+                    Vec::new()
+                } else {
+                    vec![ContentBlock::Thinking {
+                        text,
+                        subject: None,
+                        description: None,
+                        signature: None,
+                        encrypted: false,
+                        encryption_format: None,
+                        encrypted_data: None,
+                        timestamp: None,
+                    }]
+                };
+                vec![self.message("assistant", content, frame)]
+            }
             "command_execution" | "mcp_tool_call" => {
                 let name = if item_type == "command_execution" {
                     "shell".to_string()
@@ -119,6 +136,9 @@ impl CodexStreamParser {
                     .get("exit_code")
                     .and_then(Value::as_i64)
                     .map(|c| c as i32);
+                // MCP tool calls carry no exit code, so a failure there is
+                // only visible through `status`.
+                let status = item.get("status").and_then(Value::as_str);
                 let output = item
                     .get("aggregated_output")
                     .or_else(|| item.get("output"))
@@ -143,9 +163,10 @@ impl CodexStreamParser {
                             tool_use_id: item_id,
                             content: vec![ContentBlock::Text { text: output }],
                             exit_code,
-                            is_error: exit_code.is_some_and(|code| code != 0),
+                            is_error: exit_code.is_some_and(|code| code != 0)
+                                || matches!(status, Some("failed") | Some("error")),
                             interrupted: false,
-                            status: item.get("status").and_then(Value::as_str).map(String::from),
+                            status: status.map(String::from),
                             duration_ms: None,
                             title: None,
                             truncated: false,
@@ -384,6 +405,46 @@ mod tests {
             _ => None,
         });
         assert_eq!(is_error, Some(true));
+    }
+
+    #[test]
+    fn failed_mcp_call_without_exit_code_is_error_result() {
+        let mut parser = CodexStreamParser::new();
+        let events = parser.feed_line(
+            r#"{"type":"item.completed","item":{"id":"item_9","item_type":"mcp_tool_call","tool":"search","arguments":{"q":"x"},"output":"connection refused","status":"failed"}}"#,
+        );
+        let result = events.iter().find_map(|e| match e {
+            StreamEvent::Message(m) => m.content.iter().find_map(|b| match b {
+                ContentBlock::ToolResult {
+                    is_error,
+                    exit_code,
+                    ..
+                } => Some((*is_error, *exit_code)),
+                _ => None,
+            }),
+            _ => None,
+        });
+        assert_eq!(result, Some((true, None)));
+    }
+
+    #[test]
+    fn empty_items_pass_through_instead_of_hollow_messages() {
+        let mut parser = CodexStreamParser::new();
+        for line in [
+            // file_change whose changes all lack a path
+            r#"{"type":"item.completed","item":{"id":"i1","item_type":"file_change","changes":[{"kind":"edit"}]}}"#,
+            // assistant_message / reasoning with empty text
+            r#"{"type":"item.completed","item":{"id":"i2","item_type":"assistant_message","text":""}}"#,
+            r#"{"type":"item.completed","item":{"id":"i3","item_type":"reasoning","text":""}}"#,
+        ] {
+            let events = parser.feed_line(line);
+            assert_eq!(events.len(), 1, "{line}");
+            assert!(
+                matches!(&events[0], StreamEvent::Passthrough { .. }),
+                "expected passthrough for {line}, got {:?}",
+                events[0]
+            );
+        }
     }
 
     #[test]
