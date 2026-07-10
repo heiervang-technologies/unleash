@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.94](https://github.com/heiervang-technologies/unleash/compare/v0.1.93...v0.1.94) (2026-07-10)
+
+
+### Bug Fixes
+
+* **interchange:** preserve modern Codex tools in Claude ([#402](https://github.com/heiervang-technologies/unleash/issues/402)) ([6c27ce0](https://github.com/heiervang-technologies/unleash/commit/6c27ce0bed35a5fc5905b6a107bcd983f3734a49))
+
 ## [0.1.93](https://github.com/heiervang-technologies/unleash/compare/v0.1.92...v0.1.93) (2026-07-09)
 
 
