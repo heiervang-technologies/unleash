@@ -515,20 +515,43 @@ fn export_opencode_session(session_id: &str) -> Result<opencode::OpenCodeInput, 
         rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY,
     )?;
 
+    // The authoritative message<->part association lives in the `message.id` /
+    // `part.message_id` columns, NOT in the `data` JSON payload (which omits
+    // them). Carry those columns into the JSON so `opencode::to_hub` can group
+    // parts by their owning message instead of guessing by position — position
+    // guessing shifts attachments and later user turns when a message has an
+    // irregular number of parts.
     let mut msg_stmt =
-        conn.prepare("SELECT data FROM message WHERE session_id = ? ORDER BY time_created")?;
+        conn.prepare("SELECT id, data FROM message WHERE session_id = ? ORDER BY time_created")?;
     let messages: Vec<serde_json::Value> = msg_stmt
-        .query_map([session_id], |row| row.get::<_, String>(0))?
+        .query_map([session_id], |row| {
+            Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+        })?
         .filter_map(|r| r.ok())
-        .filter_map(|s| serde_json::from_str(&s).ok())
+        .filter_map(|(id, data)| {
+            let mut value: serde_json::Value = serde_json::from_str(&data).ok()?;
+            if let Some(obj) = value.as_object_mut() {
+                obj.entry("id").or_insert(serde_json::Value::String(id));
+            }
+            Some(value)
+        })
         .collect();
 
-    let mut part_stmt =
-        conn.prepare("SELECT data FROM part WHERE session_id = ? ORDER BY time_created")?;
+    let mut part_stmt = conn
+        .prepare("SELECT message_id, data FROM part WHERE session_id = ? ORDER BY time_created")?;
     let parts: Vec<serde_json::Value> = part_stmt
-        .query_map([session_id], |row| row.get::<_, String>(0))?
+        .query_map([session_id], |row| {
+            Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+        })?
         .filter_map(|r| r.ok())
-        .filter_map(|s| serde_json::from_str(&s).ok())
+        .filter_map(|(message_id, data)| {
+            let mut value: serde_json::Value = serde_json::from_str(&data).ok()?;
+            if let Some(obj) = value.as_object_mut() {
+                obj.entry("messageID")
+                    .or_insert(serde_json::Value::String(message_id));
+            }
+            Some(value)
+        })
         .collect();
 
     Ok(opencode::OpenCodeInput {
