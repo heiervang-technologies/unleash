@@ -1,0 +1,6 @@
+{"timestamp":"2026-07-10T08:00:00.000Z","type":"session_meta","payload":{"id":"modern-codex-session","timestamp":"2026-07-10T08:00:00.000Z","cwd":"/tmp/project","cli_version":"0.200.0","originator":"codex_cli_rs","source":"cli"}}
+{"timestamp":"2026-07-10T08:00:01.000Z","type":"response_item","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"Inspect the repository"}]}}
+{"timestamp":"2026-07-10T08:00:02.000Z","type":"response_item","payload":{"type":"reasoning","id":"rs_1","summary":[],"encrypted_content":"opaque-codex-reasoning"}}
+{"timestamp":"2026-07-10T08:00:03.000Z","type":"response_item","payload":{"type":"custom_tool_call","id":"ctc_1","status":"completed","call_id":"call_1","name":"exec","input":"const result = await tools.exec_command({cmd: \"rg --files\"}); text(result.output);"}}
+{"timestamp":"2026-07-10T08:00:04.000Z","type":"response_item","payload":{"type":"custom_tool_call_output","call_id":"call_1","output":[{"type":"input_text","text":"Script completed\nWall time 0.1 seconds\nOutput:\n"},{"type":"input_text","text":"Cargo.toml\nsrc/lib.rs\n"}]}}
+{"timestamp":"2026-07-10T08:00:05.000Z","type":"response_item","payload":{"type":"message","role":"assistant","content":[{"type":"output_text","text":"The repository contains a Rust crate."}]}}

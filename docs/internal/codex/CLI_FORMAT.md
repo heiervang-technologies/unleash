@@ -1,6 +1,6 @@
 # OpenAI Codex CLI — Conversation Storage Format
 
-> **Last verified: 2026-03-29, Codex CLI v0.117.0**
+> **Last verified: 2026-07-10, current Codex rollout schema**
 >
 > Internal developer reference for unleash. Not for end-user distribution.
 
@@ -245,7 +245,10 @@ A polymorphic event wrapper for various signal types. The `payload.type` sub-fie
 
 ## 5. Tool Call Format
 
-Tool invocations appear as `response_item` events with role `assistant` and a content array containing `tool_use` items, followed by a corresponding `tool_result` item.
+Tool invocations are separate `response_item` rows. Built-in function tools use
+`function_call` / `function_call_output`. Freeform tools, including the current
+JavaScript `exec` orchestration tool, use `custom_tool_call` /
+`custom_tool_call_output`.
 
 **Tool invocation:**
 
@@ -254,18 +257,10 @@ Tool invocations appear as `response_item` events with role `assistant` and a co
   "type": "response_item",
   "timestamp": "2026-03-29T14:22:37.000Z",
   "payload": {
-    "id": "item_tool_001",
-    "role": "assistant",
-    "content": [
-      {
-        "type": "tool_use",
-        "id": "call_abc123",
-        "name": "shell",
-        "input": {
-          "command": ["cat", "src/auth.ts"]
-        }
-      }
-    ]
+    "type": "function_call",
+    "call_id": "call_abc123",
+    "name": "shell",
+    "arguments": "{\"command\":[\"cat\",\"src/auth.ts\"]}"
   }
 }
 ```
@@ -277,32 +272,36 @@ Tool invocations appear as `response_item` events with role `assistant` and a co
   "type": "response_item",
   "timestamp": "2026-03-29T14:22:38.500Z",
   "payload": {
-    "id": "item_result_001",
-    "role": "tool",
-    "tool_call_id": "call_abc123",
-    "content": [
-      {
-        "type": "output_text",
-        "text": "export function authenticate(req, res) {\n  // ...\n}"
-      }
-    ]
+    "type": "function_call_output",
+    "call_id": "call_abc123",
+    "output": "export function authenticate(req, res) {\n  // ...\n}"
   }
 }
 ```
 
-Common tool names in Codex CLI: `shell` (command execution), `file_edit` (apply edits), `file_read` (read file contents). The `input` schema varies per tool.
+Custom tool inputs are freeform strings and their outputs are commonly arrays of
+content blocks:
+
+```jsonc
+{"type":"response_item","payload":{"type":"custom_tool_call","call_id":"call_xyz","name":"exec","input":"const r = await tools.exec_command(...); text(r.output);"}}
+{"type":"response_item","payload":{"type":"custom_tool_call_output","call_id":"call_xyz","output":[{"type":"input_text","text":"Script completed\n"},{"type":"input_text","text":"actual output"}]}}
+```
+
+The converter accepts a custom input as structured arguments only when it parses
+to a JSON object. Every other freeform value is wrapped as `{ "input": "..." }`
+so UCF and Claude receive a valid object without losing the original text. Array
+output blocks remain separate tool-result content blocks.
 
 For `file_edit`:
 
 ```jsonc
 {
-  "type": "tool_use",
-  "id": "call_edit_001",
-  "name": "file_edit",
-  "input": {
-    "path": "src/auth.ts",
-    "old_string": "return res.status(403)",
-    "new_string": "return res.status(401)"
+  "type": "response_item",
+  "payload": {
+    "type": "function_call",
+    "call_id": "call_edit_001",
+    "name": "file_edit",
+    "arguments": "{\"path\":\"src/auth.ts\",\"old_string\":\"return res.status(403)\",\"new_string\":\"return res.status(401)\"}"
   }
 }
 ```

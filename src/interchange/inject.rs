@@ -289,11 +289,12 @@ pub(crate) fn truncate_hub_to_budget(
 }
 
 fn claude_text_is_keepable(text: &str) -> bool {
+    let text = text.trim();
     !text.is_empty()
         && !text.starts_with("<environment_context")
         && !text.starts_with("<permissions")
         && !text.starts_with("<user_shell_command")
-        && !text.starts_with("[Reasoning]: \n")
+        && text != "[Reasoning]:"
 }
 
 fn claude_block_tool_use_id(block: &serde_json::Value) -> Option<String> {
@@ -319,7 +320,17 @@ fn claude_block_is_keepable(block: &serde_json::Value, seen_tool_uses: &[String]
             .get("text")
             .and_then(|t| t.as_str())
             .is_some_and(claude_text_is_keepable),
-        Some("tool_use") | Some("image") | Some("thinking") => true,
+        Some("tool_use") | Some("image") => true,
+        Some("thinking") => {
+            block
+                .get("thinking")
+                .and_then(|text| text.as_str())
+                .is_some_and(|text| !text.trim().is_empty())
+                || block
+                    .get("signature")
+                    .and_then(|signature| signature.as_str())
+                    .is_some_and(|signature| !signature.is_empty())
+        }
         Some("tool_result") => {
             claude_block_tool_result_id(block).is_some_and(|id| seen_tool_uses.contains(&id))
         }
@@ -331,23 +342,30 @@ fn filter_claude_injection_lines(lines: Vec<serde_json::Value>) -> Vec<serde_jso
     let mut kept = Vec::new();
     let mut seen_tool_uses = Vec::new();
 
-    for line in lines {
+    for mut line in lines {
         let msg_type = line.get("type").and_then(|t| t.as_str()).unwrap_or("");
         if msg_type != "user" && msg_type != "assistant" {
             continue;
         }
 
-        let content = line.get("message").and_then(|m| m.get("content"));
+        let content = line
+            .get_mut("message")
+            .and_then(|message| message.get_mut("content"));
         let keep = match content {
             Some(serde_json::Value::String(s)) => claude_text_is_keepable(s),
-            Some(serde_json::Value::Array(arr)) => arr
-                .iter()
-                .any(|block| claude_block_is_keepable(block, &seen_tool_uses)),
+            Some(serde_json::Value::Array(arr)) => {
+                arr.retain(|block| claude_block_is_keepable(block, &seen_tool_uses));
+                !arr.is_empty()
+            }
             _ => false,
         };
 
         if keep {
-            if let Some(arr) = content.and_then(|c| c.as_array()) {
+            if let Some(arr) = line
+                .get("message")
+                .and_then(|message| message.get("content"))
+                .and_then(|content| content.as_array())
+            {
                 for block in arr {
                     if let Some(id) = claude_block_tool_use_id(block) {
                         seen_tool_uses.push(id);
@@ -2544,6 +2562,119 @@ mod tests {
 
         let filtered = filter_claude_injection_lines(lines);
         assert!(filtered.is_empty());
+    }
+
+    #[test]
+    fn test_codex_custom_tools_survive_claude_injection_without_blank_reasoning() {
+        let source = include_str!("tests/fixtures/codex-modern-custom-tools.jsonl");
+        let hub = codex::to_hub(std::io::BufReader::new(source.as_bytes())).unwrap();
+        let claude_lines = claude::from_hub(&hub).unwrap();
+        assert_eq!(
+            claude_lines.len(),
+            5,
+            "Claude file should retain an empty lossless carrier for reasoning"
+        );
+        let reasoning_carrier = claude_lines
+            .iter()
+            .find(|line| {
+                line.pointer("/message/content")
+                    .and_then(|content| content.as_array())
+                    .is_some_and(Vec::is_empty)
+            })
+            .expect("empty reasoning should remain as a stashed carrier row");
+        assert_eq!(
+            reasoning_carrier
+                .pointer("/_ucf_hub/message/content/0/encrypted_data")
+                .and_then(|value| value.as_str()),
+            Some("opaque-codex-reasoning")
+        );
+        let filtered = filter_claude_injection_lines(claude_lines);
+
+        assert_eq!(filtered.len(), 4, "user, tool call, tool result, answer");
+
+        let blocks: Vec<&serde_json::Value> = filtered
+            .iter()
+            .filter_map(|line| line.pointer("/message/content").and_then(|v| v.as_array()))
+            .flatten()
+            .collect();
+        let tool_use = blocks
+            .iter()
+            .find(|block| block.get("type").and_then(|v| v.as_str()) == Some("tool_use"))
+            .expect("Claude import should contain tool_use");
+        assert_eq!(tool_use.get("id").and_then(|v| v.as_str()), Some("call_1"));
+        assert_eq!(tool_use.get("name").and_then(|v| v.as_str()), Some("exec"));
+        assert!(tool_use
+            .pointer("/input/input")
+            .and_then(|v| v.as_str())
+            .is_some_and(|input| input.contains("rg --files")));
+
+        let tool_result = blocks
+            .iter()
+            .find(|block| block.get("type").and_then(|v| v.as_str()) == Some("tool_result"))
+            .expect("Claude import should contain matching tool_result");
+        assert_eq!(
+            tool_result.get("tool_use_id").and_then(|v| v.as_str()),
+            Some("call_1")
+        );
+        assert!(tool_result
+            .get("content")
+            .and_then(|v| v.as_array())
+            .is_some_and(|content| content.iter().any(|block| {
+                block
+                    .get("text")
+                    .and_then(|v| v.as_str())
+                    .is_some_and(|text| text.contains("Cargo.toml"))
+            })));
+
+        assert!(!filtered.iter().any(|line| {
+            line.pointer("/message/content")
+                .and_then(|v| v.as_array())
+                .is_some_and(|content| {
+                    content.iter().any(|block| {
+                        block
+                            .get("text")
+                            .and_then(|v| v.as_str())
+                            .is_some_and(|text| text.trim() == "[Reasoning]:")
+                    })
+                })
+        }));
+    }
+
+    #[test]
+    fn test_claude_filter_keeps_signed_empty_thinking() {
+        let lines = vec![serde_json::json!({
+            "type": "assistant",
+            "message": {"role": "assistant", "content": [{
+                "type": "thinking",
+                "thinking": "",
+                "signature": "signed-empty"
+            }]}
+        })];
+
+        let filtered = filter_claude_injection_lines(lines);
+        assert_eq!(filtered.len(), 1);
+    }
+
+    #[test]
+    fn test_claude_filter_removes_blank_blocks_from_kept_messages() {
+        let lines = vec![serde_json::json!({
+            "type": "assistant",
+            "message": {"role": "assistant", "content": [
+                {"type": "text", "text": "[Reasoning]:   \n"},
+                {"type": "text", "text": "kept answer"}
+            ]}
+        })];
+
+        let filtered = filter_claude_injection_lines(lines);
+        let content = filtered[0]
+            .pointer("/message/content")
+            .and_then(|value| value.as_array())
+            .unwrap();
+        assert_eq!(content.len(), 1);
+        assert_eq!(
+            content[0].get("text").and_then(|v| v.as_str()),
+            Some("kept answer")
+        );
     }
 
     #[test]
