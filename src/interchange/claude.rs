@@ -106,6 +106,9 @@ pub fn from_hub(records: &[HubRecord]) -> Result<Vec<Value>, ConvertError> {
             }
             HubRecord::Message(msg) => {
                 let mut line = hub_message_to_claude(msg, &session_id, &version)?;
+                if line.is_null() {
+                    continue;
+                }
                 if stash_messages {
                     attach_ucf_hub_field(&mut line, "message", serde_json::to_value(msg)?);
                 }
@@ -558,6 +561,13 @@ fn hub_message_to_claude(
     // Build content array
     let mut content = hub_content_to_claude(&msg.content);
 
+    // Foreign encrypted reasoning cannot be resumed by Claude without a
+    // Claude signature. If it has no transferable summary text, omit the
+    // message instead of creating an empty `[Reasoning]:` conversation turn.
+    if content.is_empty() {
+        return Ok(Value::Null);
+    }
+
     // Merge per-block extras back from extensions
     if let Some(extras_arr) = cc.get("content_extras").and_then(|v| v.as_array()) {
         for (i, extras) in extras_arr.iter().enumerate() {
@@ -768,15 +778,13 @@ fn attach_ucf_hub_field(line: &mut Value, key: &str, value: Value) {
 fn hub_content_to_claude(blocks: &[ContentBlock]) -> Vec<Value> {
     blocks
         .iter()
-        .map(|block| match block {
-            ContentBlock::Text { text } => {
-                serde_json::json!({"type": "text", "text": text})
-            }
+        .filter_map(|block| match block {
+            ContentBlock::Text { text } => Some(serde_json::json!({"type": "text", "text": text})),
             ContentBlock::ToolUse {
                 id, name, input, ..
-            } => {
-                serde_json::json!({"type": "tool_use", "id": id, "name": name, "input": input})
-            }
+            } => Some(
+                serde_json::json!({"type": "tool_use", "id": id, "name": name, "input": input}),
+            ),
             ContentBlock::ToolResult {
                 tool_use_id,
                 content,
@@ -802,18 +810,24 @@ fn hub_content_to_claude(blocks: &[ContentBlock]) -> Vec<Value> {
                 } else {
                     obj["is_error"] = Value::Bool(false);
                 }
-                obj
+                Some(obj)
             }
             ContentBlock::Thinking {
                 text, signature, ..
             } => {
                 if let Some(sig) = signature {
                     // Claude thinking block with signature — preserve
-                    serde_json::json!({"type": "thinking", "thinking": text, "signature": sig})
+                    Some(
+                        serde_json::json!({"type": "thinking", "thinking": text, "signature": sig}),
+                    )
+                } else if text.trim().is_empty() {
+                    None
                 } else {
                     // Foreign thinking block (no signature) — convert to text
                     // Claude API requires signature on thinking blocks
-                    serde_json::json!({"type": "text", "text": format!("[Reasoning]: {text}")})
+                    Some(
+                        serde_json::json!({"type": "text", "text": format!("[Reasoning]: {text}")}),
+                    )
                 }
             }
             ContentBlock::Image {
@@ -821,7 +835,7 @@ fn hub_content_to_claude(blocks: &[ContentBlock]) -> Vec<Value> {
                 data,
                 source_url,
                 ..
-            } => match source_url {
+            } => Some(match source_url {
                 Some(url) if data.is_empty() => serde_json::json!({
                     "type": "image",
                     "source": {"type": "url", "url": url}
@@ -830,8 +844,8 @@ fn hub_content_to_claude(blocks: &[ContentBlock]) -> Vec<Value> {
                     "type": "image",
                     "source": {"type": "base64", "media_type": media_type, "data": data}
                 }),
-            },
-            _ => serde_json::json!({"type": "text", "text": "[unconverted block]"}),
+            }),
+            _ => Some(serde_json::json!({"type": "text", "text": "[unconverted block]"})),
         })
         .collect()
 }

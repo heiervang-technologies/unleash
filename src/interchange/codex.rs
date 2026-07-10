@@ -417,6 +417,7 @@ fn response_item_to_hub(payload: &Value, timestamp: &str) -> Result<HubMessage, 
                 .map(|arr| {
                     arr.iter()
                         .filter_map(|b| b.get("text").and_then(|t| t.as_str()))
+                        .filter(|text| !text.trim().is_empty())
                         .map(String::from)
                         .collect()
                 })
@@ -426,6 +427,7 @@ fn response_item_to_hub(payload: &Value, timestamp: &str) -> Result<HubMessage, 
                     summary
                         .iter()
                         .filter_map(|b| b.get("text").and_then(|t| t.as_str()))
+                        .filter(|text| !text.trim().is_empty())
                         .map(String::from),
                 );
             }
@@ -447,24 +449,18 @@ fn response_item_to_hub(payload: &Value, timestamp: &str) -> Result<HubMessage, 
                 }],
             )
         }
-        "function_call" => {
+        "function_call" | "custom_tool_call" => {
             let name = payload
                 .get("name")
                 .and_then(|n| n.as_str())
                 .unwrap_or("unknown")
                 .to_string();
-            let call_id = payload
-                .get("call_id")
-                .and_then(|v| v.as_str())
-                .unwrap_or("")
-                .to_string();
-            let arguments = payload
-                .get("arguments")
-                .and_then(|a| a.as_str())
-                .unwrap_or("{}")
-                .to_string();
-            let input: Value =
-                serde_json::from_str(&arguments).unwrap_or(Value::Object(Default::default()));
+            let call_id = codex_call_id(payload);
+            let input = if payload_type == "custom_tool_call" {
+                codex_custom_tool_input(payload.get("input"))
+            } else {
+                codex_function_call_input(payload.get("arguments"))
+            };
             (
                 "assistant",
                 vec![ContentBlock::ToolUse {
@@ -476,23 +472,9 @@ fn response_item_to_hub(payload: &Value, timestamp: &str) -> Result<HubMessage, 
                 }],
             )
         }
-        "function_call_output" => {
-            let call_id = payload
-                .get("call_id")
-                .and_then(|v| v.as_str())
-                .unwrap_or("")
-                .to_string();
+        "function_call_output" | "custom_tool_call_output" => {
+            let call_id = codex_call_id(payload);
             let output_value = payload.get("output").unwrap_or(&Value::Null);
-            let output = match output_value {
-                Value::String(s) => s.clone(),
-                Value::Object(obj) => obj
-                    .get("output")
-                    .or_else(|| obj.get("content"))
-                    .and_then(|v| v.as_str())
-                    .map(String::from)
-                    .unwrap_or_else(|| output_value.to_string()),
-                _ => output_value.as_str().unwrap_or("").to_string(),
-            };
             let exit_code = output_value
                 .get("metadata")
                 .and_then(|m| m.get("exit_code"))
@@ -502,7 +484,7 @@ fn response_item_to_hub(payload: &Value, timestamp: &str) -> Result<HubMessage, 
                 "user",
                 vec![ContentBlock::ToolResult {
                     tool_use_id: call_id,
-                    content: vec![ContentBlock::Text { text: output }],
+                    content: codex_tool_output_content(output_value),
                     is_error: exit_code.is_some_and(|code| code != 0),
                     exit_code,
                     interrupted: false,
@@ -546,6 +528,56 @@ fn response_item_to_hub(payload: &Value, timestamp: &str) -> Result<HubMessage, 
         },
         extensions: ext,
     })
+}
+
+fn codex_call_id(payload: &Value) -> String {
+    payload
+        .get("call_id")
+        .or_else(|| payload.get("id"))
+        .and_then(Value::as_str)
+        .unwrap_or("")
+        .to_string()
+}
+
+fn codex_function_call_input(arguments: Option<&Value>) -> Value {
+    match arguments {
+        Some(Value::String(arguments)) => serde_json::from_str(arguments)
+            .unwrap_or_else(|_| serde_json::json!({"arguments": arguments})),
+        Some(Value::Object(_)) => arguments.cloned().unwrap_or(Value::Null),
+        Some(other) => serde_json::json!({"arguments": other}),
+        None => Value::Object(Default::default()),
+    }
+}
+
+fn codex_custom_tool_input(input: Option<&Value>) -> Value {
+    match input {
+        Some(Value::Object(_)) => input.cloned().unwrap_or(Value::Null),
+        Some(Value::String(input)) => {
+            serde_json::from_str(input).unwrap_or_else(|_| serde_json::json!({"input": input}))
+        }
+        Some(other) => serde_json::json!({"input": other}),
+        None => Value::Object(Default::default()),
+    }
+}
+
+fn codex_tool_output_content(output: &Value) -> Vec<ContentBlock> {
+    match output {
+        Value::Array(blocks) => blocks.iter().map(codex_content_block).collect(),
+        Value::Object(obj) => {
+            if let Some(inner) = obj.get("output").or_else(|| obj.get("content")) {
+                codex_tool_output_content(inner)
+            } else {
+                vec![ContentBlock::Text {
+                    text: output.to_string(),
+                }]
+            }
+        }
+        Value::String(text) => vec![ContentBlock::Text { text: text.clone() }],
+        Value::Null => Vec::new(),
+        other => vec![ContentBlock::Text {
+            text: other.to_string(),
+        }],
+    }
 }
 
 #[allow(dead_code)] // Used by from_hub round-trip path
@@ -597,43 +629,41 @@ fn extract_codex_content(payload: &Value) -> Result<Vec<ContentBlock>, ConvertEr
     let content_arr = payload.get("content").and_then(|c| c.as_array());
 
     match content_arr {
-        Some(arr) => arr
-            .iter()
-            .map(|block| {
-                let block_type = block.get("type").and_then(|t| t.as_str()).unwrap_or("");
-                match block_type {
-                    "input_text" | "output_text" => Ok(ContentBlock::Text {
-                        text: block
-                            .get("text")
-                            .and_then(|t| t.as_str())
-                            .unwrap_or("")
-                            .to_string(),
-                    }),
-                    "input_image" => Ok(ContentBlock::Image {
-                        media_type: block
-                            .get("media_type")
-                            .and_then(|v| v.as_str())
-                            .unwrap_or("image/png")
-                            .to_string(),
-                        encoding: "base64".to_string(),
-                        data: block
-                            .get("data")
-                            .and_then(|v| v.as_str())
-                            .unwrap_or("")
-                            .to_string(),
-                        source_url: block.get("url").and_then(|v| v.as_str()).map(String::from),
-                    }),
-                    _ => Ok(ContentBlock::Text {
-                        text: block
-                            .get("text")
-                            .and_then(|t| t.as_str())
-                            .unwrap_or("")
-                            .to_string(),
-                    }),
-                }
-            })
-            .collect(),
+        Some(arr) => Ok(arr.iter().map(codex_content_block).collect()),
         None => Ok(vec![]),
+    }
+}
+
+fn codex_content_block(block: &Value) -> ContentBlock {
+    match block.get("type").and_then(|t| t.as_str()).unwrap_or("") {
+        "input_text" | "output_text" | "text" => ContentBlock::Text {
+            text: block
+                .get("text")
+                .and_then(Value::as_str)
+                .unwrap_or("")
+                .to_string(),
+        },
+        "input_image" => ContentBlock::Image {
+            media_type: block
+                .get("media_type")
+                .and_then(Value::as_str)
+                .unwrap_or("image/png")
+                .to_string(),
+            encoding: "base64".to_string(),
+            data: block
+                .get("data")
+                .and_then(Value::as_str)
+                .unwrap_or("")
+                .to_string(),
+            source_url: block.get("url").and_then(Value::as_str).map(String::from),
+        },
+        _ => ContentBlock::Text {
+            text: block
+                .get("text")
+                .and_then(Value::as_str)
+                .map(String::from)
+                .unwrap_or_else(|| block.to_string()),
+        },
     }
 }
 
@@ -966,6 +996,74 @@ mod tests {
             }
             other => panic!("expected tool result, got {other:?}"),
         }
+    }
+
+    #[test]
+    fn test_modern_custom_tool_rows_preserve_call_input_and_array_output() {
+        let original = include_str!("tests/fixtures/codex-modern-custom-tools.jsonl");
+        let hub = to_hub(std::io::BufReader::new(original.as_bytes())).unwrap();
+
+        let tool_use = hub.iter().find_map(|record| match record {
+            HubRecord::Message(message) => message.content.iter().find_map(|block| match block {
+                ContentBlock::ToolUse {
+                    id, name, input, ..
+                } => Some((id, name, input)),
+                _ => None,
+            }),
+            _ => None,
+        });
+        let (id, name, input) = tool_use.expect("custom tool call should become a tool use");
+        assert_eq!(id, "call_1");
+        assert_eq!(name, "exec");
+        assert_eq!(
+            input.get("input").and_then(Value::as_str),
+            Some(
+                "const result = await tools.exec_command({cmd: \"rg --files\"}); text(result.output);"
+            )
+        );
+
+        let tool_result = hub.iter().find_map(|record| match record {
+            HubRecord::Message(message) => message.content.iter().find_map(|block| match block {
+                ContentBlock::ToolResult {
+                    tool_use_id,
+                    content,
+                    ..
+                } => Some((tool_use_id, content)),
+                _ => None,
+            }),
+            _ => None,
+        });
+        let (tool_use_id, content) =
+            tool_result.expect("custom tool output should become a tool result");
+        assert_eq!(tool_use_id, "call_1");
+        assert_eq!(content.len(), 2);
+        assert!(matches!(
+            &content[1],
+            ContentBlock::Text { text } if text == "Cargo.toml\nsrc/lib.rs\n"
+        ));
+    }
+
+    #[test]
+    fn test_empty_reasoning_summary_keeps_opaque_data_without_fake_text() {
+        let original = include_str!("tests/fixtures/codex-modern-custom-tools.jsonl");
+        let hub = to_hub(std::io::BufReader::new(original.as_bytes())).unwrap();
+
+        let thinking = hub.iter().find_map(|record| match record {
+            HubRecord::Message(message) => message.content.iter().find_map(|block| match block {
+                ContentBlock::Thinking {
+                    text,
+                    encrypted,
+                    encrypted_data,
+                    ..
+                } => Some((text, encrypted, encrypted_data)),
+                _ => None,
+            }),
+            _ => None,
+        });
+        let (text, encrypted, encrypted_data) = thinking.expect("reasoning row should reach UCF");
+        assert!(text.is_empty());
+        assert!(*encrypted);
+        assert_eq!(encrypted_data.as_deref(), Some("opaque-codex-reasoning"));
     }
 
     #[test]
