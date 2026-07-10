@@ -423,8 +423,21 @@ pub fn from_hub(records: &[HubRecord]) -> Result<HermesOutput, ConvertError> {
             .filter_map(|b| match b {
                 ContentBlock::Text { text } if !text.is_empty() => Some(text.clone()),
                 ContentBlock::Image {
-                    media_type, data, ..
-                } => Some(format!("[image: {} ({} bytes)]", media_type, data.len())),
+                    media_type,
+                    data,
+                    encoding,
+                    ..
+                } => {
+                    // Report the decoded size for base64 payloads, not the raw
+                    // base64 character count (~4/3 larger). Placeholder only.
+                    let bytes = if encoding == "base64" {
+                        let padding = data.bytes().rev().take_while(|&b| b == b'=').count();
+                        (data.len() / 4) * 3 - padding.min((data.len() / 4) * 3)
+                    } else {
+                        data.len()
+                    };
+                    Some(format!("[image: {media_type} ({bytes} bytes)]"))
+                }
                 ContentBlock::Patch { path, .. } => Some(format!("[patch: {path}]")),
                 _ => None,
             })
@@ -498,6 +511,8 @@ pub fn from_hub(records: &[HubRecord]) -> Result<HermesOutput, ConvertError> {
             || tool_calls_json.is_some()
             || reasoning.is_some()
             || reasoning_details.is_some()
+            || finish_reason.is_some()
+            || token_count.is_some()
         {
             messages.push(HermesMessage {
                 role: msg.role.clone(),
@@ -1070,5 +1085,68 @@ mod tests {
         assert!(details.contains("reasoning.encrypted"), "got {details}");
         assert!(details.contains("BASE64BLOB"), "payload lost: {details}");
         assert!(details.contains("codex-v1"), "format lost: {details}");
+    }
+
+    #[test]
+    fn step_boundary_only_turn_is_not_dropped() {
+        // Consistency with the reasoning fix: an assistant turn whose ONLY
+        // content is a StepBoundary finish (finish_reason + tokens, no text,
+        // reasoning, or tool calls) must still be emitted so the finish
+        // metadata isn't lost — the emit guard has to key on finish_reason /
+        // token_count too, not just reasoning.
+        let session = HubRecord::Session(SessionHeader {
+            ucf_version: UCF_VERSION.to_string(),
+            session_id: "s".into(),
+            created_at: "2026-06-01T00:00:00Z".into(),
+            updated_at: "2026-06-01T00:01:00Z".into(),
+            source_cli: "codex".into(),
+            source_version: String::new(),
+            project: None,
+            model: None,
+            title: None,
+            slug: None,
+            parent_session_id: None,
+            extensions: Value::Object(Default::default()),
+        });
+        let step_only = HubRecord::Message(HubMessage {
+            id: "m1".into(),
+            api_message_id: None,
+            parent_id: None,
+            timestamp: "2026-06-01T00:00:10Z".into(),
+            completed_at: None,
+            role: "assistant".into(),
+            content: vec![ContentBlock::StepBoundary {
+                boundary: "finish".into(),
+                snapshot: None,
+                finish_reason: Some("stop".into()),
+                cost: None,
+                tokens: Some(TokenUsage {
+                    input: 5,
+                    output: 7,
+                    cache_creation: 0,
+                    cache_read: 0,
+                    reasoning: 0,
+                    tool: 0,
+                    total: 12,
+                }),
+            }],
+            metadata: MessageMetadata::default(),
+            extensions: Value::Object(Default::default()),
+        });
+
+        let out = from_hub(&[session, step_only]).unwrap();
+        let assistants: Vec<_> = out
+            .messages
+            .iter()
+            .filter(|m| m.role == "assistant")
+            .collect();
+        assert_eq!(
+            assistants.len(),
+            1,
+            "step-boundary-only turn must not vanish"
+        );
+        assert_eq!(assistants[0].finish_reason.as_deref(), Some("stop"));
+        assert_eq!(assistants[0].token_count, Some(12));
+        assert!(assistants[0].content.is_none());
     }
 }
