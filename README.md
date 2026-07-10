@@ -343,6 +343,21 @@ Or force the installer to build from source instead of downloading:
 BUILD_FROM_SOURCE=1 bash <(curl -fsSL unleash.software/install)
 ```
 
+#### Headless build (no TUI)
+
+The interactive splash / agent picker (the `splash` binary) links `ratatui`
+and `crossterm` behind the default `tui` feature. In headless environments you
+can build the `unleash` CLI without them:
+
+```bash
+cargo build --no-default-features
+```
+
+This drops the `tui` feature and the `splash` binary; the `unleash` CLI and all
+of its subcommands (version management, crossload, search, sandbox, …) still
+build and run. CI enforces this contract via `cargo check --no-default-features`
+so it cannot silently regress.
+
 ### Platform support
 
 | Platform | Binary | Method |
