@@ -1182,27 +1182,7 @@ fn inject_into_hermes(
     )
     .map_err(|e| ConvertError::InvalidFormat(format!("Failed to insert session: {e}")))?;
 
-    for msg in &output.messages {
-        tx.execute(
-            "INSERT INTO messages
-             (session_id, role, content, tool_calls, tool_call_id, tool_name, timestamp,
-              reasoning, finish_reason, token_count)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
-            rusqlite::params![
-                session_id,
-                msg.role,
-                msg.content,
-                msg.tool_calls,
-                msg.tool_call_id,
-                msg.tool_name,
-                msg.timestamp,
-                msg.reasoning,
-                msg.finish_reason,
-                msg.token_count,
-            ],
-        )
-        .map_err(|e| ConvertError::InvalidFormat(format!("Failed to insert message: {e}")))?;
-    }
+    hermes_insert_messages(&tx, &session_id, &output.messages)?;
 
     tx.commit()
         .map_err(|e| ConvertError::InvalidFormat(format!("Failed to commit: {e}")))?;
@@ -1226,6 +1206,96 @@ fn inject_into_hermes(
         },
         target_path,
     ))
+}
+
+/// Insert Hermes messages, writing only the columns the target `messages` table
+/// actually has. Older Hermes DBs predate the `reasoning` / `reasoning_details`
+/// / `finish_reason` / `token_count` columns; a fixed INSERT that names them
+/// aborts the whole injection on those DBs. We probe `PRAGMA table_info` once
+/// and build the statement from the intersection of what we can write and what
+/// exists.
+fn hermes_insert_messages(
+    conn: &rusqlite::Connection,
+    session_id: &str,
+    messages: &[hermes::HermesMessage],
+) -> Result<(), ConvertError> {
+    use std::collections::HashSet;
+
+    let existing: HashSet<String> = {
+        let mut stmt = conn.prepare("PRAGMA table_info(messages)").map_err(|e| {
+            ConvertError::InvalidFormat(format!("Failed to read messages schema: {e}"))
+        })?;
+        let cols = stmt
+            .query_map([], |row| row.get::<_, String>(1))
+            .map_err(|e| {
+                ConvertError::InvalidFormat(format!("Failed to read messages schema: {e}"))
+            })?
+            .filter_map(Result::ok)
+            .collect();
+        cols
+    };
+
+    // Base columns are assumed present on every Hermes schema; optional columns
+    // are appended only when the probe found them. Column order and per-message
+    // param order below MUST stay in lockstep.
+    let optional_cols = [
+        "reasoning",
+        "reasoning_details",
+        "finish_reason",
+        "token_count",
+    ];
+    let mut columns: Vec<&str> = vec![
+        "session_id",
+        "role",
+        "content",
+        "tool_calls",
+        "tool_call_id",
+        "tool_name",
+        "timestamp",
+    ];
+    for col in optional_cols {
+        if existing.contains(col) {
+            columns.push(col);
+        }
+    }
+    let placeholders: Vec<String> = (1..=columns.len()).map(|i| format!("?{i}")).collect();
+    let sql = format!(
+        "INSERT INTO messages ({}) VALUES ({})",
+        columns.join(", "),
+        placeholders.join(", ")
+    );
+
+    let mut stmt = conn
+        .prepare(&sql)
+        .map_err(|e| ConvertError::InvalidFormat(format!("Failed to prepare insert: {e}")))?;
+
+    for msg in messages {
+        let mut params: Vec<&dyn rusqlite::ToSql> = vec![
+            &session_id,
+            &msg.role,
+            &msg.content,
+            &msg.tool_calls,
+            &msg.tool_call_id,
+            &msg.tool_name,
+            &msg.timestamp,
+        ];
+        if existing.contains("reasoning") {
+            params.push(&msg.reasoning);
+        }
+        if existing.contains("reasoning_details") {
+            params.push(&msg.reasoning_details);
+        }
+        if existing.contains("finish_reason") {
+            params.push(&msg.finish_reason);
+        }
+        if existing.contains("token_count") {
+            params.push(&msg.token_count);
+        }
+        stmt.execute(params.as_slice())
+            .map_err(|e| ConvertError::InvalidFormat(format!("Failed to insert message: {e}")))?;
+    }
+
+    Ok(())
 }
 
 /// the partial-UUID resolver fast — pi reads every file in the project
@@ -1753,6 +1823,97 @@ fn chrono_like_now() -> String {
 mod tests {
     use super::*;
     use crate::interchange::hub::{HubRecord, SessionHeader, UCF_VERSION};
+
+    // ── hermes_insert_messages schema probe ──────────────────
+
+    fn sample_hermes_msg() -> hermes::HermesMessage {
+        hermes::HermesMessage {
+            role: "assistant".into(),
+            content: Some("hi".into()),
+            tool_calls: None,
+            tool_call_id: None,
+            tool_name: None,
+            timestamp: 1000.0,
+            reasoning: Some("thought".into()),
+            reasoning_details: Some(r#"[{"type":"reasoning.encrypted","data":"x"}]"#.into()),
+            finish_reason: Some("stop".into()),
+            token_count: Some(42),
+        }
+    }
+
+    #[test]
+    fn hermes_insert_tolerates_old_schema_without_reasoning_columns() {
+        // An older Hermes DB whose `messages` table predates the reasoning /
+        // finish_reason / token_count / reasoning_details columns. The insert
+        // must succeed (writing only the base columns), not abort the whole
+        // injection.
+        let conn = rusqlite::Connection::open_in_memory().unwrap();
+        conn.execute_batch(
+            "CREATE TABLE messages (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                session_id TEXT NOT NULL,
+                role TEXT NOT NULL,
+                content TEXT,
+                tool_call_id TEXT,
+                tool_calls TEXT,
+                tool_name TEXT,
+                timestamp REAL NOT NULL
+            );",
+        )
+        .unwrap();
+
+        hermes_insert_messages(&conn, "sess1", &[sample_hermes_msg()])
+            .expect("insert must not abort on an old schema");
+
+        let (count, content): (i64, String) = conn
+            .query_row(
+                "SELECT COUNT(*), MAX(content) FROM messages WHERE session_id = 'sess1'",
+                [],
+                |r| Ok((r.get(0)?, r.get(1)?)),
+            )
+            .unwrap();
+        assert_eq!(count, 1);
+        assert_eq!(content, "hi");
+    }
+
+    #[test]
+    fn hermes_insert_writes_reasoning_columns_when_present() {
+        // A current Hermes DB with the extended columns: the reasoning /
+        // reasoning_details / finish_reason / token_count values must land.
+        let conn = rusqlite::Connection::open_in_memory().unwrap();
+        conn.execute_batch(
+            "CREATE TABLE messages (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                session_id TEXT NOT NULL,
+                role TEXT NOT NULL,
+                content TEXT,
+                tool_call_id TEXT,
+                tool_calls TEXT,
+                tool_name TEXT,
+                timestamp REAL NOT NULL,
+                token_count INTEGER,
+                finish_reason TEXT,
+                reasoning TEXT,
+                reasoning_details TEXT
+            );",
+        )
+        .unwrap();
+
+        hermes_insert_messages(&conn, "sess1", &[sample_hermes_msg()]).unwrap();
+
+        let (reasoning, details, finish, tokens): (String, String, String, i64) = conn
+            .query_row(
+                "SELECT reasoning, reasoning_details, finish_reason, token_count
+                 FROM messages WHERE session_id = 'sess1'",
+                [],
+                |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)),
+            )
+            .unwrap();
+        assert_eq!(reasoning, "thought");
+        assert!(details.contains("reasoning.encrypted"));
+        assert_eq!(finish, "stop");
+        assert_eq!(tokens, 42);
+    }
 
     // ── encode_claude_project_path ───────────────────────────
 

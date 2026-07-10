@@ -26,9 +26,16 @@ pub struct HermesMessage {
     pub tool_call_id: Option<String>,
     pub tool_name: Option<String>,
     pub timestamp: f64,
-    /// Hub `Thinking` blocks, mapped to Hermes' native `reasoning` column so
-    /// reasoning survives hub → Hermes injection instead of being dropped.
+    /// Plaintext `Thinking` blocks, mapped to Hermes' native `reasoning`
+    /// column so reasoning survives hub → Hermes injection instead of being
+    /// dropped.
     pub reasoning: Option<String>,
+    /// Encrypted/redacted `Thinking` blocks, serialized as a JSON array and
+    /// mapped to Hermes' `reasoning_details` column. This is what keeps an
+    /// *encrypted* reasoning-only turn from vanishing: its payload lives in
+    /// `encrypted_data`, not `text`, so the plaintext `reasoning` column stays
+    /// empty and cannot carry it.
+    pub reasoning_details: Option<String>,
     /// From a `StepBoundary` finish block, mapped to Hermes' `finish_reason`.
     pub finish_reason: Option<String>,
     /// From a `StepBoundary` finish block's token usage.
@@ -424,21 +431,43 @@ pub fn from_hub(records: &[HubRecord]) -> Result<HermesOutput, ConvertError> {
             .collect::<Vec<_>>()
             .join("\n");
 
-        // Thinking → Hermes' native `reasoning` column. Capturing this also
-        // means reasoning-only assistant turns (no text, no tool calls) are
-        // still emitted below instead of vanishing.
-        let reasoning: Option<String> = {
-            let joined = msg
-                .content
-                .iter()
-                .filter_map(|b| match b {
-                    ContentBlock::Thinking { text, .. } if !text.is_empty() => Some(text.as_str()),
-                    _ => None,
-                })
-                .collect::<Vec<_>>()
-                .join("\n");
-            (!joined.is_empty()).then_some(joined)
-        };
+        // Thinking → Hermes' reasoning columns. Plaintext goes to `reasoning`;
+        // encrypted/redacted reasoning (whose payload is in `encrypted_data`,
+        // not `text`) goes to `reasoning_details` as JSON. Capturing BOTH is
+        // what keeps a reasoning-only assistant turn from vanishing — including
+        // the encrypted case, where `text` is empty so `reasoning` alone would
+        // stay None and the emit guard below would drop the turn.
+        let mut reasoning_texts: Vec<&str> = Vec::new();
+        let mut encrypted_details: Vec<Value> = Vec::new();
+        for block in &msg.content {
+            if let ContentBlock::Thinking {
+                text,
+                encrypted,
+                encryption_format,
+                encrypted_data,
+                ..
+            } = block
+            {
+                if !text.is_empty() {
+                    reasoning_texts.push(text.as_str());
+                }
+                if *encrypted {
+                    let mut detail = serde_json::Map::new();
+                    detail.insert("type".into(), Value::String("reasoning.encrypted".into()));
+                    if let Some(data) = encrypted_data {
+                        detail.insert("data".into(), Value::String(data.clone()));
+                    }
+                    if let Some(fmt) = encryption_format {
+                        detail.insert("format".into(), Value::String(fmt.clone()));
+                    }
+                    encrypted_details.push(Value::Object(detail));
+                }
+            }
+        }
+        let reasoning: Option<String> =
+            (!reasoning_texts.is_empty()).then(|| reasoning_texts.join("\n"));
+        let reasoning_details: Option<String> =
+            (!encrypted_details.is_empty()).then(|| Value::Array(encrypted_details).to_string());
 
         // StepBoundary finish → native finish_reason / token_count columns.
         let (finish_reason, token_count) = msg
@@ -461,8 +490,15 @@ pub fn from_hub(records: &[HubRecord]) -> Result<HermesOutput, ConvertError> {
             })
             .unwrap_or((None, None));
 
-        // Emit primary message
-        if !text_content.is_empty() || tool_calls_json.is_some() || reasoning.is_some() {
+        // Emit primary message. Note reasoning_details in the guard: an
+        // encrypted reasoning-only turn has empty text, no tool calls, and
+        // empty `reasoning`, so without this it would be dropped — the exact
+        // headline bug for the encrypted case.
+        if !text_content.is_empty()
+            || tool_calls_json.is_some()
+            || reasoning.is_some()
+            || reasoning_details.is_some()
+        {
             messages.push(HermesMessage {
                 role: msg.role.clone(),
                 content: if text_content.is_empty() {
@@ -475,6 +511,7 @@ pub fn from_hub(records: &[HubRecord]) -> Result<HermesOutput, ConvertError> {
                 tool_name: None,
                 timestamp: ts,
                 reasoning,
+                reasoning_details,
                 finish_reason,
                 token_count,
             });
@@ -508,6 +545,7 @@ pub fn from_hub(records: &[HubRecord]) -> Result<HermesOutput, ConvertError> {
                         .or_else(|| tool_names_by_id.get(tool_use_id).cloned()),
                     timestamp: ts,
                     reasoning: None,
+                    reasoning_details: None,
                     finish_reason: None,
                     token_count: None,
                 });
@@ -965,5 +1003,72 @@ mod tests {
         );
         assert_eq!(mixed_out.finish_reason.as_deref(), Some("stop"));
         assert_eq!(mixed_out.token_count, Some(30));
+    }
+
+    #[test]
+    fn encrypted_reasoning_only_turn_survives() {
+        // The headline bug's encrypted variant: an assistant turn whose only
+        // content is an ENCRYPTED thinking block. Its payload is in
+        // `encrypted_data`, not `text`, so a text-only extractor leaves
+        // `reasoning` empty and the turn was being dropped. It must now survive
+        // via `reasoning_details`.
+        let session = HubRecord::Session(SessionHeader {
+            ucf_version: UCF_VERSION.to_string(),
+            session_id: "s".into(),
+            created_at: "2026-06-01T00:00:00Z".into(),
+            updated_at: "2026-06-01T00:01:00Z".into(),
+            source_cli: "codex".into(),
+            source_version: String::new(),
+            project: None,
+            model: None,
+            title: None,
+            slug: None,
+            parent_session_id: None,
+            extensions: Value::Object(Default::default()),
+        });
+        let encrypted_only = HubRecord::Message(HubMessage {
+            id: "m1".into(),
+            api_message_id: None,
+            parent_id: None,
+            timestamp: "2026-06-01T00:00:10Z".into(),
+            completed_at: None,
+            role: "assistant".into(),
+            content: vec![ContentBlock::Thinking {
+                text: String::new(),
+                subject: None,
+                description: None,
+                signature: None,
+                encrypted: true,
+                encryption_format: Some("codex-v1".into()),
+                encrypted_data: Some("BASE64BLOB".into()),
+                timestamp: None,
+            }],
+            metadata: MessageMetadata::default(),
+            extensions: Value::Object(Default::default()),
+        });
+
+        let out = from_hub(&[session, encrypted_only]).unwrap();
+        let assistants: Vec<_> = out
+            .messages
+            .iter()
+            .filter(|m| m.role == "assistant")
+            .collect();
+        assert_eq!(
+            assistants.len(),
+            1,
+            "encrypted reasoning-only turn must not vanish"
+        );
+        let m = assistants[0];
+        assert!(
+            m.reasoning.is_none(),
+            "no plaintext reasoning for an encrypted-only turn"
+        );
+        let details = m
+            .reasoning_details
+            .as_deref()
+            .expect("encrypted payload preserved in reasoning_details");
+        assert!(details.contains("reasoning.encrypted"), "got {details}");
+        assert!(details.contains("BASE64BLOB"), "payload lost: {details}");
+        assert!(details.contains("codex-v1"), "format lost: {details}");
     }
 }
