@@ -1245,12 +1245,14 @@ fn hub_content_to_opencode_parts(blocks: &[ContentBlock]) -> Vec<Value> {
                 let mut merged = false;
                 for existing in parts.iter_mut().rev() {
                     if existing.get("type").and_then(|v| v.as_str()) == Some("tool") {
-                        // Skip tool parts that already carry a result. A second
-                        // result sharing the same (or empty) callID must not
-                        // overwrite an already-satisfied call — that is what lets
-                        // parallel or duplicate-callID tool calls pair up in order
-                        // instead of cross-linking onto the most recent part and
-                        // dropping the earlier result.
+                        // Skip tool parts that already carry a result, then take
+                        // the nearest still-unsatisfied preceding call (LIFO,
+                        // via the reverse scan). A second result sharing the same
+                        // (or empty) callID therefore lands on a *different*,
+                        // still-open part instead of overwriting an
+                        // already-satisfied one. The guarantee is no-overwrite /
+                        // no-drop for parallel or duplicate-callID calls — not
+                        // strict emission-order pairing.
                         if existing["state"].get("output").is_some() {
                             continue;
                         }
@@ -1287,7 +1289,11 @@ fn hub_content_to_opencode_parts(blocks: &[ContentBlock]) -> Vec<Value> {
                 }
 
                 if !merged {
-                    // Standalone tool result without matching use
+                    // No open call to attach to (e.g. a degenerate stream with
+                    // more results than uses, or a result whose use never
+                    // arrived). Emit a standalone `tool:"unknown"` part rather
+                    // than drop the result — preserve-not-drop is the lossless
+                    // contract; a fabricated-but-present part beats silent loss.
                     parts.push(serde_json::json!({
                         "type": "tool",
                         "tool": "unknown",
