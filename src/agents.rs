@@ -1790,7 +1790,15 @@ pub(crate) fn pick_asset_name(
 /// Returns the number of bytes copied. On any error the temp file is
 /// removed so a failed install never leaks a partial file into the
 /// install directory.
-fn atomic_install_binary(src: &std::path::Path, dst: &std::path::Path) -> io::Result<u64> {
+///
+/// Note: unlike a direct `fs::copy`, if `dst` is a symlink this replaces the
+/// link with a regular file (rename swaps the directory entry) rather than
+/// writing through to the link target — the intended behavior for an install
+/// path.
+pub(crate) fn atomic_install_binary(
+    src: &std::path::Path,
+    dst: &std::path::Path,
+) -> io::Result<u64> {
     let dir = dst.parent().ok_or_else(|| {
         io::Error::new(
             io::ErrorKind::InvalidInput,
@@ -1799,11 +1807,27 @@ fn atomic_install_binary(src: &std::path::Path, dst: &std::path::Path) -> io::Re
     })?;
     fs::create_dir_all(dir)?;
 
+    let file_name = dst.file_name().and_then(|n| n.to_str()).unwrap_or("binary");
+    let tmp_prefix = format!(".{file_name}.unleash-install.");
+
+    // Self-heal: sweep any stale temp a previous hard-killed install (SIGKILL
+    // between copy and rename) may have leaked into this directory.
+    if let Ok(entries) = fs::read_dir(dir) {
+        for entry in entries.flatten() {
+            if entry
+                .file_name()
+                .to_str()
+                .is_some_and(|n| n.starts_with(&tmp_prefix))
+            {
+                let _ = fs::remove_file(entry.path());
+            }
+        }
+    }
+
     // Temp file in the destination directory (guarantees same filesystem, so
     // the rename below is atomic rather than a cross-device copy). The pid
     // keeps concurrent unleash processes from colliding on the same name.
-    let file_name = dst.file_name().and_then(|n| n.to_str()).unwrap_or("binary");
-    let tmp = dir.join(format!(".{file_name}.unleash-install.{}", std::process::id()));
+    let tmp = dir.join(format!("{tmp_prefix}{}", std::process::id()));
 
     let staged = (|| -> io::Result<u64> {
         let n = fs::copy(src, &tmp)?;
@@ -2995,6 +3019,25 @@ mod tests {
             b"OLD BINARY",
             "prior reference must still see the old inode (atomic swap, not in-place write)"
         );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn atomic_install_sweeps_stale_temp_from_hard_killed_run() {
+        // A prior install SIGKILL'd between copy and rename leaves a
+        // `.agent-bin.unleash-install.<pid>` turd. The next install must
+        // self-heal by sweeping it, not accumulate leaked temps.
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let dst = tmp.path().join("agent-bin");
+        let stale = tmp.path().join(".agent-bin.unleash-install.999999");
+        fs::write(&stale, b"leaked partial").unwrap();
+
+        let src = tmp.path().join("freshly-downloaded");
+        fs::write(&src, b"NEW BINARY").unwrap();
+        atomic_install_binary(&src, &dst).expect("install");
+
+        assert!(!stale.exists(), "stale temp must be swept");
+        assert_eq!(fs::read(&dst).unwrap(), b"NEW BINARY");
     }
 
     #[cfg(unix)]
