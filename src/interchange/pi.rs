@@ -480,6 +480,10 @@ fn pi_message_to_hub(val: &Value, foreign_originated: bool) -> Result<HubMessage
                 .get("isError")
                 .and_then(|v| v.as_bool())
                 .unwrap_or(false);
+            // NOTE: this uses the non-indexed extractor, so an unknown block
+            // type nested inside a toolResult's content is still stringified
+            // (not stashed verbatim like top-level content). Preserving nested
+            // unknowns needs its own indexed plumbing — tracked in #410.
             let inner_content = extract_content_blocks(message.get("content"));
 
             if let Some(name) = &tool_name {
@@ -808,6 +812,14 @@ fn hub_message_to_pi(msg: &HubMessage) -> Result<Option<Value>, ConvertError> {
         // Restore unknown content blocks verbatim at their original index; all
         // other blocks convert normally. Keeps Pi → hub → Pi lossless for
         // content shapes the converter stringified into a Text placeholder.
+        //
+        // INVARIANT: the stash is keyed by position in `msg.content`, so this
+        // relies on the hub content array being neither reordered nor having
+        // blocks inserted/removed between `to_hub` (where the stash is built)
+        // and here. That holds for a straight Pi → hub → Pi round trip. A hub
+        // consumer that mutates content order/length before converting back
+        // would misalign the restore — acceptable, since the same positional
+        // assumption underlies the sibling `envelope_extras` stash.
         let unknown_blocks = pi_obj
             .get("unknown_content_blocks")
             .and_then(|v| v.as_object());
