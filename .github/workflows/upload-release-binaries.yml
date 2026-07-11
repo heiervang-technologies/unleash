@@ -105,3 +105,13 @@ jobs:
             binaries/splash-macos-x86_64
             binaries/splash-macos-aarch64
             binaries/checksums.txt
+
+  # After a manual backfill upload, smoke-test the artifacts with the same tag,
+  # mirroring the automated release path (release-please.yml).
+  smoke-test:
+    needs: upload
+    permissions:
+      contents: read
+    uses: ./.github/workflows/binary-smoke-test.yml
+    with:
+      tag: ${{ github.event.inputs.tag_name }}

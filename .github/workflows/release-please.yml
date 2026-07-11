@@ -208,3 +208,17 @@ jobs:
             binaries/splash-macos-x86_64
             binaries/splash-macos-aarch64
             binaries/checksums.txt
+
+  # Smoke-test the freshly-published artifacts on real platforms — part of the
+  # release contract (#401 §1). Runs only when a release was actually created,
+  # after binaries are uploaded, with the exact tag. A failure turns the release
+  # pipeline red as an escalation signal (the release and binaries are already
+  # published by this point, so this reports rather than blocks).
+  smoke-test-release:
+    needs: [release-please, upload-release]
+    if: ${{ needs.release-please.outputs.release_created }}
+    permissions:
+      contents: read
+    uses: ./.github/workflows/binary-smoke-test.yml
+    with:
+      tag: ${{ needs.release-please.outputs.tag_name }}
