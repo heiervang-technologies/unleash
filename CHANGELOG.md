@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.95](https://github.com/heiervang-technologies/unleash/compare/v0.1.94...v0.1.95) (2026-07-11)
+
+
+### Bug Fixes
+
+* **crossload:** keep cache fresh across same-day edits and every compact + manual refresh button ([#415](https://github.com/heiervang-technologies/unleash/issues/415)) ([1815fb4](https://github.com/heiervang-technologies/unleash/commit/1815fb40f2b14fc5deddcafdfafdcbbb8c71b5ec))
+
 ## [0.1.94](https://github.com/heiervang-technologies/unleash/compare/v0.1.93...v0.1.94) (2026-07-10)
 
 
