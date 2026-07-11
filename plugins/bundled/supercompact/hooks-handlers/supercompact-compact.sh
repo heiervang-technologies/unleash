@@ -273,6 +273,21 @@ fi
 
 log "JSONL replaced successfully"
 
+# Invalidate any cached crossloads of this session. The transcript was just
+# rewritten in place, so a previously-crossloaded target (codex/gemini/...) now
+# points at pre-compact content — reusing it would resume a stale, often
+# over-budget conversation. A compact is a significant checkpoint, so we bust
+# the cache explicitly here rather than relying on the mtime freshness heuristic.
+# Best-effort: never block the restart on it. The source_id is the JSONL stem.
+SOURCE_ID=$(basename "${JSONL_FILE}" .jsonl)
+if [[ -n "${SOURCE_ID}" ]] && command -v unleash &>/dev/null; then
+  if unleash sessions crossload-bust "claude:${SOURCE_ID}" >/dev/null 2>&1; then
+    log "Crossload cache invalidated for claude:${SOURCE_ID}"
+  else
+    log "WARN: crossload-bust failed for claude:${SOURCE_ID} (non-fatal)"
+  fi
+fi
+
 # Clean up old backups (keep last 3 of each type)
 for pattern in ".pre-compact-full" ".pre-supercompact"; do
   ls -t "${JSONL_FILE}${pattern}"* 2>/dev/null | tail -n +4 | tr '\n' '\0' | xargs -0 rm -f 2>/dev/null || true

@@ -714,7 +714,18 @@ fn format_epoch_ms(ms: u64) -> String {
     let remaining_days = days - years * 365;
     let month = (remaining_days / 30 + 1).min(12);
     let day = remaining_days % 30 + 1;
-    format!("{year:04}-{month:02}-{day:02}T00:00:00Z")
+    // Include the time-of-day. The date part above is only a sort-friendly
+    // approximation, but the h:m:s here MUST be real seconds: this string is
+    // the crossload cache's freshness key (Entry::source_updated_at, compared
+    // in inject::inject_session and crossload_index::run_doctor). Truncating to
+    // `T00:00:00Z` made every same-day source edit — including a `/compact` —
+    // invisible to the cache, so a second same-day crossload silently reused
+    // the stale pre-edit target session ("out of context" / not live). See the
+    // `format_epoch_ms_distinguishes_same_day_updates` regression test.
+    let h = (secs % 86400) / 3600;
+    let m = (secs % 3600) / 60;
+    let s = secs % 60;
+    format!("{year:04}-{month:02}-{day:02}T{h:02}:{m:02}:{s:02}Z")
 }
 
 // === Pi discovery ===
@@ -1109,6 +1120,31 @@ mod tests {
     fn test_format_epoch_ms() {
         let ts = format_epoch_ms(1774800000000);
         assert!(ts.starts_with("2026-"));
+    }
+
+    #[test]
+    fn format_epoch_ms_distinguishes_same_day_updates() {
+        // Regression for the crossload staleness bug: `updated_at` doubles as the
+        // crossload cache's freshness key (Entry::source_updated_at). When this
+        // formatter hardcoded `T00:00:00Z`, two mtimes on the SAME UTC day
+        // collapsed to identical strings, so re-crossloading a source that was
+        // edited/compacted earlier the same day reused the stale target session.
+        //
+        // Same day (2026-03-29), one hour apart. Pre-fix these were byte-equal;
+        // they must now differ so the cache invalidates.
+        let base_ms: u64 = 1_774_800_000_000; // 2026-03-29T...
+        let one_hour_later = base_ms + 3_600_000;
+        let a = format_epoch_ms(base_ms);
+        let b = format_epoch_ms(one_hour_later);
+        assert_ne!(
+            a, b,
+            "same-day timestamps 1h apart must produce different strings \
+             (else the crossload cache never sees a same-day source edit): {a} == {b}"
+        );
+        // The date portion must still match — only the time-of-day moved.
+        assert_eq!(&a[..10], &b[..10], "date portion should be identical");
+        // And a one-second delta must also register (finest granularity we key on).
+        assert_ne!(format_epoch_ms(base_ms), format_epoch_ms(base_ms + 1000));
     }
 
     #[test]

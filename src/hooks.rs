@@ -13,6 +13,47 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 use which::which;
 
+/// Default PreCompact hook script. Fires on EVERY compact (native or
+/// supercompact) and does two things:
+///  1. Evicts any cached crossloads of the session being compacted, so the next
+///     `unleash <cli> -x claude:<id>` re-injects from the compacted transcript
+///     instead of resuming a pre-compact (stale, often over-budget) target
+///     session. A compact is a significant checkpoint — this guarantees
+///     freshness independent of the mtime heuristic in inject::inject_session.
+///  2. Returns the "compaction complete" control message to Claude.
+///
+/// Kept as a const so `install_default_hooks` and `refresh_default_hook_scripts`
+/// share one source of truth.
+const DEFAULT_COMPACT_NOTIFY_SCRIPT: &str = r#"#!/usr/bin/env bash
+# compact-notify.sh - Evict stale crossload cache for this session, then tell
+# Claude compaction is complete. Fires on every compact via the PreCompact hook.
+
+set -uo pipefail
+
+# Read the hook payload (Claude Code pipes JSON: session_id, transcript_path, …).
+# Best-effort cache eviction — never let it break the hook's control output.
+payload="$(cat)"
+if command -v unleash >/dev/null 2>&1 && command -v jq >/dev/null 2>&1; then
+  src_id="$(printf '%s' "$payload" | jq -r '.transcript_path // empty' 2>/dev/null)"
+  if [ -n "$src_id" ]; then
+    src_id="$(basename "$src_id" .jsonl 2>/dev/null)"
+  else
+    src_id="$(printf '%s' "$payload" | jq -r '.session_id // empty' 2>/dev/null)"
+  fi
+  if [ -n "$src_id" ]; then
+    unleash sessions crossload-bust "claude:${src_id}" >/dev/null 2>&1 || true
+  fi
+fi
+
+# Output format for Claude Code hooks
+cat <<'EOF'
+{
+  "continue": true,
+  "message": "COMPACT COMPLETE. Previous context has been summarized. Continue with your current task."
+}
+EOF
+"#;
+
 /// Claude Code installation info
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ClaudeInstallation {
@@ -398,29 +439,34 @@ impl HookManager {
     /// Install default hooks
     pub fn install_default_hooks(&self) -> io::Result<()> {
         // Install PreCompact hook
-        let compact_script = r#"#!/usr/bin/env bash
-# compact-notify.sh - Notify Claude that compaction is complete
-#
-# This hook runs after conversation compaction and returns a message
-# to help Claude understand what happened.
-
-set -euo pipefail
-
-# Output format for Claude Code hooks
-cat <<'EOF'
-{
-  "continue": true,
-  "message": "COMPACT COMPLETE. Previous context has been summarized. Continue with your current task."
-}
-EOF
-"#;
-
-        let script_path = self.install_hook_script("compact-notify.sh", compact_script)?;
+        let script_path =
+            self.install_hook_script("compact-notify.sh", DEFAULT_COMPACT_NOTIFY_SCRIPT)?;
         self.register_hook(HookEvent::PreCompact, script_path.to_str().unwrap(), None)?;
 
         println!("Installed default hooks:");
         println!("  - PreCompact: {}", script_path.display());
 
+        Ok(())
+    }
+
+    /// Rewrite the on-disk content of default (non-plugin) hook scripts to match
+    /// the current embedded versions, without touching settings.json
+    /// registration. Called on every launch so that fixes to a default hook
+    /// script (e.g. the crossload-cache eviction added to compact-notify.sh)
+    /// reach installs that already have the hook registered — `install_default_hooks`
+    /// itself only runs when the hook is *absent* (see launcher.rs).
+    ///
+    /// Idempotent and cheap: only writes when the content actually differs.
+    /// Skips silently if the hook was never installed (nothing to refresh).
+    pub fn refresh_default_hook_scripts(&self) -> io::Result<()> {
+        let path = self.hook_script_path("compact-notify.sh");
+        if !path.exists() {
+            return Ok(());
+        }
+        let current = fs::read_to_string(&path).unwrap_or_default();
+        if current != DEFAULT_COMPACT_NOTIFY_SCRIPT {
+            self.install_hook_script("compact-notify.sh", DEFAULT_COMPACT_NOTIFY_SCRIPT)?;
+        }
         Ok(())
     }
 
@@ -643,6 +689,38 @@ mod tests {
         HookEvent::UserPromptSubmit,
         HookEvent::SessionEnd,
     ];
+
+    #[test]
+    fn default_compact_hook_busts_crossload_cache() {
+        // The universal PreCompact hook must evict the crossload cache so a
+        // compact — native OR supercompact — forces a fresh crossload.
+        assert!(
+            DEFAULT_COMPACT_NOTIFY_SCRIPT.contains("crossload-bust"),
+            "compact-notify.sh must invoke `unleash sessions crossload-bust`"
+        );
+        // Must still emit the completion control message.
+        assert!(DEFAULT_COMPACT_NOTIFY_SCRIPT.contains("COMPACT COMPLETE"));
+    }
+
+    #[test]
+    fn refresh_default_hook_scripts_heals_stale_content() {
+        let tmp = tempfile::tempdir().unwrap();
+        let mgr = test_manager(tmp.path());
+
+        // No hook installed yet → refresh is a silent no-op (nothing to heal).
+        mgr.refresh_default_hook_scripts().unwrap();
+        assert!(!mgr.hook_script_path("compact-notify.sh").exists());
+
+        // Simulate an OLD install: a compact-notify.sh without the bust logic.
+        let stale = "#!/usr/bin/env bash\necho stale\n";
+        mgr.install_hook_script("compact-notify.sh", stale).unwrap();
+
+        // Refresh must rewrite it to the current embedded version.
+        mgr.refresh_default_hook_scripts().unwrap();
+        let healed = fs::read_to_string(mgr.hook_script_path("compact-notify.sh")).unwrap();
+        assert_eq!(healed, DEFAULT_COMPACT_NOTIFY_SCRIPT);
+        assert!(healed.contains("crossload-bust"));
+    }
 
     #[test]
     fn test_hook_event_roundtrip_all_variants() {

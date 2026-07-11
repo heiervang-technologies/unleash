@@ -99,6 +99,55 @@ impl CrossloadIndex {
     pub fn remove(&mut self, source_cli: &str, source_id: &str, target_cli: &str) {
         self.entries.remove(&key(source_cli, source_id, target_cli));
     }
+
+    /// Remove every cached crossload whose source is `<source_cli>:<source_id>`,
+    /// regardless of target. Returns the number of entries dropped.
+    ///
+    /// Used at compaction checkpoints: a compact rewrites the source transcript
+    /// in place, so any previously-cached crossload of that session now points
+    /// at pre-compact (stale, often over-budget) content. Evicting here forces
+    /// the next crossload to re-inject from the compacted source, independent of
+    /// the mtime-based freshness heuristic in `inject::inject_session`.
+    pub fn invalidate_source(&mut self, source_cli: &str, source_id: &str) -> usize {
+        // The `->` terminator keeps this from matching a longer source_id that
+        // merely shares this one as a prefix.
+        let prefix = format!("{source_cli}:{source_id}->");
+        let before = self.entries.len();
+        self.entries.retain(|k, _| !k.starts_with(&prefix));
+        before - self.entries.len()
+    }
+
+    /// Drop every cached crossload entry. Returns the number removed. Backs the
+    /// manual `crossload-refresh` button (no target = clear the whole cache).
+    pub fn clear(&mut self) -> usize {
+        let n = self.entries.len();
+        self.entries.clear();
+        n
+    }
+}
+
+/// Evict all cached crossloads whose source is `<source_cli>:<source_id>` and
+/// persist the result. Returns the number of entries removed (0 if none). Only
+/// writes when something was actually removed, so the common "nothing cached"
+/// path stays side-effect-free.
+pub fn bust_source(source_cli: &str, source_id: &str) -> io::Result<usize> {
+    let mut index = load();
+    let removed = index.invalidate_source(source_cli, source_id);
+    if removed > 0 {
+        save(&index)?;
+    }
+    Ok(removed)
+}
+
+/// Clear the entire crossload cache and persist. Returns the number of entries
+/// removed. Only writes when something was actually removed.
+pub fn bust_all() -> io::Result<usize> {
+    let mut index = load();
+    let removed = index.clear();
+    if removed > 0 {
+        save(&index)?;
+    }
+    Ok(removed)
 }
 
 /// True if the entry still points at a live target. File-backed targets check
@@ -318,6 +367,64 @@ mod tests {
         assert!(idx.lookup("a", "b", "c").is_some());
         idx.remove("a", "b", "c");
         assert!(idx.lookup("a", "b", "c").is_none());
+    }
+
+    #[test]
+    fn invalidate_source_evicts_all_targets_for_one_source() {
+        let mut idx = CrossloadIndex::default();
+        // Same source, two targets — both must go.
+        idx.record(
+            "claude",
+            "hai",
+            "codex",
+            "t1".into(),
+            "/tmp/t1".into(),
+            None,
+        );
+        idx.record(
+            "claude",
+            "hai",
+            "gemini",
+            "t2".into(),
+            "/tmp/t2".into(),
+            None,
+        );
+        // Different source that shares "hai" as a prefix — must be untouched
+        // (the `->` terminator guards against prefix bleed).
+        idx.record(
+            "claude",
+            "hai-2",
+            "codex",
+            "t3".into(),
+            "/tmp/t3".into(),
+            None,
+        );
+        // Unrelated source — untouched.
+        idx.record("codex", "other", "claude", "t4".into(), String::new(), None);
+
+        let removed = idx.invalidate_source("claude", "hai");
+        assert_eq!(removed, 2, "both claude:hai targets should be evicted");
+        assert!(idx.lookup("claude", "hai", "codex").is_none());
+        assert!(idx.lookup("claude", "hai", "gemini").is_none());
+        assert!(
+            idx.lookup("claude", "hai-2", "codex").is_some(),
+            "prefix-sharing source must survive"
+        );
+        assert!(idx.lookup("codex", "other", "claude").is_some());
+
+        // Second bust is a no-op.
+        assert_eq!(idx.invalidate_source("claude", "hai"), 0);
+    }
+
+    #[test]
+    fn clear_evicts_everything() {
+        let mut idx = CrossloadIndex::default();
+        idx.record("claude", "a", "codex", "t1".into(), "/tmp/t1".into(), None);
+        idx.record("codex", "b", "claude", "t2".into(), String::new(), None);
+        assert_eq!(idx.clear(), 2);
+        assert!(idx.lookup("claude", "a", "codex").is_none());
+        assert!(idx.lookup("codex", "b", "claude").is_none());
+        assert_eq!(idx.clear(), 0, "second clear is a no-op");
     }
 
     #[test]

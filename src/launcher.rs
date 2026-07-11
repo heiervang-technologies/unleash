@@ -367,6 +367,13 @@ pub fn run(auto_mode: bool, prompt: Option<String>, extra_args: Vec<String>) -> 
                     }
                 }
             }
+            // Self-heal default hook script content even when already registered,
+            // so fixes to compact-notify.sh (e.g. crossload-cache eviction) reach
+            // existing installs. install_default_hooks above only runs when the
+            // hook is absent.
+            if let Err(e) = manager.refresh_default_hook_scripts() {
+                eprintln!("Warning: Failed to refresh default hook scripts: {}", e);
+            }
             // Always sync plugin hooks into settings.json on launch.
             // Prune first so that plugins toggled off have their hooks removed,
             // then re-register hooks for currently-enabled plugins.
