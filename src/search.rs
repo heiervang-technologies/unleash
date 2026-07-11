@@ -268,6 +268,41 @@ async fn run_sessions_action_async(
             }
             Ok(())
         }
+        crate::cli::SessionsAction::CrossloadRefresh { target } => {
+            let (removed, scope) = match target.as_deref() {
+                Some(t) => {
+                    let (cli, source_id) = t
+                        .split_once(':')
+                        .ok_or("target must be in <cli>:<source_id> form (e.g. claude:abc12345)")?;
+                    if cli.is_empty() || source_id.is_empty() {
+                        return Err(
+                            "target must be in <cli>:<source_id> form (e.g. claude:abc12345)"
+                                .into(),
+                        );
+                    }
+                    (
+                        crate::interchange::crossload_index::bust_source(cli, source_id)?,
+                        t.to_string(),
+                    )
+                }
+                None => (
+                    crate::interchange::crossload_index::bust_all()?,
+                    "all sessions".to_string(),
+                ),
+            };
+            if json {
+                println!(
+                    "{}",
+                    serde_json::json!({ "removed": removed, "scope": scope })
+                );
+            } else {
+                println!(
+                    "Refreshed {scope}: dropped {removed} cached crossload(s). \
+                     Next crossload will re-inject from current content."
+                );
+            }
+            Ok(())
+        }
     }
 }
 

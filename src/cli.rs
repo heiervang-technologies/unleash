@@ -826,6 +826,18 @@ pub enum SessionsAction {
         /// Session identifier in `<cli>:<source_id>` form (e.g. claude:abc12345)
         target: String,
     },
+
+    /// Force crossloads to re-inject from current content (the manual button)
+    ///
+    /// Freshness normally handles itself (per-edit timestamp + per-compact
+    /// eviction). This is the escape hatch when it hasn't caught up: it drops
+    /// cached target sessions so the next `unleash <cli> -x …` rebuilds from
+    /// the live source. With a TARGET (`<cli>:<source_id>`) it refreshes just
+    /// that session; with no target it clears the entire crossload cache.
+    CrossloadRefresh {
+        /// Optional session id in `<cli>:<source_id>` form; omit to refresh all
+        target: Option<String>,
+    },
 }
 
 #[derive(Subcommand, Debug)]

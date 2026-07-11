@@ -717,8 +717,7 @@ mod tests {
 
         // Refresh must rewrite it to the current embedded version.
         mgr.refresh_default_hook_scripts().unwrap();
-        let healed =
-            fs::read_to_string(mgr.hook_script_path("compact-notify.sh")).unwrap();
+        let healed = fs::read_to_string(mgr.hook_script_path("compact-notify.sh")).unwrap();
         assert_eq!(healed, DEFAULT_COMPACT_NOTIFY_SCRIPT);
         assert!(healed.contains("crossload-bust"));
     }
