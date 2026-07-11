@@ -248,6 +248,26 @@ async fn run_sessions_action_async(
             crate::interchange::crossload_index::run_doctor(json, gc)?;
             Ok(())
         }
+        crate::cli::SessionsAction::CrossloadBust { target } => {
+            let (cli, source_id) = target
+                .split_once(':')
+                .ok_or("target must be in <cli>:<source_id> form (e.g. claude:abc12345)")?;
+            if cli.is_empty() || source_id.is_empty() {
+                return Err(
+                    "target must be in <cli>:<source_id> form (e.g. claude:abc12345)".into(),
+                );
+            }
+            let removed = crate::interchange::crossload_index::bust_source(cli, source_id)?;
+            if json {
+                println!(
+                    "{}",
+                    serde_json::json!({ "removed": removed, "target": target })
+                );
+            } else {
+                println!("Evicted {removed} cached crossload(s) for {target}");
+            }
+            Ok(())
+        }
     }
 }
 

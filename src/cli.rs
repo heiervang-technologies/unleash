@@ -816,6 +816,16 @@ pub enum SessionsAction {
         #[arg(long)]
         gc: bool,
     },
+
+    /// Evict cached crossloads for a session (all targets)
+    ///
+    /// Fired automatically at compaction checkpoints — a compact rewrites the
+    /// source transcript, so any cached crossload of it is now stale. Also
+    /// runnable by hand: `unleash sessions crossload-bust claude:abc12345`.
+    CrossloadBust {
+        /// Session identifier in `<cli>:<source_id>` form (e.g. claude:abc12345)
+        target: String,
+    },
 }
 
 #[derive(Subcommand, Debug)]
