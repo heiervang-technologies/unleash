@@ -354,9 +354,12 @@ fn inject_codex_into_claude() {
     let body = std::fs::read_to_string(&written).unwrap();
     assert!(!body.is_empty(), "claude jsonl should not be empty");
 
-    // Validate parentUuid chain + sessionId imprinted on every line.
+    // Validate parentUuid chain + sessionId imprinted on every line. The
+    // trailing last-prompt record is Claude resume metadata, not a chained
+    // conversation record.
     let mut prev: Option<String> = None;
     let mut lines = 0usize;
+    let mut saw_last_prompt = false;
     for line in body.lines() {
         if line.trim().is_empty() {
             continue;
@@ -368,6 +371,15 @@ fn inject_codex_into_claude() {
             sid, result.session_id,
             "sessionId must be patched on every line"
         );
+        if v.get("type").and_then(|kind| kind.as_str()) == Some("last-prompt") {
+            assert_eq!(
+                v.get("leafUuid").and_then(|leaf| leaf.as_str()),
+                prev.as_deref(),
+                "last-prompt must point at the final conversation record"
+            );
+            saw_last_prompt = true;
+            continue;
+        }
         let uuid = v
             .get("uuid")
             .and_then(|u| u.as_str())
@@ -388,6 +400,10 @@ fn inject_codex_into_claude() {
         prev = Some(uuid);
     }
     assert!(lines >= 2, "claude file should have ≥2 lines, got {lines}");
+    assert!(
+        saw_last_prompt,
+        "claude file must include resume leaf metadata"
+    );
 
     // Round-trip claude → hub on the freshly written file.
     let reader = std::io::BufReader::new(body.as_bytes());

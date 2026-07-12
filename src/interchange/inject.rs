@@ -379,6 +379,152 @@ fn filter_claude_injection_lines(lines: Vec<serde_json::Value>) -> Vec<serde_jso
     kept
 }
 
+/// Turn converter output into records Claude Code can actually resume.
+///
+/// Foreign harness message ids (for example Codex `msg_*` / `ctc_*`) are not
+/// Claude record UUIDs. Claude also expects imported assistant envelopes to
+/// look like native API messages; a bare `{role, content}` assistant record is
+/// discoverable by `--resume` but stalls before the first model request.
+fn prepare_claude_injection_lines(
+    lines: Vec<serde_json::Value>,
+    session_id: &str,
+    cwd: &str,
+) -> Vec<serde_json::Value> {
+    let mut prepared = Vec::with_capacity(lines.len() + 1);
+    let mut previous_uuid: Option<String> = None;
+    let mut last_user_prompt = String::new();
+
+    for mut line in lines {
+        let Some(obj) = line.as_object_mut() else {
+            continue;
+        };
+        let role = obj
+            .get("type")
+            .and_then(|value| value.as_str())
+            .unwrap_or("")
+            .to_string();
+        if role != "user" && role != "assistant" {
+            continue;
+        }
+
+        let record_uuid = uuid_v4();
+        obj.insert(
+            "sessionId".into(),
+            serde_json::Value::String(session_id.into()),
+        );
+        obj.insert(
+            "uuid".into(),
+            serde_json::Value::String(record_uuid.clone()),
+        );
+        obj.insert(
+            "parentUuid".into(),
+            previous_uuid
+                .as_ref()
+                .map_or(serde_json::Value::Null, |parent| {
+                    serde_json::Value::String(parent.clone())
+                }),
+        );
+        obj.entry("cwd")
+            .or_insert_with(|| serde_json::Value::String(cwd.into()));
+        obj.entry("isSidechain")
+            .or_insert(serde_json::Value::Bool(false));
+        obj.entry("userType")
+            .or_insert_with(|| serde_json::Value::String("external".into()));
+        obj.entry("entrypoint")
+            .or_insert_with(|| serde_json::Value::String("sdk-cli".into()));
+        obj.entry("gitBranch")
+            .or_insert_with(|| serde_json::Value::String("HEAD".into()));
+
+        if role == "user" {
+            obj.insert("promptId".into(), serde_json::Value::String(uuid_v4()));
+            obj.entry("promptSource")
+                .or_insert_with(|| serde_json::Value::String("sdk".into()));
+            obj.entry("permissionMode")
+                .or_insert_with(|| serde_json::Value::String("bypassPermissions".into()));
+            if let Some(content) = obj
+                .get("message")
+                .and_then(|message| message.get("content"))
+            {
+                last_user_prompt = content
+                    .as_str()
+                    .map(String::from)
+                    .unwrap_or_else(|| content.to_string());
+            }
+        } else {
+            // promptId/permissionMode are user-envelope fields. Leaving a
+            // Codex-derived id here produces a non-native assistant record.
+            obj.remove("promptId");
+            obj.remove("promptSource");
+            obj.remove("permissionMode");
+
+            let message = obj
+                .entry("message")
+                .or_insert_with(|| serde_json::json!({"role": "assistant", "content": []}));
+            if let Some(message) = message.as_object_mut() {
+                message
+                    .entry("type")
+                    .or_insert_with(|| serde_json::Value::String("message".into()));
+                message
+                    .entry("role")
+                    .or_insert_with(|| serde_json::Value::String("assistant".into()));
+                message
+                    .entry("model")
+                    .or_insert_with(|| serde_json::Value::String("claude-imported-history".into()));
+                message.entry("id").or_insert_with(|| {
+                    serde_json::Value::String(format!(
+                        "msg_imported_{}",
+                        record_uuid.replace('-', "")
+                    ))
+                });
+                let has_tool_use = message
+                    .get("content")
+                    .and_then(|content| content.as_array())
+                    .is_some_and(|blocks| {
+                        blocks.iter().any(|block| {
+                            block.get("type").and_then(|kind| kind.as_str()) == Some("tool_use")
+                        })
+                    });
+                message.entry("stop_reason").or_insert_with(|| {
+                    serde_json::Value::String(if has_tool_use {
+                        "tool_use".into()
+                    } else {
+                        "end_turn".into()
+                    })
+                });
+                message
+                    .entry("stop_sequence")
+                    .or_insert(serde_json::Value::Null);
+                message.entry("usage").or_insert_with(|| {
+                    serde_json::json!({
+                        "input_tokens": 0,
+                        "output_tokens": 0,
+                        "cache_creation_input_tokens": 0,
+                        "cache_read_input_tokens": 0
+                    })
+                });
+            }
+            obj.entry("requestId").or_insert_with(|| {
+                serde_json::Value::String(format!("req_imported_{}", record_uuid.replace('-', "")))
+            });
+        }
+
+        previous_uuid = Some(record_uuid);
+        prepared.push(line);
+    }
+
+    if let Some(leaf_uuid) = previous_uuid {
+        let last_prompt: String = last_user_prompt.chars().take(200).collect();
+        prepared.push(serde_json::json!({
+            "type": "last-prompt",
+            "lastPrompt": last_prompt,
+            "leafUuid": leaf_uuid,
+            "sessionId": session_id,
+        }));
+    }
+
+    prepared
+}
+
 fn resume_args_for(target: &str, session_id: &str) -> Vec<String> {
     let agent_type = match target {
         "claude" | "claude-code" => crate::agents::AgentType::Claude,
@@ -575,46 +721,12 @@ fn inject_into_claude(
 
     let output_path = project_dir.join(format!("{session_id}.jsonl"));
 
-    // Write JSONL, patching sessionId and building parentUuid chain
+    let claude_lines = prepare_claude_injection_lines(claude_lines, &session_id, &cwd);
+
+    // Write native-resumable Claude JSONL.
     let mut output = String::new();
-    let mut prev_uuid: Option<String> = None;
     for line in &claude_lines {
-        let mut patched = line.clone();
-        if let serde_json::Value::Object(ref mut obj) = patched {
-            obj.insert(
-                "sessionId".to_string(),
-                serde_json::Value::String(session_id.clone()),
-            );
-
-            // Ensure every line has a unique uuid
-            let existing_uuid = obj
-                .get("uuid")
-                .and_then(|v| v.as_str())
-                .filter(|s| !s.is_empty())
-                .map(String::from);
-            let this_uuid = existing_uuid.unwrap_or_else(uuid_v4);
-            obj.insert(
-                "uuid".to_string(),
-                serde_json::Value::String(this_uuid.clone()),
-            );
-
-            // Build parentUuid chain: ALWAYS set, each line points to the previous
-            // This overwrites any existing parentUuid to ensure a clean linear chain
-            obj.insert(
-                "parentUuid".to_string(),
-                match &prev_uuid {
-                    Some(parent) => serde_json::Value::String(parent.clone()),
-                    None => serde_json::Value::Null,
-                },
-            );
-            prev_uuid = Some(this_uuid);
-
-            // Ensure cwd is set
-            if !obj.contains_key("cwd") || obj["cwd"].is_null() {
-                obj.insert("cwd".to_string(), serde_json::Value::String(cwd.clone()));
-            }
-        }
-        output.push_str(&serde_json::to_string(&patched)?);
+        output.push_str(&serde_json::to_string(line)?);
         output.push('\n');
     }
     std::fs::write(&output_path, &output)?;
@@ -2675,6 +2787,64 @@ mod tests {
             content[0].get("text").and_then(|v| v.as_str()),
             Some("kept answer")
         );
+    }
+
+    #[test]
+    fn test_prepare_claude_injection_lines_emits_native_resumable_envelopes() {
+        let lines = vec![
+            serde_json::json!({
+                "type": "user",
+                "message": {"role": "user", "content": "hello"},
+                "uuid": "codex-user-id",
+                "timestamp": "2026-07-13T00:00:00Z"
+            }),
+            serde_json::json!({
+                "type": "assistant",
+                "message": {"role": "assistant", "content": [{"type": "text", "text": "hi"}]},
+                "uuid": "msg_codex_not_a_uuid",
+                "promptId": "msg_codex_not_a_prompt_uuid",
+                "permissionMode": "bypassPermissions",
+                "timestamp": "2026-07-13T00:00:01Z"
+            }),
+        ];
+
+        let prepared = prepare_claude_injection_lines(lines, "session-id", "/tmp/project");
+        assert_eq!(prepared.len(), 3, "two messages plus last-prompt metadata");
+
+        let user_uuid = prepared[0]["uuid"].as_str().unwrap();
+        let assistant_uuid = prepared[1]["uuid"].as_str().unwrap();
+        assert_eq!(user_uuid.len(), 36);
+        assert_eq!(assistant_uuid.len(), 36);
+        assert_ne!(user_uuid, "codex-user-id");
+        assert_ne!(assistant_uuid, "msg_codex_not_a_uuid");
+        assert!(prepared[0]["parentUuid"].is_null());
+        assert_eq!(prepared[1]["parentUuid"].as_str(), Some(user_uuid));
+
+        let prompt_id = prepared[0]["promptId"].as_str().unwrap();
+        assert_eq!(prompt_id.len(), 36);
+        assert!(prepared[1].get("promptId").is_none());
+        assert!(prepared[1].get("permissionMode").is_none());
+        assert_eq!(
+            prepared[1]
+                .pointer("/message/type")
+                .and_then(|v| v.as_str()),
+            Some("message")
+        );
+        assert_eq!(
+            prepared[1]
+                .pointer("/message/stop_reason")
+                .and_then(|v| v.as_str()),
+            Some("end_turn")
+        );
+        assert!(prepared[1].pointer("/message/id").is_some());
+        assert!(prepared[1].pointer("/message/model").is_some());
+        assert!(prepared[1].pointer("/message/usage").is_some());
+        assert!(prepared[1].get("requestId").is_some());
+
+        assert_eq!(prepared[2]["type"].as_str(), Some("last-prompt"));
+        assert_eq!(prepared[2]["lastPrompt"].as_str(), Some("hello"));
+        assert_eq!(prepared[2]["leafUuid"].as_str(), Some(assistant_uuid));
+        assert_eq!(prepared[2]["sessionId"].as_str(), Some("session-id"));
     }
 
     #[test]
