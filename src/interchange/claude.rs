@@ -359,7 +359,7 @@ fn extract_content_blocks(val: &Value, msg_type: &str) -> Result<Vec<ContentBloc
     }
 }
 
-fn claude_content_to_hub(block: &Value) -> Result<ContentBlock, ConvertError> {
+pub(crate) fn claude_content_to_hub(block: &Value) -> Result<ContentBlock, ConvertError> {
     let block_type = block.get("type").and_then(|t| t.as_str()).unwrap_or("");
     match block_type {
         "text" => Ok(ContentBlock::Text {

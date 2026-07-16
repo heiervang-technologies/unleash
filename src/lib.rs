@@ -23,6 +23,7 @@ mod progress;
 mod sandbox;
 pub mod search;
 pub mod skillsync;
+pub mod stream;
 #[cfg(feature = "tui")]
 mod text_input;
 pub mod theme;

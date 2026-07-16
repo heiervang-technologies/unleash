@@ -1,0 +1,8 @@
+{"type":"system","subtype":"init","session_id":"c1","model":"claude-opus-4-6","cwd":"/tmp/proj","tools":["Bash"],"permissionMode":"default","version":"2.1.90"}
+{"type":"stream_event","session_id":"c1","event":{"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"Hel"}}}
+{"type":"stream_event","session_id":"c1","event":{"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"lo"}}}
+{"type":"assistant","session_id":"c1","message":{"id":"msg_01","type":"message","role":"assistant","model":"claude-opus-4-6","content":[{"type":"text","text":"Hello"},{"type":"tool_use","id":"toolu_01","name":"Bash","input":{"command":"ls"}}],"stop_reason":"tool_use","usage":{"input_tokens":10,"output_tokens":5}}}
+{"type":"user","session_id":"c1","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"toolu_01","content":"Cargo.toml\nsrc","is_error":false}]}}
+{"type":"assistant","session_id":"c1","message":{"id":"msg_02","type":"message","role":"assistant","model":"claude-opus-4-6","content":[{"type":"text","text":"Done."}],"stop_reason":"end_turn","usage":{"input_tokens":20,"output_tokens":3}}}
+{"type":"result","subtype":"success","session_id":"c1","is_error":false,"num_turns":2,"duration_ms":1234,"total_cost_usd":0.01,"result":"Done.","usage":{"input_tokens":30,"output_tokens":8}}
+{"type":"future_frame","session_id":"c1","payload":{"x":1}}

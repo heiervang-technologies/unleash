@@ -1,0 +1,9 @@
+{"type":"thread.started","thread_id":"t1"}
+{"type":"turn.started"}
+{"type":"item.started","item":{"id":"item_0","item_type":"command_execution","command":"ls","status":"in_progress"}}
+{"type":"item.completed","item":{"id":"item_0","item_type":"command_execution","command":"ls","aggregated_output":"Cargo.toml\nsrc\n","exit_code":0,"status":"completed"}}
+{"type":"item.completed","item":{"id":"item_1","item_type":"reasoning","text":"The repo is a Rust crate."}}
+{"type":"item.updated","item":{"id":"item_2","item_type":"assistant_message","text":"Do"}}
+{"type":"item.completed","item":{"id":"item_2","item_type":"assistant_message","text":"Done."}}
+{"type":"turn.completed","usage":{"input_tokens":30,"cached_input_tokens":10,"output_tokens":8}}
+{"type":"weird.new.event","data":{"y":2}}
