@@ -387,11 +387,23 @@ fn pi_message_to_hub(val: &Value, foreign_originated: bool) -> Result<HubMessage
 
     let (hub_role, hub_content, metadata) = match role.as_str() {
         "user" => {
-            let content = extract_content_blocks(message.get("content"));
+            let (content, unknown_blocks) = extract_content_blocks_indexed(message.get("content"));
+            if !unknown_blocks.is_empty() {
+                pi_sidecar.insert(
+                    "unknown_content_blocks".into(),
+                    Value::Object(unknown_blocks),
+                );
+            }
             ("user".to_string(), content, MessageMetadata::default())
         }
         "assistant" => {
-            let content = extract_content_blocks(message.get("content"));
+            let (content, unknown_blocks) = extract_content_blocks_indexed(message.get("content"));
+            if !unknown_blocks.is_empty() {
+                pi_sidecar.insert(
+                    "unknown_content_blocks".into(),
+                    Value::Object(unknown_blocks),
+                );
+            }
 
             // Carry the raw usage object verbatim so float formatting round-
             // trips exactly.
@@ -468,6 +480,10 @@ fn pi_message_to_hub(val: &Value, foreign_originated: bool) -> Result<HubMessage
                 .get("isError")
                 .and_then(|v| v.as_bool())
                 .unwrap_or(false);
+            // NOTE: this uses the non-indexed extractor, so an unknown block
+            // type nested inside a toolResult's content is still stringified
+            // (not stashed verbatim like top-level content). Preserving nested
+            // unknowns needs its own indexed plumbing — tracked in #410.
             let inner_content = extract_content_blocks(message.get("content"));
 
             if let Some(name) = &tool_name {
@@ -558,6 +574,32 @@ fn extract_content_blocks(content: Option<&Value>) -> Vec<ContentBlock> {
         return Vec::new();
     };
     arr.iter().map(content_block_from_pi).collect()
+}
+
+/// Like [`extract_content_blocks`] but also captures any block whose `type` is
+/// not one Pi natively models (text / thinking / toolCall). Such blocks still
+/// degrade to a Text placeholder in the hub representation (so cross-CLI
+/// targets render something), but their original JSON is returned keyed by
+/// content index so `hub_message_to_pi` can restore them verbatim — mirroring
+/// the `unknown_record` treatment for unrecognized top-level records. This is
+/// what makes a Pi → hub → Pi round trip lossless for content shapes the
+/// converter hasn't been taught yet.
+fn extract_content_blocks_indexed(
+    content: Option<&Value>,
+) -> (Vec<ContentBlock>, Map<String, Value>) {
+    let Some(arr) = content.and_then(|c| c.as_array()) else {
+        return (Vec::new(), Map::new());
+    };
+    let mut blocks = Vec::with_capacity(arr.len());
+    let mut unknown = Map::new();
+    for (idx, block) in arr.iter().enumerate() {
+        let block_type = block.get("type").and_then(|t| t.as_str()).unwrap_or("");
+        if !matches!(block_type, "text" | "thinking" | "toolCall") {
+            unknown.insert(idx.to_string(), block.clone());
+        }
+        blocks.push(content_block_from_pi(block));
+    }
+    (blocks, unknown)
 }
 
 fn content_block_from_pi(block: &Value) -> ContentBlock {
@@ -767,10 +809,32 @@ fn hub_message_to_pi(msg: &HubMessage) -> Result<Option<Value>, ConvertError> {
             inner.insert("timestamp".into(), ts.clone());
         }
     } else {
-        inner.insert(
-            "content".into(),
-            Value::Array(msg.content.iter().map(content_block_to_pi).collect()),
-        );
+        // Restore unknown content blocks verbatim at their original index; all
+        // other blocks convert normally. Keeps Pi → hub → Pi lossless for
+        // content shapes the converter stringified into a Text placeholder.
+        //
+        // INVARIANT: the stash is keyed by position in `msg.content`, so this
+        // relies on the hub content array being neither reordered nor having
+        // blocks inserted/removed between `to_hub` (where the stash is built)
+        // and here. That holds for a straight Pi → hub → Pi round trip. A hub
+        // consumer that mutates content order/length before converting back
+        // would misalign the restore — acceptable, since the same positional
+        // assumption underlies the sibling `envelope_extras` stash.
+        let unknown_blocks = pi_obj
+            .get("unknown_content_blocks")
+            .and_then(|v| v.as_object());
+        let content_vals: Vec<Value> = msg
+            .content
+            .iter()
+            .enumerate()
+            .map(|(idx, block)| {
+                unknown_blocks
+                    .and_then(|m| m.get(&idx.to_string()))
+                    .cloned()
+                    .unwrap_or_else(|| content_block_to_pi(block))
+            })
+            .collect();
+        inner.insert("content".into(), Value::Array(content_vals));
 
         if role == "assistant" {
             // Order matches Pi's natural emission: api, provider, model,
@@ -1262,6 +1326,40 @@ mod tests {
         );
         let produced = roundtrip_lines(&input);
         assert_lines_match(&input, &produced);
+    }
+
+    /// A message carrying a content block whose `type` the converter doesn't
+    /// model (e.g. a future pi content shape) must round-trip verbatim via the
+    /// per-index stash, instead of being flattened into a Text block whose JSON
+    /// text would re-serialize as a literal string on the way back.
+    #[test]
+    fn unknown_content_block_round_trip() {
+        let input = r#"{"type":"session","version":3,"id":"s","timestamp":"2026-04-21T10:36:07.238Z","cwd":"/tmp"}
+{"type":"message","id":"m1","parentId":null,"timestamp":"2026-04-21T10:36:30.384Z","message":{"role":"assistant","content":[{"type":"text","text":"before"},{"type":"future_block","payload":{"nested":[1,2,3]},"flag":true},{"type":"text","text":"after"}],"api":"openai-completions","provider":"huggingface","model":"m","usage":{"input":1,"output":2,"cacheRead":0,"cacheWrite":0,"totalTokens":3,"cost":{"input":0.0,"output":0.0,"cacheRead":0.0,"cacheWrite":0.0,"total":0.0}},"stopReason":"stop","timestamp":1776767790396,"responseId":"resp-1"}}"#;
+        let produced = roundtrip_lines(input);
+        assert_lines_match(input, &produced);
+
+        // The unknown block must be stashed verbatim (not stringified) so the
+        // second content block survives the round trip intact.
+        let hub = to_hub(std::io::BufReader::new(input.as_bytes())).unwrap();
+        let assistant = hub
+            .iter()
+            .find_map(|r| match r {
+                HubRecord::Message(m) if m.role == "assistant" => Some(m),
+                _ => None,
+            })
+            .expect("assistant message");
+        let stash = assistant
+            .extensions
+            .get("pi")
+            .and_then(|p| p.get("unknown_content_blocks"))
+            .and_then(|v| v.get("1"))
+            .expect("unknown block stashed at index 1");
+        assert_eq!(
+            stash.get("type").and_then(|v| v.as_str()),
+            Some("future_block")
+        );
+        assert_eq!(stash.get("flag").and_then(|v| v.as_bool()), Some(true));
     }
 
     /// Real-world fixture round-trip. Runs the full 64-line Pi session at
