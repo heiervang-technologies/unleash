@@ -228,6 +228,48 @@ pub fn to_hub(json: &str) -> Result<Vec<HubRecord>, ConvertError> {
 
         let content_text = msg["content"].as_str().unwrap_or("").to_string();
         let mut blocks: Vec<ContentBlock> = Vec::new();
+
+        // Read the reasoning columns back into Thinking blocks — the inverse
+        // of the `from_hub` mapping. Without this, a hub → hermes → hub trip
+        // drops reasoning that `from_hub` carefully preserved, so the second
+        // conversion pass emits fewer messages than the first (not idempotent).
+        if let Some(reasoning) = msg["reasoning"].as_str().filter(|s| !s.is_empty()) {
+            blocks.push(ContentBlock::Thinking {
+                text: reasoning.to_string(),
+                subject: None,
+                description: None,
+                signature: None,
+                encrypted: false,
+                encryption_format: None,
+                encrypted_data: None,
+                timestamp: None,
+            });
+        }
+        if let Some(details) = msg["reasoning_details"].as_str() {
+            if let Ok(Value::Array(entries)) = serde_json::from_str::<Value>(details) {
+                for entry in entries {
+                    if entry.get("type").and_then(|t| t.as_str()) == Some("reasoning.encrypted") {
+                        blocks.push(ContentBlock::Thinking {
+                            text: String::new(),
+                            subject: None,
+                            description: None,
+                            signature: None,
+                            encrypted: true,
+                            encryption_format: entry
+                                .get("format")
+                                .and_then(|f| f.as_str())
+                                .map(String::from),
+                            encrypted_data: entry
+                                .get("data")
+                                .and_then(|d| d.as_str())
+                                .map(String::from),
+                            timestamp: None,
+                        });
+                    }
+                }
+            }
+        }
+
         if !content_text.is_empty() {
             blocks.push(ContentBlock::Text { text: content_text });
         }
@@ -294,6 +336,29 @@ pub fn to_hub(json: &str) -> Result<Vec<HubRecord>, ConvertError> {
                     j += 1;
                 }
             }
+        }
+
+        // Restore StepBoundary finish metadata from the native columns —
+        // inverse of the `from_hub` mapping (which only writes them when
+        // non-empty / non-zero, so `> 0` below cannot lose written values).
+        let finish_reason = msg["finish_reason"].as_str().map(String::from);
+        let token_count = msg["token_count"].as_i64().filter(|&n| n > 0);
+        if finish_reason.is_some() || token_count.is_some() {
+            blocks.push(ContentBlock::StepBoundary {
+                boundary: "finish".to_string(),
+                snapshot: None,
+                finish_reason,
+                cost: None,
+                tokens: token_count.map(|n| TokenUsage {
+                    input: 0,
+                    output: 0,
+                    cache_creation: 0,
+                    cache_read: 0,
+                    reasoning: 0,
+                    tool: 0,
+                    total: n as u64,
+                }),
+            });
         }
 
         if !blocks.is_empty() || role == "user" {

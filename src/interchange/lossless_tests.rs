@@ -52,7 +52,12 @@ mod tests {
     /// so a future regression that drops a NEW field — or a fix that recovers a
     /// tracked one — both break CI instead of sliding by while the round-trip
     /// stays idempotent + native-subset-lossless.
-    fn json_diff_paths(a: &serde_json::Value, b: &serde_json::Value, path: &str, out: &mut Vec<String>) {
+    fn json_diff_paths(
+        a: &serde_json::Value,
+        b: &serde_json::Value,
+        path: &str,
+        out: &mut Vec<String>,
+    ) {
         use serde_json::Value;
         match (a, b) {
             (Value::Object(ma), Value::Object(mb)) => {
@@ -172,6 +177,10 @@ mod tests {
                     "tool_call_id": m.tool_call_id,
                     "tool_name": m.tool_name,
                     "timestamp": m.timestamp,
+                    "reasoning": m.reasoning,
+                    "reasoning_details": m.reasoning_details,
+                    "finish_reason": m.finish_reason,
+                    "token_count": m.token_count,
                 })
             })
             .collect();
@@ -243,7 +252,11 @@ mod tests {
         probe("pi (all-content-types)", &via_pi, &all);
         probe("hermes (all-content-types)", &via_hermes, &all);
         probe("pi (native subset)", &via_pi, &pi_native_subset());
-        probe("hermes (native subset)", &via_hermes, &hermes_native_subset());
+        probe(
+            "hermes (native subset)",
+            &via_hermes,
+            &hermes_native_subset(),
+        );
     }
 
     // =======================================================================
@@ -255,9 +268,11 @@ mod tests {
     //   - Pi has no native home for reasoning-token counts or image blocks
     //     (images degrade to a text placeholder), and its usage/cost is
     //     synthesize-and-reconstruct.  → #412
-    //   - Hermes drops thinking/image and reasoning-only turns  → #406
-    //     (content), and normalizes session identity + propagates the session
-    //     model onto every message  → #414 (normalization, not content).
+    //   - Hermes preserves thinking/reasoning-only turns via its native
+    //     reasoning columns (#406 write side + the to_hub restore here), but
+    //     still degrades image/patch to text placeholders (content), and
+    //     normalizes session identity + propagates the session model onto
+    //     every message  → #414 (normalization, not content).
     // Run `diagnostic_pi_hermes` (above, --ignored) to see the residuals, and
     // `pi_full_fixture_residual_is_pinned` for the exact Pi set.
     //
@@ -313,8 +328,7 @@ mod tests {
             "$[6].extensions",
         ];
         assert_eq!(
-            residual,
-            expected,
+            residual, expected,
             "Pi full-fixture residual changed. If you FIXED a gap, remove its \
              path(s) here and update #412. If loss GREW, that is a regression."
         );
@@ -326,26 +340,42 @@ mod tests {
     /// (tracked by #406). A regression dropping MORE fails here rather than
     /// sliding past the idempotent + subset-lossless checks.
     #[test]
-    fn hermes_full_fixture_drops_only_the_reasoning_only_turn() {
+    fn hermes_full_fixture_drops_no_turns() {
+        // Since Hermes gained reasoning/finish columns on both the write side
+        // (from_hub, #406) and the read side (to_hub restore in this PR), no
+        // turn of the full fixture is dropped anymore — including the
+        // reasoning-only assistant turn that used to vanish.
         let all = all_types_hub();
         assert_eq!(all.len(), 7, "fixture shape assumption");
         let out = via_hermes(&all);
-        assert_eq!(
-            out.len(),
-            6,
-            "Hermes must drop exactly the reasoning-only turn, not more"
-        );
+        assert_eq!(out.len(), 7, "Hermes must not drop any turn");
         // Content of surviving turns is still present (not just the count).
         let has_text = |needle: &str| {
             out.iter().any(|r| match r {
-                HubRecord::Message(m) => m.content.iter().any(|b| {
-                    matches!(b, ContentBlock::Text { text } if text.contains(needle))
-                }),
+                HubRecord::Message(m) => m
+                    .content
+                    .iter()
+                    .any(|b| matches!(b, ContentBlock::Text { text } if text.contains(needle))),
                 _ => false,
             })
         };
-        assert!(has_text("I'll run ls"), "assistant tool-use turn text survived");
+        assert!(
+            has_text("I'll run ls"),
+            "assistant tool-use turn text survived"
+        );
         assert!(has_text("Hello"), "user turn text survived");
+        // The formerly-dropped reasoning-only turn survives with its thinking
+        // content intact (restored from the native `reasoning` column).
+        let has_thinking = out.iter().any(|r| match r {
+            HubRecord::Message(m) => m.content.iter().any(
+                |b| matches!(b, ContentBlock::Thinking { text, .. } if text.contains("I should run ls")),
+            ),
+            _ => false,
+        });
+        assert!(
+            has_thinking,
+            "reasoning-only turn must survive with content"
+        );
     }
 
     #[test]
@@ -416,7 +446,11 @@ mod tests {
 
         let out = via_gemini(&mixed);
 
-        let msg_count = |v: &[HubRecord]| v.iter().filter(|r| matches!(r, HubRecord::Message(_))).count();
+        let msg_count = |v: &[HubRecord]| {
+            v.iter()
+                .filter(|r| matches!(r, HubRecord::Message(_)))
+                .count()
+        };
         assert_eq!(
             msg_count(&out),
             msg_count(&mixed),
@@ -433,12 +467,16 @@ mod tests {
         };
         if let Some(text) = injected_text {
             let survives = out.iter().any(|r| match r {
-                HubRecord::Message(m) => m.content.iter().any(|b| {
-                    matches!(b, ContentBlock::Text { text: t } if *t == text)
-                }),
+                HubRecord::Message(m) => m
+                    .content
+                    .iter()
+                    .any(|b| matches!(b, ContentBlock::Text { text: t } if *t == text)),
                 _ => false,
             });
-            assert!(survives, "injected message content was dropped on round-trip");
+            assert!(
+                survives,
+                "injected message content was dropped on round-trip"
+            );
         }
     }
 
