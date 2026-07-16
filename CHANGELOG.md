@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.96](https://github.com/heiervang-technologies/unleash/compare/v0.1.95...v0.1.96) (2026-07-16)
+
+
+### Bug Fixes
+
+* **install:** make remaining Rust binary install paths atomic ([#411](https://github.com/heiervang-technologies/unleash/issues/411)) ([f88ce33](https://github.com/heiervang-technologies/unleash/commit/f88ce33e5e2860462243363db07f77fdc693c73f))
+
 ## [0.1.95](https://github.com/heiervang-technologies/unleash/compare/v0.1.94...v0.1.95) (2026-07-11)
 
 
