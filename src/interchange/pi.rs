@@ -367,6 +367,12 @@ fn pi_message_to_hub(val: &Value, foreign_originated: bool) -> Result<HubMessage
         .and_then(|v| v.as_str())
         .unwrap_or("")
         .to_string();
+    // Hub-level `completed_at` has no Pi-native home; `from_hub` stashes it as
+    // an outer `completedAt` sibling of `timestamp` so it round-trips.
+    let completed_at = val
+        .get("completedAt")
+        .and_then(|v| v.as_str())
+        .map(String::from);
     let message = val.get("message").cloned().unwrap_or(Value::Null);
 
     let role = message
@@ -561,7 +567,7 @@ fn pi_message_to_hub(val: &Value, foreign_originated: bool) -> Result<HubMessage
         api_message_id: None,
         parent_id,
         timestamp: outer_ts,
-        completed_at: None,
+        completed_at,
         role: hub_role,
         content: hub_content,
         metadata,
@@ -921,6 +927,10 @@ fn hub_message_to_pi(msg: &HubMessage) -> Result<Option<Value>, ConvertError> {
             .unwrap_or(Value::Null),
     );
     out.insert("timestamp".into(), Value::String(msg.timestamp.clone()));
+    // Round-trip the hub-level completion timestamp (no Pi-native field for it).
+    if let Some(ca) = &msg.completed_at {
+        out.insert("completedAt".into(), Value::String(ca.clone()));
+    }
     out.insert("message".into(), Value::Object(inner));
 
     Ok(Some(Value::Object(out)))
