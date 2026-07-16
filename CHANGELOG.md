@@ -1,5 +1,14 @@
 # Changelog
 
+## [0.1.97](https://github.com/heiervang-technologies/unleash/compare/v0.1.96...v0.1.97) (2026-07-16)
+
+
+### Bug Fixes
+
+* **interchange:** associate OpenCode parts by messageID, guard callID cross-linking ([#404](https://github.com/heiervang-technologies/unleash/issues/404)) ([1910e85](https://github.com/heiervang-technologies/unleash/commit/1910e85cc22cb329982351359be516fbee32d251))
+* **interchange:** preserve reasoning/image/patch/step blocks on hub→Hermes ([#406](https://github.com/heiervang-technologies/unleash/issues/406)) ([0eec697](https://github.com/heiervang-technologies/unleash/commit/0eec697eaab3bde29cd538bd10b813952c04dc7a))
+* **interchange:** preserve unknown Pi content blocks verbatim by index ([#405](https://github.com/heiervang-technologies/unleash/issues/405)) ([e7dd357](https://github.com/heiervang-technologies/unleash/commit/e7dd3576e42752cfed3437f16ceb8abd9c359e73))
+
 ## [0.1.96](https://github.com/heiervang-technologies/unleash/compare/v0.1.95...v0.1.96) (2026-07-16)
 
 
