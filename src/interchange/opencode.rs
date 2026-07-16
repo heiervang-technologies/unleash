@@ -42,24 +42,30 @@ pub fn to_hub(input: &OpenCodeInput) -> Result<Vec<HubRecord>, ConvertError> {
         )));
     }
 
-    // Build an index of parts by message index for association
-    // Parts don't have message_id in our exported fixture, so we associate by order:
-    // parts are ordered and grouped by the messages they belong to.
-    // In practice, we track a part cursor.
+    // Prefer grouping parts by their stored `messageID` (surfaced from the
+    // `part.message_id` column by the exporter). This is exact; the positional
+    // fallback below only runs for inputs that lack the identifiers (synthetic
+    // fixtures or `_msg_idx`-tagged round-trip parts).
+    let grouped = group_parts_by_message_id(&input.messages, &input.parts);
     let mut part_idx = 0;
     let part_count = input.parts.len();
 
     for (msg_i, msg) in input.messages.iter().enumerate() {
         let role = msg.get("role").and_then(|v| v.as_str()).unwrap_or("user");
 
-        let msg_parts = collect_message_parts(
-            &input.parts,
-            &mut part_idx,
-            part_count,
-            role,
-            msg_i,
-            input.messages.len(),
-        );
+        let msg_parts = if let Some(ref grouped) = grouped {
+            let mid = msg.get("id").and_then(|v| v.as_str()).unwrap_or("");
+            grouped.get(mid).cloned().unwrap_or_default()
+        } else {
+            collect_message_parts(
+                &input.parts,
+                &mut part_idx,
+                part_count,
+                role,
+                msg_i,
+                input.messages.len(),
+            )
+        };
 
         // If a full HubMessage was stashed via `_ucf_hub.message`, restore it
         // verbatim — OpenCode parts/messages cannot represent every hub
@@ -493,6 +499,60 @@ fn build_session_header(
             }
         }),
     }
+}
+
+/// Group parts by their owning `messageID` when both messages and parts carry
+/// their native OpenCode identifiers (`message.id` / `part.messageID`, surfaced
+/// from the SQLite columns by the exporter).
+///
+/// Returns `None` — deferring to the positional heuristic — when the
+/// identifiers are absent (synthetic fixtures, `_msg_idx`-tagged round-trip
+/// parts) or when any tagged part references an unknown message. Falling back
+/// rather than dropping orphan parts keeps those inputs lossless.
+fn group_parts_by_message_id(
+    messages: &[Value],
+    parts: &[Value],
+) -> Option<std::collections::HashMap<String, Vec<Value>>> {
+    let non_empty_str = |v: &Value, key: &str| -> bool {
+        v.get(key)
+            .and_then(|s| s.as_str())
+            .is_some_and(|s| !s.is_empty())
+    };
+
+    // Need an id on every message to key on, and at least one part must be
+    // tagged — otherwise this isn't a column-backed export.
+    let all_messages_keyed = messages.iter().all(|m| non_empty_str(m, "id"));
+    let any_part_tagged = parts.iter().any(|p| non_empty_str(p, "messageID"));
+    if !all_messages_keyed || !any_part_tagged {
+        return None;
+    }
+
+    let known: std::collections::HashSet<&str> = messages
+        .iter()
+        .filter_map(|m| m.get("id").and_then(|v| v.as_str()))
+        .collect();
+
+    let mut grouped: std::collections::HashMap<String, Vec<Value>> =
+        std::collections::HashMap::new();
+    for part in parts {
+        // A part missing its messageID, or pointing at an unknown message, means
+        // the export is not uniformly column-backed; bail to the positional path
+        // rather than silently misfiling or dropping the part.
+        let message_id = part.get("messageID").and_then(|v| v.as_str())?;
+        if !known.contains(message_id) {
+            return None;
+        }
+        let mut cleaned = part.clone();
+        if let Some(obj) = cleaned.as_object_mut() {
+            obj.remove("messageID");
+        }
+        grouped
+            .entry(message_id.to_string())
+            .or_default()
+            .push(cleaned);
+    }
+
+    Some(grouped)
 }
 
 /// Collect parts that belong to a given message.
@@ -1185,6 +1245,17 @@ fn hub_content_to_opencode_parts(blocks: &[ContentBlock]) -> Vec<Value> {
                 let mut merged = false;
                 for existing in parts.iter_mut().rev() {
                     if existing.get("type").and_then(|v| v.as_str()) == Some("tool") {
+                        // Skip tool parts that already carry a result, then take
+                        // the nearest still-unsatisfied preceding call (LIFO,
+                        // via the reverse scan). A second result sharing the same
+                        // (or empty) callID therefore lands on a *different*,
+                        // still-open part instead of overwriting an
+                        // already-satisfied one. The guarantee is no-overwrite /
+                        // no-drop for parallel or duplicate-callID calls — not
+                        // strict emission-order pairing.
+                        if existing["state"].get("output").is_some() {
+                            continue;
+                        }
                         let existing_call = existing
                             .get("callID")
                             .and_then(|v| v.as_str())
@@ -1218,7 +1289,11 @@ fn hub_content_to_opencode_parts(blocks: &[ContentBlock]) -> Vec<Value> {
                 }
 
                 if !merged {
-                    // Standalone tool result without matching use
+                    // No open call to attach to (e.g. a degenerate stream with
+                    // more results than uses, or a result whose use never
+                    // arrived). Emit a standalone `tool:"unknown"` part rather
+                    // than drop the result — preserve-not-drop is the lossless
+                    // contract; a fabricated-but-present part beats silent loss.
                     parts.push(serde_json::json!({
                         "type": "tool",
                         "tool": "unknown",
@@ -1867,5 +1942,152 @@ mod tests {
             has_image,
             "image should survive opencode round-trip via _hub_images"
         );
+    }
+
+    fn text_blocks(m: &HubMessage) -> Vec<&str> {
+        m.content
+            .iter()
+            .filter_map(|b| match b {
+                ContentBlock::Text { text } => Some(text.as_str()),
+                _ => None,
+            })
+            .collect()
+    }
+
+    #[test]
+    fn parts_group_by_message_id_not_position() {
+        // Two consecutive user turns where the first owns two text parts. The
+        // positional heuristic breaks after the first text part, leaking the
+        // second onto the next turn (and dropping the third). With column-backed
+        // `messageID` grouping, each part lands on its owning message.
+        let messages = r#"[
+            {"id": "msg_a", "role": "user", "time": {"created": 1000}},
+            {"id": "msg_b", "role": "user", "time": {"created": 2000}}
+        ]"#;
+        let parts = r#"[
+            {"messageID": "msg_a", "type": "text", "text": "alpha"},
+            {"messageID": "msg_a", "type": "text", "text": "beta"},
+            {"messageID": "msg_b", "type": "text", "text": "gamma"}
+        ]"#;
+
+        let hub = to_hub(&make_input(messages, parts)).unwrap();
+        let msgs: Vec<&HubMessage> = hub
+            .iter()
+            .filter_map(|r| match r {
+                HubRecord::Message(m) => Some(m),
+                _ => None,
+            })
+            .collect();
+
+        assert_eq!(msgs.len(), 2);
+        assert_eq!(text_blocks(msgs[0]), vec!["alpha", "beta"]);
+        assert_eq!(text_blocks(msgs[1]), vec!["gamma"]);
+    }
+
+    #[test]
+    fn grouping_falls_back_when_part_references_unknown_message() {
+        // An orphan part (messageID with no matching message) must not be
+        // silently dropped: grouping bails to the positional path so the part is
+        // still collected somewhere.
+        let messages = r#"[
+            {"id": "msg_a", "role": "user", "time": {"created": 1000}}
+        ]"#;
+        let parts = r#"[
+            {"messageID": "msg_a", "type": "text", "text": "kept"},
+            {"messageID": "msg_ghost", "type": "text", "text": "orphan"}
+        ]"#;
+
+        let hub = to_hub(&make_input(messages, parts)).unwrap();
+        let all_text: Vec<String> = hub
+            .iter()
+            .filter_map(|r| match r {
+                HubRecord::Message(m) => Some(m),
+                _ => None,
+            })
+            .flat_map(|m| text_blocks(m).into_iter().map(String::from))
+            .collect();
+        assert!(all_text.iter().any(|t| t == "kept"));
+    }
+
+    #[test]
+    fn duplicate_call_id_results_pair_without_loss() {
+        // Two parallel tool calls that (pathologically) share a callID, each
+        // with its own result. The merge must land both outputs on distinct
+        // parts rather than overwriting one and leaving the other pending.
+        let records = vec![HubRecord::Message(HubMessage {
+            id: "m1".into(),
+            api_message_id: None,
+            parent_id: None,
+            timestamp: "2026-01-01T00:00:00Z".into(),
+            completed_at: None,
+            role: "assistant".into(),
+            content: vec![
+                ContentBlock::ToolUse {
+                    id: "dup".into(),
+                    name: "bash".into(),
+                    display_name: None,
+                    description: None,
+                    input: serde_json::json!({"command": "one"}),
+                },
+                ContentBlock::ToolUse {
+                    id: "dup".into(),
+                    name: "bash".into(),
+                    display_name: None,
+                    description: None,
+                    input: serde_json::json!({"command": "two"}),
+                },
+                ContentBlock::ToolResult {
+                    tool_use_id: "dup".into(),
+                    content: vec![ContentBlock::Text {
+                        text: "out-one".into(),
+                    }],
+                    exit_code: Some(0),
+                    is_error: false,
+                    interrupted: false,
+                    status: Some("completed".into()),
+                    duration_ms: None,
+                    title: None,
+                    truncated: false,
+                },
+                ContentBlock::ToolResult {
+                    tool_use_id: "dup".into(),
+                    content: vec![ContentBlock::Text {
+                        text: "out-two".into(),
+                    }],
+                    exit_code: Some(0),
+                    is_error: false,
+                    interrupted: false,
+                    status: Some("completed".into()),
+                    duration_ms: None,
+                    title: None,
+                    truncated: false,
+                },
+            ],
+            metadata: MessageMetadata::default(),
+            extensions: serde_json::json!({}),
+        })];
+
+        let output = from_hub(&records).unwrap();
+        let tool_parts: Vec<&Value> = output
+            .parts
+            .iter()
+            .filter(|p| p.get("type").and_then(|v| v.as_str()) == Some("tool"))
+            .collect();
+
+        assert_eq!(tool_parts.len(), 2, "both tool calls should be emitted");
+        // No call left unpaired (still pending / no output), and no result lost.
+        for part in &tool_parts {
+            assert_ne!(
+                part["state"].get("status").and_then(|v| v.as_str()),
+                Some("pending"),
+                "every tool call must receive a result"
+            );
+        }
+        let outputs: std::collections::HashSet<&str> = tool_parts
+            .iter()
+            .filter_map(|p| p["state"].get("output").and_then(|v| v.as_str()))
+            .collect();
+        assert!(outputs.contains("out-one"), "first result must survive");
+        assert!(outputs.contains("out-two"), "second result must survive");
     }
 }
