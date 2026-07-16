@@ -1167,14 +1167,7 @@ impl VersionManager {
             });
         }
 
-        fs::copy(&extracted_binary, &install_path)?;
-        #[cfg(unix)]
-        {
-            use std::os::unix::fs::PermissionsExt;
-            let mut perms = fs::metadata(&install_path)?.permissions();
-            perms.set_mode(0o755);
-            fs::set_permissions(&install_path, perms)?;
-        }
+        crate::agents::atomic_install_binary(&extracted_binary, &install_path)?;
 
         let _ = fs::remove_dir_all(&tmp_dir);
 
@@ -1741,14 +1734,10 @@ impl VersionManager {
             "Installing binary to {}...",
             install_path.display()
         ));
-        fs::copy(&extracted_binary, &install_path)?;
-        #[cfg(unix)]
-        {
-            use std::os::unix::fs::PermissionsExt;
-            let mut perms = fs::metadata(&install_path)?.permissions();
-            perms.set_mode(0o755);
-            fs::set_permissions(&install_path, perms)?;
-        }
+        // Atomic install: stage + chmod + rename so switching codex versions
+        // while a codex agent is running can't hit ETXTBSY or leave a partial
+        // binary at the canonical path.
+        crate::agents::atomic_install_binary(&extracted_binary, &install_path)?;
 
         let _ = fs::remove_dir_all(&tmp_dir);
 
