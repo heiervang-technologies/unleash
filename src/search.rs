@@ -698,6 +698,8 @@ async fn run_async(args: RunArgs) -> Result<(), Box<dyn std::error::Error>> {
     }
 
     // --- Interactive ratatui TUI when stdin is a real terminal -----------
+    // Only consumed under the `tui` feature; headless builds skip the block.
+    #[cfg_attr(not(feature = "tui"), allow(unused_variables))]
     let tui_eligible = !args.json
         && std::io::IsTerminal::is_terminal(&std::io::stdin())
         && std::io::IsTerminal::is_terminal(&std::io::stdout());
@@ -2057,6 +2059,7 @@ mod tests {
     use super::*;
 
     #[test]
+    #[cfg(feature = "tui")]
     fn cosine_distance_identical_is_zero() {
         let v = vec![1.0_f32, 2.0, 3.0, 4.0];
         let d = cosine_distance(&v, &v);
@@ -2064,6 +2067,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(feature = "tui")]
     fn cosine_distance_orthogonal_is_one() {
         let a = vec![1.0_f32, 0.0];
         let b = vec![0.0_f32, 1.0];
@@ -2072,6 +2076,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(feature = "tui")]
     fn cosine_distance_opposite_is_two() {
         let a = vec![1.0_f32, 1.0, 1.0];
         let b = vec![-1.0_f32, -1.0, -1.0];
@@ -2080,6 +2085,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(feature = "tui")]
     fn cosine_distance_empty_returns_two() {
         let a: Vec<f32> = vec![];
         let b = vec![1.0_f32, 2.0];

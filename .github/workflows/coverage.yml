@@ -74,8 +74,10 @@ jobs:
             coverage-${{ runner.os }}-
 
       - name: Run coverage (lib tests)
-        # --lib scopes to library unit tests, which is where the ~470 tests
-        # live. Adding integration/binary tests later will broaden this.
+        # --lib scopes to the library unit tests, where the bulk of the suite
+        # lives. This measures library coverage only; the integration tests in
+        # tests/*.rs are not included here (tracked in #401 §4). The report and
+        # PR comment below label it accordingly.
         run: cargo llvm-cov --lib --lcov --output-path lcov.info -- --test-threads=1
 
       - name: Generate summary text

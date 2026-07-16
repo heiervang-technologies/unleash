@@ -11,9 +11,17 @@ readme = "README.md"
 keywords = ["cli", "ai", "claude", "llm", "agent"]
 categories = ["command-line-utilities", "development-tools"]
 
-# Binaries auto-discovered from src/bin/*.rs
-# Each is a thin wrapper calling unleash::run()
-# Single binary: unleash
+# Binaries: `unleash` (the CLI, auto-discovered from src/bin/unleash.rs) plus
+# `splash` (the interactive TUI splash/agent picker). `splash` links ratatui /
+# crossterm, so it is gated behind the `tui` feature via `required-features`
+# below — this keeps `cargo check/build --no-default-features` (the supported
+# headless build) green. The library itself is already `#[cfg(feature =
+# "tui")]`-gated throughout, so `unleash` builds headless.
+
+[[bin]]
+name = "splash"
+path = "src/bin/splash.rs"
+required-features = ["tui"]
 
 [features]
 default = ["tui"]
