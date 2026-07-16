@@ -26,6 +26,20 @@ pub struct HermesMessage {
     pub tool_call_id: Option<String>,
     pub tool_name: Option<String>,
     pub timestamp: f64,
+    /// Plaintext `Thinking` blocks, mapped to Hermes' native `reasoning`
+    /// column so reasoning survives hub → Hermes injection instead of being
+    /// dropped.
+    pub reasoning: Option<String>,
+    /// Encrypted/redacted `Thinking` blocks, serialized as a JSON array and
+    /// mapped to Hermes' `reasoning_details` column. This is what keeps an
+    /// *encrypted* reasoning-only turn from vanishing: its payload lives in
+    /// `encrypted_data`, not `text`, so the plaintext `reasoning` column stays
+    /// empty and cannot carry it.
+    pub reasoning_details: Option<String>,
+    /// From a `StepBoundary` finish block, mapped to Hermes' `finish_reason`.
+    pub finish_reason: Option<String>,
+    /// From a `StepBoundary` finish block's token usage.
+    pub token_count: Option<i64>,
 }
 
 // ── Timestamp helpers (no chrono dep) ───────────────────────────────────────
@@ -400,21 +414,106 @@ pub fn from_hub(records: &[HubRecord]) -> Result<HermesOutput, ConvertError> {
             None
         };
 
+        // Content: Text verbatim, plus textual placeholders for blocks Hermes
+        // has no native column for (Image, Patch) so they are not silently
+        // dropped on injection.
         let text_content: String = msg
             .content
             .iter()
-            .filter_map(|b| {
-                if let ContentBlock::Text { text } = b {
-                    Some(text.as_str())
-                } else {
-                    None
+            .filter_map(|b| match b {
+                ContentBlock::Text { text } if !text.is_empty() => Some(text.clone()),
+                ContentBlock::Image {
+                    media_type,
+                    data,
+                    encoding,
+                    ..
+                } => {
+                    // Report the decoded size for base64 payloads, not the raw
+                    // base64 character count (~4/3 larger). Placeholder only.
+                    let bytes = if encoding == "base64" {
+                        let padding = data.bytes().rev().take_while(|&b| b == b'=').count();
+                        (data.len() / 4) * 3 - padding.min((data.len() / 4) * 3)
+                    } else {
+                        data.len()
+                    };
+                    Some(format!("[image: {media_type} ({bytes} bytes)]"))
                 }
+                ContentBlock::Patch { path, .. } => Some(format!("[patch: {path}]")),
+                _ => None,
             })
             .collect::<Vec<_>>()
             .join("\n");
 
-        // Emit primary message
-        if !text_content.is_empty() || tool_calls_json.is_some() {
+        // Thinking → Hermes' reasoning columns. Plaintext goes to `reasoning`;
+        // encrypted/redacted reasoning (whose payload is in `encrypted_data`,
+        // not `text`) goes to `reasoning_details` as JSON. Capturing BOTH is
+        // what keeps a reasoning-only assistant turn from vanishing — including
+        // the encrypted case, where `text` is empty so `reasoning` alone would
+        // stay None and the emit guard below would drop the turn.
+        let mut reasoning_texts: Vec<&str> = Vec::new();
+        let mut encrypted_details: Vec<Value> = Vec::new();
+        for block in &msg.content {
+            if let ContentBlock::Thinking {
+                text,
+                encrypted,
+                encryption_format,
+                encrypted_data,
+                ..
+            } = block
+            {
+                if !text.is_empty() {
+                    reasoning_texts.push(text.as_str());
+                }
+                if *encrypted {
+                    let mut detail = serde_json::Map::new();
+                    detail.insert("type".into(), Value::String("reasoning.encrypted".into()));
+                    if let Some(data) = encrypted_data {
+                        detail.insert("data".into(), Value::String(data.clone()));
+                    }
+                    if let Some(fmt) = encryption_format {
+                        detail.insert("format".into(), Value::String(fmt.clone()));
+                    }
+                    encrypted_details.push(Value::Object(detail));
+                }
+            }
+        }
+        let reasoning: Option<String> =
+            (!reasoning_texts.is_empty()).then(|| reasoning_texts.join("\n"));
+        let reasoning_details: Option<String> =
+            (!encrypted_details.is_empty()).then(|| Value::Array(encrypted_details).to_string());
+
+        // StepBoundary finish → native finish_reason / token_count columns.
+        let (finish_reason, token_count) = msg
+            .content
+            .iter()
+            .find_map(|b| match b {
+                ContentBlock::StepBoundary {
+                    boundary,
+                    finish_reason,
+                    tokens,
+                    ..
+                } if boundary == "finish" => Some((
+                    finish_reason.clone(),
+                    tokens
+                        .as_ref()
+                        .map(|t| t.total.max(t.output) as i64)
+                        .filter(|&n| n > 0),
+                )),
+                _ => None,
+            })
+            .unwrap_or((None, None));
+
+        // Emit primary message. Note reasoning_details in the guard: an
+        // encrypted reasoning-only turn has empty text, no tool calls, and
+        // empty `reasoning`, so without this it would be dropped — the exact
+        // headline bug for the encrypted case.
+        if !text_content.is_empty()
+            || tool_calls_json.is_some()
+            || reasoning.is_some()
+            || reasoning_details.is_some()
+            || finish_reason.is_some()
+            || token_count.is_some()
+        {
             messages.push(HermesMessage {
                 role: msg.role.clone(),
                 content: if text_content.is_empty() {
@@ -426,6 +525,10 @@ pub fn from_hub(records: &[HubRecord]) -> Result<HermesOutput, ConvertError> {
                 tool_call_id: None,
                 tool_name: None,
                 timestamp: ts,
+                reasoning,
+                reasoning_details,
+                finish_reason,
+                token_count,
             });
         }
 
@@ -456,6 +559,10 @@ pub fn from_hub(records: &[HubRecord]) -> Result<HermesOutput, ConvertError> {
                     tool_name: hermes_tool_name_for_result(&msg.extensions, tool_use_id)
                         .or_else(|| tool_names_by_id.get(tool_use_id).cloned()),
                     timestamp: ts,
+                    reasoning: None,
+                    reasoning_details: None,
+                    finish_reason: None,
+                    token_count: None,
                 });
             }
         }
@@ -795,5 +902,251 @@ mod tests {
         assert_eq!(tools[0].tool_name.as_deref(), Some("bash"));
         assert_eq!(tools[1].tool_call_id.as_deref(), Some("call_extra"));
         assert_eq!(tools[1].tool_name.as_deref(), Some("grep"));
+    }
+
+    #[test]
+    fn from_hub_preserves_reasoning_image_patch_and_step() {
+        let session = HubRecord::Session(SessionHeader {
+            ucf_version: UCF_VERSION.to_string(),
+            session_id: "s".into(),
+            created_at: "2026-06-01T00:00:00Z".into(),
+            updated_at: "2026-06-01T00:01:00Z".into(),
+            source_cli: "codex".into(),
+            source_version: String::new(),
+            project: None,
+            model: Some("gpt".into()),
+            title: None,
+            slug: None,
+            parent_session_id: None,
+            extensions: Value::Object(Default::default()),
+        });
+
+        // A reasoning-only assistant turn — no text, no tool calls. Previously
+        // dropped entirely; must now be emitted with the reasoning preserved.
+        let reasoning_only = HubRecord::Message(HubMessage {
+            id: "m1".into(),
+            api_message_id: None,
+            parent_id: None,
+            timestamp: "2026-06-01T00:00:10Z".into(),
+            completed_at: None,
+            role: "assistant".into(),
+            content: vec![ContentBlock::Thinking {
+                text: "let me think".into(),
+                subject: None,
+                description: None,
+                signature: None,
+                encrypted: false,
+                encryption_format: None,
+                encrypted_data: None,
+                timestamp: None,
+            }],
+            metadata: MessageMetadata::default(),
+            extensions: Value::Object(Default::default()),
+        });
+
+        // A mixed turn exercising Image, Patch, and a StepBoundary finish.
+        let mixed = HubRecord::Message(HubMessage {
+            id: "m2".into(),
+            api_message_id: None,
+            parent_id: None,
+            timestamp: "2026-06-01T00:00:20Z".into(),
+            completed_at: None,
+            role: "assistant".into(),
+            content: vec![
+                ContentBlock::Text {
+                    text: "done".into(),
+                },
+                ContentBlock::Image {
+                    media_type: "image/png".into(),
+                    encoding: "base64".into(),
+                    data: "AAAA".into(),
+                    source_url: None,
+                },
+                ContentBlock::Patch {
+                    path: "src/x.rs".into(),
+                    hash_before: None,
+                    hash_after: None,
+                },
+                ContentBlock::StepBoundary {
+                    boundary: "finish".into(),
+                    snapshot: None,
+                    finish_reason: Some("stop".into()),
+                    cost: None,
+                    tokens: Some(TokenUsage {
+                        input: 10,
+                        output: 20,
+                        cache_creation: 0,
+                        cache_read: 0,
+                        reasoning: 0,
+                        tool: 0,
+                        total: 30,
+                    }),
+                },
+            ],
+            metadata: MessageMetadata::default(),
+            extensions: Value::Object(Default::default()),
+        });
+
+        let out = from_hub(&[session, reasoning_only, mixed]).unwrap();
+        let assistants: Vec<_> = out
+            .messages
+            .iter()
+            .filter(|m| m.role == "assistant")
+            .collect();
+        assert_eq!(
+            assistants.len(),
+            2,
+            "reasoning-only turn must still be emitted"
+        );
+
+        assert_eq!(assistants[0].reasoning.as_deref(), Some("let me think"));
+        assert!(
+            assistants[0].content.is_none(),
+            "reasoning-only turn has no textual content"
+        );
+
+        let mixed_out = assistants[1];
+        let content = mixed_out.content.as_deref().unwrap();
+        assert!(content.contains("done"));
+        assert!(
+            content.contains("[image:"),
+            "image not preserved: {content}"
+        );
+        assert!(
+            content.contains("[patch: src/x.rs]"),
+            "patch not preserved: {content}"
+        );
+        assert_eq!(mixed_out.finish_reason.as_deref(), Some("stop"));
+        assert_eq!(mixed_out.token_count, Some(30));
+    }
+
+    #[test]
+    fn encrypted_reasoning_only_turn_survives() {
+        // The headline bug's encrypted variant: an assistant turn whose only
+        // content is an ENCRYPTED thinking block. Its payload is in
+        // `encrypted_data`, not `text`, so a text-only extractor leaves
+        // `reasoning` empty and the turn was being dropped. It must now survive
+        // via `reasoning_details`.
+        let session = HubRecord::Session(SessionHeader {
+            ucf_version: UCF_VERSION.to_string(),
+            session_id: "s".into(),
+            created_at: "2026-06-01T00:00:00Z".into(),
+            updated_at: "2026-06-01T00:01:00Z".into(),
+            source_cli: "codex".into(),
+            source_version: String::new(),
+            project: None,
+            model: None,
+            title: None,
+            slug: None,
+            parent_session_id: None,
+            extensions: Value::Object(Default::default()),
+        });
+        let encrypted_only = HubRecord::Message(HubMessage {
+            id: "m1".into(),
+            api_message_id: None,
+            parent_id: None,
+            timestamp: "2026-06-01T00:00:10Z".into(),
+            completed_at: None,
+            role: "assistant".into(),
+            content: vec![ContentBlock::Thinking {
+                text: String::new(),
+                subject: None,
+                description: None,
+                signature: None,
+                encrypted: true,
+                encryption_format: Some("codex-v1".into()),
+                encrypted_data: Some("BASE64BLOB".into()),
+                timestamp: None,
+            }],
+            metadata: MessageMetadata::default(),
+            extensions: Value::Object(Default::default()),
+        });
+
+        let out = from_hub(&[session, encrypted_only]).unwrap();
+        let assistants: Vec<_> = out
+            .messages
+            .iter()
+            .filter(|m| m.role == "assistant")
+            .collect();
+        assert_eq!(
+            assistants.len(),
+            1,
+            "encrypted reasoning-only turn must not vanish"
+        );
+        let m = assistants[0];
+        assert!(
+            m.reasoning.is_none(),
+            "no plaintext reasoning for an encrypted-only turn"
+        );
+        let details = m
+            .reasoning_details
+            .as_deref()
+            .expect("encrypted payload preserved in reasoning_details");
+        assert!(details.contains("reasoning.encrypted"), "got {details}");
+        assert!(details.contains("BASE64BLOB"), "payload lost: {details}");
+        assert!(details.contains("codex-v1"), "format lost: {details}");
+    }
+
+    #[test]
+    fn step_boundary_only_turn_is_not_dropped() {
+        // Consistency with the reasoning fix: an assistant turn whose ONLY
+        // content is a StepBoundary finish (finish_reason + tokens, no text,
+        // reasoning, or tool calls) must still be emitted so the finish
+        // metadata isn't lost — the emit guard has to key on finish_reason /
+        // token_count too, not just reasoning.
+        let session = HubRecord::Session(SessionHeader {
+            ucf_version: UCF_VERSION.to_string(),
+            session_id: "s".into(),
+            created_at: "2026-06-01T00:00:00Z".into(),
+            updated_at: "2026-06-01T00:01:00Z".into(),
+            source_cli: "codex".into(),
+            source_version: String::new(),
+            project: None,
+            model: None,
+            title: None,
+            slug: None,
+            parent_session_id: None,
+            extensions: Value::Object(Default::default()),
+        });
+        let step_only = HubRecord::Message(HubMessage {
+            id: "m1".into(),
+            api_message_id: None,
+            parent_id: None,
+            timestamp: "2026-06-01T00:00:10Z".into(),
+            completed_at: None,
+            role: "assistant".into(),
+            content: vec![ContentBlock::StepBoundary {
+                boundary: "finish".into(),
+                snapshot: None,
+                finish_reason: Some("stop".into()),
+                cost: None,
+                tokens: Some(TokenUsage {
+                    input: 5,
+                    output: 7,
+                    cache_creation: 0,
+                    cache_read: 0,
+                    reasoning: 0,
+                    tool: 0,
+                    total: 12,
+                }),
+            }],
+            metadata: MessageMetadata::default(),
+            extensions: Value::Object(Default::default()),
+        });
+
+        let out = from_hub(&[session, step_only]).unwrap();
+        let assistants: Vec<_> = out
+            .messages
+            .iter()
+            .filter(|m| m.role == "assistant")
+            .collect();
+        assert_eq!(
+            assistants.len(),
+            1,
+            "step-boundary-only turn must not vanish"
+        );
+        assert_eq!(assistants[0].finish_reason.as_deref(), Some("stop"));
+        assert_eq!(assistants[0].token_count, Some(12));
+        assert!(assistants[0].content.is_none());
     }
 }
