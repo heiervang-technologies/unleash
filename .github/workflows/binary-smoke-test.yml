@@ -8,14 +8,31 @@ on:
   workflow_dispatch:
     inputs:
       tag:
-        description: 'Release tag to test (e.g., v0.0.0)'
+        description: 'Release tag to test (e.g., v0.1.95)'
         required: true
-        default: 'v0.0.0'
         type: string
-  # Also run after release binaries are uploaded
-  workflow_run:
-    workflows: ["Upload Release Binaries"]
-    types: [completed]
+  # Called by the release pipeline (release-please.yml) and the manual backfill
+  # (upload-release-binaries.yml) with the exact tag whose artifacts were just
+  # uploaded.
+  #
+  # Previously this used `workflow_run` on "Upload Release Binaries" completing.
+  # That was doubly broken: (1) automated releases upload binaries from within
+  # the "Release Please" workflow, not "Upload Release Binaries", so the trigger
+  # never fired on an automated release; and (2) a `workflow_run` event carries
+  # no inputs, so the tag always fell back to the pinned `v0.0.0` default —
+  # meaning every "Upload Release Binaries" completion re-smoke-tested the stale
+  # v0.0.0 release instead of the tag that was actually just uploaded. (`v0.0.0`
+  # is a real published release, so those runs passed — they just tested the
+  # wrong, old artifacts.) Being *called* with the tag fixes both — see #401 §1.
+  workflow_call:
+    inputs:
+      tag:
+        description: 'Release tag to test'
+        required: true
+        type: string
+
+permissions:
+  contents: read
 
 jobs:
   smoke-test:
@@ -32,22 +49,35 @@ jobs:
           - os: macos-latest
             artifact: unleash-macos-aarch64
             splash: splash-macos-aarch64
-          # macos x86_64 requires paid runners (-large/-intel), skip for now
-          # - os: macos-15-large
+          # KNOWN COVERAGE GAP — macos-x86_64 (Intel): `upload-release`/`build-release`
+          # ship `unleash-macos-x86_64` + `splash-macos-x86_64`, but no free
+          # GitHub-hosted runner executes them natively (arm64 `macos-latest`
+          # can't run Intel binaries without Rosetta plumbing, and Intel lanes
+          # `macos-13`/`macos-*-large`/`-intel` are retired or paid). This lane
+          # is therefore intentionally omitted, so the Intel artifact is BUILT
+          # but not smoke-tested. Reopen condition: a free Intel runner becomes
+          # available, or the Intel artifact is dropped from the release. Do not
+          # mark #401 §1 "every shipped Linux/macOS artifact is smoke-tested"
+          # closed while this gap stands.
+          # - os: <free-intel-runner-when-available>
           #   artifact: unleash-macos-x86_64
           #   splash: splash-macos-x86_64
     runs-on: ${{ matrix.os }}
     name: ${{ matrix.artifact }}
 
     steps:
-      - name: Determine tag
+      - name: Resolve tag
         id: tag
+        env:
+          TAG: ${{ inputs.tag }}
         run: |
-          if [ -n "${{ github.event.inputs.tag }}" ]; then
-            echo "tag=${{ github.event.inputs.tag }}" >> $GITHUB_OUTPUT
-          else
-            echo "tag=v0.0.0" >> $GITHUB_OUTPUT
+          # Fail loudly on a missing tag instead of falling back to a stale
+          # default and smoke-testing the wrong release's artifacts.
+          if [ -z "$TAG" ]; then
+            echo "::error::No release tag supplied. This workflow must be called or dispatched with the tag whose artifacts were uploaded."
+            exit 1
           fi
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
 
       - name: Download unleash binary
         run: |
@@ -120,14 +150,18 @@ jobs:
       - name: Install dependencies
         run: apk add --no-cache curl file bash
 
-      - name: Determine tag
+      - name: Resolve tag
         id: tag
+        env:
+          TAG: ${{ inputs.tag }}
         run: |
-          if [ -n "${{ github.event.inputs.tag }}" ]; then
-            echo "tag=${{ github.event.inputs.tag }}" >> $GITHUB_OUTPUT
-          else
-            echo "tag=v0.0.0" >> $GITHUB_OUTPUT
+          # Fail loudly on a missing tag instead of falling back to a stale
+          # default and smoke-testing the wrong release's artifacts.
+          if [ -z "$TAG" ]; then
+            echo "::error::No release tag supplied. This workflow must be called or dispatched with the tag whose artifacts were uploaded."
+            exit 1
           fi
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
 
       - name: Download unleash binary
         run: |

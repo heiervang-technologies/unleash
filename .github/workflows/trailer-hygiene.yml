@@ -2,6 +2,13 @@ name: Trailer Hygiene
 
 on:
   pull_request:
+    # `edited` is required: this check inspects the PR *body* for a
+    # "Generated with [Claude Code]" footer, but the default pull_request
+    # activity types (opened/synchronize/reopened) don't include body edits.
+    # Without `edited`, a body-only correction can't rerun the check — it stays
+    # red until an unrelated push, which is a confusing no-op-push dance
+    # (observed on #415).
+    types: [opened, synchronize, reopened, edited]
 
 permissions:
   contents: read
