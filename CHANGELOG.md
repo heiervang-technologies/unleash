@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.98](https://github.com/heiervang-technologies/unleash/compare/v0.1.97...v0.1.98) (2026-07-17)
+
+
+### Bug Fixes
+
+* **interchange:** make Codex-to-Claude crossloads resume as native Claude sessions ([1c3c383](https://github.com/heiervang-technologies/unleash/commit/1c3c383b8ac5352f5811db753900cb930ba9c79e))
+
 ## [0.1.97](https://github.com/heiervang-technologies/unleash/compare/v0.1.96...v0.1.97) (2026-07-16)
 
 
