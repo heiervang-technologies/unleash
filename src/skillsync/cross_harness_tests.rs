@@ -8,15 +8,12 @@ mod tests {
     use std::ffi::OsString;
     use std::fs;
     use std::path::{Path, PathBuf};
-    use std::sync::{Mutex, MutexGuard, OnceLock};
+    use std::sync::MutexGuard;
 
-    fn env_lock() -> &'static Mutex<()> {
-        static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
-        LOCK.get_or_init(|| Mutex::new(()))
-    }
-
+    // Crate-wide lock: sessions.rs tests mutate XDG_DATA_HOME too, and a
+    // module-local mutex cannot exclude them (proven flake, run 29565535983).
     fn env_guard() -> MutexGuard<'static, ()> {
-        env_lock().lock().unwrap_or_else(|err| err.into_inner())
+        crate::test_env::lock()
     }
 
     fn fixture(name: &str) -> Skill {
