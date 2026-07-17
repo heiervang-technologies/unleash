@@ -8,6 +8,24 @@ pub mod agents;
 #[cfg(feature = "tui")]
 mod ansi;
 mod auth;
+
+/// Crate-wide lock for tests that mutate process-global environment variables
+/// (`HOME`, `XDG_DATA_HOME`, `UNLEASH_*`, …). Module-local locks are NOT
+/// enough: cargo runs test modules in one process with a shared environment,
+/// so two modules each holding their own mutex still race each other (caught
+/// live by flake-check run 29565535983: sessions.rs swapped XDG_DATA_HOME
+/// mid-skillsync-sync). Every env-mutating test must take THIS lock.
+#[cfg(test)]
+pub(crate) mod test_env {
+    use std::sync::{Mutex, MutexGuard, OnceLock};
+
+    pub(crate) fn lock() -> MutexGuard<'static, ()> {
+        static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+        LOCK.get_or_init(|| Mutex::new(()))
+            .lock()
+            .unwrap_or_else(|err| err.into_inner())
+    }
+}
 mod cli;
 pub mod config;
 mod hooks;
