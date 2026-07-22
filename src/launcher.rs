@@ -340,6 +340,20 @@ pub fn run_loop(config: LauncherConfig) -> io::Result<i32> {
 
 /// Run an agent with wrapper features
 pub fn run(auto_mode: bool, prompt: Option<String>, extra_args: Vec<String>) -> io::Result<()> {
+    run_with_env(auto_mode, prompt, extra_args, HashMap::new(), None)
+}
+
+/// Run the wrapper with launch-scoped environment overrides.
+///
+/// Overrides are applied after profile environment values and retained for
+/// every restart iteration without mutating the parent Unleash process.
+pub(crate) fn run_with_env(
+    auto_mode: bool,
+    prompt: Option<String>,
+    extra_args: Vec<String>,
+    child_env: HashMap<String, String>,
+    agent_type_override: Option<AgentType>,
+) -> io::Result<()> {
     // Meta-command short-circuit: --version / --help / doctor never need
     // hooks, plugins, permissions, or the restart loop. Exec the agent bare
     // with just profile env. Recovers the +100 ms / +54 MB claude pays for
@@ -394,10 +408,11 @@ pub fn run(auto_mode: bool, prompt: Option<String>, extra_args: Vec<String>) -> 
 
     // Find agent command
     let agent_cmd = find_agent_command()?;
-    let agent_type = detect_agent_type(&agent_cmd);
+    let agent_type = agent_type_override.or_else(|| detect_agent_type(&agent_cmd));
 
     // Load profile environment variables
-    let profile_env = load_profile_env()?;
+    let mut profile_env = load_profile_env()?;
+    profile_env.extend(child_env);
 
     // Check authentication on first run
     check_authentication();

@@ -55,6 +55,7 @@ runtime environment.
 | `AGENT_UNLEASH` | Set to `1` when running under the unleash wrapper |
 | `AGENT_WRAPPER_PID` | PID of the wrapper process (used by plugins and Hyprland focus) |
 | `UNLEASH_POLYFILL_ACTIVE` | Set to `1` when polyfill flag translation is active |
+| `CLANKER_ID` | Canonical character id exported only after an explicit Codex/Clanker `--name` is resolved by the configured target binary. Bare launches do not resolve or replace this variable. |
 | `DISABLE_TELEMETRY` | Blocks all Claude Code analytics/telemetry (set to `1`) |
 | `CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC` | Blocks Claude Code analytics, auto-updates, release notes, feature flags (set to `1`) |
 | `GEMINI_TELEMETRY_ENABLED` | Gemini CLI telemetry master switch (set to `false`) |
