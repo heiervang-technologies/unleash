@@ -30,6 +30,7 @@ mod cli;
 pub mod config;
 mod hooks;
 mod hyprland;
+mod identity;
 #[cfg(feature = "tui")]
 mod input;
 pub mod interchange;
@@ -116,6 +117,19 @@ fn parse_wrapper_launch_args(
 fn detect_agent_type_from_cmd_path(cmd: &str) -> Option<AgentType> {
     let cmd_name = Path::new(cmd).file_name().and_then(|n| n.to_str())?;
     AgentType::from_str(cmd_name)
+}
+
+fn launch_agent_type(profile: &config::Profile) -> AgentType {
+    let target_name = Path::new(&profile.agent_cli_path)
+        .file_name()
+        .and_then(|name| name.to_str());
+    if profile.name.eq_ignore_ascii_case("clanker")
+        || target_name.is_some_and(|name| name.eq_ignore_ascii_case("clanker"))
+    {
+        return AgentType::Codex;
+    }
+
+    profile.agent_type().unwrap_or(AgentType::Claude)
 }
 
 /// Resolve the binary path/name for a target CLI used by the wrapper-reentry
@@ -294,7 +308,7 @@ fn run_agent_with_polyfill(
     }
 
     // Determine the agent type for polyfill resolution
-    let agent_type = profile.agent_type().unwrap_or(AgentType::Claude);
+    let agent_type = launch_agent_type(&profile);
     let agent_def = match &agent_type {
         AgentType::Custom(ref name) => {
             let app_config = manager.load_app_config().unwrap_or_default();
@@ -351,6 +365,21 @@ fn run_agent_with_polyfill(
             std::process::exit(exit_code);
         }
     }
+
+    // Resolve only explicit Codex/Clanker names. Bare launches remain fully
+    // delegated to Clanker Code's own continuation behavior. Keep this after
+    // the meta-command shortcut so informational commands stay side-effect free.
+    let resolved_clanker_id = if agent_type == AgentType::Codex {
+        polyfill_args
+            .name
+            .as_deref()
+            .map(|name| {
+                identity::resolve_clanker_id(Path::new(&profile.agent_cli_path), name, &profile.env)
+            })
+            .transpose()?
+    } else {
+        None
+    };
 
     let mut flags = polyfill_args.to_polyfill_flags(&profile.defaults);
     let mut ucf_active = None;
@@ -503,7 +532,12 @@ fn run_agent_with_polyfill(
         }
     }
 
-    let resolved = polyfill::resolve(&agent_def.polyfill, &flags, &profile.agent_cli_args);
+    let mut resolved = polyfill::resolve(&agent_def.polyfill, &flags, &profile.agent_cli_args);
+    if let Some(clanker_id) = resolved_clanker_id {
+        resolved
+            .env
+            .insert(identity::CLANKER_ID_ENV.to_string(), clanker_id);
+    }
 
     if polyfill_args.dry_run {
         let binary = &profile.agent_cli_path;
@@ -546,14 +580,9 @@ fn run_agent_with_polyfill(
     // Signal to launcher that polyfill handled yolo/permissions
     env::set_var("UNLEASH_POLYFILL_ACTIVE", "1");
 
-    // Set polyfill-resolved env vars
-    for (key, value) in &resolved.env {
-        env::set_var(key, value);
-    }
-
     // Headless prompt is handled by the polyfill (adds -p/exec/run to args)
     // Don't pass prompt separately to launcher since it would double-add for Claude
-    let res = launcher::run(auto, None, launch_args);
+    let res = launcher::run_with_env(auto, None, launch_args, resolved.env, Some(agent_type));
 
     if let Some((ucf_name, target_cli, session_id)) = ucf_active {
         sync_ucf_session(&ucf_name, &target_cli, &session_id);

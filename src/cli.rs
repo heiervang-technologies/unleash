@@ -129,7 +129,7 @@ pub struct PolyfillArgs {
     #[arg(long)]
     pub sandbox: bool,
 
-    /// Session name
+    /// Session or character name (agent-specific)
     #[arg(long)]
     pub name: Option<String>,
 
@@ -352,6 +352,14 @@ impl PolyfillArgs {
                         }
                     } else {
                         polyfill.worktree = Some(String::new()); // no name
+                    }
+                }
+                "-u" | "--ucf" => {
+                    if let Some(val) = args.get(i + 1).filter(|val| !val.starts_with('-')) {
+                        polyfill.ucf = Some(val.clone());
+                        i += 1;
+                    } else {
+                        polyfill.ucf = Some(String::new());
                     }
                 }
                 "-x" | "--crossload" => {
@@ -1194,6 +1202,19 @@ mod tests {
         let (polyfill, _) = PolyfillArgs::parse_from_raw(&args);
         assert_eq!(polyfill.model, Some("opus".to_string()));
         assert_eq!(polyfill.prompt, Some("fix bug".to_string()));
+    }
+
+    #[test]
+    fn test_parse_ucf_split_and_equals_syntax() {
+        let split: Vec<String> = vec!["--ucf".into(), "lineage".into()];
+        let (polyfill, passthrough) = PolyfillArgs::parse_from_raw(&split);
+        assert_eq!(polyfill.ucf.as_deref(), Some("lineage"));
+        assert!(passthrough.is_empty());
+
+        let equals: Vec<String> = vec!["--ucf=lineage".into()];
+        let (polyfill, passthrough) = PolyfillArgs::parse_from_raw(&equals);
+        assert_eq!(polyfill.ucf.as_deref(), Some("lineage"));
+        assert!(passthrough.is_empty());
     }
 
     fn no_defaults() -> crate::config::ProfileDefaults {

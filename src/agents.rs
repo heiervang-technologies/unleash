@@ -404,7 +404,7 @@ impl AgentDefinition {
                     "--sandbox".to_string(),
                     "workspace-write".to_string(),
                 ),
-                name_flag: None,
+                name_flag: Some("--name".to_string()),
                 add_dir_flag: Some("--add-dir".to_string()),
                 approval_mode_flag: Some("-a".to_string()),
                 worktree_flag: None,

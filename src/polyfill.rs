@@ -960,14 +960,15 @@ mod tests {
     }
 
     #[test]
-    fn test_codex_no_name_support() {
+    fn test_codex_session_name() {
         let config = AgentDefinition::codex().polyfill;
         let flags = PolyfillFlags {
             name: Some("test".into()),
             ..default_flags()
         };
         let inv = resolve(&config, &flags, &[]);
-        assert!(!inv.args.contains(&"--name".to_string()));
+        assert!(inv.args.contains(&"--name".to_string()));
+        assert!(inv.args.contains(&"test".to_string()));
     }
 
     // ── Add Dir ─────────────────────────────────────────────
