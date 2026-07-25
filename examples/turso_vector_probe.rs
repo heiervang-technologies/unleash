@@ -78,7 +78,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
         }
         eprintln!("\nturso vector functions work, but no FTS module is exposed.");
         eprintln!("Skipping remaining FTS-dependent probes; falling through cleanly.");
-        eprintln!("\nFINDING: turso 0.6.0 vector OK, FTS5 NOT EXPOSED.");
+        eprintln!("\nFINDING: turso vector support OK, FTS5 NOT EXPOSED.");
         return Ok(());
     }
     conn.execute(
@@ -131,6 +131,6 @@ async fn main() -> Result<(), Box<dyn Error>> {
     }
     println!("  ok — hybrid CTE join works");
 
-    println!("\nall probes passed — turso 0.6.0 supports the SQL surface we need.");
+    println!("\nall probes passed — turso supports the SQL surface we need.");
     Ok(())
 }
