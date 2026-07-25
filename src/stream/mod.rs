@@ -15,22 +15,60 @@
 //! - Deltas are a separate lightweight variant so attended UIs can render
 //!   tokens as they arrive while headless consumers can ignore them and act
 //!   only on completed [`StreamEvent::Message`]s.
+//! - Human-input tools remain ordinary tool-use messages and additionally
+//!   emit [`StreamEvent::InteractionRequest`]. [`StreamRuntime`] gates only
+//!   that UI dispatch in headless mode while preserving attribution.
 
 pub mod claude;
 pub mod codex;
+mod runtime;
 
 use crate::interchange::hub::{HubEvent, HubMessage, SessionHeader};
+use serde::Serialize;
 use serde_json::Value;
 
+pub use runtime::{normalize_command, normalize_reader, RoutedStreamEvent, StreamRuntime};
+
 /// What kind of text a [`StreamEvent::Delta`] carries.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "snake_case")]
 pub enum DeltaKind {
     Text,
     Thinking,
 }
 
+/// How an attended consumer should present an [`InteractionRequest`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum InteractionMethod {
+    Select,
+    Input,
+    Approval,
+}
+
+/// A canonical request for human input.
+///
+/// Adapters emit this in addition to the ordinary tool-use message, never
+/// instead of it. That keeps transcripts complete while giving attended
+/// consumers one harness-independent UI channel.
+#[derive(Debug, Clone, Serialize)]
+pub struct InteractionRequest {
+    pub id: String,
+    pub session_id: String,
+    pub tool_call_id: String,
+    pub method: InteractionMethod,
+    pub title: String,
+    pub message: String,
+    pub options: Vec<String>,
+    pub custom: bool,
+    pub multiple: bool,
+    /// The native tool input, preserved so a new field never disappears.
+    pub raw: Value,
+}
+
 /// A canonical event emitted by every harness stream adapter.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize)]
+#[serde(tag = "type", content = "data", rename_all = "snake_case")]
 pub enum StreamEvent {
     /// The harness announced its identity (session id, model, cwd, …).
     SessionStart(SessionHeader),
@@ -48,6 +86,9 @@ pub enum StreamEvent {
     /// A lifecycle or status event (`turn_start`, `turn_end`, `agent_end`,
     /// `tool_start`, `error`). `data` carries the raw harness payload.
     Event(HubEvent),
+    /// A tool call that needs a human response, normalized independently of
+    /// the harness while the original tool call remains a `Message`.
+    InteractionRequest(InteractionRequest),
     /// A frame the adapter did not recognize, preserved verbatim.
     Passthrough { harness: &'static str, raw: Value },
 }
@@ -63,6 +104,12 @@ pub trait UcfStreamParser {
 
     /// Consume one line of harness output.
     fn feed_line(&mut self, line: &str) -> Vec<StreamEvent>;
+
+    /// Set the timestamp applied to subsequently emitted events.
+    ///
+    /// Live runtimes update this for each line. Fixtures can keep using a
+    /// fixed value through their adapter's `with_timestamp` constructor.
+    fn set_timestamp(&mut self, _timestamp: String) {}
 
     /// Flush any buffered state at end of stream.
     fn finish(&mut self) -> Vec<StreamEvent> {
@@ -102,6 +149,125 @@ fn parse_line(line: &str) -> ParsedLine {
     }
 }
 
+/// Normalize a tool call that asks a human for input.
+///
+/// The adapter still emits the containing tool-use message. This helper only
+/// creates the parallel UI-channel event, so headless consumers can suppress
+/// it without punching a hole in the transcript.
+pub(crate) fn interaction_requests_from_tool(
+    session_id: &str,
+    tool_call_id: &str,
+    tool_name: &str,
+    input: &Value,
+) -> Vec<InteractionRequest> {
+    match tool_name {
+        "AskUserQuestion" | "request_user_input" => {
+            let Some(questions) = input.get("questions").and_then(Value::as_array) else {
+                return vec![InteractionRequest {
+                    id: tool_call_id.to_string(),
+                    session_id: session_id.to_string(),
+                    tool_call_id: tool_call_id.to_string(),
+                    method: InteractionMethod::Input,
+                    title: "Question".to_string(),
+                    message: input
+                        .get("question")
+                        .or_else(|| input.get("message"))
+                        .and_then(Value::as_str)
+                        .unwrap_or("Input requested")
+                        .to_string(),
+                    options: Vec::new(),
+                    custom: true,
+                    multiple: false,
+                    raw: input.clone(),
+                }];
+            };
+
+            questions
+                .iter()
+                .enumerate()
+                .map(|(index, question)| {
+                    let options = question
+                        .get("options")
+                        .and_then(Value::as_array)
+                        .map(|values| {
+                            values
+                                .iter()
+                                .filter_map(|option| {
+                                    option
+                                        .get("label")
+                                        .and_then(Value::as_str)
+                                        .or_else(|| option.as_str())
+                                        .map(String::from)
+                                })
+                                .collect::<Vec<_>>()
+                        })
+                        .unwrap_or_default();
+                    let id = question
+                        .get("id")
+                        .and_then(Value::as_str)
+                        .filter(|id| !id.is_empty())
+                        .map(String::from)
+                        .unwrap_or_else(|| format!("{tool_call_id}:{index}"));
+                    let custom = if tool_name == "AskUserQuestion" {
+                        true
+                    } else {
+                        question
+                            .get("isOther")
+                            .and_then(Value::as_bool)
+                            .unwrap_or(false)
+                    };
+
+                    InteractionRequest {
+                        id,
+                        session_id: session_id.to_string(),
+                        tool_call_id: tool_call_id.to_string(),
+                        method: if options.is_empty() {
+                            InteractionMethod::Input
+                        } else {
+                            InteractionMethod::Select
+                        },
+                        title: question
+                            .get("header")
+                            .and_then(Value::as_str)
+                            .unwrap_or("Question")
+                            .to_string(),
+                        message: question
+                            .get("question")
+                            .or_else(|| question.get("message"))
+                            .and_then(Value::as_str)
+                            .unwrap_or("Input requested")
+                            .to_string(),
+                        options,
+                        custom,
+                        multiple: question
+                            .get("multiSelect")
+                            .and_then(Value::as_bool)
+                            .unwrap_or(false),
+                        raw: input.clone(),
+                    }
+                })
+                .collect()
+        }
+        "ExitPlanMode" => vec![InteractionRequest {
+            id: tool_call_id.to_string(),
+            session_id: session_id.to_string(),
+            tool_call_id: tool_call_id.to_string(),
+            method: InteractionMethod::Approval,
+            title: "Plan approval".to_string(),
+            message: input
+                .get("plan")
+                .and_then(Value::as_str)
+                .unwrap_or("Review the proposed plan.")
+                .to_string(),
+            options: vec!["approve".to_string(), "request_changes".to_string()],
+            custom: true,
+            multiple: false,
+            raw: input.clone(),
+        }],
+        _ => Vec::new(),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -120,6 +286,7 @@ mod tests {
         tool_results: Vec<String>,         // tool_use_id
         delta_chars: usize,
         lifecycle: Vec<String>,
+        interactions: Vec<String>,
         passthrough: usize,
     }
 
@@ -145,6 +312,9 @@ mod tests {
                 }
                 StreamEvent::Delta { text, .. } => t.delta_chars += text.len(),
                 StreamEvent::Event(evt) => t.lifecycle.push(evt.event_type),
+                StreamEvent::InteractionRequest(request) => {
+                    t.interactions.push(request.tool_call_id)
+                }
                 StreamEvent::Passthrough { .. } => t.passthrough += 1,
             }
         }
@@ -221,5 +391,44 @@ mod tests {
     #[test]
     fn unknown_harness_has_no_parser() {
         assert!(parser_for("not-a-harness").is_none());
+    }
+
+    #[test]
+    fn canonical_question_shapes_cover_select_input_and_plan_approval() {
+        let select = interaction_requests_from_tool(
+            "s1",
+            "call-1",
+            "request_user_input",
+            &serde_json::json!({
+                "questions": [{
+                    "id": "runtime",
+                    "header": "Runtime",
+                    "question": "Which runtime?",
+                    "isOther": true,
+                    "options": [{"label": "Tokio", "description": "Async"}]
+                }]
+            }),
+        );
+        assert_eq!(select.len(), 1);
+        assert_eq!(select[0].method, InteractionMethod::Select);
+        assert_eq!(select[0].options, ["Tokio"]);
+        assert!(select[0].custom);
+
+        let input = interaction_requests_from_tool(
+            "s1",
+            "call-2",
+            "AskUserQuestion",
+            &serde_json::json!({"question": "Anything else?"}),
+        );
+        assert_eq!(input[0].method, InteractionMethod::Input);
+
+        let plan = interaction_requests_from_tool(
+            "s1",
+            "call-3",
+            "ExitPlanMode",
+            &serde_json::json!({"plan": "Ship it"}),
+        );
+        assert_eq!(plan[0].method, InteractionMethod::Approval);
+        assert_eq!(plan[0].message, "Ship it");
     }
 }

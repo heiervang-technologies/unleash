@@ -1,0 +1,7 @@
+{"type":"system","subtype":"init","session_id":"partial-1","model":"claude-sonnet-4-5","cwd":"/tmp/proj","version":"2.1.90"}
+{"type":"system","subtype":"hook_started","session_id":"partial-1","hook_id":"hook-1"}
+{"type":"stream_event","session_id":"partial-1","event":{"type":"content_block_start","index":0,"content_block":{"type":"tool_use","id":"toolu_early","name":"Bash","input":{}}}}
+{"type":"stream_event","session_id":"partial-1","event":{"type":"content_block_delta","index":0,"delta":{"type":"input_json_delta","partial_json":"{\"command\":\"pwd\"}"}}}
+{"type":"stream_event","session_id":"partial-1","event":{"type":"message_delta","delta":{"stop_reason":"tool_use","stop_sequence":null},"usage":{"output_tokens":12}}}
+{"type":"system","subtype":"task_started","session_id":"partial-1","task_id":"task-1"}
+{"type":"system","session_id":"partial-1","status":"waiting"}

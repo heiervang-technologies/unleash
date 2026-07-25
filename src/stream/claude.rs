@@ -8,7 +8,9 @@
 //!   `--include-partial-messages` is set
 //! - `{"type":"result",...}` — terminal summary frame
 
-use super::{parse_line, DeltaKind, ParsedLine, StreamEvent, UcfStreamParser};
+use super::{
+    interaction_requests_from_tool, parse_line, DeltaKind, ParsedLine, StreamEvent, UcfStreamParser,
+};
 use crate::interchange::hub::{
     HubEvent, HubMessage, MessageMetadata, SessionHeader, TokenUsage, UCF_VERSION,
 };
@@ -52,7 +54,7 @@ impl ClaudeStreamParser {
         }
     }
 
-    fn message_frame_to_event(&mut self, frame: &Value, role: &str) -> StreamEvent {
+    fn message_frame_to_events(&mut self, frame: &Value, role: &str) -> Vec<StreamEvent> {
         let message = frame.get("message").cloned().unwrap_or(Value::Null);
         let content = message
             .get("content")
@@ -68,7 +70,22 @@ impl ClaudeStreamParser {
         }
         metadata.tokens = message.get("usage").and_then(usage_to_tokens);
 
-        StreamEvent::Message(HubMessage {
+        let interaction_requests = if role == "assistant" {
+            content
+                .iter()
+                .flat_map(|block| match block {
+                    crate::interchange::hub::ContentBlock::ToolUse {
+                        id, name, input, ..
+                    } => interaction_requests_from_tool(&self.session_id, id, name, input),
+                    _ => Vec::new(),
+                })
+                .map(StreamEvent::InteractionRequest)
+                .collect::<Vec<_>>()
+        } else {
+            Vec::new()
+        };
+
+        let mut events = vec![StreamEvent::Message(HubMessage {
             id: self.next_id(),
             api_message_id: message.get("id").and_then(Value::as_str).map(String::from),
             parent_id: None,
@@ -78,7 +95,9 @@ impl ClaudeStreamParser {
             content,
             metadata,
             extensions: serde_json::json!({"claude-code": {"_original_frame": frame}}),
-        })
+        })];
+        events.extend(interaction_requests);
+        events
     }
 
     fn stream_event_frame(&self, frame: &Value) -> Vec<StreamEvent> {
@@ -97,9 +116,23 @@ impl ClaudeStreamParser {
                         DeltaKind::Thinking,
                         delta.get("thinking").and_then(Value::as_str).unwrap_or(""),
                     ),
-                    // input_json_delta / signature_delta carry no renderable
-                    // text; the completed assistant frame has the full data.
-                    _ => return Vec::new(),
+                    // These are not renderable text, but their timing matters
+                    // to some live consumers. Preserve the full frame instead
+                    // of silently consuming it.
+                    "input_json_delta" | "signature_delta" => {
+                        return vec![StreamEvent::Event(HubEvent {
+                            event_type: format!("content_block_delta:{delta_type}"),
+                            timestamp: self.timestamp.clone(),
+                            data: frame.clone(),
+                            extensions: Value::Null,
+                        })]
+                    }
+                    _ => {
+                        return vec![StreamEvent::Passthrough {
+                            harness: "claude-code",
+                            raw: frame.clone(),
+                        }]
+                    }
                 };
                 vec![StreamEvent::Delta {
                     kind,
@@ -107,15 +140,19 @@ impl ClaudeStreamParser {
                     cumulative: false,
                 }]
             }
-            // Pure protocol framing — the completed `assistant` frame
-            // repeats everything these delimit, so they carry no data a
-            // consumer could lose.
-            "message_start"
-            | "message_delta"
-            | "message_stop"
-            | "content_block_start"
-            | "content_block_stop"
-            | "ping" => Vec::new(),
+            // These carry per-turn usage / stop reason and early tool
+            // identity respectively. Their timing is not repeated by the
+            // completed assistant frame, so preserve the raw frame.
+            "message_delta" | "content_block_start" => {
+                vec![StreamEvent::Event(HubEvent {
+                    event_type: event_type.to_string(),
+                    timestamp: self.timestamp.clone(),
+                    data: frame.clone(),
+                    extensions: Value::Null,
+                })]
+            }
+            // Pure delimiters with no unique data.
+            "message_start" | "message_stop" | "content_block_stop" | "ping" => Vec::new(),
             _ => vec![StreamEvent::Passthrough {
                 harness: "claude-code",
                 raw: frame.clone(),
@@ -133,6 +170,10 @@ impl Default for ClaudeStreamParser {
 impl UcfStreamParser for ClaudeStreamParser {
     fn harness(&self) -> &'static str {
         "claude-code"
+    }
+
+    fn set_timestamp(&mut self, timestamp: String) {
+        self.timestamp = timestamp;
     }
 
     fn feed_line(&mut self, line: &str) -> Vec<StreamEvent> {
@@ -153,16 +194,22 @@ impl UcfStreamParser for ClaudeStreamParser {
                 if frame.get("subtype").and_then(Value::as_str) == Some("init") {
                     vec![StreamEvent::SessionStart(self.init_header(&frame))]
                 } else {
+                    let event_type = frame
+                        .get("subtype")
+                        .and_then(Value::as_str)
+                        .filter(|subtype| !subtype.is_empty())
+                        .map(|subtype| format!("system:{subtype}"))
+                        .unwrap_or_else(|| "system".to_string());
                     vec![StreamEvent::Event(HubEvent {
-                        event_type: "system".to_string(),
+                        event_type,
                         timestamp: self.timestamp.clone(),
                         data: frame,
                         extensions: Value::Null,
                     })]
                 }
             }
-            "assistant" => vec![self.message_frame_to_event(&frame, "assistant")],
-            "user" => vec![self.message_frame_to_event(&frame, "user")],
+            "assistant" => self.message_frame_to_events(&frame, "assistant"),
+            "user" => self.message_frame_to_events(&frame, "user"),
             "stream_event" => self.stream_event_frame(&frame),
             "result" => vec![StreamEvent::Event(HubEvent {
                 event_type: "agent_end".to_string(),
@@ -350,5 +397,104 @@ mod tests {
             r#"{"type":"stream_event","session_id":"c1","event":{"type":"audio_delta","data":"x"}}"#,
         );
         assert!(matches!(&events[0], StreamEvent::Passthrough { .. }));
+    }
+
+    #[test]
+    fn unique_partial_lifecycle_data_is_never_silently_consumed() {
+        let events = feed_all(include_str!(
+            "tests/fixtures/claude-partial-lifecycle.jsonl"
+        ));
+        let lifecycle: Vec<&HubEvent> = events
+            .iter()
+            .filter_map(|event| match event {
+                StreamEvent::Event(event) => Some(event),
+                _ => None,
+            })
+            .collect();
+
+        for expected in [
+            "content_block_start",
+            "content_block_delta:input_json_delta",
+            "message_delta",
+        ] {
+            assert!(
+                lifecycle.iter().any(|event| event.event_type == expected),
+                "missing {expected}: {lifecycle:?}"
+            );
+        }
+        assert_eq!(
+            lifecycle
+                .iter()
+                .find(|event| event.event_type == "message_delta")
+                .and_then(|event| event.data.pointer("/event/usage/output_tokens"))
+                .and_then(Value::as_u64),
+            Some(12)
+        );
+        assert_eq!(
+            lifecycle
+                .iter()
+                .find(|event| event.event_type == "content_block_start")
+                .and_then(|event| event.data.pointer("/event/content_block/name"))
+                .and_then(Value::as_str),
+            Some("Bash")
+        );
+    }
+
+    #[test]
+    fn system_subtypes_are_promoted_with_a_missing_subtype_fallback() {
+        let events = feed_all(include_str!(
+            "tests/fixtures/claude-partial-lifecycle.jsonl"
+        ));
+        let types: Vec<&str> = events
+            .iter()
+            .filter_map(|event| match event {
+                StreamEvent::Event(event) => Some(event.event_type.as_str()),
+                _ => None,
+            })
+            .collect();
+        assert!(types.contains(&"system:hook_started"));
+        assert!(types.contains(&"system:task_started"));
+        assert!(types.contains(&"system"));
+    }
+
+    #[test]
+    fn ui_tools_emit_canonical_requests_and_remain_normal_tool_messages() {
+        let events = feed_all(include_str!("tests/fixtures/claude-ui-stream.jsonl"));
+        let message = events
+            .iter()
+            .find_map(|event| match event {
+                StreamEvent::Message(message) => Some(message),
+                _ => None,
+            })
+            .expect("ordinary assistant message");
+        let tool_names: Vec<&str> = message
+            .content
+            .iter()
+            .filter_map(|block| match block {
+                ContentBlock::ToolUse { name, .. } => Some(name.as_str()),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(tool_names, ["AskUserQuestion", "ExitPlanMode"]);
+
+        let requests: Vec<_> = events
+            .iter()
+            .filter_map(|event| match event {
+                StreamEvent::InteractionRequest(request) => Some(request),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(requests.len(), 2);
+        assert_eq!(requests[0].session_id, "ui-1");
+        assert_eq!(requests[0].method, super::super::InteractionMethod::Select);
+        assert_eq!(requests[0].options, ["Tokio", "smol"]);
+        assert_eq!(
+            requests[1].method,
+            super::super::InteractionMethod::Approval
+        );
+        assert_eq!(
+            requests[1].message,
+            "Implement the canonical stream router and its tests."
+        );
     }
 }

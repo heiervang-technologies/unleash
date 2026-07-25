@@ -4520,6 +4520,7 @@ dependencies = [
 name = "unleash"
 version = "0.1.98"
 dependencies = [
+ "chrono",
  "clap",
  "crossterm",
  "dirs",

@@ -136,7 +136,14 @@ unleash version            # Show installed versions
 unleash version --list     # List available versions
 unleash auth               # Check authentication status
 unleash agents status      # Show all agent versions and update status
+unleash stream --harness claude-code  # Normalize live harness JSONL from stdin
 ```
+
+`unleash stream` exposes the same canonical live-event interface to shell and
+non-Rust consumers. It currently adapts Claude Code `stream-json` and Codex
+`exec --json`, preserves unknown frames, and emits a `session_id` join key on
+every output event. See the [live stream normalization guide](docs/streaming.md)
+for the schema, attended/headless behavior, and upstream limitations.
 
 ## Version Management
 

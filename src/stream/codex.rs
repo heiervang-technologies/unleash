@@ -8,6 +8,11 @@
 //!   — items carry `item_type`: `assistant_message`, `reasoning`,
 //!   `command_execution`, `file_change`, `mcp_tool_call`, `error`, …
 //! - `{"type":"error","message":"..."}` — stream-level error
+//!
+//! Codex currently rejects its built-in `request_user_input` operation in
+//! `exec` mode, so there is no `exec --json` question frame for this adapter
+//! to normalize. The supported boundary and reopen condition are documented
+//! in `docs/streaming.md`.
 
 use super::{parse_line, DeltaKind, ParsedLine, StreamEvent, UcfStreamParser};
 use crate::interchange::hub::{
@@ -259,6 +264,10 @@ impl Default for CodexStreamParser {
 impl UcfStreamParser for CodexStreamParser {
     fn harness(&self) -> &'static str {
         "codex"
+    }
+
+    fn set_timestamp(&mut self, timestamp: String) {
+        self.timestamp = timestamp;
     }
 
     fn feed_line(&mut self, line: &str) -> Vec<StreamEvent> {
