@@ -750,6 +750,25 @@ pub enum Commands {
         verify: bool,
     },
 
+    /// Normalize a live harness JSONL stream into canonical UCF stream events
+    ///
+    /// Reads stdin by default. Every output event carries `session_id`.
+    /// Attended mode emits canonical interaction requests; `--headless`
+    /// suppresses only those UI events while preserving tool messages.
+    Stream {
+        /// Source harness (claude-code or codex)
+        #[arg(long)]
+        harness: String,
+
+        /// Suppress UI interaction events while preserving transcript events
+        #[arg(long)]
+        headless: bool,
+
+        /// Input JSONL file, or - for stdin
+        #[arg(default_value = "-")]
+        input: String,
+    },
+
     /// Synchronize Agent Skills across supported agent CLIs
     Skills {
         #[command(subcommand)]

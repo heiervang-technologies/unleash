@@ -189,6 +189,29 @@ Optional:
 - `--output <path>` / `-o <path>`: output file (default: stdout)
 - `--verify`: verify lossless round-trip instead of converting
 
+### `unleash stream`
+
+Normalize a live harness JSONL stream into one canonical event union:
+
+```bash
+claude -p "fix it" --output-format stream-json --verbose \
+  | unleash stream --harness claude-code
+
+codex exec --json "fix it" \
+  | unleash stream --harness codex --headless
+
+unleash stream --harness claude-code capture.jsonl
+```
+
+Input defaults to stdin (`-`). Every output event is JSONL with a top-level
+`session_id` and `type`. Attended mode emits `interaction_request` events in
+addition to ordinary tool-use messages. `--headless` suppresses only the UI
+event; the tool message and tool→session bookkeeping are unchanged.
+
+Supported adapters: `claude-code` (alias `claude`) and `codex`. See
+[Live stream normalization](streaming.md) for the complete schema and the
+documented Codex `request_user_input` limitation.
+
 ## Examples
 
 ```bash

@@ -639,6 +639,7 @@ pub(crate) fn is_known_subcommand(first_arg: &str) -> bool {
             | "sessions"
             | "search"
             | "convert"
+            | "stream"
             | "skills"
             | "sandbox"
             | "token-count"
@@ -1378,6 +1379,11 @@ pub fn run() -> io::Result<()> {
                 .map_err(|e| io::Error::other(e.to_string()))?;
             Ok(())
         }
+        Some(Commands::Stream {
+            harness,
+            headless,
+            input,
+        }) => stream::normalize_command(&harness, headless, &input),
         Some(Commands::Skills { action }) => handle_skills(action, cli.json),
         Some(Commands::Search {
             query,
@@ -1783,7 +1789,10 @@ mod tests {
             "install",
             "uninstall",
             "sessions",
+            "search",
             "convert",
+            "stream",
+            "skills",
             "sandbox",
             "token-count",
             "config",
