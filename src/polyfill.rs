@@ -967,6 +967,18 @@ mod tests {
             ..default_flags()
         };
         let inv = resolve(&config, &flags, &[]);
+        assert!(!inv.args.contains(&"--name".to_string()));
+        assert!(!inv.args.contains(&"test".to_string()));
+    }
+
+    #[test]
+    fn test_clanker_session_name() {
+        let config = AgentDefinition::clanker().polyfill;
+        let flags = PolyfillFlags {
+            name: Some("test".into()),
+            ..default_flags()
+        };
+        let inv = resolve(&config, &flags, &[]);
         assert!(inv.args.contains(&"--name".to_string()));
         assert!(inv.args.contains(&"test".to_string()));
     }
