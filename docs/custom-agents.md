@@ -1,6 +1,6 @@
 # Custom Agent CLIs
 
-unleash supports any agent CLI as a first-class profile — alongside the seven built-in agents (`claude`, `codex`, `agy`, `gemini`, `opencode`, `pi`, `hermes`). Custom agents get:
+unleash supports any agent CLI as a first-class profile — alongside the eight built-in agents (`claude`, `codex`, `clanker`, `agy`, `gemini`, `opencode`, `pi`, `hermes`). Custom agents get:
 
 - Launchable as `unleash <name>`
 - Polyfilled unified flags (`-c`, `-r`, `-p`, `-m`, `--auto`, …)

@@ -1,6 +1,6 @@
 # Unleash CLI Reference
 
-Unified CLI manager for AI code agents (Claude, Codex, Antigravity, Gemini, OpenCode, Pi, Hermes).
+Unified CLI manager for AI code agents (Claude, Codex, Clanker, Antigravity, Gemini, OpenCode, Pi, Hermes).
 
 ## Usage
 
@@ -17,6 +17,7 @@ A profile maps to an installed agent CLI. Run `unleash agents status` to see ava
 ```bash
 unleash claude              # Launch Claude Code
 unleash codex -a            # Launch Codex in auto-mode
+unleash clanker --name Cleo # Launch the Chloe character alias
 unleash gemini -p "fix it"  # Headless Gemini prompt
 ```
 
@@ -39,14 +40,14 @@ unleash gemini -p "fix it"  # Headless Gemini prompt
 
 How unified flags map to each agent's native CLI:
 
-| unleash | Claude | Codex | Antigravity (`agy`) | Gemini | OpenCode | Pi | Hermes |
-|---------|--------|-------|---------------------|--------|----------|----|--------|
-| `-p <prompt>` | `-p <prompt>` | `exec <prompt>` | `-p <prompt>` | `-p <prompt>` | `run <prompt>` | `-p <prompt>` | `-z <prompt>` |
-| `-c` | `--continue` | `resume --last` | `--continue` | `--resume latest` | `--continue` | `--continue` | `--continue` |
-| `-r [id]` | `--resume [id]` | `resume [id]` | `--conversation [id]` | `--resume [id]` | `-s <id>` | `--session <id>` | `--resume [id]` |
-| `--fork` | `--fork-session` | `fork` subcommand | *(unsupported)* | *(unsupported)* | `--fork` | `--fork` | `--worktree` |
-| *(default)* | `--dangerously-skip-permissions` | `--dangerously-bypass-approvals-and-sandbox` | `--dangerously-skip-permissions` | `--yolo` | *(no-op)* | *(no-op)* | `--yolo` |
-| `--safe` | *(omits above)* | *(omits above)* | *(omits above)* | *(omits above)* | *(no-op)* | *(no-op)* | *(omits above)* |
+| unleash | Claude | Codex | Clanker | Antigravity (`agy`) | Gemini | OpenCode | Pi | Hermes |
+|---------|--------|-------|---------|---------------------|--------|----------|----|--------|
+| `-p <prompt>` | `-p <prompt>` | `exec <prompt>` | `exec <prompt>` | `-p <prompt>` | `-p <prompt>` | `run <prompt>` | `-p <prompt>` | `-z <prompt>` |
+| `-c` | `--continue` | `resume --last` | `resume --last` | `--continue` | `--resume latest` | `--continue` | `--continue` | `--continue` |
+| `-r [id]` | `--resume [id]` | `resume [id]` | `resume [id]` | `--conversation [id]` | `--resume [id]` | `-s <id>` | `--session <id>` | `--resume [id]` |
+| `--fork` | `--fork-session` | `fork` subcommand | `fork` subcommand | *(unsupported)* | *(unsupported)* | `--fork` | `--fork` | `--worktree` |
+| *(default)* | `--dangerously-skip-permissions` | `--dangerously-bypass-approvals-and-sandbox` | `--dangerously-bypass-approvals-and-sandbox` | `--dangerously-skip-permissions` | `--yolo` | *(no-op)* | *(no-op)* | `--yolo` |
+| `--safe` | *(omits above)* | *(omits above)* | *(omits above)* | *(omits above)* | *(omits above)* | *(no-op)* | *(no-op)* | *(omits above)* |
 
 ## Passthrough
 
@@ -73,6 +74,7 @@ unleash update -c           # Update all installed agent CLIs
 unleash update -a           # Update unleash + all agent CLIs
 unleash update claude       # Update only Claude
 unleash update claude codex # Update Claude and Codex
+unleash update clanker      # Build and atomically install the current Clanker fork
 unleash update --check      # Dry run, show available updates
 ```
 
@@ -170,7 +172,8 @@ unleash convert --from claude --to passthrough session.jsonl        # markdown t
 
 Required:
 - `--from <format>`: source format. One of: `claude` (alias `claude-code`),
-  `codex`, `gemini` (aliases `gemini-cli`, `antigravity`, `antigravity-cli`,
+  `codex`, `clanker` (alias `clanker-code`; same session format as Codex),
+  `gemini` (aliases `gemini-cli`, `antigravity`, `antigravity-cli`,
   `agy` — same JSON schema), `opencode`, `pi` (alias `pi-coding-agent`),
   `hermes` (alias `hermes-agent`), or `hub` / `ucf`.
 - `<input>`: path to the input file (positional)

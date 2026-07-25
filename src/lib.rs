@@ -8,6 +8,7 @@ pub mod agents;
 #[cfg(feature = "tui")]
 mod ansi;
 mod auth;
+mod clanker;
 
 /// Crate-wide lock for tests that mutate process-global environment variables
 /// (`HOME`, `XDG_DATA_HOME`, `UNLEASH_*`, …). Module-local locks are NOT
@@ -30,6 +31,7 @@ mod cli;
 pub mod config;
 mod hooks;
 mod hyprland;
+mod identity;
 #[cfg(feature = "tui")]
 mod input;
 pub mod interchange;
@@ -118,6 +120,41 @@ fn detect_agent_type_from_cmd_path(cmd: &str) -> Option<AgentType> {
     AgentType::from_str(cmd_name)
 }
 
+fn launch_agent_type(profile: &config::Profile) -> AgentType {
+    let target_name = Path::new(&profile.agent_cli_path)
+        .file_name()
+        .and_then(|name| name.to_str());
+    if profile.name.eq_ignore_ascii_case("clanker")
+        || target_name.is_some_and(|name| name.eq_ignore_ascii_case("clanker"))
+    {
+        return AgentType::Clanker;
+    }
+
+    profile.agent_type().unwrap_or(AgentType::Claude)
+}
+
+fn position_clanker_name_for_exec(
+    resolved: &mut polyfill::ResolvedInvocation,
+    requested_name: Option<&str>,
+) {
+    if resolved.subcommand_prefix.first().map(String::as_str) != Some("exec") {
+        return;
+    }
+    let Some(requested_name) = requested_name else {
+        return;
+    };
+    let Some(index) = resolved
+        .args
+        .windows(2)
+        .position(|pair| pair[0] == "--name" && pair[1] == requested_name)
+    else {
+        return;
+    };
+
+    let name_pair: Vec<String> = resolved.args.drain(index..index + 2).collect();
+    resolved.subcommand_prefix.splice(0..0, name_pair);
+}
+
 /// Resolve the binary path/name for a target CLI used by the wrapper-reentry
 /// crossload path. Prefers the user's profile (`agent_cli_path`) so that
 /// custom binary paths (e.g., a per-machine pi build) are honored, and falls
@@ -132,6 +169,7 @@ fn resolve_target_binary(target_cli: &str) -> String {
     let canonical = match target_cli {
         "claude" | "claude-code" => Some(AgentType::Claude),
         "codex" => Some(AgentType::Codex),
+        "clanker" | "clanker-code" => Some(AgentType::Clanker),
         "antigravity" | "antigravity-cli" | "agy" => Some(AgentType::Antigravity),
         "gemini" | "gemini-cli" => Some(AgentType::Gemini),
         "opencode" => Some(AgentType::OpenCode),
@@ -294,7 +332,7 @@ fn run_agent_with_polyfill(
     }
 
     // Determine the agent type for polyfill resolution
-    let agent_type = profile.agent_type().unwrap_or(AgentType::Claude);
+    let agent_type = launch_agent_type(&profile);
     let agent_def = match &agent_type {
         AgentType::Custom(ref name) => {
             let app_config = manager.load_app_config().unwrap_or_default();
@@ -313,6 +351,7 @@ fn run_agent_with_polyfill(
         AgentType::Unleash => unreachable!("Unleash is not a launchable agent"),
         AgentType::Claude => "claude",
         AgentType::Codex => "codex",
+        AgentType::Clanker => "clanker",
         AgentType::Antigravity => "agy",
         AgentType::Gemini => "gemini",
         AgentType::OpenCode => "opencode",
@@ -351,6 +390,21 @@ fn run_agent_with_polyfill(
             std::process::exit(exit_code);
         }
     }
+
+    // Resolve only explicit Codex/Clanker names. Bare launches remain fully
+    // delegated to Clanker Code's own continuation behavior. Keep this after
+    // the meta-command shortcut so informational commands stay side-effect free.
+    let resolved_clanker_id = if agent_type == AgentType::Clanker {
+        polyfill_args
+            .name
+            .as_deref()
+            .map(|name| {
+                identity::resolve_clanker_id(Path::new(&profile.agent_cli_path), name, &profile.env)
+            })
+            .transpose()?
+    } else {
+        None
+    };
 
     let mut flags = polyfill_args.to_polyfill_flags(&profile.defaults);
     let mut ucf_active = None;
@@ -503,7 +557,15 @@ fn run_agent_with_polyfill(
         }
     }
 
-    let resolved = polyfill::resolve(&agent_def.polyfill, &flags, &profile.agent_cli_args);
+    let mut resolved = polyfill::resolve(&agent_def.polyfill, &flags, &profile.agent_cli_args);
+    if agent_type == AgentType::Clanker {
+        position_clanker_name_for_exec(&mut resolved, polyfill_args.name.as_deref());
+    }
+    if let Some(clanker_id) = resolved_clanker_id {
+        resolved
+            .env
+            .insert(identity::CLANKER_ID_ENV.to_string(), clanker_id);
+    }
 
     if polyfill_args.dry_run {
         let binary = &profile.agent_cli_path;
@@ -546,14 +608,9 @@ fn run_agent_with_polyfill(
     // Signal to launcher that polyfill handled yolo/permissions
     env::set_var("UNLEASH_POLYFILL_ACTIVE", "1");
 
-    // Set polyfill-resolved env vars
-    for (key, value) in &resolved.env {
-        env::set_var(key, value);
-    }
-
     // Headless prompt is handled by the polyfill (adds -p/exec/run to args)
     // Don't pass prompt separately to launcher since it would double-add for Claude
-    let res = launcher::run(auto, None, launch_args);
+    let res = launcher::run_with_env(auto, None, launch_args, resolved.env, Some(agent_type));
 
     if let Some((ucf_name, target_cli, session_id)) = ucf_active {
         sync_ucf_session(&ucf_name, &target_cli, &session_id);
@@ -709,6 +766,7 @@ pub fn run() -> io::Result<()> {
             let target_cli = match first_arg {
                 "claude" | "claude-code" => "claude",
                 "codex" => "codex",
+                "clanker" | "clanker-code" => "clanker",
                 "antigravity" | "antigravity-cli" | "agy" => "agy",
                 "gemini" | "gemini-cli" => "gemini",
                 "opencode" => "opencode",
@@ -722,6 +780,7 @@ pub fn run() -> io::Result<()> {
                             AgentType::Unleash => "claude", // fall back; Unleash is not a crossload target
                             AgentType::Claude => "claude",
                             AgentType::Codex => "codex",
+                            AgentType::Clanker => "clanker",
                             AgentType::Antigravity => "agy",
                             AgentType::Gemini => "gemini",
                             AgentType::OpenCode => "opencode",
@@ -1144,7 +1203,7 @@ pub fn run() -> io::Result<()> {
                             io::Error::new(
                                 io::ErrorKind::InvalidInput,
                                 format!(
-                                    "Unknown agent: {}. Valid: claude, codex, gemini, opencode",
+                                    "Unknown agent: {}. Valid: claude, codex, clanker, antigravity, gemini, opencode, pi, hermes",
                                     name
                                 ),
                             )
@@ -1178,7 +1237,7 @@ pub fn run() -> io::Result<()> {
                             io::Error::new(
                                 io::ErrorKind::InvalidInput,
                                 format!(
-                                    "Unknown agent: {}. Valid: claude, codex, gemini, opencode",
+                                    "Unknown agent: {}. Valid: claude, codex, clanker, antigravity, gemini, opencode, pi, hermes",
                                     name
                                 ),
                             )
@@ -1213,7 +1272,7 @@ pub fn run() -> io::Result<()> {
                             io::Error::new(
                                 io::ErrorKind::InvalidInput,
                                 format!(
-                                    "Unknown agent: {}. Valid: claude, codex, gemini, opencode",
+                                    "Unknown agent: {}. Valid: claude, codex, clanker, antigravity, gemini, opencode, pi, hermes",
                                     name
                                 ),
                             )

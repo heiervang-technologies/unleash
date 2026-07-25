@@ -7,7 +7,7 @@
 
 **unleash** is...
   
-* an **agent CLI version manager**. `nvm` for AI agents — claude code, codex, antigravity, gemini, opencode, pi, hermes — with a rich TUI
+* an **agent CLI version manager**. `nvm` for AI agents — claude code, codex, clanker code, antigravity, gemini, opencode, pi, hermes — with a rich TUI
 
 * a compatibility layer that lets you start in claude code, then continue where you left off in codex.
 
@@ -42,6 +42,7 @@ docker run -it --rm -e ANTHROPIC_API_KEY -e CLAUDE_CODE_OAUTH_TOKEN -e OPENAI_AP
 unleash          # Launch TUI (profiles, versions, settings)
 unleash claude   # Start Claude with unleash features
 unleash codex    # Start Codex with unleash features
+unleash clanker  # Start Clanker Code with unleash features
 unleash agy      # Start Antigravity CLI with unleash features
 unleash gemini   # Start Gemini CLI with unleash features
 unleash opencode # Start OpenCode with unleash features
@@ -80,11 +81,12 @@ Add a matching profile at `~/.config/unleash/profiles/aider.toml` (any built-in 
 unleash <profile> [unified flags] [-- agent-specific flags]
 ```
 
-The first argument is always a **profile name**. The seven default profiles (`claude`, `codex`, `agy`, `gemini`, `opencode`, `pi`, `hermes`) map to their respective agents. Custom profiles can target any agent with custom settings — see [`docs/custom-agents.md`](docs/custom-agents.md).
+The first argument is always a **profile name**. The eight default profiles (`claude`, `codex`, `clanker`, `agy`, `gemini`, `opencode`, `pi`, `hermes`) map to their respective agents. Custom profiles can target any agent with custom settings — see [`docs/custom-agents.md`](docs/custom-agents.md).
 
 ```bash
 unleash claude -m opus -c              # Continue last Claude session with Opus
 unleash codex --safe                   # Run Codex with approval prompts
+unleash clanker --name Cleo            # Run Clanker as the Chloe character alias
 unleash gemini -p "fix the tests"     # Gemini headless mode
 unleash hermes -m claude-sonnet-4      # Hermes with a model override
 unleash work                           # Run a custom "work" profile
@@ -114,13 +116,13 @@ unleash claude -m opus -- --effort max --verbose
 
 ### How Translation Works
 
-| unleash | Claude | Codex | Antigravity (`agy`) | Gemini | OpenCode | Pi | Hermes |
-|---------|--------|-------|---------------------|--------|----------|----|--------|
-| `-p <prompt>` | `-p <prompt>` | `exec <prompt>` | `-p <prompt>` | `-p <prompt>` | `run <prompt>` | `-p <prompt>` | `-z <prompt>` |
-| `-c` | `--continue` | `resume --last` | `--continue` | `--resume latest` | `--continue` | `--continue` | `--continue` |
-| `-r [id]` | `--resume [id]` | `resume [id]` | `--conversation [id]` | `--resume [id]` | `-s <id>` | `--session <id>` | `--resume [id]` |
-| `--fork` | `--fork-session` | `fork` subcommand | *(unsupported)* | *(unsupported)* | `--fork` | `--fork` | `--worktree` |
-| *(default)* | `--dangerously-skip-permissions` | `--dangerously-bypass-approvals-and-sandbox` | `--dangerously-skip-permissions` | `--yolo` | *(no-op)* | *(no-op)* | `--yolo` |
+| unleash | Claude | Codex | Clanker | Antigravity (`agy`) | Gemini | OpenCode | Pi | Hermes |
+|---------|--------|-------|---------|---------------------|--------|----------|----|--------|
+| `-p <prompt>` | `-p <prompt>` | `exec <prompt>` | `exec <prompt>` | `-p <prompt>` | `-p <prompt>` | `run <prompt>` | `-p <prompt>` | `-z <prompt>` |
+| `-c` | `--continue` | `resume --last` | `resume --last` | `--continue` | `--resume latest` | `--continue` | `--continue` | `--continue` |
+| `-r [id]` | `--resume [id]` | `resume [id]` | `resume [id]` | `--conversation [id]` | `--resume [id]` | `-s <id>` | `--session <id>` | `--resume [id]` |
+| `--fork` | `--fork-session` | `fork` subcommand | `fork` subcommand | *(unsupported)* | *(unsupported)* | `--fork` | `--fork` | `--worktree` |
+| *(default)* | `--dangerously-skip-permissions` | `--dangerously-bypass-approvals-and-sandbox` | `--dangerously-bypass-approvals-and-sandbox` | `--dangerously-skip-permissions` | `--yolo` | *(no-op)* | *(no-op)* | `--yolo` |
 
 ### Management Commands
 
@@ -129,6 +131,7 @@ unleash                    # Launch TUI
 unleash update             # Update all agents (parallel progress bars)
 unleash update --check     # Check for updates without installing
 unleash update codex       # Update a specific agent
+unleash update clanker     # Build and atomically install the current Clanker fork
 unleash version            # Show installed versions
 unleash version --list     # List available versions
 unleash auth               # Check authentication status
@@ -137,10 +140,11 @@ unleash agents status      # Show all agent versions and update status
 
 ## Version Management
 
-unleash manages versions for all seven built-in agent CLIs:
+unleash manages versions for all eight built-in agent CLIs:
 
 - **Claude Code**: Native binary (GCS) or npm install
 - **Codex**: Prebuilt binary from GitHub releases, cargo build fallback
+- **Clanker Code**: Fork-owned `clanker` branch source build with atomic install and revision receipt
 - **Antigravity CLI** (`agy`): AUR helper (`yay`/`paru`) on Arch; download from antigravity.google elsewhere
 - **Gemini CLI**: npm install
 - **OpenCode**: Built-in `opencode upgrade` command
@@ -151,6 +155,13 @@ Version filtering:
 - **Blacklist mode** (default for Claude): All versions allowed except known-bad ones
 - **Whitelist mode** (default for Codex): Only verified versions allowed
 - Version lists are maintained in `Cargo.toml` and compiled into the binary
+
+Clanker updates are source builds from the current head of the private
+`heiervang-technologies/clanker-code` `clanker` branch. They require
+authenticated Git access plus Rust/Cargo, and currently have no signed release
+artifact or historical version picker. Unleash records the exact installed
+commit and treats that receipt as valid only while its owned binary still
+reports the recorded product version.
 
 ## Extended Capabilities
 

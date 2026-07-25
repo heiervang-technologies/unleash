@@ -48,7 +48,7 @@ enabled_plugins = []        # Empty = all bundled enabled; non-empty = only-thes
 
 ### Profiles (`~/.config/unleash/profiles/`)
 
-Each profile is a `.toml` file in `~/.config/unleash/profiles/`. The seven default profiles (`claude.toml`, `codex.toml`, `agy.toml`, `gemini.toml`, `opencode.toml`, `pi.toml`, `hermes.toml`) are created automatically on first run.
+Each profile is a `.toml` file in `~/.config/unleash/profiles/`. The eight default profiles (`claude.toml`, `codex.toml`, `clanker.toml`, `agy.toml`, `gemini.toml`, `opencode.toml`, `pi.toml`, `hermes.toml`) are created automatically on first run.
 
 **Example profile (`claude.toml`):**
 ```toml

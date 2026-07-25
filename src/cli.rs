@@ -129,7 +129,7 @@ pub struct PolyfillArgs {
     #[arg(long)]
     pub sandbox: bool,
 
-    /// Session name
+    /// Session or character name (agent-specific)
     #[arg(long)]
     pub name: Option<String>,
 
@@ -354,6 +354,14 @@ impl PolyfillArgs {
                         polyfill.worktree = Some(String::new()); // no name
                     }
                 }
+                "-u" | "--ucf" => {
+                    if let Some(val) = args.get(i + 1).filter(|val| !val.starts_with('-')) {
+                        polyfill.ucf = Some(val.clone());
+                        i += 1;
+                    } else {
+                        polyfill.ucf = Some(String::new());
+                    }
+                }
                 "-x" | "--crossload" => {
                     if let Some(val) = args.get(i + 1) {
                         if !val.starts_with('-') {
@@ -524,11 +532,11 @@ impl PolyfillArgs {
 #[command(author = "Heiervang Technologies")]
 #[command(version)]
 #[command(
-    about = "unleash - Extended CLI for AI Code Agents\n\nRun a profile:  unleash <profile> [flags] [-- passthrough]\nDefault profiles: claude, codex, antigravity, gemini, opencode\n\nRun 'unleash <profile> --help' for unified flag details."
+    about = "unleash - Extended CLI for AI Code Agents\n\nRun a profile:  unleash <profile> [flags] [-- passthrough]\nDefault profiles: claude, codex, clanker, antigravity, gemini, opencode, pi, hermes\n\nRun 'unleash <profile> --help' for unified flag details."
 )]
 #[command(long_about = r#"unleash - Extended CLI for AI Code Agents
 
-A wrapper for AI code agents (Claude, Codex, Antigravity, Gemini, OpenCode) with extended features:
+A wrapper for AI code agents (Claude, Codex, Clanker, Antigravity, Gemini, OpenCode, Pi, Hermes) with extended features:
   - Unified flags that work across all agents (polyfill layer)
   - Self-restart capability for MCP server reloading
   - Plugin system integration (loads from plugins/bundled/)
@@ -545,7 +553,7 @@ ARGUMENT LAYERS:
 
 USAGE:
   unleash              Opens TUI for profile and version management
-  unleash <profile>    Run a profile (claude, codex, antigravity, gemini, opencode, or custom)
+  unleash <profile>    Run a profile (claude, codex, clanker, antigravity, gemini, opencode, pi, hermes, or custom)
 
 UNIFIED FLAGS (before --):
   --safe                       Restore approval prompts (permissions bypassed by default)
@@ -605,7 +613,7 @@ pub enum Commands {
         action: Option<HooksAction>,
     },
 
-    /// Manage code agents (Claude, Codex, Antigravity, Gemini, OpenCode)
+    /// Manage code agents (Claude, Codex, Clanker, Antigravity, Gemini, OpenCode, Pi, Hermes)
     Agents {
         #[command(subcommand)]
         action: Option<AgentsAction>,
@@ -619,7 +627,7 @@ pub enum Commands {
     ///   unleash install codex claude # Install Codex and Claude
     ///   unleash install --all        # Install all agent CLIs
     Install {
-        /// Agents to install (e.g. claude, codex, antigravity, gemini, opencode)
+        /// Agents to install (e.g. claude, codex, clanker, antigravity, gemini, opencode)
         #[arg(conflicts_with = "all")]
         agents: Vec<String>,
 
@@ -636,7 +644,7 @@ pub enum Commands {
     ///   unleash uninstall gemini       # Uninstall Gemini CLI
     ///   unleash uninstall --all        # Uninstall all agent CLIs
     Uninstall {
-        /// Agents to uninstall (e.g. claude, codex, antigravity, gemini, opencode)
+        /// Agents to uninstall (e.g. claude, codex, clanker, antigravity, gemini, opencode)
         #[arg(conflicts_with = "all")]
         agents: Vec<String>,
 
@@ -652,7 +660,7 @@ pub enum Commands {
     /// -a/--all: update unleash + all installed agent CLIs
     /// Positional args: update specific agents (e.g. 'unleash update claude codex')
     Update {
-        /// Specific agents to update (e.g. claude, codex, antigravity, gemini, opencode)
+        /// Specific agents to update (e.g. claude, codex, clanker, antigravity, gemini, opencode)
         #[arg(conflicts_with_all = ["clis", "all"])]
         agents: Vec<String>,
 
@@ -1194,6 +1202,19 @@ mod tests {
         let (polyfill, _) = PolyfillArgs::parse_from_raw(&args);
         assert_eq!(polyfill.model, Some("opus".to_string()));
         assert_eq!(polyfill.prompt, Some("fix bug".to_string()));
+    }
+
+    #[test]
+    fn test_parse_ucf_split_and_equals_syntax() {
+        let split: Vec<String> = vec!["--ucf".into(), "lineage".into()];
+        let (polyfill, passthrough) = PolyfillArgs::parse_from_raw(&split);
+        assert_eq!(polyfill.ucf.as_deref(), Some("lineage"));
+        assert!(passthrough.is_empty());
+
+        let equals: Vec<String> = vec!["--ucf=lineage".into()];
+        let (polyfill, passthrough) = PolyfillArgs::parse_from_raw(&equals);
+        assert_eq!(polyfill.ucf.as_deref(), Some("lineage"));
+        assert!(passthrough.is_empty());
     }
 
     fn no_defaults() -> crate::config::ProfileDefaults {

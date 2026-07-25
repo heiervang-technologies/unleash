@@ -49,7 +49,7 @@ impl std::str::FromStr for CliFormat {
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         match s {
             "claude" | "claude-code" => Ok(Self::ClaudeCode),
-            "codex" => Ok(Self::Codex),
+            "codex" | "clanker" | "clanker-code" => Ok(Self::Codex),
             "gemini" | "gemini-cli" | "antigravity" | "antigravity-cli" | "agy" => {
                 Ok(Self::GeminiCli)
             }
@@ -124,7 +124,7 @@ pub fn convert_command(
             let reader = BufReader::new(input_data.as_bytes());
             claude::to_hub(reader)?
         }
-        "codex" => {
+        "codex" | "clanker" | "clanker-code" => {
             let reader = BufReader::new(input_data.as_bytes());
             codex::to_hub(reader)?
         }
@@ -164,7 +164,7 @@ pub fn convert_command(
         }
         _ => {
             return Err(ConvertError::InvalidFormat(format!(
-                "Unsupported source format: {from}. Supported: claude, codex, gemini, antigravity, opencode, pi, hub"
+                "Unsupported source format: {from}. Supported: claude, codex, clanker, gemini, antigravity, opencode, pi, hub"
             )));
         }
     };
@@ -173,7 +173,7 @@ pub fn convert_command(
         // Round-trip verify: convert back and compare
         let back = match from {
             "claude" | "claude-code" => claude::from_hub(&hub_records)?,
-            "codex" => codex::from_hub(&hub_records)?,
+            "codex" | "clanker" | "clanker-code" => codex::from_hub(&hub_records)?,
             "pi" | "pi-coding-agent" => pi::from_hub(&hub_records)?,
             "gemini" | "gemini-cli" | "antigravity" | "antigravity-cli" | "agy" => {
                 let back_val = gemini::from_hub(&hub_records)?;
@@ -278,7 +278,7 @@ pub fn convert_command(
     } else {
         let values = match to {
             "claude" | "claude-code" => claude::from_hub(&hub_records)?,
-            "codex" => codex::from_hub(&hub_records)?,
+            "codex" | "clanker" | "clanker-code" => codex::from_hub(&hub_records)?,
             "pi" | "pi-coding-agent" => pi::from_hub(&hub_records)?,
             "gemini" | "gemini-cli" | "antigravity" | "antigravity-cli" | "agy" => {
                 let val = gemini::from_hub(&hub_records)?;
@@ -334,7 +334,7 @@ pub fn convert_command(
             }
             _ => {
                 return Err(ConvertError::InvalidFormat(format!(
-                    "Unsupported target format: {to}. Supported: claude, codex, gemini, antigravity, opencode, pi, hub, passthrough"
+                    "Unsupported target format: {to}. Supported: claude, codex, clanker, gemini, antigravity, opencode, pi, hub, passthrough"
                 )));
             }
         };
@@ -358,4 +358,18 @@ pub fn convert_command(
     }
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::CliFormat;
+
+    #[test]
+    fn clanker_uses_the_codex_session_format() {
+        assert_eq!("clanker".parse::<CliFormat>().unwrap(), CliFormat::Codex);
+        assert_eq!(
+            "clanker-code".parse::<CliFormat>().unwrap(),
+            CliFormat::Codex
+        );
+    }
 }

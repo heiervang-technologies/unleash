@@ -98,7 +98,9 @@ pub fn inject_session(
     // Inject into target
     let (result, target_path) = match target_cli {
         "claude" | "claude-code" => inject_into_claude(&session, &hub_records)?,
-        "codex" => inject_into_codex(&session, &hub_records)?,
+        "codex" | "clanker" | "clanker-code" => {
+            inject_into_codex(&session, &hub_records, canonical_target)?
+        }
         "gemini" | "gemini-cli" => inject_into_gemini(&session, &hub_records)?,
         "antigravity" | "antigravity-cli" | "agy" => {
             // agy does NOT share gemini's session storage. Storage details
@@ -164,6 +166,7 @@ fn normalize_target_cli(target: &str) -> &str {
     match target {
         "claude" | "claude-code" => "claude",
         "codex" => "codex",
+        "clanker" | "clanker-code" => "clanker",
         "gemini" | "gemini-cli" => "gemini",
         // agy is intentionally NOT mapped to gemini here. They don't share
         // storage layout (gemini = JSON chats, agy = protobuf .pb files at
@@ -176,6 +179,13 @@ fn normalize_target_cli(target: &str) -> &str {
         "opencode" => "opencode",
         "pi" | "pi-coding-agent" => "pi",
         other => other,
+    }
+}
+
+fn codex_transport_display_name(target: &str) -> &str {
+    match target {
+        "clanker" => "Clanker",
+        _ => "Codex",
     }
 }
 
@@ -529,6 +539,7 @@ fn resume_args_for(target: &str, session_id: &str) -> Vec<String> {
     let agent_type = match target {
         "claude" | "claude-code" => crate::agents::AgentType::Claude,
         "codex" => crate::agents::AgentType::Codex,
+        "clanker" | "clanker-code" => crate::agents::AgentType::Clanker,
         "gemini" | "gemini-cli" => crate::agents::AgentType::Gemini,
         "antigravity" | "antigravity-cli" | "agy" => crate::agents::AgentType::Antigravity,
         "hermes" | "hermes-agent" => crate::agents::AgentType::Hermes,
@@ -778,6 +789,7 @@ fn inject_into_claude(
 fn inject_into_codex(
     source: &SessionInfo,
     hub_records: &[HubRecord],
+    target_cli: &str,
 ) -> Result<(InjectionResult, String), ConvertError> {
     let codex_lines = codex::from_hub(hub_records)?;
 
@@ -859,9 +871,10 @@ fn inject_into_codex(
             session_id: session_id.clone(),
             resume_args: vec!["resume".into(), session_id],
             message: format!(
-                "Session '{}' from {} injected into Codex",
+                "Session '{}' from {} injected into {}",
                 source.name.as_deref().unwrap_or(&source.id),
                 source.cli,
+                codex_transport_display_name(target_cli),
             ),
         },
         target_path,
@@ -3058,5 +3071,17 @@ mod tests {
         // `~/.gemini/` prefix but nothing else.
         assert_eq!(normalize_target_cli("gemini"), "gemini");
         assert_eq!(normalize_target_cli("gemini-cli"), "gemini");
+    }
+
+    #[test]
+    fn normalize_target_cli_keeps_clanker_distinct_with_codex_transport() {
+        assert_eq!(normalize_target_cli("clanker"), "clanker");
+        assert_eq!(normalize_target_cli("clanker-code"), "clanker");
+        assert_eq!(codex_transport_display_name("clanker"), "Clanker");
+        assert_eq!(codex_transport_display_name("codex"), "Codex");
+        assert_eq!(
+            resume_args_for("clanker", "abc-123"),
+            vec!["resume", "abc-123"]
+        );
     }
 }

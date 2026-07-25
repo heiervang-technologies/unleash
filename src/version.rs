@@ -119,6 +119,7 @@ pub fn save_embedded_versions(map: &HashMap<crate::agents::AgentType, Vec<Versio
             crate::agents::AgentType::Unleash => continue, // unleash versions not stored here
             crate::agents::AgentType::Claude => "claude",
             crate::agents::AgentType::Codex => "codex",
+            crate::agents::AgentType::Clanker => continue,
             crate::agents::AgentType::Antigravity => "antigravity",
             crate::agents::AgentType::Gemini => "gemini",
             crate::agents::AgentType::OpenCode => "opencode",
@@ -2412,6 +2413,37 @@ pub fn install_latest_streaming(
                 .ok_or_else(|| io::Error::other("no Codex version available"))?;
             let r = vm.install_codex_version_streaming(&v, log_tx)?;
             Ok((v, r))
+        }
+        AgentType::Clanker => {
+            let _ = log_tx
+                .send("Building Clanker Code from the fork-owned release branch...".to_string());
+            let mut manager = crate::agents::AgentManager::new()?;
+            match manager.update_agent(AgentType::Clanker) {
+                Ok(message) => {
+                    let revision = crate::clanker::installed_revision()
+                        .unwrap_or_else(|| "latest".to_string());
+                    let version = crate::clanker::revision_label(&revision).to_string();
+                    let _ = log_tx.send(message.clone());
+                    Ok((
+                        version,
+                        InstallResult {
+                            success: true,
+                            stdout: message,
+                            stderr: String::new(),
+                            error: None,
+                        },
+                    ))
+                }
+                Err(err) => Ok((
+                    "latest".to_string(),
+                    InstallResult {
+                        success: false,
+                        stdout: String::new(),
+                        stderr: err.to_string(),
+                        error: Some(err.to_string()),
+                    },
+                )),
+            }
         }
         AgentType::Gemini => {
             let versions = vm.get_gemini_version_list(None);

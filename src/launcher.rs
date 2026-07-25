@@ -97,7 +97,7 @@ pub(crate) fn exec_meta_command(
 }
 
 /// Returns true if `args` already encodes a resume/continue signal in any of
-/// the polyfill-emitted forms across the 7 supported agents. Used by the
+/// the polyfill-emitted forms across the 8 supported agents. Used by the
 /// restart loop to decide whether to inject its own `--continue` or leave the
 /// existing intent alone.
 ///
@@ -107,6 +107,7 @@ pub(crate) fn exec_meta_command(
 /// |------------|--------------------------|--------------------------|
 /// | Claude     | `--continue`, `-c`       | `--resume`, `-r`         |
 /// | Codex      | `resume` (subcommand)    | `resume` (subcommand)    |
+/// | Clanker    | `resume` (subcommand)    | `resume` (subcommand)    |
 /// | Gemini     | `--resume` (`latest`)    | `--resume`               |
 /// | OpenCode   | `--continue`             | `-s`                     |
 /// | Pi         | `--continue`             | `--session`              |
@@ -340,6 +341,20 @@ pub fn run_loop(config: LauncherConfig) -> io::Result<i32> {
 
 /// Run an agent with wrapper features
 pub fn run(auto_mode: bool, prompt: Option<String>, extra_args: Vec<String>) -> io::Result<()> {
+    run_with_env(auto_mode, prompt, extra_args, HashMap::new(), None)
+}
+
+/// Run the wrapper with launch-scoped environment overrides.
+///
+/// Overrides are applied after profile environment values and retained for
+/// every restart iteration without mutating the parent Unleash process.
+pub(crate) fn run_with_env(
+    auto_mode: bool,
+    prompt: Option<String>,
+    extra_args: Vec<String>,
+    child_env: HashMap<String, String>,
+    agent_type_override: Option<AgentType>,
+) -> io::Result<()> {
     // Meta-command short-circuit: --version / --help / doctor never need
     // hooks, plugins, permissions, or the restart loop. Exec the agent bare
     // with just profile env. Recovers the +100 ms / +54 MB claude pays for
@@ -394,10 +409,11 @@ pub fn run(auto_mode: bool, prompt: Option<String>, extra_args: Vec<String>) -> 
 
     // Find agent command
     let agent_cmd = find_agent_command()?;
-    let agent_type = detect_agent_type(&agent_cmd);
+    let agent_type = agent_type_override.or_else(|| detect_agent_type(&agent_cmd));
 
     // Load profile environment variables
-    let profile_env = load_profile_env()?;
+    let mut profile_env = load_profile_env()?;
+    profile_env.extend(child_env);
 
     // Check authentication on first run
     check_authentication();
@@ -450,7 +466,7 @@ fn find_agent_command() -> io::Result<PathBuf> {
                         "AGENT_CMD is set to '{}' which resolves to the unleash binary itself.\n\
                          This would cause infinite recursion.\n\
                          Set agent_cli_path in your profile to the actual agent binary \
-                         (e.g. 'claude', 'codex', 'antigravity', 'opencode').",
+                         (e.g. 'claude', 'codex', 'clanker', 'antigravity', 'opencode').",
                         cmd
                     ),
                 ));
@@ -701,7 +717,9 @@ fn run_agent(
     }
 
     // Codex native notify hook: end-of-turn => reset opaque + idle sound.
-    if agent_type == Some(AgentType::Codex) && hyprland::is_focus_enabled() {
+    if matches!(agent_type, Some(AgentType::Codex | AgentType::Clanker))
+        && hyprland::is_focus_enabled()
+    {
         if let Ok(exe) = env::current_exe() {
             let exe = exe
                 .to_string_lossy()

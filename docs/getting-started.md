@@ -1,13 +1,14 @@
 # Getting Started
 
-Unleash is a unified CLI manager for AI code agents — Claude Code, Codex, Antigravity (`agy`), Gemini CLI, OpenCode, Pi, and Hermes. It wraps these CLIs with a TUI, profiles, version management, and a plugin system.
+Unleash is a unified CLI manager for AI code agents — Claude Code, Codex, Clanker Code, Antigravity (`agy`), Gemini CLI, OpenCode, Pi, and Hermes. It wraps these CLIs with a TUI, profiles, version management, and a plugin system.
 
 ## Prerequisites
 
 - **curl** or **wget**
 - **git**
 - **Node.js / npm** — required for Claude Code and Gemini CLI
-- **Rust / Cargo** — optional, only needed to build from source
+- **Rust / Cargo** — optional for Unleash itself, but required to install or update Clanker Code
+- **Authenticated Git access to `heiervang-technologies/clanker-code`** — required for the private Clanker source build
 
 ## Install
 
@@ -40,12 +41,13 @@ Navigation:
 
 ## Pick a Profile
 
-Unleash ships with seven default profiles:
+Unleash ships with eight default profiles:
 
 | Profile | Agent |
 |---------|-------|
 | `claude` | Claude Code |
 | `codex` | Codex CLI |
+| `clanker` | Clanker Code |
 | `agy` | Antigravity CLI |
 | `gemini` | Gemini CLI |
 | `opencode` | OpenCode |
@@ -57,6 +59,7 @@ Launch directly from the command line:
 ```bash
 unleash claude
 unleash codex
+unleash clanker
 unleash agy
 unleash gemini
 unleash opencode
