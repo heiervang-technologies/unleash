@@ -8,7 +8,6 @@ use std::path::Path;
 use std::path::PathBuf;
 use std::process::Command;
 use unleash::config::AppConfig;
-use unleash::config::CustomAgentConfig;
 use unleash::config::Profile;
 use unleash::config::ProfileManager;
 
@@ -25,7 +24,7 @@ struct Harness {
 
 impl Harness {
     fn new() -> Self {
-        Self::with_profile("codex", "codex")
+        Self::with_profile("clanker", "clanker")
     }
 
     fn with_profile(profile_name: &str, binary_name: &str) -> Self {
@@ -122,26 +121,9 @@ fi
             ),
         ]);
         manager.save_profile(&profile).unwrap();
-        let custom_agents = if profile_name == "clanker" {
-            let mut polyfill = unleash::agents::AgentDefinition::codex().polyfill;
-            polyfill.name_flag = None;
-            vec![CustomAgentConfig {
-                name: "clanker".to_string(),
-                binary: "clanker".to_string(),
-                description: "Clanker Code fixture".to_string(),
-                polyfill,
-                github_repo: None,
-                npm_package: None,
-                asset_template: None,
-                enabled: true,
-            }]
-        } else {
-            Vec::new()
-        };
         manager
             .save_app_config(&AppConfig {
                 current_profile: profile_name.to_string(),
-                custom_agents,
                 ..AppConfig::default()
             })
             .unwrap();
@@ -205,7 +187,7 @@ fn explicit_alias_transports_original_argv_and_canonical_env_across_workspaces_a
         fs::create_dir_all(&workspace).unwrap();
         let mut command = harness.command(&workspace);
         command
-            .args(["codex", "--name", requested])
+            .args(["clanker", "--name", requested])
             .env("CLANKER_ID", "stale-parent-value");
         match tmux {
             Some(value) => {
@@ -244,7 +226,7 @@ fn bare_launch_never_resolves_and_preserves_inherited_identity_behavior() {
 
     let output = harness
         .command(&workspace)
-        .arg("codex")
+        .arg("clanker")
         .env("CLANKER_ID", "inherited")
         .env_remove("TMUX")
         .output()
@@ -283,11 +265,34 @@ fn live_clanker_profile_uses_codex_identity_and_restart_semantics() {
 }
 
 #[test]
+fn named_headless_launch_places_name_before_exec_subcommand() {
+    let harness = Harness::new();
+    let output = harness
+        .command(&harness.home)
+        .args(["clanker", "--name", "Cleo", "-p", "hello"])
+        .output()
+        .unwrap();
+
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let args = harness.argv(1);
+    assert_eq!(&args[..3], ["--name", "Cleo", "exec"]);
+    assert_eq!(
+        args.iter().filter(|arg| arg.as_str() == "--name").count(),
+        1
+    );
+    assert_eq!(harness.captured("clanker_id", 1), "chloe");
+}
+
+#[test]
 fn profile_environment_wins_for_character_resolution_context() {
     let harness = Harness::new();
     let output = harness
         .command(&harness.home)
-        .args(["codex", "--name", "Cleo"])
+        .args(["clanker", "--name", "Cleo"])
         .output()
         .unwrap();
 
@@ -309,7 +314,7 @@ fn malformed_mismatched_or_unresolved_identity_fails_before_child_launch() {
         let harness = Harness::new();
         let output = harness
             .command(&harness.home)
-            .args(["codex", "--name", "Cleo"])
+            .args(["clanker", "--name", "Cleo"])
             .env("RESOLVER_MODE", mode)
             .output()
             .unwrap();
@@ -325,7 +330,7 @@ fn named_meta_commands_skip_resolution_and_preserve_meta_behavior() {
         let harness = Harness::new();
         let output = harness
             .command(&harness.home)
-            .args(["codex", "--name", "Cleo", meta])
+            .args(["clanker", "--name", "Cleo", meta])
             .output()
             .unwrap();
 
@@ -343,7 +348,7 @@ fn dry_run_resolves_only_explicit_names_and_prints_verified_transport() {
     let named = Harness::new();
     let output = named
         .command(&named.home)
-        .args(["codex", "--name", "Cleo", "--dry-run"])
+        .args(["clanker", "--name", "Cleo", "--dry-run"])
         .output()
         .unwrap();
     let stdout = String::from_utf8_lossy(&output.stdout);
@@ -360,7 +365,7 @@ fn dry_run_resolves_only_explicit_names_and_prints_verified_transport() {
     let bare = Harness::new();
     let output = bare
         .command(&bare.home)
-        .args(["codex", "--dry-run"])
+        .args(["clanker", "--dry-run"])
         .output()
         .unwrap();
     let stdout = String::from_utf8_lossy(&output.stdout);
@@ -379,7 +384,7 @@ fn restart_retains_verified_identity_and_original_name() {
     let harness = Harness::new();
     let output = harness
         .command(&harness.home)
-        .args(["codex", "--name", "Cleo"])
+        .args(["clanker", "--name", "Cleo"])
         .env("TRIGGER_ONE_RESTART", "1")
         .output()
         .unwrap();
@@ -401,7 +406,7 @@ fn explicit_name_coexists_with_resume_and_fork_subcommands() {
     let resume = Harness::new();
     let output = resume
         .command(&resume.home)
-        .args(["codex", "--name", "Cleo", "--resume", "thread-1"])
+        .args(["clanker", "--name", "Cleo", "--resume", "thread-1"])
         .output()
         .unwrap();
     assert!(
@@ -417,7 +422,7 @@ fn explicit_name_coexists_with_resume_and_fork_subcommands() {
     let fork = Harness::new();
     let output = fork
         .command(&fork.home)
-        .args(["codex", "--name", "Cleo", "--fork"])
+        .args(["clanker", "--name", "Cleo", "--fork"])
         .output()
         .unwrap();
     assert!(
@@ -476,7 +481,7 @@ fn ucf_resume_keeps_lineage_unchanged_alongside_name_and_identity_env() {
 
     let output = harness
         .command(&harness.home)
-        .args(["codex", "--name", "Cleo", "--ucf", "lineage"])
+        .args(["clanker", "--name", "Cleo", "--ucf", "lineage"])
         .output()
         .unwrap();
 
@@ -506,7 +511,7 @@ fn crossload_keeps_source_ucf_bytes_unchanged_alongside_name_and_identity_env() 
     let output = harness
         .command(&harness.home)
         .args([
-            "codex",
+            "clanker",
             "--name",
             "Cleo",
             "--crossload",

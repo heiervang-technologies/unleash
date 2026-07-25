@@ -86,7 +86,7 @@ The first argument is always a **profile name**. The eight default profiles (`cl
 ```bash
 unleash claude -m opus -c              # Continue last Claude session with Opus
 unleash codex --safe                   # Run Codex with approval prompts
-unleash clanker --name hai             # Run Clanker as the named character
+unleash clanker --name Cleo            # Run Clanker as the Chloe character alias
 unleash gemini -p "fix the tests"     # Gemini headless mode
 unleash hermes -m claude-sonnet-4      # Hermes with a model override
 unleash work                           # Run a custom "work" profile
@@ -155,6 +155,13 @@ Version filtering:
 - **Blacklist mode** (default for Claude): All versions allowed except known-bad ones
 - **Whitelist mode** (default for Codex): Only verified versions allowed
 - Version lists are maintained in `Cargo.toml` and compiled into the binary
+
+Clanker updates are source builds from the current head of the private
+`heiervang-technologies/clanker-code` `clanker` branch. They require
+authenticated Git access plus Rust/Cargo, and currently have no signed release
+artifact or historical version picker. Unleash records the exact installed
+commit and treats that receipt as valid only while its owned binary still
+reports the recorded product version.
 
 ## Extended Capabilities
 

@@ -54,7 +54,11 @@ pub(crate) fn latest_revision() -> io::Result<String> {
 }
 
 pub(crate) fn installed_revision() -> Option<String> {
-    read_receipt(&receipt_path()).map(|receipt| receipt.revision)
+    installed_receipt().map(|receipt| receipt.revision)
+}
+
+pub(crate) fn installed_product_version() -> Option<String> {
+    installed_receipt().map(|receipt| receipt.product_version)
 }
 
 pub(crate) fn update_available(latest_revision: &str) -> bool {
@@ -128,7 +132,7 @@ fn install_latest_in(home: &Path) -> io::Result<InstallOutcome> {
     strip_binary_if_available(&built_binary)?;
 
     let product_version = probe_product_version(&built_binary)?;
-    let install_path = home.join(".local/bin/clanker");
+    let install_path = install_path_for(home);
     crate::agents::atomic_install_binary(&built_binary, &install_path)?;
 
     let receipt = InstallReceipt {
@@ -293,14 +297,31 @@ fn probe_product_version(binary: &Path) -> io::Result<String> {
     Ok(version.to_string())
 }
 
-fn receipt_path() -> PathBuf {
-    dirs::home_dir()
-        .unwrap_or_else(|| PathBuf::from("."))
-        .join(".local/share/unleash/clanker-install.json")
-}
-
 fn receipt_path_for(home: &Path) -> PathBuf {
     home.join(".local/share/unleash/clanker-install.json")
+}
+
+fn install_path_for(home: &Path) -> PathBuf {
+    home.join(".local/bin/clanker")
+}
+
+fn installed_receipt() -> Option<InstallReceipt> {
+    let home = dirs::home_dir()?;
+    installed_receipt_for(&home)
+}
+
+/// Return a receipt only when it still describes the binary Unleash owns.
+///
+/// The receipt is revision authority, not merely a cache: a missing or
+/// replaced binary must never make an update check report "up to date".
+fn installed_receipt_for(home: &Path) -> Option<InstallReceipt> {
+    let receipt = read_receipt(&receipt_path_for(home))?;
+    let binary = install_path_for(home);
+    if !binary.is_file() {
+        return None;
+    }
+    let product_version = probe_product_version(&binary).ok()?;
+    (product_version == receipt.product_version).then_some(receipt)
 }
 
 fn write_receipt(path: &Path, receipt: &InstallReceipt) -> io::Result<()> {
@@ -440,5 +461,43 @@ mod tests {
         invalid.repository = "openai/codex".to_string();
         write_receipt(&path, &invalid).unwrap();
         assert_eq!(read_receipt(&path), None);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn installed_receipt_requires_the_owned_matching_binary() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let temp = tempfile::tempdir().unwrap();
+        let receipt = InstallReceipt {
+            schema_version: RECEIPT_SCHEMA_VERSION,
+            repository: REPOSITORY.to_string(),
+            branch: RELEASE_BRANCH.to_string(),
+            revision: REVISION.to_string(),
+            product_version: "0.1.0+codex.0.143.0".to_string(),
+        };
+        write_receipt(&receipt_path_for(temp.path()), &receipt).unwrap();
+
+        assert_eq!(installed_receipt_for(temp.path()), None);
+
+        let binary = install_path_for(temp.path());
+        fs::create_dir_all(binary.parent().unwrap()).unwrap();
+        fs::write(
+            &binary,
+            "#!/bin/sh\nprintf '%s\\n' 'Clanker Code 0.1.0+codex.0.143.0'\n",
+        )
+        .unwrap();
+        let mut permissions = fs::metadata(&binary).unwrap().permissions();
+        permissions.set_mode(0o755);
+        fs::set_permissions(&binary, permissions).unwrap();
+
+        assert_eq!(installed_receipt_for(temp.path()), Some(receipt.clone()));
+
+        fs::write(
+            &binary,
+            "#!/bin/sh\nprintf '%s\\n' 'Clanker Code 0.1.0+codex.replaced'\n",
+        )
+        .unwrap();
+        assert_eq!(installed_receipt_for(temp.path()), None);
     }
 }

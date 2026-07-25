@@ -6,7 +6,7 @@ losing context.
 
 ## How It Works
 
-1. **Discovery** -- `unleash sessions` scans session stores for all installed CLIs (claude/codex/clanker/gemini/opencode/pi/hermes; Clanker shares the Codex path and agy shares the Gemini path)
+1. **Discovery** -- `unleash sessions` scans the physical Claude, Codex, Gemini, OpenCode, Pi, and Hermes stores. Clanker uses the Codex-format store, so it does not add a second scan or a distinct session label. Antigravity (`agy`) storage is separate and is not discoverable as Gemini data (#307).
 2. **Hub conversion** -- source format is converted to Universal Chat Format (`.ucf.jsonl`)
 3. **Target injection** -- hub format is converted to the target CLI's native format
 4. **Resume** -- target CLI launches with the injected session
@@ -16,11 +16,15 @@ losing context.
 ```
 Claude JSONL  <-->  Hub (.ucf.jsonl)  <-->  Codex/Clanker JSONL
                          |
-                         |---->  Gemini JSON  (agy shares this path)
+                         |---->  Gemini JSON
                          |---->  OpenCode SQLite
                          |---->  Pi JSON
                          |---->  Hermes JSON
 ```
+
+Antigravity is intentionally outside the injection spokes: its server-side
+cascade validation blocks synthetic sessions, so crossload falls back to a
+rendered prompt instead (#307).
 
 O(N) converters instead of O(N²) direct pairs. The hub format is JSONL for
 corruption recovery, with minimal extensions (~10% overhead).

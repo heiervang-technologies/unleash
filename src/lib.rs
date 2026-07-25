@@ -127,10 +127,32 @@ fn launch_agent_type(profile: &config::Profile) -> AgentType {
     if profile.name.eq_ignore_ascii_case("clanker")
         || target_name.is_some_and(|name| name.eq_ignore_ascii_case("clanker"))
     {
-        return AgentType::Codex;
+        return AgentType::Clanker;
     }
 
     profile.agent_type().unwrap_or(AgentType::Claude)
+}
+
+fn position_clanker_name_for_exec(
+    resolved: &mut polyfill::ResolvedInvocation,
+    requested_name: Option<&str>,
+) {
+    if resolved.subcommand_prefix.first().map(String::as_str) != Some("exec") {
+        return;
+    }
+    let Some(requested_name) = requested_name else {
+        return;
+    };
+    let Some(index) = resolved
+        .args
+        .windows(2)
+        .position(|pair| pair[0] == "--name" && pair[1] == requested_name)
+    else {
+        return;
+    };
+
+    let name_pair: Vec<String> = resolved.args.drain(index..index + 2).collect();
+    resolved.subcommand_prefix.splice(0..0, name_pair);
 }
 
 /// Resolve the binary path/name for a target CLI used by the wrapper-reentry
@@ -372,7 +394,7 @@ fn run_agent_with_polyfill(
     // Resolve only explicit Codex/Clanker names. Bare launches remain fully
     // delegated to Clanker Code's own continuation behavior. Keep this after
     // the meta-command shortcut so informational commands stay side-effect free.
-    let resolved_clanker_id = if agent_type == AgentType::Codex {
+    let resolved_clanker_id = if agent_type == AgentType::Clanker {
         polyfill_args
             .name
             .as_deref()
@@ -536,6 +558,9 @@ fn run_agent_with_polyfill(
     }
 
     let mut resolved = polyfill::resolve(&agent_def.polyfill, &flags, &profile.agent_cli_args);
+    if agent_type == AgentType::Clanker {
+        position_clanker_name_for_exec(&mut resolved, polyfill_args.name.as_deref());
+    }
     if let Some(clanker_id) = resolved_clanker_id {
         resolved
             .env

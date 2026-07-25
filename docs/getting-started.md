@@ -7,7 +7,8 @@ Unleash is a unified CLI manager for AI code agents — Claude Code, Codex, Clan
 - **curl** or **wget**
 - **git**
 - **Node.js / npm** — required for Claude Code and Gemini CLI
-- **Rust / Cargo** — optional, only needed to build from source
+- **Rust / Cargo** — optional for Unleash itself, but required to install or update Clanker Code
+- **Authenticated Git access to `heiervang-technologies/clanker-code`** — required for the private Clanker source build
 
 ## Install
 

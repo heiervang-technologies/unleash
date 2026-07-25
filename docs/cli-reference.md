@@ -17,7 +17,7 @@ A profile maps to an installed agent CLI. Run `unleash agents status` to see ava
 ```bash
 unleash claude              # Launch Claude Code
 unleash codex -a            # Launch Codex in auto-mode
-unleash clanker --name hai  # Launch a named Clanker character
+unleash clanker --name Cleo # Launch the Chloe character alias
 unleash gemini -p "fix it"  # Headless Gemini prompt
 ```
 

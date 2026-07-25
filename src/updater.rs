@@ -583,6 +583,9 @@ fn get_installed_version(agent_type: AgentType) -> Option<String> {
     if let AgentType::Custom(_) = &agent_type {
         return None; // custom agents don't support version detection yet
     }
+    if agent_type == AgentType::Clanker {
+        return crate::clanker::installed_product_version();
+    }
     let def = AgentDefinition::from_type(agent_type.clone());
     let output = Command::new(&def.binary).arg("--version").output().ok()?;
     if !output.status.success() {

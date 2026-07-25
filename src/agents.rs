@@ -814,6 +814,16 @@ impl AgentManager {
             .get(&agent_type)
             .ok_or_else(|| io::Error::new(io::ErrorKind::NotFound, "Agent not found"))?;
 
+        if agent_type == AgentType::Clanker {
+            let version = crate::clanker::installed_product_version();
+            let entry = self.versions.entry(agent_type).or_default();
+            entry.installed = version.clone();
+            entry.binary_path = version
+                .as_ref()
+                .and_then(|_| dirs::home_dir().map(|home| home.join(".local/bin/clanker")));
+            return Ok(version);
+        }
+
         if agent_type == AgentType::Antigravity {
             // Prefer the CLI binary version. The desktop Antigravity app and
             // the `agy` companion CLI use different version lines, and this
@@ -999,7 +1009,9 @@ impl AgentManager {
             let revision = crate::clanker::latest_revision()?;
             let version = crate::clanker::revision_label(&revision).to_string();
             let entry = self.versions.entry(agent_type).or_default();
-            entry.latest = Some(version.clone());
+            // Cache the full revision for equality checks. The abbreviated
+            // label is presentation-only and cannot be revision authority.
+            entry.latest = Some(revision);
             entry.last_checked = Some(
                 std::time::SystemTime::now()
                     .duration_since(std::time::UNIX_EPOCH)
@@ -1704,18 +1716,46 @@ impl AgentManager {
                 .get_installed_version(agent_type.clone())
                 .ok()
                 .flatten();
-            let latest = self
+            let latest_revision = self
                 .versions
                 .get(&agent_type)
                 .and_then(|v| v.latest.clone());
-            let update_available = match (&installed, &latest) {
-                (Some(i), Some(l)) => crate::version::version_less_than(i, l),
-                _ => false,
+            let installed_revision = (agent_type == AgentType::Clanker)
+                .then(crate::clanker::installed_revision)
+                .flatten();
+            let update_available = status_update_available(
+                &agent_type,
+                installed.as_deref(),
+                latest_revision.as_deref(),
+                installed_revision.as_deref(),
+            );
+            let latest = if agent_type == AgentType::Clanker {
+                latest_revision
+                    .as_deref()
+                    .map(crate::clanker::revision_label)
+                    .map(str::to_string)
+            } else {
+                latest_revision
             };
             results.push((agent_type, installed, latest, update_available));
         }
 
         results
+    }
+}
+
+fn status_update_available(
+    agent_type: &AgentType,
+    installed_version: Option<&str>,
+    latest: Option<&str>,
+    installed_revision: Option<&str>,
+) -> bool {
+    match agent_type {
+        AgentType::Clanker => latest.is_some_and(|revision| installed_revision != Some(revision)),
+        _ => match (installed_version, latest) {
+            (Some(installed), Some(latest)) => crate::version::version_less_than(installed, latest),
+            _ => false,
+        },
     }
 }
 
@@ -2727,6 +2767,31 @@ mod tests {
         assert!(matches!(
             clanker.polyfill.headless,
             HeadlessStrategy::Subcommand(ref command) if command == "exec"
+        ));
+    }
+
+    #[test]
+    fn clanker_status_compares_revisions_instead_of_product_semver() {
+        let latest = "40e7d1c0d9b0621d756eb14a5aa7735466aca0a9";
+        let prior = "1111111111111111111111111111111111111111";
+
+        assert!(!status_update_available(
+            &AgentType::Clanker,
+            Some("0.1.0+codex.0.143.0"),
+            Some(latest),
+            Some(latest),
+        ));
+        assert!(status_update_available(
+            &AgentType::Clanker,
+            Some("999.0.0"),
+            Some(latest),
+            Some(prior),
+        ));
+        assert!(status_update_available(
+            &AgentType::Clanker,
+            Some("999.0.0"),
+            Some(latest),
+            None,
         ));
     }
 
