@@ -187,6 +187,17 @@ impl Profile {
                 env: default_env(),
             },
             Self {
+                name: "clanker".to_string(),
+                description: "Clanker Code by Heiervang Technologies".to_string(),
+                agent_cli_path: "clanker".to_string(),
+                agent_cli_args: Vec::new(),
+                defaults: ProfileDefaults::default(),
+                agents: ProfileOverrides::default(),
+                stop_prompt: None,
+                theme: "#d4a017".to_string(),
+                env: default_env(),
+            },
+            Self {
                 name: "agy".to_string(),
                 description: "Antigravity CLI (agy) by Google".to_string(),
                 agent_cli_path: "agy".to_string(),
@@ -725,11 +736,28 @@ mod tests {
         // All agent profiles are seeded by default
         assert!(profiles.contains(&"claude".to_string()));
         assert!(profiles.contains(&"codex".to_string()));
+        assert!(profiles.contains(&"clanker".to_string()));
         assert!(profiles.contains(&"agy".to_string()));
         assert!(profiles.contains(&"gemini".to_string()));
         assert!(profiles.contains(&"opencode".to_string()));
         assert!(profiles.contains(&"pi".to_string()));
         assert!(profiles.contains(&"hermes".to_string()));
+    }
+
+    #[test]
+    fn clanker_default_profile_is_ranked_after_codex_and_uses_fork_binary() {
+        let profiles = Profile::default_profiles();
+        let codex = profiles
+            .iter()
+            .position(|profile| profile.name == "codex")
+            .unwrap();
+        let clanker = profiles
+            .iter()
+            .position(|profile| profile.name == "clanker")
+            .unwrap();
+        assert_eq!(clanker, codex + 1);
+        assert_eq!(profiles[clanker].agent_cli_path, "clanker");
+        assert!(profiles[clanker].description.contains("Heiervang"));
     }
 
     #[test]
@@ -759,6 +787,7 @@ mod tests {
         let profiles = manager.list_profiles().unwrap();
         assert!(profiles.contains(&"claude".to_string()));
         assert!(profiles.contains(&"codex".to_string()));
+        assert!(profiles.contains(&"clanker".to_string()));
         assert!(profiles.contains(&"agy".to_string()));
         assert!(profiles.contains(&"gemini".to_string()));
         assert!(profiles.contains(&"opencode".to_string()));

@@ -6,7 +6,7 @@ losing context.
 
 ## How It Works
 
-1. **Discovery** -- `unleash sessions` scans session stores for all installed CLIs (claude/codex/gemini/opencode/pi/hermes; agy shares the Gemini path)
+1. **Discovery** -- `unleash sessions` scans session stores for all installed CLIs (claude/codex/clanker/gemini/opencode/pi/hermes; Clanker shares the Codex path and agy shares the Gemini path)
 2. **Hub conversion** -- source format is converted to Universal Chat Format (`.ucf.jsonl`)
 3. **Target injection** -- hub format is converted to the target CLI's native format
 4. **Resume** -- target CLI launches with the injected session
@@ -14,7 +14,7 @@ losing context.
 ### Hub-and-Spoke Architecture
 
 ```
-Claude JSONL  <-->  Hub (.ucf.jsonl)  <-->  Codex JSONL
+Claude JSONL  <-->  Hub (.ucf.jsonl)  <-->  Codex/Clanker JSONL
                          |
                          |---->  Gemini JSON  (agy shares this path)
                          |---->  OpenCode SQLite

@@ -33,6 +33,7 @@ plugin's manifest with TUI controls.
 └── profiles/                # One TOML file per profile
     ├── claude.toml
     ├── codex.toml
+    ├── clanker.toml
     ├── agy.toml
     ├── gemini.toml
     ├── opencode.toml
@@ -40,7 +41,7 @@ plugin's manifest with TUI controls.
     └── hermes.toml
 ```
 
-`profiles/` is seeded with the seven default profiles on first run. Add
+`profiles/` is seeded with the eight default profiles on first run. Add
 extra `<name>.toml` files for custom profiles or custom agents — the
 filename (without `.toml`) becomes the subcommand name (e.g.
 `aider.toml` → `unleash aider`).

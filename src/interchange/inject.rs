@@ -98,7 +98,7 @@ pub fn inject_session(
     // Inject into target
     let (result, target_path) = match target_cli {
         "claude" | "claude-code" => inject_into_claude(&session, &hub_records)?,
-        "codex" => inject_into_codex(&session, &hub_records)?,
+        "codex" | "clanker" | "clanker-code" => inject_into_codex(&session, &hub_records)?,
         "gemini" | "gemini-cli" => inject_into_gemini(&session, &hub_records)?,
         "antigravity" | "antigravity-cli" | "agy" => {
             // agy does NOT share gemini's session storage. Storage details
@@ -164,6 +164,7 @@ fn normalize_target_cli(target: &str) -> &str {
     match target {
         "claude" | "claude-code" => "claude",
         "codex" => "codex",
+        "clanker" | "clanker-code" => "clanker",
         "gemini" | "gemini-cli" => "gemini",
         // agy is intentionally NOT mapped to gemini here. They don't share
         // storage layout (gemini = JSON chats, agy = protobuf .pb files at
@@ -529,6 +530,7 @@ fn resume_args_for(target: &str, session_id: &str) -> Vec<String> {
     let agent_type = match target {
         "claude" | "claude-code" => crate::agents::AgentType::Claude,
         "codex" => crate::agents::AgentType::Codex,
+        "clanker" | "clanker-code" => crate::agents::AgentType::Clanker,
         "gemini" | "gemini-cli" => crate::agents::AgentType::Gemini,
         "antigravity" | "antigravity-cli" | "agy" => crate::agents::AgentType::Antigravity,
         "hermes" | "hermes-agent" => crate::agents::AgentType::Hermes,
@@ -3058,5 +3060,15 @@ mod tests {
         // `~/.gemini/` prefix but nothing else.
         assert_eq!(normalize_target_cli("gemini"), "gemini");
         assert_eq!(normalize_target_cli("gemini-cli"), "gemini");
+    }
+
+    #[test]
+    fn normalize_target_cli_keeps_clanker_distinct_with_codex_transport() {
+        assert_eq!(normalize_target_cli("clanker"), "clanker");
+        assert_eq!(normalize_target_cli("clanker-code"), "clanker");
+        assert_eq!(
+            resume_args_for("clanker", "abc-123"),
+            vec!["resume", "abc-123"]
+        );
     }
 }

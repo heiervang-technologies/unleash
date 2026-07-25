@@ -328,8 +328,10 @@ pub fn build_agent_cli_picker_entries(custom: &[AgentDefinition]) -> Vec<AgentCl
         .map(AgentCliPickerEntry::Agent)
         .collect();
     for def in custom {
-        if let AgentType::Custom(_) = &def.agent_type {
-            entries.push(AgentCliPickerEntry::Agent(def.agent_type.clone()));
+        if let AgentType::Custom(name) = &def.agent_type {
+            if AgentType::from_str(name).is_none() {
+                entries.push(AgentCliPickerEntry::Agent(def.agent_type.clone()));
+            }
         }
     }
     entries.push(AgentCliPickerEntry::AddCustom);
@@ -344,6 +346,7 @@ pub fn resolve_agent_binary_path(agent: &AgentType, custom: &[AgentDefinition]) 
         AgentType::Unleash => return String::new(), // not a launchable agent
         AgentType::Claude => AgentDefinition::claude().binary,
         AgentType::Codex => AgentDefinition::codex().binary,
+        AgentType::Clanker => AgentDefinition::clanker().binary,
         AgentType::Antigravity => AgentDefinition::antigravity().binary,
         AgentType::Gemini => AgentDefinition::gemini().binary,
         AgentType::OpenCode => AgentDefinition::opencode().binary,
@@ -1144,6 +1147,7 @@ impl App {
             if let Ok(mut mgr) = AgentManager::new() {
                 for agent_type in &[
                     AgentType::Codex,
+                    AgentType::Clanker,
                     AgentType::Antigravity,
                     AgentType::Gemini,
                     AgentType::OpenCode,
@@ -1715,6 +1719,23 @@ impl App {
                     let versions = vm.get_codex_version_list(installed.as_deref());
                     let conflicts = vm.detect_conflicts("codex");
                     let _ = tx.send((AgentType::Codex, versions, conflicts));
+                });
+            }
+            AgentType::Clanker => {
+                thread::spawn(move || {
+                    let versions = crate::clanker::latest_revision()
+                        .ok()
+                        .map(|revision| {
+                            let is_installed = crate::clanker::installed_revision().as_deref()
+                                == Some(revision.as_str());
+                            vec![VersionInfo {
+                                version: crate::clanker::revision_label(&revision).to_string(),
+                                is_installed,
+                            }]
+                        })
+                        .unwrap_or_default();
+                    let conflicts = VersionManager::new().detect_conflicts("clanker");
+                    let _ = tx.send((AgentType::Clanker, versions, conflicts));
                 });
             }
             AgentType::Antigravity => {
@@ -2883,6 +2904,7 @@ impl App {
                     AgentType::Unleash => "unleash",
                     AgentType::Claude => "claude",
                     AgentType::Codex => "codex",
+                    AgentType::Clanker => "clanker",
                     AgentType::Gemini => "gemini",
                     AgentType::Antigravity => "antigravity",
                     AgentType::OpenCode => "opencode",
@@ -3138,6 +3160,10 @@ impl App {
                     }),
                     AgentType::Claude => vm.install_version_streaming(&version_clone, log_tx),
                     AgentType::Codex => vm.install_codex_version_streaming(&version_clone, log_tx),
+                    AgentType::Clanker => {
+                        crate::version::install_latest_streaming(AgentType::Clanker, log_tx)
+                            .map(|(_, result)| result)
+                    }
                     AgentType::Gemini => {
                         vm.install_gemini_version_streaming(&version_clone, log_tx)
                     }
@@ -7474,12 +7500,15 @@ mod tests {
         // Unleash is now first in the picker
         assert_eq!(app.version_agent, AgentType::Unleash);
 
-        // Navigate down: Unleash -> Claude -> Codex -> Antigravity -> OpenCode -> Pi -> Hermes -> Gemini
+        // Navigate down: Unleash -> Claude -> Codex -> Clanker -> Antigravity -> OpenCode -> Pi -> Hermes -> Gemini
         let _ = app.handle_version_input(NavAction::Down, key_for(NavAction::Down));
         assert_eq!(app.version_agent, AgentType::Claude);
 
         let _ = app.handle_version_input(NavAction::Down, key_for(NavAction::Down));
         assert_eq!(app.version_agent, AgentType::Codex);
+
+        let _ = app.handle_version_input(NavAction::Down, key_for(NavAction::Down));
+        assert_eq!(app.version_agent, AgentType::Clanker);
 
         let _ = app.handle_version_input(NavAction::Down, key_for(NavAction::Down));
         assert_eq!(app.version_agent, AgentType::Antigravity);
@@ -7509,13 +7538,16 @@ mod tests {
         app.screen = Screen::VersionManagement;
         app.version_focus = VersionFocus::AgentPicker;
 
-        // Start at OpenCode (index 4 with Unleash first)
-        app.switch_to_agent_index(4);
+        // Start at OpenCode (index 5 with Unleash first)
+        app.switch_to_agent_index(5);
         assert_eq!(app.version_agent, AgentType::OpenCode);
 
-        // Navigate up: OpenCode -> Antigravity -> Codex -> Claude -> Unleash
+        // Navigate up: OpenCode -> Antigravity -> Clanker -> Codex -> Claude -> Unleash
         let _ = app.handle_version_input(NavAction::Up, key_for(NavAction::Up));
         assert_eq!(app.version_agent, AgentType::Antigravity);
+
+        let _ = app.handle_version_input(NavAction::Up, key_for(NavAction::Up));
+        assert_eq!(app.version_agent, AgentType::Clanker);
 
         let _ = app.handle_version_input(NavAction::Up, key_for(NavAction::Up));
         assert_eq!(app.version_agent, AgentType::Codex);
@@ -7712,7 +7744,12 @@ mod tests {
         assert!(app.version_list_receiver.is_some());
         assert_eq!(app.version_agent, AgentType::Codex);
 
-        // Switch again to Antigravity
+        // Switch again to Clanker
+        let _ = app.handle_version_input(NavAction::Down, key_for(NavAction::Down));
+        assert!(app.version_list_receiver.is_some());
+        assert_eq!(app.version_agent, AgentType::Clanker);
+
+        // And then Antigravity
         let _ = app.handle_version_input(NavAction::Down, key_for(NavAction::Down));
         assert!(app.version_list_receiver.is_some());
         assert_eq!(app.version_agent, AgentType::Antigravity);
@@ -7769,20 +7806,22 @@ mod tests {
     #[test]
     fn test_all_agent_types_in_cycle() {
         let agents = AgentType::builtin();
-        assert_eq!(agents.len(), 7);
+        assert_eq!(agents.len(), 8);
         assert_eq!(agents[0], AgentType::Claude);
         assert_eq!(agents[1], AgentType::Codex);
-        assert_eq!(agents[2], AgentType::Antigravity);
-        assert_eq!(agents[3], AgentType::OpenCode);
-        assert_eq!(agents[4], AgentType::Pi);
-        assert_eq!(agents[5], AgentType::Hermes);
-        assert_eq!(agents[6], AgentType::Gemini);
+        assert_eq!(agents[2], AgentType::Clanker);
+        assert_eq!(agents[3], AgentType::Antigravity);
+        assert_eq!(agents[4], AgentType::OpenCode);
+        assert_eq!(agents[5], AgentType::Pi);
+        assert_eq!(agents[6], AgentType::Hermes);
+        assert_eq!(agents[7], AgentType::Gemini);
     }
 
     #[test]
     fn test_agent_display_names() {
         assert_eq!(AgentType::Claude.display_name(), "Claude Code");
         assert_eq!(AgentType::Codex.display_name(), "Codex");
+        assert_eq!(AgentType::Clanker.display_name(), "Clanker Code");
         assert_eq!(AgentType::Antigravity.display_name(), "Antigravity CLI");
         assert_eq!(AgentType::Gemini.display_name(), "Gemini CLI");
         assert_eq!(AgentType::OpenCode.display_name(), "OpenCode");
@@ -7884,8 +7923,8 @@ mod tests {
         app.screen = Screen::VersionManagement;
         app.version_focus = VersionFocus::AgentPicker;
 
-        // Navigate to Antigravity (index 3 with Unleash first)
-        app.switch_to_agent_index(3);
+        // Navigate to Antigravity (index 4 with Unleash first)
+        app.switch_to_agent_index(4);
         assert_eq!(app.version_agent, AgentType::Antigravity);
 
         // Press 'g' then 'g' to jump to top (Unleash is now index 0)
@@ -7949,18 +7988,19 @@ mod tests {
     #[test]
     fn test_picker_entries_default_order() {
         let entries = build_agent_cli_picker_entries(&[]);
-        assert_eq!(entries.len(), 8);
+        assert_eq!(entries.len(), 9);
         assert_eq!(entries[0], AgentCliPickerEntry::Agent(AgentType::Claude));
         assert_eq!(entries[1], AgentCliPickerEntry::Agent(AgentType::Codex));
+        assert_eq!(entries[2], AgentCliPickerEntry::Agent(AgentType::Clanker));
         assert_eq!(
-            entries[2],
+            entries[3],
             AgentCliPickerEntry::Agent(AgentType::Antigravity)
         );
-        assert_eq!(entries[3], AgentCliPickerEntry::Agent(AgentType::OpenCode));
-        assert_eq!(entries[4], AgentCliPickerEntry::Agent(AgentType::Pi));
-        assert_eq!(entries[5], AgentCliPickerEntry::Agent(AgentType::Hermes));
-        assert_eq!(entries[6], AgentCliPickerEntry::Agent(AgentType::Gemini));
-        assert_eq!(entries[7], AgentCliPickerEntry::AddCustom);
+        assert_eq!(entries[4], AgentCliPickerEntry::Agent(AgentType::OpenCode));
+        assert_eq!(entries[5], AgentCliPickerEntry::Agent(AgentType::Pi));
+        assert_eq!(entries[6], AgentCliPickerEntry::Agent(AgentType::Hermes));
+        assert_eq!(entries[7], AgentCliPickerEntry::Agent(AgentType::Gemini));
+        assert_eq!(entries[8], AgentCliPickerEntry::AddCustom);
     }
 
     /// Custom agents appear in the picker between built-ins and AddCustom.
@@ -7971,12 +8011,27 @@ mod tests {
         def.name = "aider".to_string();
         def.binary = "aider".to_string();
         let entries = build_agent_cli_picker_entries(&[def]);
-        assert_eq!(entries.len(), 9);
+        assert_eq!(entries.len(), 10);
         assert_eq!(
-            entries[7],
+            entries[8],
             AgentCliPickerEntry::Agent(AgentType::Custom("aider".to_string()))
         );
-        assert_eq!(entries[8], AgentCliPickerEntry::AddCustom);
+        assert_eq!(entries[9], AgentCliPickerEntry::AddCustom);
+    }
+
+    #[test]
+    fn test_picker_suppresses_legacy_custom_clanker_entry() {
+        let mut legacy = AgentDefinition::clanker();
+        legacy.agent_type = AgentType::Custom("clanker".to_string());
+        let entries = build_agent_cli_picker_entries(&[legacy]);
+        assert_eq!(entries.len(), 9);
+        assert_eq!(
+            entries
+                .iter()
+                .filter(|entry| **entry == AgentCliPickerEntry::Agent(AgentType::Clanker))
+                .count(),
+            1
+        );
     }
 
     /// Right key advances and wraps; left key wraps backwards.
@@ -8001,9 +8056,9 @@ mod tests {
         app.handle_agent_cli_picker_key(KeyEvent::new(KeyCode::Left, KeyModifiers::NONE));
         assert_eq!(app.agent_picker_index, 0);
 
-        // Left from 0 wraps to last (AddCustom = 7 with no custom agents)
+        // Left from 0 wraps to last (AddCustom = 8 with no custom agents)
         app.handle_agent_cli_picker_key(KeyEvent::new(KeyCode::Left, KeyModifiers::NONE));
-        assert_eq!(app.agent_picker_index, 7);
+        assert_eq!(app.agent_picker_index, 8);
 
         // Right from last wraps back to 0
         app.handle_agent_cli_picker_key(KeyEvent::new(KeyCode::Right, KeyModifiers::NONE));
@@ -8088,10 +8143,10 @@ mod tests {
         app.app_config.custom_agents.push(cfg);
 
         let entries = app.agent_cli_picker_entries();
-        // 7 builtins + 1 custom + AddCustom = 9
-        assert_eq!(entries.len(), 9);
+        // 8 builtins + 1 custom + AddCustom = 10
+        assert_eq!(entries.len(), 10);
         assert!(matches!(
-            &entries[7],
+            &entries[8],
             AgentCliPickerEntry::Agent(AgentType::Custom(n)) if n == "aider"
         ));
     }
@@ -8628,11 +8683,11 @@ yolo_flag = "--yes"
     #[test]
     fn test_picker_snapshot_cycle_right_to_gemini() {
         let (mut app, _temp) = picker_open_app("claude");
-        // Right six times: Claude -> Codex -> Antigravity -> OpenCode -> Pi -> Hermes -> Gemini
-        for _ in 0..6 {
+        // Right seven times: Claude -> Codex -> Clanker -> Antigravity -> OpenCode -> Pi -> Hermes -> Gemini
+        for _ in 0..7 {
             app.handle_agent_cli_picker_key(KeyEvent::new(KeyCode::Right, KeyModifiers::NONE));
         }
-        assert_eq!(app.agent_picker_index, 6);
+        assert_eq!(app.agent_picker_index, 7);
 
         let buf = render_region_to_buffer(80, 8, |frame, area| {
             app.render_profile_edit(frame, area);

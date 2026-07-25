@@ -8,6 +8,7 @@ pub mod agents;
 #[cfg(feature = "tui")]
 mod ansi;
 mod auth;
+mod clanker;
 
 /// Crate-wide lock for tests that mutate process-global environment variables
 /// (`HOME`, `XDG_DATA_HOME`, `UNLEASH_*`, …). Module-local locks are NOT
@@ -132,6 +133,7 @@ fn resolve_target_binary(target_cli: &str) -> String {
     let canonical = match target_cli {
         "claude" | "claude-code" => Some(AgentType::Claude),
         "codex" => Some(AgentType::Codex),
+        "clanker" | "clanker-code" => Some(AgentType::Clanker),
         "antigravity" | "antigravity-cli" | "agy" => Some(AgentType::Antigravity),
         "gemini" | "gemini-cli" => Some(AgentType::Gemini),
         "opencode" => Some(AgentType::OpenCode),
@@ -313,6 +315,7 @@ fn run_agent_with_polyfill(
         AgentType::Unleash => unreachable!("Unleash is not a launchable agent"),
         AgentType::Claude => "claude",
         AgentType::Codex => "codex",
+        AgentType::Clanker => "clanker",
         AgentType::Antigravity => "agy",
         AgentType::Gemini => "gemini",
         AgentType::OpenCode => "opencode",
@@ -709,6 +712,7 @@ pub fn run() -> io::Result<()> {
             let target_cli = match first_arg {
                 "claude" | "claude-code" => "claude",
                 "codex" => "codex",
+                "clanker" | "clanker-code" => "clanker",
                 "antigravity" | "antigravity-cli" | "agy" => "agy",
                 "gemini" | "gemini-cli" => "gemini",
                 "opencode" => "opencode",
@@ -722,6 +726,7 @@ pub fn run() -> io::Result<()> {
                             AgentType::Unleash => "claude", // fall back; Unleash is not a crossload target
                             AgentType::Claude => "claude",
                             AgentType::Codex => "codex",
+                            AgentType::Clanker => "clanker",
                             AgentType::Antigravity => "agy",
                             AgentType::Gemini => "gemini",
                             AgentType::OpenCode => "opencode",
@@ -1144,7 +1149,7 @@ pub fn run() -> io::Result<()> {
                             io::Error::new(
                                 io::ErrorKind::InvalidInput,
                                 format!(
-                                    "Unknown agent: {}. Valid: claude, codex, gemini, opencode",
+                                    "Unknown agent: {}. Valid: claude, codex, clanker, antigravity, gemini, opencode, pi, hermes",
                                     name
                                 ),
                             )
@@ -1178,7 +1183,7 @@ pub fn run() -> io::Result<()> {
                             io::Error::new(
                                 io::ErrorKind::InvalidInput,
                                 format!(
-                                    "Unknown agent: {}. Valid: claude, codex, gemini, opencode",
+                                    "Unknown agent: {}. Valid: claude, codex, clanker, antigravity, gemini, opencode, pi, hermes",
                                     name
                                 ),
                             )
@@ -1213,7 +1218,7 @@ pub fn run() -> io::Result<()> {
                             io::Error::new(
                                 io::ErrorKind::InvalidInput,
                                 format!(
-                                    "Unknown agent: {}. Valid: claude, codex, gemini, opencode",
+                                    "Unknown agent: {}. Valid: claude, codex, clanker, antigravity, gemini, opencode, pi, hermes",
                                     name
                                 ),
                             )

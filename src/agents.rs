@@ -21,6 +21,7 @@ pub enum AgentType {
     Unleash,
     Claude,
     Codex,
+    Clanker,
     Antigravity,
     Gemini,
     OpenCode,
@@ -35,6 +36,7 @@ impl AgentType {
         &[
             AgentType::Claude,
             AgentType::Codex,
+            AgentType::Clanker,
             AgentType::Antigravity,
             AgentType::OpenCode,
             AgentType::Pi,
@@ -47,8 +49,10 @@ impl AgentType {
     pub fn all_with_custom(custom: &[AgentDefinition]) -> Vec<AgentType> {
         let mut types: Vec<AgentType> = Self::builtin().to_vec();
         for def in custom {
-            if let AgentType::Custom(_) = &def.agent_type {
-                types.push(def.agent_type.clone());
+            if let AgentType::Custom(name) = &def.agent_type {
+                if Self::from_str(name).is_none() {
+                    types.push(def.agent_type.clone());
+                }
             }
         }
         types
@@ -66,6 +70,7 @@ impl AgentType {
             AgentType::Unleash => Cow::Borrowed("Unleash"),
             AgentType::Claude => Cow::Borrowed("Claude Code"),
             AgentType::Codex => Cow::Borrowed("Codex"),
+            AgentType::Clanker => Cow::Borrowed("Clanker Code"),
             AgentType::Antigravity => Cow::Borrowed("Antigravity CLI"),
             AgentType::Gemini => Cow::Borrowed("Gemini CLI"),
             AgentType::OpenCode => Cow::Borrowed("OpenCode"),
@@ -82,6 +87,7 @@ impl AgentType {
         match s.to_lowercase().as_str() {
             "claude" | "claude-code" => Some(AgentType::Claude),
             "codex" => Some(AgentType::Codex),
+            "clanker" | "clanker-code" => Some(AgentType::Clanker),
             "antigravity" | "antigravity-cli" | "agy" => Some(AgentType::Antigravity),
             "gemini" | "gemini-cli" => Some(AgentType::Gemini),
             "opencode" | "open-code" => Some(AgentType::OpenCode),
@@ -97,6 +103,7 @@ impl AgentType {
             AgentType::Unleash => "unleash",
             AgentType::Claude => "claude",
             AgentType::Codex => "codex",
+            AgentType::Clanker => "clanker",
             AgentType::Antigravity => "antigravity",
             AgentType::Gemini => "gemini",
             AgentType::OpenCode => "opencode",
@@ -331,6 +338,7 @@ impl AgentDefinition {
             ),
             AgentType::Claude => Self::claude(),
             AgentType::Codex => Self::codex(),
+            AgentType::Clanker => Self::clanker(),
             AgentType::Antigravity => Self::antigravity(),
             AgentType::Gemini => Self::gemini(),
             AgentType::OpenCode => Self::opencode(),
@@ -414,6 +422,22 @@ impl AgentDefinition {
             npm_package: None,
             enabled: true,
         }
+    }
+
+    /// Create the Clanker Code definition.
+    ///
+    /// Clanker is a Codex-compatible fork, but it is independently installed
+    /// and updated from the fork's release branch. Keep its launch grammar in
+    /// sync with Codex while preserving Clanker's explicit character selector.
+    pub fn clanker() -> Self {
+        let mut definition = Self::codex();
+        definition.agent_type = AgentType::Clanker;
+        definition.name = "Clanker Code".to_string();
+        definition.binary = "clanker".to_string();
+        definition.description = "Heiervang Technologies' character-first Codex fork".to_string();
+        definition.polyfill.name_flag = Some("--name".to_string());
+        definition.github_repo = Some(crate::clanker::REPOSITORY.to_string());
+        definition
     }
 
     /// Create Antigravity CLI agent definition
@@ -647,6 +671,7 @@ impl AgentManager {
         // Register default agents
         manager.register_agent(AgentDefinition::claude());
         manager.register_agent(AgentDefinition::codex());
+        manager.register_agent(AgentDefinition::clanker());
         manager.register_agent(AgentDefinition::gemini());
         manager.register_agent(AgentDefinition::antigravity());
         manager.register_agent(AgentDefinition::opencode());
@@ -661,7 +686,7 @@ impl AgentManager {
         if let Ok(mgr) = crate::config::ProfileManager::new() {
             if let Ok(app_config) = mgr.load_app_config() {
                 for custom in &app_config.custom_agents {
-                    if !custom.enabled {
+                    if !custom.enabled || AgentType::from_str(&custom.name).is_some() {
                         continue;
                     }
                     manager.register_agent(AgentDefinition::from_custom_config(custom));
@@ -688,6 +713,7 @@ impl AgentManager {
         };
         manager.register_agent(AgentDefinition::claude());
         manager.register_agent(AgentDefinition::codex());
+        manager.register_agent(AgentDefinition::clanker());
         manager.register_agent(AgentDefinition::gemini());
         manager.register_agent(AgentDefinition::antigravity());
         manager.register_agent(AgentDefinition::opencode());
@@ -715,7 +741,20 @@ impl AgentManager {
 
     /// List all registered agents
     pub fn list_agents(&self) -> Vec<&AgentDefinition> {
-        self.agents.values().collect()
+        let mut agents = Vec::with_capacity(self.agents.len());
+        for agent_type in AgentType::builtin() {
+            if let Some(agent) = self.agents.get(agent_type) {
+                agents.push(agent);
+            }
+        }
+        let mut custom: Vec<_> = self
+            .agents
+            .values()
+            .filter(|agent| matches!(agent.agent_type, AgentType::Custom(_)))
+            .collect();
+        custom.sort_by(|left, right| left.name.cmp(&right.name));
+        agents.extend(custom);
+        agents
     }
 
     /// Resolve a user-supplied name to an AgentType.
@@ -956,6 +995,20 @@ impl AgentManager {
 
     /// Get latest version from GitHub
     pub fn get_latest_version(&mut self, agent_type: AgentType) -> io::Result<Option<String>> {
+        if agent_type == AgentType::Clanker {
+            let revision = crate::clanker::latest_revision()?;
+            let version = crate::clanker::revision_label(&revision).to_string();
+            let entry = self.versions.entry(agent_type).or_default();
+            entry.latest = Some(version.clone());
+            entry.last_checked = Some(
+                std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .unwrap()
+                    .as_secs(),
+            );
+            return Ok(Some(version));
+        }
+
         let agent = self
             .agents
             .get(&agent_type)
@@ -1008,6 +1061,12 @@ impl AgentManager {
 
     /// Check if an update is available
     pub fn check_update(&mut self, agent_type: AgentType) -> io::Result<bool> {
+        if agent_type == AgentType::Clanker {
+            let latest = crate::clanker::latest_revision()?;
+            let installed = self.get_installed_version(AgentType::Clanker)?;
+            return Ok(installed.is_none() || crate::clanker::update_available(&latest));
+        }
+
         let installed = self.get_installed_version(agent_type.clone())?;
         let latest = self.get_latest_version(agent_type)?;
 
@@ -1030,6 +1089,7 @@ impl AgentManager {
             )),
             AgentType::Claude => self.update_claude(),
             AgentType::Codex => self.update_codex(),
+            AgentType::Clanker => self.update_clanker(),
             AgentType::Antigravity => self.update_antigravity(),
             AgentType::Gemini => self.update_npm_agent("@google/gemini-cli", "Gemini CLI"),
             AgentType::OpenCode => self.update_opencode(),
@@ -1270,6 +1330,16 @@ impl AgentManager {
         }
 
         Self::build_codex_from_source(&install_path)
+    }
+
+    fn update_clanker(&self) -> io::Result<String> {
+        let outcome = crate::clanker::install_latest()?;
+        Ok(format!(
+            "Clanker Code {} ({}) installed to {}",
+            outcome.product_version,
+            crate::clanker::revision_label(&outcome.revision),
+            outcome.install_path.display()
+        ))
     }
 
     /// Download and install prebuilt Codex binary from GitHub releases
@@ -2615,6 +2685,64 @@ mod tests {
         );
         assert_eq!(pi.binary, "pi");
         assert_eq!(pi.agent_type, AgentType::Pi);
+    }
+
+    #[test]
+    fn clanker_is_first_class_and_ranked_directly_after_codex() {
+        let builtins = AgentType::builtin();
+        assert_eq!(builtins[1], AgentType::Codex);
+        assert_eq!(builtins[2], AgentType::Clanker);
+        assert!(
+            builtins
+                .iter()
+                .position(|agent| *agent == AgentType::Clanker)
+                < builtins.iter().position(|agent| *agent == AgentType::Pi)
+        );
+        assert!(
+            builtins
+                .iter()
+                .position(|agent| *agent == AgentType::Clanker)
+                < builtins
+                    .iter()
+                    .position(|agent| *agent == AgentType::Hermes)
+        );
+        assert_eq!(AgentType::from_str("clanker"), Some(AgentType::Clanker));
+        assert_eq!(
+            AgentType::from_str("clanker-code"),
+            Some(AgentType::Clanker)
+        );
+    }
+
+    #[test]
+    fn clanker_definition_uses_fork_binary_repository_and_name_flag() {
+        let clanker = AgentDefinition::clanker();
+        assert_eq!(clanker.agent_type, AgentType::Clanker);
+        assert_eq!(clanker.binary, "clanker");
+        assert_eq!(
+            clanker.github_repo.as_deref(),
+            Some(crate::clanker::REPOSITORY)
+        );
+        assert!(clanker.npm_package.is_none());
+        assert_eq!(clanker.polyfill.name_flag.as_deref(), Some("--name"));
+        assert!(matches!(
+            clanker.polyfill.headless,
+            HeadlessStrategy::Subcommand(ref command) if command == "exec"
+        ));
+    }
+
+    #[test]
+    fn legacy_custom_clanker_is_suppressed_from_builtin_picker_order() {
+        let mut legacy = AgentDefinition::clanker();
+        legacy.agent_type = AgentType::Custom("clanker".to_string());
+        let types = AgentType::all_with_custom(&[legacy]);
+        assert_eq!(
+            types
+                .iter()
+                .filter(|agent| **agent == AgentType::Clanker)
+                .count(),
+            1
+        );
+        assert!(!types.contains(&AgentType::Custom("clanker".to_string())));
     }
 
     #[test]

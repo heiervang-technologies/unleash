@@ -550,6 +550,16 @@ fn check_or_update_self(check_only: bool) -> io::Result<()> {
 /// Check a single agent's installed vs latest version.
 fn check_agent(agent_type: AgentType) -> io::Result<CheckResult> {
     let installed = get_installed_version(agent_type.clone());
+    if agent_type == AgentType::Clanker {
+        let revision = crate::clanker::latest_revision()?;
+        return Ok(CheckResult {
+            agent_type,
+            installed: installed.clone(),
+            latest: Some(crate::clanker::revision_label(&revision).to_string()),
+            update_available: installed.is_none() || crate::clanker::update_available(&revision),
+        });
+    }
+
     let latest = get_latest_version(agent_type.clone())?;
 
     let update_available = match (&installed, &latest) {
@@ -617,6 +627,10 @@ fn get_latest_version(agent_type: AgentType) -> io::Result<Option<String>> {
     if let AgentType::Custom(_) = &agent_type {
         return Ok(None); // custom agents don't support version detection yet
     }
+    if agent_type == AgentType::Clanker {
+        return crate::clanker::latest_revision()
+            .map(|revision| Some(crate::clanker::revision_label(&revision).to_string()));
+    }
     let def = AgentDefinition::from_type(agent_type.clone());
 
     // Prefer npm registry for agents that have an npm package.
@@ -659,6 +673,7 @@ fn latest_embedded_version(agent_type: &AgentType) -> Option<String> {
     let key = match agent_type {
         AgentType::Claude => "claude",
         AgentType::Codex => "codex",
+        AgentType::Clanker => return None,
         AgentType::Antigravity => "antigravity",
         AgentType::Gemini => "gemini",
         AgentType::OpenCode => "opencode",
@@ -1112,6 +1127,7 @@ fn update_agent(
         )),
         AgentType::Claude => update_claude(tx, index),
         AgentType::Codex => update_codex(tx, index, latest_version),
+        AgentType::Clanker => update_clanker(tx, index),
         AgentType::Antigravity => update_antigravity(tx, index, latest_version),
         AgentType::Gemini => update_gemini(tx, index, latest_version),
         AgentType::OpenCode => update_opencode(tx, index),
@@ -1204,6 +1220,25 @@ fn update_codex(
         .or(latest_version)
         .unwrap_or_else(|| "latest".into());
     Ok(version)
+}
+
+/// Update Clanker Code from the fork-owned release branch.
+fn update_clanker(tx: &mpsc::Sender<(usize, LineState)>, index: usize) -> io::Result<String> {
+    let _ = tx.send((
+        index,
+        LineState::Building {
+            version: String::new(),
+            phase: "building fork release branch...".into(),
+        },
+    ));
+
+    let mut manager = crate::agents::AgentManager::new()?;
+    manager.update_agent(AgentType::Clanker)?;
+
+    Ok(crate::clanker::installed_revision()
+        .map(|revision| crate::clanker::revision_label(&revision).to_string())
+        .or_else(|| get_installed_version(AgentType::Clanker))
+        .unwrap_or_else(|| "latest".into()))
 }
 
 /// Ensure npm is available, offering to install Node.js if missing.
@@ -1802,7 +1837,8 @@ Version                       : 1.1.0_4523441756438528-1\n";
     }
 
     #[test]
-    fn latest_embedded_version_returns_none_for_custom_and_unleash() {
+    fn latest_embedded_version_returns_none_for_clanker_custom_and_unleash() {
+        assert_eq!(latest_embedded_version(&AgentType::Clanker), None);
         assert_eq!(latest_embedded_version(&AgentType::Unleash), None);
         assert_eq!(
             latest_embedded_version(&AgentType::Custom("foo".into())),

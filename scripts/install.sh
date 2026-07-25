@@ -2,7 +2,7 @@
 # install.sh - Install unleash
 #
 # This script:
-# 1. Detects supported agent CLIs (Claude, Codex, Gemini, OpenCode)
+# 1. Detects supported agent CLIs (Claude, Codex, Clanker, Gemini, OpenCode)
 # 2. Builds the CLI binaries (if cargo available)
 # 3. Creates symlinks in ~/.local/bin/
 # 4. Installs plugins to ~/.local/share/unleash/plugins
@@ -47,6 +47,7 @@ install_binary_atomic() {
 declare -A AGENT_BINARIES=(
     [claude]="Claude Code"
     [codex]="Codex"
+    [clanker]="Clanker Code"
     [gemini]="Gemini CLI"
     [opencode]="OpenCode"
     [pi]="Pi"
@@ -56,7 +57,7 @@ declare -A AGENT_BINARIES=(
 # Detect installed agent CLIs
 detect_agents() {
     local found=0
-    for bin in claude codex gemini opencode pi hermes; do
+    for bin in claude codex clanker gemini opencode pi hermes; do
         local display="${AGENT_BINARIES[$bin]}"
         if command -v "$bin" &> /dev/null; then
             local version
@@ -69,7 +70,7 @@ detect_agents() {
     if [[ $found -eq 0 ]]; then
         warn "No supported agent CLIs found"
         echo "    Install agents via: unleash agents update <name>"
-        echo "    Supported: claude, codex, gemini, opencode, pi, hermes"
+        echo "    Supported: claude, codex, clanker, gemini, opencode, pi, hermes"
     else
         info "$found agent CLI(s) detected"
     fi
@@ -249,7 +250,7 @@ echo "╰───────────────────────�
 echo ""
 echo "CLI Commands:"
 echo "  unleash              - Launch TUI for profile/version management"
-echo "  unleash <agent>      - Start an agent (claude, codex, gemini, opencode, pi, hermes)"
+echo "  unleash <agent>      - Start an agent (claude, codex, clanker, gemini, opencode, pi, hermes)"
 echo "  unleash agents       - Manage agent CLI installations and versions"
 echo ""
 echo "Helper Commands:"

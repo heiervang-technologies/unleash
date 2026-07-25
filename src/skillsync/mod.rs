@@ -102,7 +102,7 @@ impl std::str::FromStr for Harness {
         match s {
             "claude" | "claude-code" => Ok(Self::Claude),
             "opencode" => Ok(Self::OpenCode),
-            "codex" => Ok(Self::Codex),
+            "codex" | "clanker" | "clanker-code" => Ok(Self::Codex),
             "gemini" | "gemini-cli" => Ok(Self::Gemini),
             "agy" | "antigravity" | "antigravity-cli" => Ok(Self::Agy),
             "pi" | "pi-coding-agent" => Ok(Self::Pi),
