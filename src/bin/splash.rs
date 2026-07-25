@@ -49,6 +49,14 @@ fn agents() -> Vec<Agent> {
             accent: Color::Rgb(140, 140, 140),
         },
         Agent {
+            name: "clanker",
+            theme: AgentTheme::Shift(ThemeShift {
+                hue: 35.23,
+                sat_scale: 1.0,
+            }),
+            accent: Color::Rgb(212, 160, 23),
+        },
+        Agent {
             name: "antigravity",
             theme: AgentTheme::Gradient(unleash::theme::GradientTheme::antigravity()),
             accent: Color::Rgb(0x30, 0x80, 0xe0),

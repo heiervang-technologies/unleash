@@ -803,7 +803,7 @@ pub mod mascots {
     /// indexes into pre-rendered files; later it can composite body + head.
     pub fn full_art(agent: &str) -> &'static str {
         match agent {
-            "codex" => ART_CODEX,
+            "codex" | "clanker" | "clanker-code" => ART_CODEX,
             "gemini" | "gemini-cli" | "antigravity" | "antigravity-cli" | "agy" => ART_GEMINI,
             "opencode" => ART_OPENCODE,
             // "jules" => ART_JULES,

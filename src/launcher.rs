@@ -97,7 +97,7 @@ pub(crate) fn exec_meta_command(
 }
 
 /// Returns true if `args` already encodes a resume/continue signal in any of
-/// the polyfill-emitted forms across the 7 supported agents. Used by the
+/// the polyfill-emitted forms across the 8 supported agents. Used by the
 /// restart loop to decide whether to inject its own `--continue` or leave the
 /// existing intent alone.
 ///
@@ -107,6 +107,7 @@ pub(crate) fn exec_meta_command(
 /// |------------|--------------------------|--------------------------|
 /// | Claude     | `--continue`, `-c`       | `--resume`, `-r`         |
 /// | Codex      | `resume` (subcommand)    | `resume` (subcommand)    |
+/// | Clanker    | `resume` (subcommand)    | `resume` (subcommand)    |
 /// | Gemini     | `--resume` (`latest`)    | `--resume`               |
 /// | OpenCode   | `--continue`             | `-s`                     |
 /// | Pi         | `--continue`             | `--session`              |
@@ -465,7 +466,7 @@ fn find_agent_command() -> io::Result<PathBuf> {
                         "AGENT_CMD is set to '{}' which resolves to the unleash binary itself.\n\
                          This would cause infinite recursion.\n\
                          Set agent_cli_path in your profile to the actual agent binary \
-                         (e.g. 'claude', 'codex', 'antigravity', 'opencode').",
+                         (e.g. 'claude', 'codex', 'clanker', 'antigravity', 'opencode').",
                         cmd
                     ),
                 ));
@@ -716,7 +717,9 @@ fn run_agent(
     }
 
     // Codex native notify hook: end-of-turn => reset opaque + idle sound.
-    if agent_type == Some(AgentType::Codex) && hyprland::is_focus_enabled() {
+    if matches!(agent_type, Some(AgentType::Codex | AgentType::Clanker))
+        && hyprland::is_focus_enabled()
+    {
         if let Ok(exe) = env::current_exe() {
             let exe = exe
                 .to_string_lossy()
