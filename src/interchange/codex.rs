@@ -59,6 +59,23 @@ pub fn to_hub<R: BufRead>(reader: R) -> Result<Vec<HubRecord>, ConvertError> {
                     records.push(HubRecord::Session(default_session(&timestamp)));
                     session_emitted = true;
                 }
+                let payload_type = payload
+                    .get("type")
+                    .and_then(Value::as_str)
+                    .unwrap_or("message");
+                if !codex_response_item_is_message_like(payload_type) {
+                    records.push(HubRecord::Event(HubEvent {
+                        event_type: format!("codex_response_item:{payload_type}"),
+                        timestamp: timestamp.clone(),
+                        data: payload.clone(),
+                        extensions: if foreign_originated {
+                            Value::Null
+                        } else {
+                            serde_json::json!({"codex": {"_outer_type": "response_item"}})
+                        },
+                    }));
+                    continue;
+                }
                 // If the line carries a full HubMessage stash via
                 // `_ucf_hub.message`, restore it verbatim — Codex's response
                 // shape can't represent every hub content variant losslessly,
@@ -344,6 +361,7 @@ fn session_meta_to_hub(payload: &Value, timestamp: &str) -> SessionHeader {
         ucf_version: UCF_VERSION.to_string(),
         session_id: payload
             .get("id")
+            .or_else(|| payload.get("session_id"))
             .and_then(|v| v.as_str())
             .unwrap_or("")
             .to_string(),
@@ -365,14 +383,31 @@ fn session_meta_to_hub(payload: &Value, timestamp: &str) -> SessionHeader {
                 .and_then(|v| v.as_str())
                 .unwrap_or("")
                 .to_string(),
-            root: None,
+            root: payload
+                .pointer("/git/root")
+                .and_then(Value::as_str)
+                .map(String::from),
             hash: None,
-            vcs: None,
-            branch: None,
-            sha: None,
-            origin_url: None,
+            vcs: Some("git".to_string()),
+            branch: payload
+                .pointer("/git/branch")
+                .and_then(Value::as_str)
+                .map(String::from),
+            sha: payload
+                .pointer("/git/commit_hash")
+                .or_else(|| payload.pointer("/git/sha"))
+                .and_then(Value::as_str)
+                .map(String::from),
+            origin_url: payload
+                .pointer("/git/repository_url")
+                .or_else(|| payload.pointer("/git/origin_url"))
+                .and_then(Value::as_str)
+                .map(String::from),
         }),
-        model: None,
+        model: payload
+            .get("model")
+            .and_then(Value::as_str)
+            .map(String::from),
         title: None,
         slug: None,
         parent_session_id: None,
@@ -495,6 +530,53 @@ fn response_item_to_hub(payload: &Value, timestamp: &str) -> Result<HubMessage, 
                 }],
             )
         }
+        item_type if item_type.ends_with("_call") => {
+            let call_id = codex_call_id(payload);
+            let input = codex_function_call_input(
+                payload
+                    .get("arguments")
+                    .or_else(|| payload.get("input"))
+                    .or_else(|| payload.get("execution")),
+            );
+            (
+                "assistant",
+                vec![ContentBlock::ToolUse {
+                    id: call_id,
+                    name: item_type.trim_end_matches("_call").to_string(),
+                    display_name: None,
+                    description: None,
+                    input,
+                }],
+            )
+        }
+        item_type if item_type.ends_with("_output") => {
+            let call_id = codex_call_id(payload);
+            let output = payload
+                .get("output")
+                .or_else(|| payload.get("tools"))
+                .or_else(|| payload.get("result"))
+                .unwrap_or(&Value::Null);
+            (
+                "user",
+                vec![ContentBlock::ToolResult {
+                    tool_use_id: call_id,
+                    content: codex_tool_output_content(output),
+                    is_error: matches!(
+                        payload.get("status").and_then(Value::as_str),
+                        Some("failed" | "error" | "declined")
+                    ),
+                    exit_code: None,
+                    interrupted: false,
+                    status: payload
+                        .get("status")
+                        .and_then(Value::as_str)
+                        .map(String::from),
+                    duration_ms: None,
+                    title: None,
+                    truncated: false,
+                }],
+            )
+        }
         _ => {
             let hub_role = match role {
                 "developer" => "system",
@@ -528,6 +610,19 @@ fn response_item_to_hub(payload: &Value, timestamp: &str) -> Result<HubMessage, 
         },
         extensions: ext,
     })
+}
+
+fn codex_response_item_is_message_like(item_type: &str) -> bool {
+    matches!(
+        item_type,
+        "message"
+            | "reasoning"
+            | "function_call"
+            | "custom_tool_call"
+            | "function_call_output"
+            | "custom_tool_call_output"
+    ) || item_type.ends_with("_call")
+        || item_type.ends_with("_output")
 }
 
 fn codex_call_id(payload: &Value) -> String {
@@ -1192,5 +1287,69 @@ mod tests {
             .find(|l| l.get("type").and_then(|t| t.as_str()) == Some("turn_context"))
             .unwrap();
         semantic_eq(&orig_val, ctx_line).unwrap();
+    }
+
+    #[test]
+    fn current_session_meta_maps_identity_model_and_git() {
+        let input = r#"{"timestamp":"2026-07-26T10:00:00Z","type":"session_meta","payload":{"id":"thread-1","session_id":"thread-1","timestamp":"2026-07-26T10:00:00Z","cwd":"/tmp/project","cli_version":"0.145.0","model":"gpt-5.6","originator":"codex_cli_rs","source":"cli","git":{"branch":"main","commit_hash":"abc123","repository_url":"https://example.test/repo.git"}}}"#;
+        let hub = to_hub(std::io::BufReader::new(input.as_bytes())).unwrap();
+        let HubRecord::Session(session) = &hub[0] else {
+            panic!("expected session header");
+        };
+        assert_eq!(session.session_id, "thread-1");
+        assert_eq!(session.model.as_deref(), Some("gpt-5.6"));
+        let project = session.project.as_ref().unwrap();
+        assert_eq!(project.directory, "/tmp/project");
+        assert_eq!(project.branch.as_deref(), Some("main"));
+        assert_eq!(project.sha.as_deref(), Some("abc123"));
+        assert_eq!(
+            project.origin_url.as_deref(),
+            Some("https://example.test/repo.git")
+        );
+        let back = from_hub(&hub).unwrap();
+        semantic_eq(&serde_json::from_str::<Value>(input).unwrap(), &back[0]).unwrap();
+    }
+
+    #[test]
+    fn current_tool_search_payloads_become_linked_tool_messages() {
+        let input = r#"{"timestamp":"2026-07-26T10:00:00Z","type":"response_item","payload":{"type":"tool_search_call","id":"ts-1","call_id":"call-1","arguments":"{\"query\":\"docs\"}","status":"completed"}}
+{"timestamp":"2026-07-26T10:00:01Z","type":"response_item","payload":{"type":"tool_search_output","call_id":"call-1","tools":[{"name":"search"}],"status":"completed"}}"#;
+        let hub = to_hub(std::io::BufReader::new(input.as_bytes())).unwrap();
+        let messages: Vec<_> = hub
+            .iter()
+            .filter_map(|record| match record {
+                HubRecord::Message(message) => Some(message),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(messages.len(), 2);
+        assert!(matches!(
+            &messages[0].content[0],
+            ContentBlock::ToolUse { id, name, input, .. }
+                if id == "call-1"
+                    && name == "tool_search"
+                    && input.get("query").and_then(Value::as_str) == Some("docs")
+        ));
+        assert!(matches!(
+            &messages[1].content[0],
+            ContentBlock::ToolResult { tool_use_id, .. } if tool_use_id == "call-1"
+        ));
+    }
+
+    #[test]
+    fn unknown_response_item_is_preserved_as_event_not_hollow_message() {
+        let input = r#"{"timestamp":"2026-07-26T10:00:00Z","type":"response_item","payload":{"type":"future_item","new_field":{"kept":true}}}"#;
+        let hub = to_hub(std::io::BufReader::new(input.as_bytes())).unwrap();
+        assert!(hub.iter().any(|record| matches!(
+            record,
+            HubRecord::Event(event)
+                if event.event_type == "codex_response_item:future_item"
+                    && event.data.pointer("/new_field/kept").and_then(Value::as_bool) == Some(true)
+        )));
+        assert!(!hub
+            .iter()
+            .any(|record| matches!(record, HubRecord::Message(_))));
+        let back = from_hub(&hub).unwrap();
+        semantic_eq(&serde_json::from_str::<Value>(input).unwrap(), &back[1]).unwrap();
     }
 }

@@ -19,6 +19,7 @@ These can be set before launching `unleash` to change behavior.
 | `ALPHA` | Hybrid-search rank fusion: dense-vs-BM25 weight (0–1, higher = more dense) | `0.4` |
 | `UNLEASH_CROSSLOAD_MAX_TOKENS` | Hub-records budget for `--crossload` / `-x`. Trims the oldest messages when the rendered transcript would exceed this many tokens. Applies to both the inject path (session-level injection) and the passthrough fallback (when the target CLI refuses injection, e.g. `agy`). Unset / `0` = no limit | unset |
 | `UNLEASH_CROSSLOAD_NO_FALLBACK` | Disable the passthrough auto-fallback when session-level injection fails — `-x` will hard-error instead of rendering the source session as a single initial prompt | unset |
+| `UNLEASH_API_KEY` | Bearer token required by `unleash serve`; equivalent to `--api-key` | unset |
 
 ### Examples
 

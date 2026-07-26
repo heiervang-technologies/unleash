@@ -1,6 +1,7 @@
 //! CLI argument parsing
 
 use clap::{Parser, Subcommand};
+use std::net::IpAddr;
 use std::process::Command;
 
 /// Get version information. Prints unleash version instantly,
@@ -767,6 +768,64 @@ pub enum Commands {
         /// Input JSONL file, or - for stdin
         #[arg(default_value = "-")]
         input: String,
+    },
+
+    /// Expose one Unleash-managed agent instance through an OpenAI-compatible API
+    ///
+    /// The default mode launches the profile headfully in a PTY and projects
+    /// its persisted native history through `/v1/chat/completions`.
+    ///
+    /// Examples:
+    ///   unleash serve claude --name work-auth --model opus
+    ///   unleash serve codex --session codex:019abc --port 8787
+    ///   unleash serve claude --headless
+    Serve {
+        /// Agent profile to launch (for example: claude or codex)
+        profile: String,
+
+        /// Address to bind. Non-loopback binds also require --allow-remote and an API key
+        #[arg(long, default_value = "127.0.0.1")]
+        host: IpAddr,
+
+        /// HTTP port
+        #[arg(long, default_value_t = 8787)]
+        port: u16,
+
+        /// Stable instance/session name used in the `/v1/models` slug
+        #[arg(long)]
+        name: Option<String>,
+
+        /// Model override passed to the harness and included in the model slug
+        #[arg(short, long)]
+        model: Option<String>,
+
+        /// Existing native session to resume (ID, name, or `<harness>:<ID>`)
+        #[arg(short, long)]
+        session: Option<String>,
+
+        /// Use one resumed headless process per API turn instead of a live PTY
+        #[arg(long)]
+        headless: bool,
+
+        /// Keep Unleash's normal permission bypass instead of gateway safe mode
+        #[arg(long = "unsafe")]
+        unsafe_permissions: bool,
+
+        /// Bearer token required by the HTTP API
+        #[arg(long, env = "UNLEASH_API_KEY", hide_env_values = true)]
+        api_key: Option<String>,
+
+        /// Explicitly permit a non-loopback bind (an API key is still required)
+        #[arg(long)]
+        allow_remote: bool,
+
+        /// Maximum duration of one agent turn
+        #[arg(long, default_value_t = 1800)]
+        turn_timeout_secs: u64,
+
+        /// Additional unified/profile arguments passed after `--`
+        #[arg(last = true)]
+        agent_args: Vec<String>,
     },
 
     /// Synchronize Agent Skills across supported agent CLIs

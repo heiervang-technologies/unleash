@@ -34,6 +34,18 @@ pub fn discover_all() -> Vec<SessionInfo> {
 
 /// Discover sessions for a specific CLI.
 pub fn discover_for(cli: CliFormat) -> Vec<SessionInfo> {
+    let mut sessions = discover_native(cli);
+    overlay_search_index_names(&mut sessions);
+    sessions
+}
+
+/// Discover native sessions without consulting or refreshing the optional
+/// semantic-search index.
+///
+/// The gateway polls this while a headful agent is running. Keeping that hot
+/// path filesystem-only avoids spawning background reindex jobs and ensures
+/// the native history remains the source of truth for live turn detection.
+pub(crate) fn discover_native(cli: CliFormat) -> Vec<SessionInfo> {
     let mut sessions = match cli {
         CliFormat::ClaudeCode => discover_claude(),
         CliFormat::Codex => discover_codex(),
@@ -43,7 +55,7 @@ pub fn discover_for(cli: CliFormat) -> Vec<SessionInfo> {
         CliFormat::Pi => discover_pi(),
         CliFormat::Ucf => discover_ucf(),
     };
-    overlay_search_index_names(&mut sessions);
+    sessions.sort_by(|a, b| b.updated_at.cmp(&a.updated_at));
     sessions
 }
 

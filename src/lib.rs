@@ -29,6 +29,7 @@ pub(crate) mod test_env {
 }
 mod cli;
 pub mod config;
+pub mod gateway;
 mod hooks;
 mod hyprland;
 mod identity;
@@ -640,6 +641,7 @@ pub(crate) fn is_known_subcommand(first_arg: &str) -> bool {
             | "search"
             | "convert"
             | "stream"
+            | "serve"
             | "skills"
             | "sandbox"
             | "token-count"
@@ -1384,6 +1386,33 @@ pub fn run() -> io::Result<()> {
             headless,
             input,
         }) => stream::normalize_command(&harness, headless, &input),
+        Some(Commands::Serve {
+            profile,
+            host,
+            port,
+            name,
+            model,
+            session,
+            headless,
+            unsafe_permissions,
+            api_key,
+            allow_remote,
+            turn_timeout_secs,
+            agent_args,
+        }) => gateway::serve(gateway::ServeOptions {
+            profile,
+            host,
+            port,
+            instance_name: name,
+            model,
+            session,
+            headless,
+            unsafe_permissions,
+            api_key,
+            allow_remote,
+            turn_timeout: Duration::from_secs(turn_timeout_secs),
+            agent_args,
+        }),
         Some(Commands::Skills { action }) => handle_skills(action, cli.json),
         Some(Commands::Search {
             query,
@@ -1792,6 +1821,7 @@ mod tests {
             "search",
             "convert",
             "stream",
+            "serve",
             "skills",
             "sandbox",
             "token-count",
