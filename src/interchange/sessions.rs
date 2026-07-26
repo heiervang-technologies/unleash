@@ -912,6 +912,9 @@ mod tests {
 
     #[test]
     fn test_discover_all_doesnt_crash() {
+        // Discovery can spawn a background reindex process. Serialize it with
+        // tests that temporarily override that process's environment/binary.
+        let _env_lock = crate::test_env::lock();
         // Should not panic even if CLI dirs don't exist
         let sessions = discover_all();
         // We can't assert count since it depends on the machine; just verify no panic.
