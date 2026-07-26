@@ -4,10 +4,10 @@ use std::process::{Command, Stdio};
 use std::sync::mpsc;
 use std::thread;
 
-use super::types::ChecksumResult;
 use super::compare::version_compare;
+use super::types::ChecksumResult;
 
-#[derive(Default)]
+#[derive(Default, Clone)]
 pub struct VersionManager {
     /// When true, `install_version()` and related paths skip native binary
     /// downloads (and fall back to npm-only when applicable). Used exclusively
@@ -79,10 +79,6 @@ impl VersionManager {
         cmd
     }
 
-    // ── Claude Code ──────────────────────────────────────────────
-
-    /// Get the currently installed Claude Code version
-
     // ── NPM utilities ─────────────────────────────
 
     pub fn has_npm() -> bool {
@@ -102,7 +98,10 @@ impl VersionManager {
 
     /// Query the npm registry HTTP API for available versions of a package.
     /// Uses curl — no npm binary required.
-    pub(super) fn query_npm_registry_versions(package: &str, limit: usize) -> io::Result<Vec<String>> {
+    pub(super) fn query_npm_registry_versions(
+        package: &str,
+        limit: usize,
+    ) -> io::Result<Vec<String>> {
         // npm registry URL: https://registry.npmjs.org/<package>
         // The response has a "versions" object with version strings as keys.
         // We use the abbreviated metadata endpoint for speed.
@@ -261,7 +260,6 @@ impl VersionManager {
             _ => ChecksumResult::Failed("sha256sum/shasum execution failed".into()),
         }
     }
-
 
     // ── Streaming helpers ─────────────────────────
 

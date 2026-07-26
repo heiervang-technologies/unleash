@@ -3,24 +3,26 @@
 //! Handles detecting installed version, listing available versions,
 //! and switching between versions for multiple agents.
 
-pub mod types;
-pub mod cache;
-mod compare;
-mod manager;
-mod claude;
-mod unleash_self;
-mod codex;
-mod gemini;
-mod pi;
-mod hermes;
-mod opencode;
 mod antigravity;
+pub mod cache;
+mod claude;
 pub mod cli;
+mod codex;
+mod compare;
+mod gemini;
+mod hermes;
+mod manager;
+mod opencode;
+mod pi;
 #[cfg(test)]
 mod tests;
+pub mod types;
+mod unleash_self;
 
-pub use types::*;
 pub use cache::*;
-pub use manager::*;
+pub use cli::{
+    install_latest_streaming, install_version, list_versions, show_current, show_current_json,
+};
 pub(crate) use compare::{version_compare, version_less_than};
-pub use cli::{list_versions, install_version, show_current, show_current_json, install_latest_streaming};
+pub use manager::*;
+pub use types::*;

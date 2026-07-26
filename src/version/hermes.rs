@@ -21,13 +21,6 @@ impl VersionManager {
         }]
     }
 
-    // ── OpenCode ────────────────────────────────────────────
-
-    /// Get available OpenCode versions from npm registry.
-    /// OpenCode is distributed via npm (`opencode-ai` package). GitHub releases
-    /// for `opencode-ai/opencode` use a different versioning scheme (0.0.x) and
-    /// should not be mixed with npm versions (1.x.x).
-
     pub fn install_hermes_version_streaming(
         &self,
         version: &str,
@@ -176,5 +169,4 @@ impl VersionManager {
             }
         }
     }
-
 }

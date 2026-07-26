@@ -111,12 +111,6 @@ impl VersionManager {
         })
     }
 
-    // ── Streaming install methods ──────────────────────────────
-
-    /// Read stdout/stderr from a child process, sending each line via `log_tx`.
-    /// Reads stdout in a spawned thread and stderr in the calling thread to avoid
-    /// pipe buffer deadlock. Returns accumulated (stdout, stderr) strings.
-
     pub fn install_opencode_version_streaming(
         &self,
         version: &str,
@@ -181,5 +175,4 @@ impl VersionManager {
             },
         })
     }
-
 }

@@ -3,7 +3,7 @@ use std::sync::mpsc;
 
 use super::types::{InstallResult, VersionInfo};
 use super::VersionManager;
-use super::{version_compare, load_embedded_versions};
+use super::{load_embedded_versions, version_compare};
 
 impl VersionManager {
     // ── Gemini CLI version management ───────────────
@@ -81,10 +81,6 @@ impl VersionManager {
         })
     }
 
-    // ── Pi ──────────────────────────────────────────────────
-
-    /// Get available Pi versions from npm registry
-
     pub fn install_gemini_version_streaming(
         &self,
         version: &str,
@@ -129,5 +125,4 @@ impl VersionManager {
             },
         })
     }
-
 }

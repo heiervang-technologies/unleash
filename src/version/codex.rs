@@ -158,10 +158,6 @@ impl VersionManager {
         })
     }
 
-    // ── Gemini CLI ────────────────────────────────────────────
-
-    /// Get available Gemini CLI versions from npm registry
-
     pub fn install_codex_version_streaming(
         &self,
         version: &str,
@@ -263,10 +259,6 @@ impl VersionManager {
             error: None,
         })
     }
-
-    // ── Antigravity CLI ───────────────────────────────────────
-
-    /// Get available Antigravity CLI versions (reads embedded versions)
 
     fn codex_asset_name() -> String {
         let arch = std::env::consts::ARCH;

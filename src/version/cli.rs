@@ -1,8 +1,8 @@
 use std::io;
 use std::sync::mpsc;
 
-use crate::json_output::{self, VersionListItem, VersionListOutput, VersionOutput};
 use super::{InstallResult, VersionManager};
+use crate::json_output::{self, VersionListItem, VersionListOutput, VersionOutput};
 
 pub fn list_versions(json: bool) -> io::Result<()> {
     let vm = VersionManager::new();
@@ -231,4 +231,3 @@ pub fn install_latest_streaming(
         ))),
     }
 }
-

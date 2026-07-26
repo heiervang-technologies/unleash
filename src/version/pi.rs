@@ -3,7 +3,7 @@ use std::sync::mpsc;
 
 use super::types::{InstallResult, VersionInfo};
 use super::VersionManager;
-use super::{version_compare, load_embedded_versions};
+use super::{load_embedded_versions, version_compare};
 
 impl VersionManager {
     // ── Pi version management ───────────────────────
@@ -41,7 +41,6 @@ impl VersionManager {
         versions.sort_by(|a, b| version_compare(&b.version, &a.version));
         versions
     }
-
 
     pub fn install_pi_version_streaming(
         &self,
@@ -84,5 +83,4 @@ impl VersionManager {
             },
         })
     }
-
 }

@@ -6,7 +6,7 @@ use std::sync::mpsc;
 
 use super::types::{ChecksumResult, ConflictEntry, InstallResult, VersionInfo, CLAUDE_GCS_BUCKET};
 use super::VersionManager;
-use super::{version_compare, load_embedded_versions};
+use super::{load_embedded_versions, version_compare};
 
 impl VersionManager {
     // ── Claude Code version management ──────────────
@@ -296,9 +296,6 @@ impl VersionManager {
         format!("{}-{}", gcs_os, gcs_arch)
     }
 
-    /// Check if npm is available (static — uses the inherited PATH).
-    /// Equivalent to `VersionManager::default().has_npm_for_self()`.
-
     pub fn get_available_versions(&self) -> io::Result<Vec<String>> {
         let mut seen = std::collections::HashSet::new();
         let mut versions = Vec::new();
@@ -573,11 +570,6 @@ impl VersionManager {
         })
     }
 
-    // ── Codex ────────────────────────────────────────────────────
-
-    /// Get available unleash versions from GitHub releases (heiervang-technologies/unleash).
-    /// Returns a `VersionInfo` list with the current binary version marked as installed.
-
     pub fn install_version_streaming(
         &self,
         version: &str,
@@ -754,5 +746,4 @@ impl VersionManager {
             error: None,
         })
     }
-
 }

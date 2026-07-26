@@ -43,4 +43,3 @@ pub struct InstallResult {
     pub stderr: String,
     pub error: Option<String>,
 }
-
