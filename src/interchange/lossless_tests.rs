@@ -210,14 +210,21 @@ mod tests {
 
     /// Content shapes Pi models natively (text / thinking / tool_use), plus a
     /// `completed_at` to lock the hub-level completion-timestamp round-trip.
-    /// Deliberately carries no token/cost metadata — Pi's `usage` is
-    /// synthesize-and-reconstruct, a separate strict-round-trip concern from
-    /// content preservation (see the residual-boundary diagnostic below).
+    /// Deliberately carries no token/cost metadata so this fixture isolates
+    /// content preservation from the strict usage-metadata test below.
     fn pi_native_subset() -> Vec<HubRecord> {
         hub_from_jsonl(
             r#"{"type":"session","ucf_version":"1.0.0","session_id":"pi-subset","created_at":"2026-04-04T10:00:00Z","updated_at":"2026-04-04T10:05:00Z","source_cli":"ucf","source_version":"1.0.0","model":"m","title":"Pi subset"}
 {"type":"message","id":"m1","timestamp":"2026-04-04T10:00:01Z","role":"user","content":[{"type":"text","text":"hi"}],"metadata":{},"extensions":{}}
 {"type":"message","id":"m2","parent_id":"m1","timestamp":"2026-04-04T10:00:02Z","completed_at":"2026-04-04T10:00:05Z","role":"assistant","content":[{"type":"thinking","text":"let me think","signature":"sig1"},{"type":"text","text":"ok"},{"type":"tool_use","id":"t1","name":"Bash","input":{"command":"ls"}}],"metadata":{},"extensions":{}}"#,
+        )
+    }
+
+    fn pi_usage_metadata_subset() -> Vec<HubRecord> {
+        hub_from_jsonl(
+            r#"{"type":"session","ucf_version":"1.0.0","session_id":"pi-usage","created_at":"2026-04-04T10:00:00Z","updated_at":"2026-04-04T10:05:00Z","source_cli":"ucf","source_version":"1.0.0","model":"m","title":"Pi usage"}
+{"type":"message","id":"m1","timestamp":"2026-04-04T10:00:01Z","role":"assistant","content":[{"type":"text","text":"no recorded cost"}],"metadata":{"model":"m","tokens":{"input":100,"output":50,"cache_creation":2,"cache_read":3,"reasoning":20,"tool":4,"total":179}},"extensions":null}
+{"type":"message","id":"m2","parent_id":"m1","timestamp":"2026-04-04T10:00:02Z","role":"assistant","content":[{"type":"text","text":"recorded zero cost"}],"metadata":{"model":"m","tokens":{"input":10,"output":5,"cache_creation":0,"cache_read":0,"reasoning":0,"tool":0,"total":15},"cost":0.0},"extensions":null}"#,
         )
     }
 
@@ -292,7 +299,6 @@ mod tests {
     /// pins the EXACT residual of `all-content-types → pi → hub`, so any change
     /// (loss grows OR a tracked gap in #412 gets fixed) fails here and forces a
     /// deliberate update. The residual is Pi's normalization surface:
-    ///   - reasoning-token counts + cost None→0.0 + redundant usage_raw (#412),
     ///   - image + tool_result content degraded to text placeholders,
     ///   - encrypted-thinking field reshaping.
     #[test]
@@ -301,9 +307,6 @@ mod tests {
         let residual = residual_paths(&all, &via_pi(&all));
         let expected: Vec<&str> = vec![
             "$[1].extensions",
-            "$[2].extensions.pi [added]",
-            "$[2].metadata.cost [added]",
-            "$[2].metadata.tokens.reasoning",
             "$[3].content[0].encrypted",
             "$[3].content[0].encrypted_data [removed]",
             "$[3].content[0].encryption_format [removed]",
@@ -332,6 +335,20 @@ mod tests {
             "Pi full-fixture residual changed. If you FIXED a gap, remove its \
              path(s) here and update #412. If loss GREW, that is a regression."
         );
+    }
+
+    /// Pi's native Usage object requires cost and cannot model reasoning/tool
+    /// counters. The reserved transport must preserve those distinctions
+    /// without accreting an extensions.pi sidecar, and a second pass must be a
+    /// fixpoint.
+    #[test]
+    fn pi_usage_metadata_round_trip_and_fixpoint() {
+        let original = pi_usage_metadata_subset();
+        let once = via_pi(&original);
+        hub_eq(&original, &once).expect("Pi usage metadata should round-trip losslessly");
+
+        let twice = via_pi(&once);
+        hub_eq(&once, &twice).expect("Pi usage metadata round-trip should be a fixpoint");
     }
 
     /// Upper bound on Hermes record-level loss. The full fixture is 7 records
