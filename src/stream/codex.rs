@@ -5,8 +5,10 @@
 //! - `{"type":"turn.started"}` / `{"type":"turn.completed","usage":{...}}` /
 //!   `{"type":"turn.failed","error":{...}}` — turn lifecycle
 //! - `{"type":"item.started"|"item.updated"|"item.completed","item":{...}}`
-//!   — items carry `item_type`: `assistant_message`, `reasoning`,
-//!   `command_execution`, `file_change`, `mcp_tool_call`, `error`, …
+//!   — current items carry `type`: `agent_message`, `reasoning`,
+//!   `command_execution`, `file_change`, `mcp_tool_call`, `collab_tool_call`,
+//!   `web_search`, `todo_list`, `error`, …; legacy streams used
+//!   `item_type` and `assistant_message`
 //! - `{"type":"error","message":"..."}` — stream-level error
 //!
 //! Codex currently rejects its built-in `request_user_input` operation in
@@ -81,7 +83,7 @@ impl CodexStreamParser {
 
     fn item_completed(&mut self, frame: &Value) -> Vec<StreamEvent> {
         let item = frame.get("item").unwrap_or(&Value::Null);
-        let item_type = item.get("item_type").and_then(Value::as_str).unwrap_or("");
+        let item_type = codex_item_type(item);
         let item_id = item
             .get("id")
             .and_then(Value::as_str)
@@ -94,7 +96,7 @@ impl CodexStreamParser {
             .to_string();
 
         match item_type {
-            "assistant_message" => {
+            "agent_message" | "assistant_message" => {
                 let content = if text.is_empty() {
                     Vec::new()
                 } else {
@@ -119,9 +121,14 @@ impl CodexStreamParser {
                 };
                 vec![self.message("assistant", content, frame)]
             }
-            "command_execution" | "mcp_tool_call" => {
+            "command_execution" | "mcp_tool_call" | "collab_tool_call" => {
                 let name = if item_type == "command_execution" {
                     "shell".to_string()
+                } else if item_type == "collab_tool_call" {
+                    item.get("tool")
+                        .and_then(Value::as_str)
+                        .unwrap_or("collaboration")
+                        .to_string()
                 } else {
                     item.get("tool")
                         .and_then(Value::as_str)
@@ -131,6 +138,12 @@ impl CodexStreamParser {
                 let input = if item_type == "command_execution" {
                     serde_json::json!({
                         "command": item.get("command").cloned().unwrap_or(Value::Null)
+                    })
+                } else if item_type == "collab_tool_call" {
+                    serde_json::json!({
+                        "sender_thread_id": item.get("sender_thread_id"),
+                        "receiver_thread_ids": item.get("receiver_thread_ids"),
+                        "prompt": item.get("prompt"),
                     })
                 } else {
                     item.get("arguments")
@@ -144,12 +157,7 @@ impl CodexStreamParser {
                 // MCP tool calls carry no exit code, so a failure there is
                 // only visible through `status`.
                 let status = item.get("status").and_then(Value::as_str);
-                let output = item
-                    .get("aggregated_output")
-                    .or_else(|| item.get("output"))
-                    .and_then(Value::as_str)
-                    .unwrap_or("")
-                    .to_string();
+                let output = codex_item_output(item);
                 vec![
                     self.message(
                         "assistant",
@@ -169,7 +177,10 @@ impl CodexStreamParser {
                             content: vec![ContentBlock::Text { text: output }],
                             exit_code,
                             is_error: exit_code.is_some_and(|code| code != 0)
-                                || matches!(status, Some("failed") | Some("error")),
+                                || matches!(
+                                    status,
+                                    Some("failed" | "error" | "declined" | "interrupted")
+                                ),
                             interrupted: false,
                             status: status.map(String::from),
                             duration_ms: None,
@@ -201,6 +212,8 @@ impl CodexStreamParser {
                     .unwrap_or_default();
                 vec![self.message("assistant", patches, frame)]
             }
+            "web_search" => vec![self.event("tool_end", frame.clone())],
+            "todo_list" => vec![self.event("todo_update", frame.clone())],
             "error" => vec![self.event("error", frame.clone())],
             _ => vec![StreamEvent::Passthrough {
                 harness: "codex",
@@ -216,10 +229,10 @@ impl CodexStreamParser {
             .and_then(Value::as_str)
             .unwrap_or("")
             .to_string();
-        match item.get("item_type").and_then(Value::as_str).unwrap_or("") {
+        match codex_item_type(item) {
             // Codex updates carry the full text-so-far, not an append-only
             // fragment — hence `cumulative: true`.
-            "assistant_message" => vec![StreamEvent::Delta {
+            "agent_message" | "assistant_message" => vec![StreamEvent::Delta {
                 kind: DeltaKind::Text,
                 text,
                 cumulative: true,
@@ -230,7 +243,9 @@ impl CodexStreamParser {
                 cumulative: true,
             }],
             // Tool-ish updates are repeated in full by item.completed.
-            "command_execution" | "mcp_tool_call" | "file_change" => Vec::new(),
+            "command_execution" | "mcp_tool_call" | "collab_tool_call" | "file_change"
+            | "web_search" => Vec::new(),
+            "todo_list" => vec![self.event("todo_update", frame.clone())],
             _ => vec![StreamEvent::Passthrough {
                 harness: "codex",
                 raw: frame.clone(),
@@ -240,19 +255,69 @@ impl CodexStreamParser {
 
     fn item_started(&self, frame: &Value) -> Vec<StreamEvent> {
         let item = frame.get("item").unwrap_or(&Value::Null);
-        match item.get("item_type").and_then(Value::as_str).unwrap_or("") {
-            "command_execution" | "mcp_tool_call" | "web_search" => {
+        match codex_item_type(item) {
+            "command_execution" | "mcp_tool_call" | "collab_tool_call" | "web_search" => {
                 vec![self.event("tool_start", frame.clone())]
             }
             // Message-ish starts carry no data their updates/completion
             // don't repeat.
-            "assistant_message" | "reasoning" | "file_change" => Vec::new(),
+            "agent_message" | "assistant_message" | "reasoning" | "file_change" => Vec::new(),
+            "todo_list" => vec![self.event("todo_update", frame.clone())],
             _ => vec![StreamEvent::Passthrough {
                 harness: "codex",
                 raw: frame.clone(),
             }],
         }
     }
+}
+
+/// Codex exec used `item_type`/`assistant_message` in early JSONL builds and
+/// now publishes `type`/`agent_message` in its SDK contract. Accept both wire
+/// generations; unknown values still become passthrough events.
+fn codex_item_type(item: &Value) -> &str {
+    item.get("type")
+        .or_else(|| item.get("item_type"))
+        .and_then(Value::as_str)
+        .unwrap_or("")
+}
+
+fn codex_item_output(item: &Value) -> String {
+    if let Some(output) = item
+        .get("aggregated_output")
+        .or_else(|| item.get("output"))
+        .and_then(Value::as_str)
+    {
+        return output.to_string();
+    }
+    if let Some(message) = item.pointer("/error/message").and_then(Value::as_str) {
+        return message.to_string();
+    }
+    let rendered_content = item
+        .pointer("/result/content")
+        .and_then(Value::as_array)
+        .map(|blocks| {
+            blocks
+                .iter()
+                .map(|block| {
+                    block
+                        .get("text")
+                        .and_then(Value::as_str)
+                        .or_else(|| block.as_str())
+                        .map_or_else(|| block.to_string(), String::from)
+                })
+                .collect::<Vec<_>>()
+                .join("\n")
+        })
+        .unwrap_or_default();
+    if !rendered_content.is_empty() {
+        return rendered_content;
+    }
+    item.pointer("/result/structured_content")
+        .filter(|value| !value.is_null())
+        .or_else(|| item.get("agents_states"))
+        .filter(|value| !value.is_null())
+        .map(Value::to_string)
+        .unwrap_or_default()
 }
 
 impl Default for CodexStreamParser {
@@ -463,5 +528,136 @@ mod tests {
             r#"{"type":"item.completed","item":{"id":"item_9","item_type":"hologram","text":"?"}}"#,
         );
         assert!(matches!(&events[0], StreamEvent::Passthrough { .. }));
+    }
+
+    #[test]
+    fn current_exec_contract_uses_type_and_agent_message() {
+        let events = feed_all(include_str!("tests/fixtures/codex-stream-current.jsonl"));
+        assert!(events.iter().any(|event| matches!(
+            event,
+            StreamEvent::Message(message)
+                if message.role == "assistant"
+                    && message.content.iter().any(|block| matches!(
+                        block,
+                        ContentBlock::Text { text } if text == "The crate is ready."
+                    ))
+        )));
+        assert!(events.iter().any(|event| matches!(
+            event,
+            StreamEvent::Event(event) if event.event_type == "turn_end"
+        )));
+        assert!(events.iter().any(|event| matches!(
+            event,
+            StreamEvent::Passthrough { raw, .. }
+                if raw.get("type").and_then(Value::as_str) == Some("future.event")
+        )));
+    }
+
+    #[test]
+    fn current_mcp_result_content_is_preserved_as_tool_output() {
+        let events = feed_all(include_str!("tests/fixtures/codex-stream-current.jsonl"));
+        let output = events.iter().find_map(|event| match event {
+            StreamEvent::Message(message) => message.content.iter().find_map(|block| match block {
+                ContentBlock::ToolResult {
+                    tool_use_id,
+                    content,
+                    ..
+                } if tool_use_id == "item_1" => content.iter().find_map(|content| match content {
+                    ContentBlock::Text { text } => Some(text),
+                    _ => None,
+                }),
+                _ => None,
+            }),
+            _ => None,
+        });
+        assert_eq!(output.map(String::as_str), Some("result one\nresult two"));
+    }
+
+    #[test]
+    fn current_turn_usage_payload_is_preserved() {
+        let events = feed_all(include_str!("tests/fixtures/codex-stream-current.jsonl"));
+        let turn_end = events.iter().find_map(|event| match event {
+            StreamEvent::Event(event) if event.event_type == "turn_end" => Some(event),
+            _ => None,
+        });
+        let turn_end = turn_end.expect("turn_end");
+        assert_eq!(
+            turn_end
+                .data
+                .pointer("/usage/reasoning_output_tokens")
+                .and_then(Value::as_u64),
+            Some(10)
+        );
+        assert_eq!(
+            turn_end
+                .data
+                .pointer("/usage/cache_write_input_tokens")
+                .and_then(Value::as_u64),
+            Some(0)
+        );
+    }
+
+    #[test]
+    fn declined_current_command_is_an_error_result() {
+        let mut parser = CodexStreamParser::new();
+        let events = parser.feed_line(
+            r#"{"type":"item.completed","item":{"id":"item_9","type":"command_execution","command":"rm x","aggregated_output":"declined","exit_code":null,"status":"declined"}}"#,
+        );
+        assert!(events.iter().any(|event| matches!(
+            event,
+            StreamEvent::Message(message)
+                if message.content.iter().any(|block| matches!(
+                    block,
+                    ContentBlock::ToolResult { is_error: true, .. }
+                ))
+        )));
+    }
+
+    #[test]
+    fn current_exec_item_variants_keep_lifecycle_and_payloads() {
+        let events = feed_all(include_str!("tests/fixtures/codex-stream-current.jsonl"));
+        assert!(events.iter().any(|event| matches!(
+            event,
+            StreamEvent::Message(message)
+                if message.content.iter().any(|block| matches!(
+                    block,
+                    ContentBlock::ToolUse { id, name, .. }
+                        if id == "item_5" && name == "spawn_agent"
+                ))
+        )));
+        assert!(events.iter().any(|event| matches!(
+            event,
+            StreamEvent::Message(message)
+                if message.content.iter().any(|block| matches!(
+                    block,
+                    ContentBlock::ToolResult { tool_use_id, content, .. }
+                        if tool_use_id == "item_5"
+                            && content.iter().any(|part| matches!(
+                                part,
+                                ContentBlock::Text { text } if text.contains("completed")
+                            ))
+                ))
+        )));
+        assert!(events.iter().any(|event| matches!(
+            event,
+            StreamEvent::Message(message)
+                if message.content.iter().any(|block| matches!(
+                    block,
+                    ContentBlock::Patch { path, .. } if path == "src/lib.rs"
+                ))
+        )));
+        assert!(events.iter().any(|event| matches!(
+            event,
+            StreamEvent::Event(event)
+                if event.event_type == "tool_end"
+                    && event.data.pointer("/item/id").and_then(Value::as_str) == Some("item_6")
+        )));
+        assert!(events.iter().any(|event| matches!(
+            event,
+            StreamEvent::Event(event)
+                if event.event_type == "error"
+                    && event.data.pointer("/item/message").and_then(Value::as_str)
+                        == Some("non-fatal warning")
+        )));
     }
 }

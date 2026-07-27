@@ -137,6 +137,7 @@ unleash version --list     # List available versions
 unleash auth               # Check authentication status
 unleash agents status      # Show all agent versions and update status
 unleash stream --harness claude-code  # Normalize live harness JSONL from stdin
+unleash serve claude --name work      # Serve one headful instance through OpenAI `/v1`
 ```
 
 `unleash stream` exposes the same canonical live-event interface to shell and
@@ -144,6 +145,12 @@ non-Rust consumers. It currently adapts Claude Code `stream-json` and Codex
 `exec --json`, preserves unknown frames, and emits a `session_id` join key on
 every output event. See the [live stream normalization guide](docs/streaming.md)
 for the schema, attended/headless behavior, and upstream limitations.
+
+`unleash serve` wraps one stateful agent behind `/v1/models` and
+`/v1/chat/completions`. Its primary mode keeps the harness headful and projects
+the same native session history to JSON/SSE; `--headless` is a resumed
+per-turn fallback. Live model IDs combine instance name, model slug, and
+harness. See the [OpenAI-compatible gateway guide](docs/openai-gateway.md).
 
 ## Version Management
 

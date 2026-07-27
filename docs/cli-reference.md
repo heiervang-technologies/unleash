@@ -212,6 +212,28 @@ Supported adapters: `claude-code` (alias `claude`) and `codex`. See
 [Live stream normalization](streaming.md) for the complete schema and the
 documented Codex `request_user_input` limitation.
 
+### `unleash serve`
+
+Expose one stateful agent instance through `/v1/models` and
+`/v1/chat/completions`:
+
+```bash
+unleash serve claude --name work-auth --model claude-opus-4-6
+unleash serve codex --session codex:019abc123 --port 8787
+unleash serve codex --headless --name ci-agent --model gpt-5.6
+```
+
+The default mode launches a headful PTY and projects appended native history.
+`--headless` starts one resumed process per API turn. Gateway launches use safe
+permissions unless `--unsafe` is explicitly supplied.
+
+The server binds to `127.0.0.1:8787` by default. `--api-key` (or
+`UNLEASH_API_KEY`) enables bearer authentication. Non-loopback binding also
+requires `--allow-remote` and an API key.
+
+See [OpenAI-compatible agent gateway](openai-gateway.md) for state, tool,
+streaming, model-ID, and security semantics.
+
 ## Examples
 
 ```bash

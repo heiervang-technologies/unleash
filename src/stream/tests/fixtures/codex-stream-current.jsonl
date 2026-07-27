@@ -1,0 +1,17 @@
+{"type":"thread.started","thread_id":"current-thread"}
+{"type":"turn.started"}
+{"type":"item.started","item":{"id":"item_0","type":"command_execution","command":"rg --files","aggregated_output":"","status":"in_progress"}}
+{"type":"item.completed","item":{"id":"item_0","type":"command_execution","command":"rg --files","aggregated_output":"Cargo.toml\nsrc/lib.rs\n","exit_code":0,"status":"completed"}}
+{"type":"item.started","item":{"id":"item_1","type":"mcp_tool_call","server":"docs","tool":"search","arguments":{"q":"Codex"},"status":"in_progress","result":null,"error":null}}
+{"type":"item.completed","item":{"id":"item_1","type":"mcp_tool_call","server":"docs","tool":"search","arguments":{"q":"Codex"},"status":"completed","result":{"content":[{"type":"text","text":"result one"},{"type":"text","text":"result two"}],"structured_content":null,"_meta":{"source":"official"}},"error":null}}
+{"type":"item.completed","item":{"id":"item_2","type":"reasoning","text":"Inspect the crate."}}
+{"type":"item.completed","item":{"id":"item_3","type":"todo_list","items":[{"text":"Inspect","completed":true}]}}
+{"type":"item.started","item":{"id":"item_5","type":"collab_tool_call","tool":"spawn_agent","sender_thread_id":"current-thread","receiver_thread_ids":["child-thread"],"prompt":"Inspect tests","agents_states":{},"status":"in_progress"}}
+{"type":"item.completed","item":{"id":"item_5","type":"collab_tool_call","tool":"spawn_agent","sender_thread_id":"current-thread","receiver_thread_ids":["child-thread"],"prompt":"Inspect tests","agents_states":{"child-thread":{"status":"completed","message":"done"}},"status":"completed"}}
+{"type":"item.started","item":{"id":"item_6","type":"web_search","query":"Codex protocol","action":{"type":"search","query":"Codex protocol"}}}
+{"type":"item.completed","item":{"id":"item_6","type":"web_search","query":"Codex protocol","action":{"type":"search","query":"Codex protocol"}}}
+{"type":"item.completed","item":{"id":"item_7","type":"file_change","changes":[{"path":"src/lib.rs","kind":"update"}],"status":"completed"}}
+{"type":"item.completed","item":{"id":"item_8","type":"error","message":"non-fatal warning"}}
+{"type":"item.completed","item":{"id":"item_4","type":"agent_message","text":"The crate is ready."}}
+{"type":"turn.completed","usage":{"input_tokens":120,"cached_input_tokens":80,"cache_write_input_tokens":0,"output_tokens":20,"reasoning_output_tokens":10}}
+{"type":"future.event","payload":{"kept":true}}

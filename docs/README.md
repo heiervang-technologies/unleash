@@ -12,6 +12,7 @@
 | [Environment Variables](environment-variables.md) | All env vars unleash sets or reads |
 | [Crossload](crossload.md) | Portable conversation histories across CLIs |
 | [Crossload Matrix](crossload-matrix.md) | Per-pair lossless/partial status across all agents |
+| [OpenAI-compatible Gateway](openai-gateway.md) | Serve a live headful agent or resumed headless session through `/v1` |
 | [Docker](docker.md) | Sandboxed containers and multi-agent mesh |
 | [Plugins](plugins.md) | Bundled plugin index and custom plugin pointers |
 
