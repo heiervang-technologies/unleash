@@ -78,7 +78,7 @@ pub fn to_hub<R: BufRead>(reader: R) -> Result<Vec<HubRecord>, ConvertError> {
                     )));
                     session_emitted = true;
                 }
-                let mut msg = pi_message_to_hub(&val, foreign_originated)?;
+                let mut msg = pi_message_to_hub(&val, foreign_originated, ucf_hub)?;
                 if let Some(ext) = &foreign_ext {
                     merge_into_extensions(&mut msg.extensions, ext);
                 }
@@ -352,7 +352,11 @@ fn pi_control_record_to_event(val: &Value, rec_type: &str) -> HubEvent {
     }
 }
 
-fn pi_message_to_hub(val: &Value, foreign_originated: bool) -> Result<HubMessage, ConvertError> {
+fn pi_message_to_hub(
+    val: &Value,
+    foreign_originated: bool,
+    ucf_hub: Option<&Value>,
+) -> Result<HubMessage, ConvertError> {
     let outer_id = val
         .get("id")
         .and_then(|v| v.as_str())
@@ -411,11 +415,6 @@ fn pi_message_to_hub(val: &Value, foreign_originated: bool) -> Result<HubMessage
                 );
             }
 
-            // Carry the raw usage object verbatim so float formatting round-
-            // trips exactly.
-            if let Some(usage) = message.get("usage").cloned() {
-                pi_sidecar.insert("usage_raw".into(), usage);
-            }
             if let Some(api) = message.get("api").cloned() {
                 pi_sidecar.insert("api".into(), api);
             }
@@ -442,19 +441,45 @@ fn pi_message_to_hub(val: &Value, foreign_originated: bool) -> Result<HubMessage
                 .and_then(|v| v.as_str())
                 .map(String::from);
             let usage = message.get("usage");
+            let usage_passthrough = ucf_hub.and_then(|u| u.get("pi_usage"));
             let tokens = usage.map(|u| TokenUsage {
                 input: u.get("input").and_then(|v| v.as_u64()).unwrap_or(0),
                 output: u.get("output").and_then(|v| v.as_u64()).unwrap_or(0),
                 cache_creation: u.get("cacheWrite").and_then(|v| v.as_u64()).unwrap_or(0),
                 cache_read: u.get("cacheRead").and_then(|v| v.as_u64()).unwrap_or(0),
-                reasoning: 0,
-                tool: 0,
+                reasoning: usage_passthrough
+                    .and_then(|p| p.get("reasoning"))
+                    .and_then(|v| v.as_u64())
+                    .unwrap_or(0),
+                tool: usage_passthrough
+                    .and_then(|p| p.get("tool"))
+                    .and_then(|v| v.as_u64())
+                    .unwrap_or(0),
                 total: u.get("totalTokens").and_then(|v| v.as_u64()).unwrap_or(0),
             });
-            let cost = usage
+            let native_cost = usage
                 .and_then(|u| u.get("cost"))
                 .and_then(|c| c.get("total"))
                 .and_then(|v| v.as_f64());
+            let cost = if usage_passthrough
+                .and_then(|p| p.get("cost_present"))
+                .and_then(|v| v.as_bool())
+                == Some(false)
+            {
+                None
+            } else {
+                native_cost
+            };
+
+            // A native Pi usage object can carry per-category costs or
+            // forward-compatible fields that Hub metadata cannot represent.
+            // Keep the raw object only in that case. Reconstructable usage
+            // must not accrete a redundant extensions.pi namespace.
+            if let (Some(usage), Some(tokens)) = (usage, tokens.as_ref()) {
+                if synthesize_pi_usage(tokens, cost) != *usage {
+                    pi_sidecar.insert("usage_raw".into(), usage.clone());
+                }
+            }
             let hub_stop_reason = stop_reason_raw.as_deref().map(|r| match r {
                 "toolUse" => "tool_use".to_string(),
                 other => other.to_string(),
@@ -860,27 +885,15 @@ fn hub_message_to_pi(msg: &HubMessage) -> Result<Option<Value>, ConvertError> {
                 inner.insert("model".into(), Value::String(model.clone()));
             }
 
-            // Usage: prefer the verbatim stashed object to avoid float-fmt
-            // round-trip loss. Otherwise synthesize from hub metadata.
+            // Usage: prefer a raw object only when to_hub proved the native
+            // value was not reconstructable from canonical metadata.
             if let Some(usage_raw) = pi_obj.get("usage_raw") {
                 inner.insert("usage".into(), usage_raw.clone());
             } else if let Some(tokens) = &msg.metadata.tokens {
-                let cost_total = msg.metadata.cost.unwrap_or(0.0);
-                let usage = serde_json::json!({
-                    "input": tokens.input,
-                    "output": tokens.output,
-                    "cacheRead": tokens.cache_read,
-                    "cacheWrite": tokens.cache_creation,
-                    "totalTokens": tokens.total,
-                    "cost": {
-                        "input": 0.0,
-                        "output": 0.0,
-                        "cacheRead": 0.0,
-                        "cacheWrite": 0.0,
-                        "total": cost_total,
-                    }
-                });
-                inner.insert("usage".into(), usage);
+                inner.insert(
+                    "usage".into(),
+                    synthesize_pi_usage(tokens, msg.metadata.cost),
+                );
             }
 
             // Stop reason: prefer the raw value we stashed.
@@ -933,7 +946,63 @@ fn hub_message_to_pi(msg: &HubMessage) -> Result<Option<Value>, ConvertError> {
     }
     out.insert("message".into(), Value::Object(inner));
 
-    Ok(Some(Value::Object(out)))
+    let mut out = Value::Object(out);
+
+    // Pi's headful AssistantMessage requires a complete Usage object and has
+    // no native slots for reasoning/tool token counts or cost absence. Carry
+    // only those distinctions through our reserved transport, then consume
+    // them in to_hub. This keeps the emitted history valid for Pi without
+    // leaking transport metadata into Hub extensions on the return leg.
+    if role == "assistant" {
+        let mut usage_passthrough = Map::new();
+        if let Some(tokens) = &msg.metadata.tokens {
+            if tokens.reasoning > 0 {
+                usage_passthrough.insert("reasoning".into(), Value::from(tokens.reasoning));
+            }
+            if tokens.tool > 0 {
+                usage_passthrough.insert("tool".into(), Value::from(tokens.tool));
+            }
+            if msg.metadata.cost.is_none() {
+                usage_passthrough.insert("cost_present".into(), Value::Bool(false));
+            }
+        }
+        if !usage_passthrough.is_empty() {
+            attach_ucf_hub_field(&mut out, "pi_usage", Value::Object(usage_passthrough));
+            // Preserve {} versus null for the message carrying this transport.
+            // Otherwise removing redundant usage_raw would merely turn the
+            // old extensions.pi residual into a whole-field extensions diff.
+            if msg
+                .extensions
+                .as_object()
+                .is_some_and(|extensions| extensions.is_empty())
+            {
+                attach_ucf_hub_ext(&mut out, Value::Object(Map::new()));
+            }
+        }
+    }
+
+    Ok(Some(out))
+}
+
+/// Build the complete Usage shape required by Pi's headful AssistantMessage.
+///
+/// Pi has no native reasoning/tool counters and requires a cost object, so
+/// callers preserve those unsupported distinctions separately in `_ucf_hub`.
+fn synthesize_pi_usage(tokens: &TokenUsage, cost: Option<f64>) -> Value {
+    serde_json::json!({
+        "input": tokens.input,
+        "output": tokens.output,
+        "cacheRead": tokens.cache_read,
+        "cacheWrite": tokens.cache_creation,
+        "totalTokens": tokens.total,
+        "cost": {
+            "input": 0.0,
+            "output": 0.0,
+            "cacheRead": 0.0,
+            "cacheWrite": 0.0,
+            "total": cost.unwrap_or(0.0),
+        }
+    })
 }
 
 fn content_block_to_pi(block: &ContentBlock) -> Value {
@@ -1044,6 +1113,19 @@ fn attach_ucf_hub_ext(line: &mut Value, ext: Value) {
         return;
     };
     inner.insert("ext".to_string(), ext);
+}
+
+fn attach_ucf_hub_field(line: &mut Value, key: &str, value: Value) {
+    let Value::Object(ref mut obj) = line else {
+        return;
+    };
+    let entry = obj
+        .entry("_ucf_hub".to_string())
+        .or_insert_with(|| Value::Object(Map::new()));
+    let Value::Object(ref mut inner) = entry else {
+        return;
+    };
+    inner.insert(key.to_string(), value);
 }
 
 fn attach_ucf_hub_session(line: &mut Value, session: Value) {
