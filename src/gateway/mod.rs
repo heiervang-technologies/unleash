@@ -52,6 +52,7 @@ pub(crate) enum Driver {
     #[cfg(test)]
     Test {
         result: TurnResult,
+        updates: Vec<TurnUpdate>,
         delay: Duration,
         starts: Arc<std::sync::atomic::AtomicUsize>,
     },
@@ -223,13 +224,20 @@ impl Driver {
             #[cfg(test)]
             Self::Test {
                 result,
+                updates,
                 delay,
                 starts,
             } => {
                 starts.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
                 std::thread::sleep(*delay);
                 let mut emit = emit;
-                emit(TurnUpdate::Text(result.text.clone()));
+                if updates.is_empty() {
+                    emit(TurnUpdate::Text(result.text.clone()));
+                } else {
+                    for update in updates {
+                        emit(update.clone());
+                    }
+                }
                 Ok(result.clone())
             }
         }

@@ -53,14 +53,23 @@ enum StoredTurn {
         sender: broadcast::Sender<TurnStreamEvent>,
         updates: Vec<TurnUpdate>,
     },
-    Complete(TurnResult),
-    Failed(String),
+    Complete {
+        result: TurnResult,
+        updates: Vec<TurnUpdate>,
+    },
+    Failed {
+        message: String,
+        updates: Vec<TurnUpdate>,
+    },
 }
 
 enum TurnSource {
     Live {
         receiver: broadcast::Receiver<TurnStreamEvent>,
         prefix: VecDeque<TurnStreamEvent>,
+        registry: Arc<StdMutex<TurnRegistry>>,
+        key: String,
+        cursor: usize,
     },
     Complete {
         result: Option<TurnResult>,
@@ -144,18 +153,6 @@ async fn chat_completions(
             .into_response()
         }
     };
-    let current_model = state.identity.read().expect("identity poisoned").model_id();
-    if request.model != current_model {
-        return ApiError::new(
-            StatusCode::NOT_FOUND,
-            format!(
-                "model '{}' is not a live instance; use GET /v1/models",
-                request.model
-            ),
-            Some("model_not_found"),
-        )
-        .into_response();
-    }
     if request.n.is_some_and(|n| n != 1) {
         return ApiError::bad_request("only n=1 is supported", Some("unsupported_value"))
             .into_response();
@@ -181,7 +178,7 @@ async fn chat_completions(
         Err(error) => return error.into_response(),
     };
     let fingerprint = TurnFingerprint {
-        model: current_model.clone(),
+        model: request.model.clone(),
         prompt: prompt.clone(),
     };
     let (response_id, created, source) =
@@ -195,14 +192,14 @@ async fn chat_completions(
             source,
             response_id,
             created,
-            current_model,
+            request.model.clone(),
             request
                 .stream_options
                 .as_ref()
                 .is_some_and(|options| options.include_usage),
         )
     } else {
-        non_streaming_response(source, response_id, created, current_model).await
+        non_streaming_response(source, response_id, created, request.model.clone()).await
     }
 }
 
@@ -260,14 +257,29 @@ fn begin_or_replay_turn(
                     .cloned()
                     .map(TurnStreamEvent::Update)
                     .collect(),
+                registry: Arc::clone(&state.turns),
+                key: key.clone(),
+                cursor: updates.len(),
             },
-            StoredTurn::Complete(result) => TurnSource::Complete {
+            StoredTurn::Complete { result, .. } => TurnSource::Complete {
                 result: Some(result.clone()),
                 text_emitted: false,
             },
-            StoredTurn::Failed(message) => TurnSource::Failed(Some(message.clone())),
+            StoredTurn::Failed { message, .. } => TurnSource::Failed(Some(message.clone())),
         };
         return Ok((entry.response_id.clone(), entry.created, source));
+    }
+
+    let current_model = state.identity.read().expect("identity poisoned").model_id();
+    if fingerprint.model != current_model {
+        return Err(ApiError::new(
+            StatusCode::NOT_FOUND,
+            format!(
+                "model '{}' is not a live instance; use GET /v1/models",
+                fingerprint.model
+            ),
+            Some("model_not_found"),
+        ));
     }
 
     let gate = Arc::clone(&state.turn_gate).try_lock_owned().map_err(|_| {
@@ -294,6 +306,9 @@ fn begin_or_replay_turn(
     let source = TurnSource::Live {
         receiver: sender.subscribe(),
         prefix: VecDeque::new(),
+        registry: Arc::clone(&state.turns),
+        key: key.clone(),
+        cursor: 0,
     };
     turns.entries.insert(
         key.clone(),
@@ -329,10 +344,10 @@ async fn monitor_turn(
                 continue;
             }
             TurnStreamEvent::Complete(result) => {
-                store_terminal_turn(&registry, &key, StoredTurn::Complete(result.clone()));
+                store_terminal_turn_complete(&registry, &key, result.clone());
             }
             TurnStreamEvent::Error(message) => {
-                store_terminal_turn(&registry, &key, StoredTurn::Failed(message.clone()));
+                store_terminal_turn_failed(&registry, &key, message.clone());
             }
         }
         let _ = sender.send(event);
@@ -340,18 +355,38 @@ async fn monitor_turn(
     }
 
     let message = "agent stream ended unexpectedly".to_string();
-    store_terminal_turn(&registry, &key, StoredTurn::Failed(message.clone()));
+    store_terminal_turn_failed(&registry, &key, message.clone());
     let _ = sender.send(TurnStreamEvent::Error(message));
 }
 
-fn store_terminal_turn(registry: &StdMutex<TurnRegistry>, key: &str, state: StoredTurn) {
+fn store_terminal_turn_complete(registry: &StdMutex<TurnRegistry>, key: &str, result: TurnResult) {
     let Ok(mut registry) = registry.lock() else {
         return;
     };
     let Some(entry) = registry.entries.get_mut(key) else {
         return;
     };
-    entry.state = state;
+    if let StoredTurn::Running { updates, .. } = &mut entry.state {
+        entry.state = StoredTurn::Complete {
+            result,
+            updates: std::mem::take(updates),
+        };
+    }
+}
+
+fn store_terminal_turn_failed(registry: &StdMutex<TurnRegistry>, key: &str, message: String) {
+    let Ok(mut registry) = registry.lock() else {
+        return;
+    };
+    let Some(entry) = registry.entries.get_mut(key) else {
+        return;
+    };
+    if let StoredTurn::Running { updates, .. } = &mut entry.state {
+        entry.state = StoredTurn::Failed {
+            message,
+            updates: std::mem::take(updates),
+        };
+    }
 }
 
 fn store_and_publish_turn_update(
@@ -379,13 +414,47 @@ fn store_and_publish_turn_update(
 impl TurnSource {
     async fn recv(&mut self) -> Option<TurnStreamEvent> {
         match self {
-            Self::Live { receiver, prefix } => loop {
+            Self::Live {
+                receiver,
+                prefix,
+                registry,
+                key,
+                cursor,
+            } => loop {
                 if let Some(event) = prefix.pop_front() {
                     return Some(event);
                 }
                 match receiver.recv().await {
-                    Ok(event) => return Some(event),
-                    Err(broadcast::error::RecvError::Lagged(_)) => {}
+                    Ok(event) => {
+                        if matches!(event, TurnStreamEvent::Update(_)) {
+                            *cursor += 1;
+                        }
+                        return Some(event);
+                    }
+                    Err(broadcast::error::RecvError::Lagged(_)) => {
+                        let Ok(registry_lock) = registry.lock() else {
+                            continue;
+                        };
+                        let Some(entry) = registry_lock.entries.get(key) else {
+                            continue;
+                        };
+                        let (updates_ref, terminal) = match &entry.state {
+                            StoredTurn::Running { updates, .. } => (updates, None),
+                            StoredTurn::Complete { updates, result } => {
+                                (updates, Some(TurnStreamEvent::Complete(result.clone())))
+                            }
+                            StoredTurn::Failed { updates, message } => {
+                                (updates, Some(TurnStreamEvent::Error(message.clone())))
+                            }
+                        };
+                        for update in updates_ref.iter().skip(*cursor) {
+                            prefix.push_back(TurnStreamEvent::Update(update.clone()));
+                        }
+                        *cursor = updates_ref.len();
+                        if let Some(event) = terminal {
+                            prefix.push_back(event);
+                        }
+                    }
                     Err(broadcast::error::RecvError::Closed) => return None,
                 }
             },
@@ -893,6 +962,7 @@ mod tests {
                     reasoning_tokens: 10,
                 },
             },
+            updates: vec![],
             delay: Duration::ZERO,
             starts: Arc::clone(&starts),
         };
@@ -1001,6 +1071,7 @@ mod tests {
                     reasoning_tokens: 0,
                 },
             },
+            updates: vec![],
             delay: Duration::from_millis(200),
             starts: Arc::clone(&starts),
         };
@@ -1096,6 +1167,177 @@ mod tests {
             missing_key["error"]["code"],
             Value::String("idempotency_key_required".into())
         );
+
+        let _ = shutdown_tx.send(());
+        server.await.unwrap().unwrap();
+    }
+
+    #[tokio::test]
+    async fn changing_identity_replay_regression() {
+        let identity = Arc::new(RwLock::new(InstanceIdentity::new(
+            "changing-agent".into(),
+            Some("gpt-4".into()),
+            "harness".into(),
+            "headful",
+            true,
+        )));
+        let model_id_1 = identity.read().unwrap().model_id();
+        let starts = Arc::new(AtomicUsize::new(0));
+        let driver = Driver::Test {
+            result: TurnResult {
+                text: "Original turn.".into(),
+                usage: GatewayUsage {
+                    prompt_tokens: 10,
+                    completion_tokens: 2,
+                    total_tokens: 12,
+                    cached_prompt_tokens: 0,
+                    reasoning_tokens: 0,
+                },
+            },
+            updates: vec![],
+            delay: Duration::ZERO,
+            starts: Arc::clone(&starts),
+        };
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        let (shutdown_tx, shutdown_rx) = tokio::sync::oneshot::channel();
+        let server = tokio::spawn(run(
+            listener,
+            Arc::clone(&identity),
+            driver,
+            None,
+            async move {
+                let _ = shutdown_rx.await;
+            },
+        ));
+        let client = reqwest::Client::new();
+        let endpoint = format!("http://{address}/v1/chat/completions");
+        let body = json!({
+            "model": model_id_1,
+            "messages": [{"role": "user", "content": "Hello"}]
+        });
+
+        let first: Value = client
+            .post(&endpoint)
+            .header("Idempotency-Key", "id-key")
+            .json(&body)
+            .send()
+            .await
+            .unwrap()
+            .json()
+            .await
+            .unwrap();
+        assert_eq!(first["choices"][0]["message"]["content"], "Original turn.");
+
+        *identity.write().unwrap() = InstanceIdentity::new(
+            "changing-agent".into(),
+            Some("gpt-5".into()),
+            "harness".into(),
+            "headful",
+            true,
+        );
+
+        let replay: Value = client
+            .post(&endpoint)
+            .header("Idempotency-Key", "id-key")
+            .json(&body)
+            .send()
+            .await
+            .unwrap()
+            .json()
+            .await
+            .unwrap();
+        assert_eq!(replay["choices"][0]["message"]["content"], "Original turn.");
+
+        let new_turn = client
+            .post(&endpoint)
+            .header("Idempotency-Key", "new-key")
+            .json(&body)
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(new_turn.status(), StatusCode::NOT_FOUND);
+
+        let _ = shutdown_tx.send(());
+        server.await.unwrap().unwrap();
+    }
+
+    #[tokio::test]
+    async fn slow_sse_client_receives_lossless_delivery() {
+        let identity = Arc::new(RwLock::new(InstanceIdentity::new(
+            "lossless-agent".into(),
+            Some("gpt-lossless".into()),
+            "codex".into(),
+            "headful",
+            true,
+        )));
+        let model_id = identity.read().unwrap().model_id();
+        let starts = Arc::new(AtomicUsize::new(0));
+
+        let mut updates = Vec::new();
+        for i in 0..100 {
+            updates.push(TurnUpdate::Text(format!("chunk{} ", i)));
+        }
+
+        let driver = Driver::Test {
+            result: TurnResult {
+                text: updates
+                    .iter()
+                    .map(|u| {
+                        let TurnUpdate::Text(t) = u;
+                        t.clone()
+                    })
+                    .collect::<String>(),
+                usage: GatewayUsage {
+                    prompt_tokens: 10,
+                    completion_tokens: 100,
+                    total_tokens: 110,
+                    cached_prompt_tokens: 0,
+                    reasoning_tokens: 0,
+                },
+            },
+            updates,
+            delay: Duration::ZERO,
+            starts: Arc::clone(&starts),
+        };
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        let (shutdown_tx, shutdown_rx) = tokio::sync::oneshot::channel();
+        let server = tokio::spawn(run(listener, identity, driver, None, async move {
+            let _ = shutdown_rx.await;
+        }));
+
+        let client = reqwest::Client::new();
+        let endpoint = format!("http://{address}/v1/chat/completions");
+
+        let mut response = client
+            .post(&endpoint)
+            .header("Idempotency-Key", "lossless-key")
+            .json(&json!({
+                "model": model_id,
+                "messages": [{"role": "user", "content": "Stream it"}],
+                "stream": true
+            }))
+            .send()
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::OK);
+
+        let mut text = String::new();
+        while let Some(chunk) = response.chunk().await.unwrap() {
+            let chunk_str = String::from_utf8(chunk.to_vec()).unwrap();
+            text.push_str(&chunk_str);
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+
+        for i in 0..100 {
+            assert!(
+                text.contains(&format!("\"content\":\"chunk{} \"", i)),
+                "Missing chunk {}",
+                i
+            );
+        }
 
         let _ = shutdown_tx.send(());
         server.await.unwrap().unwrap();
