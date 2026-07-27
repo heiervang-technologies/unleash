@@ -203,13 +203,8 @@ impl HistoryTracker {
             return Ok(());
         }
 
-        let candidates = self
-            .attached
-            .clone()
-            .map(|s| vec![s])
-            .unwrap_or_else(|| self.candidates());
-        for session in candidates {
-            if let Ok(records) = read_records(&session) {
+        if let Some(session) = self.attached.as_ref() {
+            if let Ok(records) = read_records(session) {
                 if is_busy_in_records(&records, self.format, &session.path) {
                     return Err("the native agent is currently busy processing a turn".to_string());
                 }
@@ -971,5 +966,65 @@ mod tests {
             identity.read().unwrap().model_id(),
             "unleash/codex/gpt-5-6/codex"
         );
+    }
+
+    #[test]
+    fn unattached_gateway_ignores_unrelated_busy_session() {
+        let _environment = crate::test_env::lock();
+        let temporary = tempfile::tempdir().unwrap();
+        let session_dir = temporary.path().join("sessions/2026/07/26");
+        std::fs::create_dir_all(&session_dir).unwrap();
+        let history = session_dir.join("rollout-2026-07-26T10-00-00-session-431.jsonl");
+        std::fs::write(
+            &history,
+            concat!(
+                "{\"timestamp\":\"2026-07-26T10:00:00Z\",\"type\":\"session_meta\",\"payload\":{\"id\":\"session-431\",\"cwd\":\"/tmp/project\",\"cli_version\":\"0.145.0\"}}\n",
+                "{\"timestamp\":\"2026-07-26T10:00:01Z\",\"type\":\"response_item\",\"payload\":{\"type\":\"message\",\"role\":\"user\",\"content\":[{\"type\":\"input_text\",\"text\":\"unfinished turn\"}]}}\n"
+            ),
+        )
+        .unwrap();
+
+        let saved_home = std::env::var_os("CODEX_HOME");
+        // SAFETY: guarded by the crate-wide environment lock and restored.
+        unsafe { std::env::set_var("CODEX_HOME", temporary.path()) };
+
+        let identity = Arc::new(RwLock::new(InstanceIdentity::new(
+            "codex".into(),
+            None,
+            "codex".into(),
+            "headful",
+            false,
+        )));
+
+        let mut unattached_tracker =
+            HistoryTracker::new(CliFormat::Codex, None, Arc::clone(&identity)).unwrap();
+
+        let result = unattached_tracker.ensure_headful_idle();
+        assert!(
+            result.is_ok(),
+            "unattached gateway should ignore unrelated busy session"
+        );
+
+        let mut attached_tracker = HistoryTracker::new(
+            CliFormat::Codex,
+            Some("codex:session-431"),
+            Arc::clone(&identity),
+        )
+        .unwrap();
+
+        let result = attached_tracker.ensure_headful_idle();
+        assert!(
+            result.is_err(),
+            "attached gateway should reject busy session"
+        );
+        assert_eq!(
+            result.unwrap_err(),
+            "the native agent is currently busy processing a turn"
+        );
+
+        match saved_home {
+            Some(value) => unsafe { std::env::set_var("CODEX_HOME", value) },
+            None => unsafe { std::env::remove_var("CODEX_HOME") },
+        }
     }
 }
