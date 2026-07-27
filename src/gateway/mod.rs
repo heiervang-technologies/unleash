@@ -55,6 +55,7 @@ pub(crate) enum Driver {
         updates: Vec<TurnUpdate>,
         delay: Duration,
         starts: Arc<std::sync::atomic::AtomicUsize>,
+        pause: Option<(usize, std::time::Duration)>,
     },
 }
 
@@ -227,6 +228,7 @@ impl Driver {
                 updates,
                 delay,
                 starts,
+                pause,
             } => {
                 starts.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
                 std::thread::sleep(*delay);
@@ -234,7 +236,12 @@ impl Driver {
                 if updates.is_empty() {
                     emit(TurnUpdate::Text(result.text.clone()));
                 } else {
-                    for update in updates {
+                    for (i, update) in updates.iter().enumerate() {
+                        if let Some((pause_idx, pause_duration)) = pause {
+                            if i == *pause_idx {
+                                std::thread::sleep(*pause_duration);
+                            }
+                        }
                         emit(update.clone());
                     }
                 }

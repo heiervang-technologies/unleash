@@ -438,13 +438,17 @@ impl TurnSource {
                         let Some(entry) = registry_lock.entries.get(key) else {
                             continue;
                         };
-                        let (updates_ref, terminal) = match &entry.state {
-                            StoredTurn::Running { updates, .. } => (updates, None),
-                            StoredTurn::Complete { updates, result } => {
-                                (updates, Some(TurnStreamEvent::Complete(result.clone())))
+                        let (updates_ref, terminal, new_receiver) = match &entry.state {
+                            StoredTurn::Running { updates, sender } => {
+                                (updates, None, Some(sender.subscribe()))
                             }
+                            StoredTurn::Complete { updates, result } => (
+                                updates,
+                                Some(TurnStreamEvent::Complete(result.clone())),
+                                None,
+                            ),
                             StoredTurn::Failed { updates, message } => {
-                                (updates, Some(TurnStreamEvent::Error(message.clone())))
+                                (updates, Some(TurnStreamEvent::Error(message.clone())), None)
                             }
                         };
                         for update in updates_ref.iter().skip(*cursor) {
@@ -453,6 +457,9 @@ impl TurnSource {
                         *cursor = updates_ref.len();
                         if let Some(event) = terminal {
                             prefix.push_back(event);
+                        }
+                        if let Some(rx) = new_receiver {
+                            *receiver = rx;
                         }
                     }
                     Err(broadcast::error::RecvError::Closed) => return None,
@@ -965,6 +972,7 @@ mod tests {
             updates: vec![],
             delay: Duration::ZERO,
             starts: Arc::clone(&starts),
+            pause: None,
         };
         let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
         let address = listener.local_addr().unwrap();
@@ -1074,6 +1082,7 @@ mod tests {
             updates: vec![],
             delay: Duration::from_millis(200),
             starts: Arc::clone(&starts),
+            pause: None,
         };
         let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
         let address = listener.local_addr().unwrap();
@@ -1197,6 +1206,7 @@ mod tests {
             updates: vec![],
             delay: Duration::ZERO,
             starts: Arc::clone(&starts),
+            pause: None,
         };
         let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
         let address = listener.local_addr().unwrap();
@@ -1299,6 +1309,7 @@ mod tests {
             updates,
             delay: Duration::ZERO,
             starts: Arc::clone(&starts),
+            pause: None,
         };
         let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
         let address = listener.local_addr().unwrap();
@@ -1338,6 +1349,110 @@ mod tests {
                 i
             );
         }
+
+        let _ = shutdown_tx.send(());
+        server.await.unwrap().unwrap();
+    }
+
+    #[tokio::test]
+    async fn lagging_sse_client_receives_in_order_without_duplicates_during_running_turn() {
+        let identity = Arc::new(RwLock::new(InstanceIdentity::new(
+            "lagging-agent".into(),
+            Some("gpt-lagging".into()),
+            "codex".into(),
+            "headful",
+            true,
+        )));
+        let model_id = identity.read().unwrap().model_id();
+        let starts = Arc::new(AtomicUsize::new(0));
+
+        let mut updates = Vec::new();
+        for i in 0..100 {
+            updates.push(TurnUpdate::Text(format!("chunk{} ", i)));
+        }
+
+        let driver = Driver::Test {
+            result: TurnResult {
+                text: updates
+                    .iter()
+                    .map(|u| {
+                        let TurnUpdate::Text(t) = u;
+                        t.clone()
+                    })
+                    .collect::<String>(),
+                usage: GatewayUsage {
+                    prompt_tokens: 10,
+                    completion_tokens: 100,
+                    total_tokens: 110,
+                    cached_prompt_tokens: 0,
+                    reasoning_tokens: 0,
+                },
+            },
+            updates,
+            delay: Duration::ZERO,
+            starts: Arc::clone(&starts),
+            pause: Some((80, Duration::from_millis(200))),
+        };
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        let (shutdown_tx, shutdown_rx) = tokio::sync::oneshot::channel();
+        let server = tokio::spawn(run(listener, identity, driver, None, async move {
+            let _ = shutdown_rx.await;
+        }));
+
+        let client = reqwest::Client::new();
+        let endpoint = format!("http://{address}/v1/chat/completions");
+
+        let mut response = client
+            .post(&endpoint)
+            .header("Idempotency-Key", "lagging-key")
+            .json(&json!({
+                "model": model_id,
+                "messages": [{"role": "user", "content": "Stream it"}],
+                "stream": true
+            }))
+            .send()
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::OK);
+
+        tokio::time::sleep(Duration::from_millis(50)).await;
+
+        let mut text = String::new();
+        while let Some(chunk) = response.chunk().await.unwrap() {
+            let chunk_str = String::from_utf8(chunk.to_vec()).unwrap();
+            text.push_str(&chunk_str);
+        }
+
+        let mut content_pieces = Vec::new();
+        for line in text.lines() {
+            if let Some(data) = line.strip_prefix("data: ") {
+                if data == "[DONE]" || data == "keep-alive" {
+                    continue;
+                }
+                let parsed: Value = serde_json::from_str(data).unwrap();
+                if let Some(choices) = parsed.get("choices").and_then(Value::as_array) {
+                    if let Some(choice) = choices.get(0) {
+                        if let Some(content) = choice
+                            .get("delta")
+                            .and_then(|d| d.get("content"))
+                            .and_then(Value::as_str)
+                        {
+                            if !content.is_empty() {
+                                content_pieces.push(content.to_string());
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        let expected_pieces: Vec<String> = (0..100).map(|i| format!("chunk{} ", i)).collect();
+        assert_eq!(
+            content_pieces, expected_pieces,
+            "Chunks were duplicated or out of order"
+        );
 
         let _ = shutdown_tx.send(());
         server.await.unwrap().unwrap();
