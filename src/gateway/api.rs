@@ -1,4 +1,4 @@
-use super::history::{GatewayUsage, InstanceIdentity, TurnUpdate};
+use super::history::{GatewayUsage, InstanceIdentity, TurnResult, TurnUpdate};
 use super::{Driver, TurnStreamEvent};
 use axum::extract::rejection::JsonRejection;
 use axum::extract::{DefaultBodyLimit, State};
@@ -9,13 +9,14 @@ use axum::routing::{get, post};
 use axum::{Json, Router};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
+use std::collections::{HashMap, VecDeque};
 use std::convert::Infallible;
 use std::future::Future;
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::{Arc, RwLock};
+use std::sync::{Arc, Mutex as StdMutex, RwLock};
 use std::time::{Duration, SystemTime};
 use tokio::net::TcpListener;
-use tokio::sync::{mpsc, Mutex};
+use tokio::sync::{broadcast, mpsc, Mutex};
 use tokio_stream::wrappers::ReceiverStream;
 
 const MAX_REQUEST_BYTES: usize = 1024 * 1024;
@@ -26,7 +27,46 @@ struct AppState {
     identity: Arc<RwLock<InstanceIdentity>>,
     driver: Driver,
     turn_gate: Arc<Mutex<()>>,
+    turns: Arc<StdMutex<TurnRegistry>>,
     api_key: Option<Arc<str>>,
+}
+
+#[derive(Clone, PartialEq, Eq)]
+struct TurnFingerprint {
+    model: String,
+    prompt: String,
+}
+
+struct TurnRegistry {
+    entries: HashMap<String, TurnEntry>,
+}
+
+struct TurnEntry {
+    fingerprint: TurnFingerprint,
+    response_id: String,
+    created: u64,
+    state: StoredTurn,
+}
+
+enum StoredTurn {
+    Running {
+        sender: broadcast::Sender<TurnStreamEvent>,
+        updates: Vec<TurnUpdate>,
+    },
+    Complete(TurnResult),
+    Failed(String),
+}
+
+enum TurnSource {
+    Live {
+        receiver: broadcast::Receiver<TurnStreamEvent>,
+        prefix: VecDeque<TurnStreamEvent>,
+    },
+    Complete {
+        result: Option<TurnResult>,
+        text_emitted: bool,
+    },
+    Failed(Option<String>),
 }
 
 pub async fn run(
@@ -40,6 +80,9 @@ pub async fn run(
         identity,
         driver,
         turn_gate: Arc::new(Mutex::new(())),
+        turns: Arc::new(StdMutex::new(TurnRegistry {
+            entries: HashMap::new(),
+        })),
         api_key: api_key.map(Arc::from),
     };
     let router = Router::new()
@@ -133,25 +176,25 @@ async fn chat_completions(
         Ok(prompt) => prompt,
         Err(error) => return error.into_response(),
     };
-
-    let gate = match Arc::clone(&state.turn_gate).try_lock_owned() {
-        Ok(gate) => gate,
-        Err(_) => {
-            return ApiError::new(
-                StatusCode::CONFLICT,
-                "this stateful agent instance is already processing a turn",
-                Some("instance_busy"),
-            )
-            .into_response()
-        }
+    let idempotency_key = match idempotency_key(&headers) {
+        Ok(key) => key,
+        Err(error) => return error.into_response(),
     };
-    let response_id = next_response_id();
-    let receiver = state.driver.start_turn(prompt, gate);
+    let fingerprint = TurnFingerprint {
+        model: current_model.clone(),
+        prompt: prompt.clone(),
+    };
+    let (response_id, created, source) =
+        match begin_or_replay_turn(&state, idempotency_key, fingerprint, prompt) {
+            Ok(turn) => turn,
+            Err(error) => return error.into_response(),
+        };
 
     if request.stream.unwrap_or(false) {
         streaming_response(
-            receiver,
+            source,
             response_id,
+            created,
             current_model,
             request
                 .stream_options
@@ -159,19 +202,219 @@ async fn chat_completions(
                 .is_some_and(|options| options.include_usage),
         )
     } else {
-        non_streaming_response(receiver, response_id, current_model).await
+        non_streaming_response(source, response_id, created, current_model).await
+    }
+}
+
+fn idempotency_key(headers: &HeaderMap) -> Result<String, ApiError> {
+    let value = headers
+        .get("idempotency-key")
+        .ok_or_else(|| {
+            ApiError::bad_request(
+                "Idempotency-Key is required for every stateful agent turn",
+                Some("idempotency_key_required"),
+            )
+        })?
+        .to_str()
+        .map_err(|_| {
+            ApiError::bad_request(
+                "Idempotency-Key must contain visible ASCII text",
+                Some("invalid_idempotency_key"),
+            )
+        })?;
+    if value.is_empty()
+        || value.len() > 255
+        || value.bytes().any(|byte| !(0x21..=0x7e).contains(&byte))
+    {
+        return Err(ApiError::bad_request(
+            "Idempotency-Key must be 1 to 255 visible ASCII characters",
+            Some("invalid_idempotency_key"),
+        ));
+    }
+    Ok(value.to_string())
+}
+
+fn begin_or_replay_turn(
+    state: &AppState,
+    key: String,
+    fingerprint: TurnFingerprint,
+    prompt: String,
+) -> Result<(String, u64, TurnSource), ApiError> {
+    let mut turns = state
+        .turns
+        .lock()
+        .map_err(|_| ApiError::internal("idempotency registry lock was poisoned"))?;
+    if let Some(entry) = turns.entries.get(&key) {
+        if entry.fingerprint != fingerprint {
+            return Err(ApiError::new(
+                StatusCode::CONFLICT,
+                "Idempotency-Key was already used for a different model or user turn",
+                Some("idempotency_key_conflict"),
+            ));
+        }
+        let source = match &entry.state {
+            StoredTurn::Running { sender, updates } => TurnSource::Live {
+                receiver: sender.subscribe(),
+                prefix: updates
+                    .iter()
+                    .cloned()
+                    .map(TurnStreamEvent::Update)
+                    .collect(),
+            },
+            StoredTurn::Complete(result) => TurnSource::Complete {
+                result: Some(result.clone()),
+                text_emitted: false,
+            },
+            StoredTurn::Failed(message) => TurnSource::Failed(Some(message.clone())),
+        };
+        return Ok((entry.response_id.clone(), entry.created, source));
+    }
+
+    let gate = Arc::clone(&state.turn_gate).try_lock_owned().map_err(|_| {
+        ApiError::new(
+            StatusCode::CONFLICT,
+            "this stateful agent instance is already processing a different turn",
+            Some("instance_busy"),
+        )
+    })?;
+    let driver_receiver = state.driver.start_turn(prompt, gate).map_err(|error| {
+        ApiError::new(
+            if error.code == "native_instance_busy" {
+                StatusCode::CONFLICT
+            } else {
+                StatusCode::BAD_GATEWAY
+            },
+            error.message,
+            Some(error.code),
+        )
+    })?;
+    let response_id = next_response_id();
+    let created = unix_timestamp();
+    let (sender, _) = broadcast::channel(64);
+    let source = TurnSource::Live {
+        receiver: sender.subscribe(),
+        prefix: VecDeque::new(),
+    };
+    turns.entries.insert(
+        key.clone(),
+        TurnEntry {
+            fingerprint,
+            response_id: response_id.clone(),
+            created,
+            state: StoredTurn::Running {
+                sender: sender.clone(),
+                updates: Vec::new(),
+            },
+        },
+    );
+    drop(turns);
+
+    let registry = Arc::clone(&state.turns);
+    tokio::spawn(async move {
+        monitor_turn(key, driver_receiver, sender, registry).await;
+    });
+    Ok((response_id, created, source))
+}
+
+async fn monitor_turn(
+    key: String,
+    mut receiver: mpsc::Receiver<TurnStreamEvent>,
+    sender: broadcast::Sender<TurnStreamEvent>,
+    registry: Arc<StdMutex<TurnRegistry>>,
+) {
+    while let Some(event) = receiver.recv().await {
+        match &event {
+            TurnStreamEvent::Update(update) => {
+                store_and_publish_turn_update(&registry, &key, update.clone(), &sender);
+                continue;
+            }
+            TurnStreamEvent::Complete(result) => {
+                store_terminal_turn(&registry, &key, StoredTurn::Complete(result.clone()));
+            }
+            TurnStreamEvent::Error(message) => {
+                store_terminal_turn(&registry, &key, StoredTurn::Failed(message.clone()));
+            }
+        }
+        let _ = sender.send(event);
+        return;
+    }
+
+    let message = "agent stream ended unexpectedly".to_string();
+    store_terminal_turn(&registry, &key, StoredTurn::Failed(message.clone()));
+    let _ = sender.send(TurnStreamEvent::Error(message));
+}
+
+fn store_terminal_turn(registry: &StdMutex<TurnRegistry>, key: &str, state: StoredTurn) {
+    let Ok(mut registry) = registry.lock() else {
+        return;
+    };
+    let Some(entry) = registry.entries.get_mut(key) else {
+        return;
+    };
+    entry.state = state;
+}
+
+fn store_and_publish_turn_update(
+    registry: &StdMutex<TurnRegistry>,
+    key: &str,
+    update: TurnUpdate,
+    sender: &broadcast::Sender<TurnStreamEvent>,
+) {
+    let Ok(mut registry) = registry.lock() else {
+        return;
+    };
+    if let Some(TurnEntry {
+        state: StoredTurn::Running { updates, .. },
+        ..
+    }) = registry.entries.get_mut(key)
+    {
+        updates.push(update.clone());
+        // Subscribe and prefix snapshot happen under this same registry lock,
+        // so a retry sees this update either in its prefix or on broadcast,
+        // never neither (or both).
+        let _ = sender.send(TurnStreamEvent::Update(update));
+    }
+}
+
+impl TurnSource {
+    async fn recv(&mut self) -> Option<TurnStreamEvent> {
+        match self {
+            Self::Live { receiver, prefix } => loop {
+                if let Some(event) = prefix.pop_front() {
+                    return Some(event);
+                }
+                match receiver.recv().await {
+                    Ok(event) => return Some(event),
+                    Err(broadcast::error::RecvError::Lagged(_)) => {}
+                    Err(broadcast::error::RecvError::Closed) => return None,
+                }
+            },
+            Self::Complete {
+                result,
+                text_emitted,
+            } => {
+                if !*text_emitted {
+                    *text_emitted = true;
+                    return result.as_ref().map(|result| {
+                        TurnStreamEvent::Update(TurnUpdate::Text(result.text.clone()))
+                    });
+                }
+                result.take().map(TurnStreamEvent::Complete)
+            }
+            Self::Failed(message) => message.take().map(TurnStreamEvent::Error),
+        }
     }
 }
 
 fn streaming_response(
-    mut receiver: mpsc::Receiver<TurnStreamEvent>,
+    mut source: TurnSource,
     response_id: String,
+    created: u64,
     initial_model: String,
     include_usage: bool,
 ) -> Response {
     let (sender, output) = mpsc::channel::<Result<Event, Infallible>>(64);
     tokio::spawn(async move {
-        let created = unix_timestamp();
         let first = stream_chunk(
             &response_id,
             created,
@@ -184,7 +427,7 @@ fn streaming_response(
             return;
         }
 
-        while let Some(event) = receiver.recv().await {
+        while let Some(event) = source.recv().await {
             match event {
                 TurnStreamEvent::Update(TurnUpdate::Text(text)) => {
                     let chunk = stream_chunk(
@@ -250,18 +493,19 @@ fn streaming_response(
 }
 
 async fn non_streaming_response(
-    mut receiver: mpsc::Receiver<TurnStreamEvent>,
+    mut source: TurnSource,
     response_id: String,
+    created: u64,
     initial_model: String,
 ) -> Response {
-    while let Some(event) = receiver.recv().await {
+    while let Some(event) = source.recv().await {
         match event {
             TurnStreamEvent::Update(_) => {}
             TurnStreamEvent::Complete(result) => {
                 return Json(json!({
                     "id": response_id,
                     "object": "chat.completion",
-                    "created": unix_timestamp(),
+                    "created": created,
                     "model": initial_model,
                     "choices": [{
                         "index": 0,
@@ -381,16 +625,18 @@ fn prompt_from_messages(messages: &[ChatMessage]) -> Result<String, ApiError> {
             Some("unsupported_tools"),
         ));
     }
-    let message = messages
-        .iter()
-        .rev()
-        .find(|message| message.role == "user")
-        .ok_or_else(|| {
-            ApiError::bad_request(
-                "messages must contain a user message",
-                Some("invalid_messages"),
-            )
-        })?;
+    let message = messages.last().ok_or_else(|| {
+        ApiError::bad_request(
+            "messages must contain a user message",
+            Some("invalid_messages"),
+        )
+    })?;
+    if message.role != "user" {
+        return Err(ApiError::bad_request(
+            "the final message must be a new user turn",
+            Some("invalid_messages"),
+        ));
+    }
     let prompt = content_text(&message.content)?;
     if prompt.trim().is_empty() {
         return Err(ApiError::bad_request(
@@ -523,6 +769,14 @@ impl ApiError {
     fn bad_request(message: impl Into<String>, code: Option<&'static str>) -> Self {
         Self::new(StatusCode::BAD_REQUEST, message, code)
     }
+
+    fn internal(message: impl Into<String>) -> Self {
+        Self::new(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            message,
+            Some("internal_error"),
+        )
+    }
 }
 
 impl IntoResponse for ApiError {
@@ -534,7 +788,7 @@ impl IntoResponse for ApiError {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::gateway::history::{GatewayUsage, TurnResult};
+    use std::sync::atomic::AtomicUsize;
 
     #[test]
     fn extracts_only_the_latest_user_turn_from_client_history() {
@@ -577,6 +831,25 @@ mod tests {
     }
 
     #[test]
+    fn rejects_transcript_that_does_not_end_in_a_new_user_turn() {
+        let messages = vec![
+            ChatMessage {
+                role: "user".into(),
+                content: json!("already submitted"),
+                _extra: Default::default(),
+            },
+            ChatMessage {
+                role: "assistant".into(),
+                content: json!("already answered"),
+                _extra: Default::default(),
+            },
+        ];
+        let error = prompt_from_messages(&messages).unwrap_err();
+        assert_eq!(error.status, StatusCode::BAD_REQUEST);
+        assert_eq!(error.body.error.code, Some("invalid_messages"));
+    }
+
+    #[test]
     fn bearer_comparison_handles_different_lengths() {
         assert!(constant_time_eq(b"secret", b"secret"));
         assert!(!constant_time_eq(b"secret", b"secre"));
@@ -608,6 +881,7 @@ mod tests {
             true,
         )));
         let model_id = identity.read().unwrap().model_id();
+        let starts = Arc::new(AtomicUsize::new(0));
         let driver = Driver::Test {
             result: TurnResult {
                 text: "Ready for review.".into(),
@@ -619,6 +893,8 @@ mod tests {
                     reasoning_tokens: 10,
                 },
             },
+            delay: Duration::ZERO,
+            starts: Arc::clone(&starts),
         };
         let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
         let address = listener.local_addr().unwrap();
@@ -656,6 +932,7 @@ mod tests {
         let completion: Value = client
             .post(format!("http://{address}/v1/chat/completions"))
             .bearer_auth("test-key")
+            .header("Idempotency-Key", "status-turn")
             .json(&json!({
                 "model": model_id,
                 "messages": [{"role": "user", "content": "Status?"}]
@@ -679,6 +956,7 @@ mod tests {
         let stream_body = client
             .post(format!("http://{address}/v1/chat/completions"))
             .bearer_auth("test-key")
+            .header("Idempotency-Key", "stream-status-turn")
             .json(&json!({
                 "model": model_id,
                 "messages": [{"role": "user", "content": "Stream status?"}],
@@ -695,6 +973,129 @@ mod tests {
         assert!(stream_body.contains("\"content\":\"Ready for review.\""));
         assert!(stream_body.contains("\"choices\":[]"));
         assert!(stream_body.contains("data: [DONE]"));
+        assert_eq!(starts.load(Ordering::SeqCst), 2);
+
+        let _ = shutdown_tx.send(());
+        server.await.unwrap().unwrap();
+    }
+
+    #[tokio::test]
+    async fn disconnected_retry_attaches_or_replays_without_a_second_native_turn() {
+        let identity = Arc::new(RwLock::new(InstanceIdentity::new(
+            "retry-agent".into(),
+            Some("gpt-5.6".into()),
+            "codex".into(),
+            "headful",
+            true,
+        )));
+        let model_id = identity.read().unwrap().model_id();
+        let starts = Arc::new(AtomicUsize::new(0));
+        let driver = Driver::Test {
+            result: TurnResult {
+                text: "Executed once.".into(),
+                usage: GatewayUsage {
+                    prompt_tokens: 10,
+                    completion_tokens: 2,
+                    total_tokens: 12,
+                    cached_prompt_tokens: 0,
+                    reasoning_tokens: 0,
+                },
+            },
+            delay: Duration::from_millis(200),
+            starts: Arc::clone(&starts),
+        };
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        let (shutdown_tx, shutdown_rx) = tokio::sync::oneshot::channel();
+        let server = tokio::spawn(run(listener, identity, driver, None, async move {
+            let _ = shutdown_rx.await;
+        }));
+        let client = reqwest::Client::new();
+        let endpoint = format!("http://{address}/v1/chat/completions");
+        let body = json!({
+            "model": model_id,
+            "messages": [{"role": "user", "content": "Do the stateful thing"}],
+            "stream": true
+        });
+
+        let disconnected = client
+            .post(&endpoint)
+            .header("Idempotency-Key", "retry-turn-1")
+            .json(&body)
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(disconnected.status(), StatusCode::OK);
+        drop(disconnected);
+
+        let replay_body = json!({
+            "model": model_id,
+            "messages": [{"role": "user", "content": "Do the stateful thing"}]
+        });
+        let retry: Value = client
+            .post(&endpoint)
+            .header("Idempotency-Key", "retry-turn-1")
+            .json(&replay_body)
+            .send()
+            .await
+            .unwrap()
+            .json()
+            .await
+            .unwrap();
+        let cached: Value = client
+            .post(&endpoint)
+            .header("Idempotency-Key", "retry-turn-1")
+            .json(&replay_body)
+            .send()
+            .await
+            .unwrap()
+            .json()
+            .await
+            .unwrap();
+        assert_eq!(retry["choices"][0]["message"]["content"], "Executed once.");
+        assert_eq!(cached["id"], retry["id"]);
+        assert_eq!(cached["created"], retry["created"]);
+        assert_eq!(starts.load(Ordering::SeqCst), 1);
+
+        let cached_stream = client
+            .post(&endpoint)
+            .header("Idempotency-Key", "retry-turn-1")
+            .json(&body)
+            .send()
+            .await
+            .unwrap()
+            .text()
+            .await
+            .unwrap();
+        assert!(cached_stream.contains("\"content\":\"Executed once.\""));
+        assert!(cached_stream.contains("data: [DONE]"));
+        assert_eq!(starts.load(Ordering::SeqCst), 1);
+
+        let conflict = client
+            .post(&endpoint)
+            .header("Idempotency-Key", "retry-turn-1")
+            .json(&json!({
+                "model": model_id,
+                "messages": [{"role": "user", "content": "Different turn"}]
+            }))
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(conflict.status(), StatusCode::CONFLICT);
+
+        let missing_key: Value = client
+            .post(&endpoint)
+            .json(&replay_body)
+            .send()
+            .await
+            .unwrap()
+            .json()
+            .await
+            .unwrap();
+        assert_eq!(
+            missing_key["error"]["code"],
+            Value::String("idempotency_key_required".into())
+        );
 
         let _ = shutdown_tx.send(());
         server.await.unwrap().unwrap();

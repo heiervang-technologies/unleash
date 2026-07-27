@@ -50,14 +50,24 @@ pub(crate) enum Driver {
         timeout: Duration,
     },
     #[cfg(test)]
-    Test { result: TurnResult },
+    Test {
+        result: TurnResult,
+        delay: Duration,
+        starts: Arc<std::sync::atomic::AtomicUsize>,
+    },
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub(crate) enum TurnStreamEvent {
     Update(TurnUpdate),
     Complete(TurnResult),
     Error(String),
+}
+
+#[derive(Debug)]
+pub(crate) struct StartTurnError {
+    pub message: String,
+    pub code: &'static str,
 }
 
 impl Driver {
@@ -65,12 +75,13 @@ impl Driver {
         &self,
         prompt: String,
         gate: OwnedMutexGuard<()>,
-    ) -> mpsc::Receiver<TurnStreamEvent> {
+    ) -> Result<mpsc::Receiver<TurnStreamEvent>, StartTurnError> {
+        let native_gate = self.prepare_headful_turn()?;
         let (sender, receiver) = mpsc::channel(64);
         let driver = self.clone();
         tokio::task::spawn_blocking(move || {
             let _gate = gate;
-            let result = driver.run_turn(&prompt, |update| {
+            let result = driver.run_prepared_turn(&prompt, native_gate, |update| {
                 let _ = sender.blocking_send(TurnStreamEvent::Update(update));
             });
             let event = match result {
@@ -79,10 +90,49 @@ impl Driver {
             };
             let _ = sender.blocking_send(event);
         });
-        receiver
+        Ok(receiver)
     }
 
+    #[cfg(test)]
     fn run_turn<F>(&self, prompt: &str, emit: F) -> Result<TurnResult, String>
+    where
+        F: FnMut(TurnUpdate),
+    {
+        let native_gate = self.prepare_headful_turn().map_err(|error| error.message)?;
+        self.run_prepared_turn(prompt, native_gate, emit)
+    }
+
+    fn prepare_headful_turn(&self) -> Result<Option<OwnedMutexGuard<()>>, StartTurnError> {
+        let Self::Headful { input, tracker, .. } = self else {
+            return Ok(None);
+        };
+        let native_gate = Arc::clone(&input.turn)
+            .try_lock_owned()
+            .map_err(|_| StartTurnError {
+                message: "terminal input is currently being forwarded to the native agent"
+                    .to_string(),
+                code: "native_instance_busy",
+            })?;
+        tracker
+            .lock()
+            .map_err(|_| StartTurnError {
+                message: "session tracker lock was poisoned".to_string(),
+                code: "agent_turn_failed",
+            })?
+            .ensure_headful_idle()
+            .map_err(|message| StartTurnError {
+                message,
+                code: "native_instance_busy",
+            })?;
+        Ok(Some(native_gate))
+    }
+
+    fn run_prepared_turn<F>(
+        &self,
+        prompt: &str,
+        native_gate: Option<OwnedMutexGuard<()>>,
+        emit: F,
+    ) -> Result<TurnResult, String>
     where
         F: FnMut(TurnUpdate),
     {
@@ -92,10 +142,9 @@ impl Driver {
                 tracker,
                 timeout,
             } => {
-                let _turn = input
-                    .turn
-                    .lock()
-                    .map_err(|_| "headful input lock was poisoned".to_string())?;
+                let _native_gate = native_gate.ok_or_else(|| {
+                    "headful turn started without reserving terminal input".to_string()
+                })?;
                 let mut tracker = tracker
                     .lock()
                     .map_err(|_| "session tracker lock was poisoned".to_string())?;
@@ -172,7 +221,13 @@ impl Driver {
                 tracker.collect_after_process(prompt, &baseline, emit)
             }
             #[cfg(test)]
-            Self::Test { result } => {
+            Self::Test {
+                result,
+                delay,
+                starts,
+            } => {
+                starts.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                std::thread::sleep(*delay);
                 let mut emit = emit;
                 emit(TurnUpdate::Text(result.text.clone()));
                 Ok(result.clone())
@@ -273,7 +328,13 @@ pub fn serve(options: ServeOptions) -> io::Result<()> {
             })
             .await
         } else {
-            let mut process = pty::spawn(&executable, &child_args, &[])?;
+            let local_tracker = Arc::clone(&tracker);
+            let local_submit_hook: pty::LocalSubmitHook = Arc::new(move || {
+                if let Ok(mut tracker) = local_tracker.lock() {
+                    tracker.mark_local_turn_started();
+                }
+            });
+            let mut process = pty::spawn(&executable, &child_args, &[], Some(local_submit_hook))?;
             let driver = Driver::Headful {
                 input: Arc::clone(&process.input),
                 tracker,
@@ -431,7 +492,7 @@ mod tests {
     }
 
     #[test]
-    fn codex_turn_runs_through_pty_and_native_history() {
+    fn codex_turn_waits_for_preexisting_local_turn_then_projects_only_api_turn() {
         let _environment = crate::test_env::lock();
         let temporary = tempfile::tempdir().unwrap();
         let session_dir = temporary.path().join("sessions/2026/07/26");
@@ -490,7 +551,7 @@ printf '%s\n' \
                 ready_path.to_string_lossy().into_owned(),
             ),
         ];
-        let process = pty::spawn(Path::new("/bin/sh"), &args, &environment).unwrap();
+        let process = pty::spawn(Path::new("/bin/sh"), &args, &environment, None).unwrap();
         for _ in 0..50 {
             if ready_path.exists() {
                 break;
@@ -500,12 +561,69 @@ printf '%s\n' \
         assert!(ready_path.exists(), "PTY fixture did not become ready");
         let driver = Driver::Headful {
             input: Arc::clone(&process.input),
-            tracker,
+            tracker: Arc::clone(&tracker),
             timeout: Duration::from_secs(5),
         };
 
+        tracker.lock().unwrap().mark_local_turn_started();
+        let mut local_history = std::fs::OpenOptions::new()
+            .append(true)
+            .open(&history)
+            .unwrap();
+        writeln!(
+            local_history,
+            "{}",
+            serde_json::json!({
+                "timestamp": "2026-07-26T10:00:10Z",
+                "type": "response_item",
+                "payload": {
+                    "type": "message",
+                    "role": "user",
+                    "content": [{"type": "input_text", "text": "local turn"}]
+                }
+            })
+        )
+        .unwrap();
+        writeln!(
+            local_history,
+            "{}",
+            serde_json::json!({
+                "timestamp": "2026-07-26T10:00:11Z",
+                "type": "response_item",
+                "payload": {
+                    "type": "message",
+                    "role": "assistant",
+                    "content": [{"type": "output_text", "text": "local answer"}]
+                }
+            })
+        )
+        .unwrap();
+        local_history.flush().unwrap();
+
+        let busy = driver.prepare_headful_turn().unwrap_err();
+        assert_eq!(busy.code, "native_instance_busy");
+        assert!(busy.message.contains("terminal-originated turn"));
+        assert!(!submitted_path.exists(), "busy API turn was injected");
+
+        writeln!(
+            local_history,
+            "{}",
+            serde_json::json!({
+                "timestamp": "2026-07-26T10:00:12Z",
+                "type": "event_msg",
+                "payload": {
+                    "type": "task_complete",
+                    "turn_id": "local-turn",
+                    "last_agent_message": "local answer"
+                }
+            })
+        )
+        .unwrap();
+        local_history.flush().unwrap();
+
         let result = driver.run_turn("PTY turn", |_| {}).unwrap();
         assert_eq!(result.text, "Projected through PTY.");
+        assert!(!result.text.contains("local answer"));
         assert!(std::fs::read_to_string(submitted_path)
             .unwrap()
             .contains("PTY turn"));

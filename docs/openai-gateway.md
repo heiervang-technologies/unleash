@@ -28,6 +28,7 @@ Use that exact ID with an OpenAI client:
 ```bash
 curl http://127.0.0.1:8787/v1/chat/completions \
   -H 'Content-Type: application/json' \
+  -H 'Idempotency-Key: turn-001' \
   -d '{
     "model": "unleash/work-auth/claude-opus-4-6/claude-code",
     "messages": [{"role": "user", "content": "Inspect the failing tests"}],
@@ -67,9 +68,16 @@ unleash serve codex \
 
 The native harness history is the source of truth. An OpenAI client commonly
 sends the full transcript in every request, but replaying that transcript into
-an already-stateful CLI would duplicate it. The gateway therefore submits only
-the latest user text and treats earlier `messages` entries as client-side
-context.
+an already-stateful CLI would duplicate it. The gateway therefore requires the
+last `messages` entry to be a new `user` turn, submits only that text, and
+treats earlier entries as client-side context.
+
+Every Chat Completions request must include a non-empty `Idempotency-Key`
+header. Retrying the same model and user turn with the same key attaches to the
+in-flight native turn or replays its completed response; it never submits the
+prompt again. Reusing a key with different input returns HTTP `409` with code
+`idempotency_key_conflict`. Keep keys unique per intended native turn. The
+gateway retains completed keys and responses for the lifetime of the server.
 
 One instance accepts one API turn at a time. A concurrent request receives
 HTTP `409` with code `instance_busy`. While an API turn owns a headful
@@ -77,10 +85,16 @@ instance, local terminal input remains buffered and is forwarded after the API
 turn reaches a native completion boundary.
 
 Disconnecting an HTTP client does not cancel the native turn: the agent keeps
-running to a native completion boundary so its state remains coherent. There
-is no cancellation endpoint in v1. If `--turn-timeout-secs` expires, Unleash
-kills the per-turn headless process or the attached headful instance instead of
-accepting another prompt into an indeterminate conversation.
+running to a native completion boundary and caches the outcome so a retry with
+the same `Idempotency-Key` is replay-safe. There is no cancellation endpoint in
+v1. If `--turn-timeout-secs` expires, Unleash kills the per-turn headless
+process or the attached headful instance instead of accepting another prompt
+into an indeterminate conversation.
+
+When the terminal submits a local turn, API injection is rejected with HTTP
+`409` and code `native_instance_busy` until the persisted native history proves
+that local turn crossed a completion boundary. This prevents a local answer
+from being attributed to an overlapping API request.
 
 Agent-owned tools remain agent-owned. Their activity is parsed for lifecycle
 and completion tracking, but the gateway does not emit a client-owned

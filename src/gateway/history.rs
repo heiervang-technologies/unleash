@@ -132,6 +132,7 @@ pub struct HistoryTracker {
     format: CliFormat,
     attached: Option<SessionInfo>,
     identity: Arc<RwLock<InstanceIdentity>>,
+    local_turn_baseline: Option<HashMap<PathBuf, FileSnapshot>>,
 }
 
 impl HistoryTracker {
@@ -149,6 +150,7 @@ impl HistoryTracker {
             format,
             attached,
             identity,
+            local_turn_baseline: None,
         };
         tracker.refresh_attached_identity();
         Ok(tracker)
@@ -171,6 +173,36 @@ impl HistoryTracker {
             );
         }
         snapshots
+    }
+
+    /// Called while the terminal-input gate is held, immediately before a
+    /// locally submitted newline is forwarded to the native harness.
+    pub(super) fn mark_local_turn_started(&mut self) {
+        if self.local_turn_baseline.is_none() {
+            self.local_turn_baseline = Some(self.capture_baseline());
+        }
+    }
+
+    /// Refuse API injection until a terminal-originated turn has crossed a
+    /// native completion boundary. This is checked while the same input gate
+    /// used by the terminal copier is held, so a local submission cannot race
+    /// between this check and the API write.
+    pub(super) fn ensure_headful_idle(&mut self) -> Result<(), String> {
+        let Some(baseline) = self.local_turn_baseline.as_ref() else {
+            return Ok(());
+        };
+        let Some((session, records)) = self.completed_session_since(baseline) else {
+            return Err(
+                "the native agent is still processing a terminal-originated turn".to_string(),
+            );
+        };
+
+        if self.attached.is_none() {
+            self.attached = Some(session.clone());
+        }
+        self.refresh_identity(&session, &records);
+        self.local_turn_baseline = None;
+        Ok(())
     }
 
     pub(super) fn collect_completed_turn<F>(
@@ -459,6 +491,52 @@ impl HistoryTracker {
         })
     }
 
+    fn completed_session_since(
+        &self,
+        baseline: &HashMap<PathBuf, FileSnapshot>,
+    ) -> Option<(SessionInfo, Vec<HubRecord>)> {
+        let candidates = self
+            .attached
+            .clone()
+            .map_or_else(|| self.candidates(), |session| vec![session]);
+
+        candidates.into_iter().find_map(|session| {
+            let records = read_records(&session).ok()?;
+            let cursor = baseline
+                .get(&session.path)
+                .map_or(0, |snapshot| snapshot.records.min(records.len()));
+            let appended = records.get(cursor..)?;
+            if appended.is_empty() {
+                return None;
+            }
+
+            let mut saw_assistant_text = false;
+            let mut saw_terminal = false;
+            for record in appended {
+                match record {
+                    HubRecord::Message(message) if message.role == "assistant" => {
+                        saw_assistant_text |= message_text(&message.content).is_some();
+                        saw_terminal |= message
+                            .metadata
+                            .stop_reason
+                            .as_deref()
+                            .is_some_and(is_terminal_stop_reason);
+                    }
+                    HubRecord::Event(event) => {
+                        saw_terminal |= is_terminal_event(&event.event_type)
+                            || is_terminal_failure_event(&event.event_type);
+                    }
+                    _ => {}
+                }
+            }
+
+            let quiet_fallback = saw_assistant_text
+                && !matches!(self.format, CliFormat::ClaudeCode | CliFormat::Codex)
+                && modified_at(&session.path).elapsed().unwrap_or_default() >= QUIET_COMPLETION;
+            (saw_terminal || quiet_fallback).then_some((session, records))
+        })
+    }
+
     fn refresh_attached_identity(&mut self) {
         let Some(session) = self.attached.clone() else {
             return;
@@ -559,6 +637,10 @@ fn is_error_event(event_type: &str) -> bool {
         event_type,
         "codex_error" | "codex_turn_aborted" | "turn_failed" | "error"
     )
+}
+
+fn is_terminal_failure_event(event_type: &str) -> bool {
+    matches!(event_type, "codex_turn_aborted" | "turn_failed")
 }
 
 fn codex_last_usage(data: &Value) -> Option<&Value> {

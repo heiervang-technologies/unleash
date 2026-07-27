@@ -2,14 +2,16 @@ use portable_pty::{native_pty_system, ChildKiller, CommandBuilder, PtySize};
 use std::io::{self, IsTerminal, Read, Write};
 use std::path::Path;
 use std::sync::{Arc, Mutex};
-use tokio::sync::oneshot;
+use tokio::sync::{oneshot, Mutex as AsyncMutex};
+
+pub type LocalSubmitHook = Arc<dyn Fn() + Send + Sync>;
 
 pub struct HeadfulInput {
     pub writer: Arc<Mutex<Box<dyn Write + Send>>>,
     /// Covers a whole API turn. The terminal input copier takes the same lock
     /// per read, so local keystrokes remain buffered while an API turn owns
     /// the stateful conversation.
-    pub turn: Arc<Mutex<()>>,
+    pub turn: Arc<AsyncMutex<()>>,
     killer: Arc<Mutex<Box<dyn ChildKiller + Send + Sync>>>,
 }
 
@@ -46,6 +48,7 @@ pub fn spawn(
     executable: &Path,
     args: &[String],
     environment: &[(String, String)],
+    local_submit_hook: Option<LocalSubmitHook>,
 ) -> io::Result<HeadfulProcess> {
     let size = terminal_size();
     let pair = native_pty_system()
@@ -70,7 +73,7 @@ pub fn spawn(
     let writer = pair.master.take_writer().map_err(io::Error::other)?;
     let killer = Arc::new(Mutex::new(child.clone_killer()));
     let writer = Arc::new(Mutex::new(writer));
-    let turn = Arc::new(Mutex::new(()));
+    let turn = Arc::new(AsyncMutex::new(()));
 
     std::thread::Builder::new()
         .name("unleash-gateway-pty-output".into())
@@ -81,7 +84,7 @@ pub fn spawn(
     let input_turn = Arc::clone(&turn);
     std::thread::Builder::new()
         .name("unleash-gateway-pty-input".into())
-        .spawn(move || copy_input(input_writer, input_turn))
+        .spawn(move || copy_input(input_writer, input_turn, local_submit_hook))
         .map_err(io::Error::other)?;
 
     let (exit_tx, exit_rx) = oneshot::channel();
@@ -121,7 +124,11 @@ fn copy_output(mut reader: Box<dyn Read + Send>) {
     }
 }
 
-fn copy_input(writer: Arc<Mutex<Box<dyn Write + Send>>>, turn: Arc<Mutex<()>>) {
+fn copy_input(
+    writer: Arc<Mutex<Box<dyn Write + Send>>>,
+    turn: Arc<AsyncMutex<()>>,
+    local_submit_hook: Option<LocalSubmitHook>,
+) {
     let stdin = io::stdin();
     let mut stdin = stdin.lock();
     let mut buffer = [0u8; 4096];
@@ -129,9 +136,15 @@ fn copy_input(writer: Arc<Mutex<Box<dyn Write + Send>>>, turn: Arc<Mutex<()>>) {
         match stdin.read(&mut buffer) {
             Ok(0) | Err(_) => break,
             Ok(read) => {
-                let Ok(_turn_guard) = turn.lock() else {
-                    break;
-                };
+                let _turn_guard = Arc::clone(&turn).blocking_lock_owned();
+                if buffer[..read]
+                    .iter()
+                    .any(|byte| matches!(byte, b'\r' | b'\n'))
+                {
+                    if let Some(hook) = &local_submit_hook {
+                        hook();
+                    }
+                }
                 let Ok(mut writer) = writer.lock() else {
                     break;
                 };
