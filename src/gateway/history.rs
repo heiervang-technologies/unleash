@@ -188,20 +188,34 @@ impl HistoryTracker {
     /// used by the terminal copier is held, so a local submission cannot race
     /// between this check and the API write.
     pub(super) fn ensure_headful_idle(&mut self) -> Result<(), String> {
-        let Some(baseline) = self.local_turn_baseline.as_ref() else {
-            return Ok(());
-        };
-        let Some((session, records)) = self.completed_session_since(baseline) else {
-            return Err(
-                "the native agent is still processing a terminal-originated turn".to_string(),
-            );
-        };
+        if let Some(baseline) = self.local_turn_baseline.as_ref() {
+            let Some((session, records)) = self.completed_session_since(baseline) else {
+                return Err(
+                    "the native agent is still processing a terminal-originated turn".to_string(),
+                );
+            };
 
-        if self.attached.is_none() {
-            self.attached = Some(session.clone());
+            if self.attached.is_none() {
+                self.attached = Some(session.clone());
+            }
+            self.refresh_identity(&session, &records);
+            self.local_turn_baseline = None;
+            return Ok(());
         }
-        self.refresh_identity(&session, &records);
-        self.local_turn_baseline = None;
+
+        let candidates = self
+            .attached
+            .clone()
+            .map(|s| vec![s])
+            .unwrap_or_else(|| self.candidates());
+        for session in candidates {
+            if let Ok(records) = read_records(&session) {
+                if is_busy_in_records(&records, self.format, &session.path) {
+                    return Err("the native agent is currently busy processing a turn".to_string());
+                }
+            }
+        }
+
         Ok(())
     }
 
@@ -565,6 +579,38 @@ fn session_matches_format(session: &SessionInfo, format: CliFormat) -> bool {
             | (CliFormat::Pi, "pi")
             | (CliFormat::Ucf, "ucf")
     )
+}
+
+fn is_busy_in_records(records: &[HubRecord], format: CliFormat, path: &Path) -> bool {
+    for record in records.iter().rev() {
+        match record {
+            HubRecord::Message(message) if message.role == "user" => {
+                return true;
+            }
+            HubRecord::Message(message) if message.role == "assistant" => {
+                if message
+                    .metadata
+                    .stop_reason
+                    .as_deref()
+                    .is_some_and(is_terminal_stop_reason)
+                {
+                    return false;
+                }
+                let quiet_fallback = message_text(&message.content).is_some()
+                    && !matches!(format, CliFormat::ClaudeCode | CliFormat::Codex)
+                    && modified_at(path).elapsed().unwrap_or_default() >= QUIET_COMPLETION;
+                return !quiet_fallback;
+            }
+            HubRecord::Event(event)
+                if is_terminal_event(&event.event_type)
+                    || is_terminal_failure_event(&event.event_type) =>
+            {
+                return false;
+            }
+            _ => {}
+        }
+    }
+    false
 }
 
 fn resolve_native_session(format: CliFormat, query: &str) -> Result<SessionInfo, String> {

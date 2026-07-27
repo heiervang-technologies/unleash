@@ -644,4 +644,118 @@ printf '%s\n' \
             }
         }
     }
+
+    #[test]
+    fn codex_detects_already_running_turn_on_attach() {
+        let _environment = crate::test_env::lock();
+        let temporary = tempfile::tempdir().unwrap();
+        let session_dir = temporary.path().join("sessions/2026/07/26");
+        std::fs::create_dir_all(&session_dir).unwrap();
+        let history = session_dir.join("rollout-2026-07-26T10-00-00-pty-session.jsonl");
+        let submitted_path = temporary.path().join("submitted.txt");
+        let ready_path = temporary.path().join("ready");
+
+        let mut local_history = std::fs::File::create(&history).unwrap();
+        writeln!(
+            local_history,
+            "{}",
+            serde_json::json!({
+                "timestamp": "2026-07-26T10:00:00Z",
+                "type": "session_meta",
+                "payload": {
+                    "id": "pty-session",
+                    "cwd": "/tmp/project",
+                    "cli_version": "0.145.0"
+                }
+            })
+        )
+        .unwrap();
+        writeln!(
+            local_history,
+            "{}",
+            serde_json::json!({
+                "timestamp": "2026-07-26T10:00:10Z",
+                "type": "response_item",
+                "payload": {
+                    "type": "message",
+                    "role": "user",
+                    "content": [{"type": "input_text", "text": "already running local turn"}]
+                }
+            })
+        )
+        .unwrap();
+        local_history.flush().unwrap();
+
+        let saved_home = std::env::var_os("CODEX_HOME");
+        // SAFETY: guarded by the crate-wide environment lock and restored.
+        unsafe { std::env::set_var("CODEX_HOME", temporary.path()) };
+
+        let identity = Arc::new(RwLock::new(InstanceIdentity::new(
+            "pty-codex".into(),
+            Some("gpt-5.6".into()),
+            "codex".into(),
+            "headful",
+            true,
+        )));
+        let tracker = Arc::new(Mutex::new(
+            HistoryTracker::new(
+                CliFormat::Codex,
+                Some("codex:pty-session"),
+                Arc::clone(&identity),
+            )
+            .unwrap(),
+        ));
+        let script = r#"
+stty -echo
+: > "$READY_PATH"
+sleep 10
+"#;
+        let args = vec!["-c".to_string(), script.to_string()];
+        let environment = vec![
+            (
+                "HISTORY_PATH".to_string(),
+                history.to_string_lossy().into_owned(),
+            ),
+            (
+                "SUBMITTED_PATH".to_string(),
+                submitted_path.to_string_lossy().into_owned(),
+            ),
+            (
+                "READY_PATH".to_string(),
+                ready_path.to_string_lossy().into_owned(),
+            ),
+        ];
+        let process = pty::spawn(Path::new("/bin/sh"), &args, &environment, None).unwrap();
+        for _ in 0..50 {
+            if ready_path.exists() {
+                break;
+            }
+            std::thread::sleep(Duration::from_millis(10));
+        }
+        assert!(ready_path.exists(), "PTY fixture did not become ready");
+        let driver = Driver::Headful {
+            input: Arc::clone(&process.input),
+            tracker: Arc::clone(&tracker),
+            timeout: Duration::from_secs(5),
+        };
+
+        // We do not call mark_local_turn_started here.
+        // We attached to a session that is already busy.
+        let busy = driver.prepare_headful_turn().unwrap_err();
+        assert_eq!(busy.code, "native_instance_busy");
+        assert!(busy.message.contains("currently busy processing a turn"));
+
+        process.terminate();
+
+        match saved_home {
+            Some(value) => {
+                // SAFETY: guarded by the crate-wide environment lock.
+                unsafe { std::env::set_var("CODEX_HOME", value) }
+            }
+            None => {
+                // SAFETY: guarded by the crate-wide environment lock.
+                unsafe { std::env::remove_var("CODEX_HOME") }
+            }
+        }
+    }
 }
