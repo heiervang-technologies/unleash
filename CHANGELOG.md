@@ -1,5 +1,18 @@
 # Changelog
 
+## [0.1.99](https://github.com/heiervang-technologies/unleash/compare/v0.1.98...v0.1.99) (2026-07-27)
+
+
+### Features
+
+* add OpenAI-compatible agent gateway ([#433](https://github.com/heiervang-technologies/unleash/issues/433)) ([8e94629](https://github.com/heiervang-technologies/unleash/commit/8e94629de7bc3712252220350229f71ebb0edfa7))
+
+
+### Bug Fixes
+
+* **pi:** preserve usage metadata losslessly ([#434](https://github.com/heiervang-technologies/unleash/issues/434)) ([3223a6b](https://github.com/heiervang-technologies/unleash/commit/3223a6b0a1a8dddc0c50a99ad45baf0735d4e77c))
+* **stream:** complete canonical runtime contract ([#429](https://github.com/heiervang-technologies/unleash/issues/429)) ([449ccc5](https://github.com/heiervang-technologies/unleash/commit/449ccc5063f6df8589e313425e6681b6b4e6dd9f))
+
 ## [0.1.98](https://github.com/heiervang-technologies/unleash/compare/v0.1.97...v0.1.98) (2026-07-17)
 
 
