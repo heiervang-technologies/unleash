@@ -289,4 +289,54 @@ Body text.
         .expect("manifest");
         assert!(!manifest.contains("minimal-skill"));
     }
+
+    fn skill_with_body(body: &str) -> Skill {
+        Skill {
+            name: "escape-probe".to_string(),
+            description: "probe".to_string(),
+            body: body.to_string(),
+            path: PathBuf::from("/nonexistent/escape-probe"),
+        }
+    }
+
+    /// A markdown table escapes pipes as `\|`. That is not a legal TOML escape,
+    /// so an unescaped body made the rendered command unparseable — and because
+    /// `skills list` parses every command, one bad body took the whole
+    /// subcommand down.
+    #[test]
+    fn gemini_render_escapes_backslashes_in_markdown_tables() {
+        let rendered = skillsync::render_gemini_command(&skill_with_body(
+            "| You have\u{2026} | Use |\n|---|---|\n| Text from another command | `cmd \\| show-me -` |\n",
+        ));
+
+        let parsed: toml::Value =
+            toml::from_str(&rendered).expect("rendered command is valid TOML");
+        let prompt = parsed["prompt"].as_str().expect("prompt is a string");
+        // the body must survive the round trip byte-for-byte
+        assert!(prompt.contains("`cmd \\| show-me -`"));
+    }
+
+    #[test]
+    fn gemini_render_survives_other_backslash_sequences() {
+        // \n and \t are legal TOML escapes and would silently corrupt the body;
+        // \d and a trailing lone backslash are illegal and would fail the parse.
+        let body = "regex: \\d+\\s*\\n literal\ntrailing backslash: \\";
+        let rendered = skillsync::render_gemini_command(&skill_with_body(body));
+
+        let parsed: toml::Value =
+            toml::from_str(&rendered).expect("rendered command is valid TOML");
+        let prompt = parsed["prompt"].as_str().expect("prompt is a string");
+        assert!(prompt.contains(body));
+    }
+
+    #[test]
+    fn gemini_render_still_escapes_triple_quotes() {
+        let rendered =
+            skillsync::render_gemini_command(&skill_with_body("fence: \"\"\" and \\ backslash"));
+
+        let parsed: toml::Value =
+            toml::from_str(&rendered).expect("rendered command is valid TOML");
+        let prompt = parsed["prompt"].as_str().expect("prompt is a string");
+        assert!(prompt.contains("fence: \"\"\" and \\ backslash"));
+    }
 }
