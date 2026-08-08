@@ -1433,7 +1433,7 @@ mod tests {
                 }
                 let parsed: Value = serde_json::from_str(data).unwrap();
                 if let Some(choices) = parsed.get("choices").and_then(Value::as_array) {
-                    if let Some(choice) = choices.get(0) {
+                    if let Some(choice) = choices.first() {
                         if let Some(content) = choice
                             .get("delta")
                             .and_then(|d| d.get("content"))
