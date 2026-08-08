@@ -162,7 +162,7 @@ unleash manages versions for all eight built-in agent CLIs:
 - **Antigravity CLI** (`agy`): AUR helper (`yay`/`paru`) on Arch; download from antigravity.google elsewhere
 - **Gemini CLI**: npm install
 - **OpenCode**: Built-in `opencode upgrade` command
-- **Pi**: npm install (`@mariozechner/pi-coding-agent`)
+- **Pi**: npm install (`@earendil-works/pi-coding-agent`; updating migrates off the deprecated `@mariozechner/pi-coding-agent`)
 - **Hermes Agent**: Official curl install script (always installs latest)
 
 Version filtering:

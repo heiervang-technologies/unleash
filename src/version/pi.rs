@@ -9,7 +9,7 @@ impl VersionManager {
     // ── Pi version management ───────────────────────
 
     pub fn get_pi_available_versions(&self) -> io::Result<Vec<String>> {
-        let res = Self::query_npm_registry_versions("@mariozechner/pi-coding-agent", 20);
+        let res = Self::query_npm_registry_versions(crate::agents::PI_NPM_PACKAGE, 20);
         match res {
             Ok(versions) if !versions.is_empty() => Ok(versions),
             _ => {
@@ -58,16 +58,23 @@ impl VersionManager {
 
         let use_sudo = Self::npm_global_needs_sudo();
         let _ = log_tx.send(format!(
-            "Running: {}npm install -g @mariozechner/pi-coding-agent@{}",
+            "Running: {}npm install -g {}@{}",
             if use_sudo { "sudo " } else { "" },
+            crate::agents::PI_NPM_PACKAGE,
             version
         ));
+        // `--force` is what handles the bin collision on this path: Pi moved
+        // scope upstream, and the deprecated package declares the same `pi`
+        // bin, so without it npm can refuse or silently keep the old link.
+        // The updater in AgentManager uninstalls the old package outright;
+        // here we only ever install one explicit version, so forcing the link
+        // is enough.
         let (ok, stdout, stderr) = Self::run_streaming(
             Self::npm_global_command().args([
                 "install",
                 "-g",
                 "--force",
-                &format!("@mariozechner/pi-coding-agent@{}", version),
+                &format!("{}@{}", crate::agents::PI_NPM_PACKAGE, version),
             ]),
             &log_tx,
         )?;
