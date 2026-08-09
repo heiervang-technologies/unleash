@@ -157,7 +157,7 @@ harness. See the [OpenAI-compatible gateway guide](docs/openai-gateway.md).
 unleash manages versions for all eight built-in agent CLIs:
 
 - **Claude Code**: Native binary (GCS) or npm install
-- **Codex**: Prebuilt binary from GitHub releases, cargo build fallback
+- **Codex**: Version-matched CLI and Code Mode host binaries from GitHub releases, cargo build fallback
 - **Clanker Code**: Fork-owned `clanker` branch source build with atomic install and revision receipt
 - **Antigravity CLI** (`agy`): AUR helper (`yay`/`paru`) on Arch; download from antigravity.google elsewhere
 - **Gemini CLI**: npm install
