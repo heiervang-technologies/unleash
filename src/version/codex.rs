@@ -77,6 +77,7 @@ impl VersionManager {
     pub fn install_codex_version(&self, version: &str) -> io::Result<InstallResult> {
         let tag = format!("rust-v{}", version);
         let asset_name = Self::codex_asset_name();
+        let code_mode_host_asset_name = Self::codex_code_mode_host_asset_name();
 
         let install_dir = dirs::home_dir()
             .ok_or_else(|| io::Error::new(io::ErrorKind::NotFound, "Home dir not found"))?
@@ -98,6 +99,8 @@ impl VersionManager {
                 "openai/codex",
                 "--pattern",
                 &format!("{}.tar.gz", asset_name),
+                "--pattern",
+                &format!("{}.tar.gz", code_mode_host_asset_name),
                 "--dir",
                 tmp_dir.to_str().unwrap_or("/tmp"),
             ])
@@ -132,6 +135,27 @@ impl VersionManager {
             });
         }
 
+        // Code Mode was introduced as a version-matched companion binary.
+        // Older releases may not publish it, so install it when present while
+        // retaining the ability to select historical Codex versions.
+        let code_mode_host_archive = tmp_dir.join(format!("{}.tar.gz", code_mode_host_asset_name));
+        let extracted_code_mode_host = tmp_dir.join(&code_mode_host_asset_name);
+        if code_mode_host_archive.exists() {
+            let extract_host = Command::new("tar")
+                .args(["xzf", &format!("{}.tar.gz", code_mode_host_asset_name)])
+                .current_dir(&tmp_dir)
+                .output()?;
+            if !extract_host.status.success() {
+                let _ = fs::remove_dir_all(&tmp_dir);
+                return Ok(InstallResult {
+                    success: false,
+                    stdout: String::from_utf8_lossy(&extract_host.stdout).to_string(),
+                    stderr: String::from_utf8_lossy(&extract_host.stderr).to_string(),
+                    error: Some("Failed to extract Codex Code Mode host tarball".to_string()),
+                });
+            }
+        }
+
         // Install the binary
         let extracted_binary = tmp_dir.join(&asset_name);
         let install_path = install_dir.join("codex");
@@ -146,6 +170,24 @@ impl VersionManager {
             });
         }
 
+        if code_mode_host_archive.exists() {
+            if !extracted_code_mode_host.exists() {
+                let _ = fs::remove_dir_all(&tmp_dir);
+                return Ok(InstallResult {
+                    success: false,
+                    stdout: String::new(),
+                    stderr: format!(
+                        "Expected binary {} not found in archive",
+                        code_mode_host_asset_name
+                    ),
+                    error: Some("Code Mode host not found after extraction".to_string()),
+                });
+            }
+            crate::agents::atomic_install_binary(
+                &extracted_code_mode_host,
+                &install_dir.join("codex-code-mode-host"),
+            )?;
+        }
         crate::agents::atomic_install_binary(&extracted_binary, &install_path)?;
 
         let _ = fs::remove_dir_all(&tmp_dir);
@@ -165,6 +207,7 @@ impl VersionManager {
     ) -> io::Result<InstallResult> {
         let tag = format!("rust-v{}", version);
         let asset_name = Self::codex_asset_name();
+        let code_mode_host_asset_name = Self::codex_code_mode_host_asset_name();
 
         let install_dir = dirs::home_dir()
             .ok_or_else(|| io::Error::new(io::ErrorKind::NotFound, "Home dir not found"))?
@@ -189,6 +232,8 @@ impl VersionManager {
                 "openai/codex",
                 "--pattern",
                 &format!("{}.tar.gz", asset_name),
+                "--pattern",
+                &format!("{}.tar.gz", code_mode_host_asset_name),
                 "--dir",
                 tmp_dir.to_str().unwrap_or("/tmp"),
             ]),
@@ -206,6 +251,27 @@ impl VersionManager {
                     asset_name, tag
                 )),
             });
+        }
+
+        let code_mode_host_archive = tmp_dir.join(format!("{}.tar.gz", code_mode_host_asset_name));
+        let extracted_code_mode_host = tmp_dir.join(&code_mode_host_asset_name);
+        if code_mode_host_archive.exists() {
+            let _ = log_tx.send("Extracting Codex Code Mode host...".to_string());
+            let (ok, stdout, stderr) = Self::run_streaming(
+                Command::new("tar")
+                    .args(["xzf", &format!("{}.tar.gz", code_mode_host_asset_name)])
+                    .current_dir(&tmp_dir),
+                &log_tx,
+            )?;
+            if !ok {
+                let _ = fs::remove_dir_all(&tmp_dir);
+                return Ok(InstallResult {
+                    success: false,
+                    stdout,
+                    stderr,
+                    error: Some("Failed to extract Codex Code Mode host tarball".to_string()),
+                });
+            }
         }
 
         // Extract
@@ -248,6 +314,25 @@ impl VersionManager {
         // Atomic install: stage + chmod + rename so switching codex versions
         // while a codex agent is running can't hit ETXTBSY or leave a partial
         // binary at the canonical path.
+        if code_mode_host_archive.exists() {
+            if !extracted_code_mode_host.exists() {
+                let _ = fs::remove_dir_all(&tmp_dir);
+                return Ok(InstallResult {
+                    success: false,
+                    stdout: String::new(),
+                    stderr: format!(
+                        "Expected binary {} not found in archive",
+                        code_mode_host_asset_name
+                    ),
+                    error: Some("Code Mode host not found after extraction".to_string()),
+                });
+            }
+            let _ = log_tx.send("Installing Codex Code Mode host...".to_string());
+            crate::agents::atomic_install_binary(
+                &extracted_code_mode_host,
+                &install_dir.join("codex-code-mode-host"),
+            )?;
+        }
         crate::agents::atomic_install_binary(&extracted_binary, &install_path)?;
 
         let _ = fs::remove_dir_all(&tmp_dir);
@@ -260,7 +345,7 @@ impl VersionManager {
         })
     }
 
-    fn codex_asset_name() -> String {
+    pub(super) fn codex_asset_name() -> String {
         let arch = std::env::consts::ARCH;
         let os = std::env::consts::OS;
 
@@ -277,5 +362,9 @@ impl VersionManager {
         };
 
         format!("codex-{}", target_triple)
+    }
+
+    pub(super) fn codex_code_mode_host_asset_name() -> String {
+        Self::codex_asset_name().replacen("codex-", "codex-code-mode-host-", 1)
     }
 }

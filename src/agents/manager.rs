@@ -744,6 +744,7 @@ impl AgentManager {
             .ok_or_else(|| io::Error::other("Unsupported platform for prebuilt binary"))?;
 
         let asset_name = format!("codex-{}.tar.gz", triple);
+        let code_mode_host_asset_name = format!("codex-code-mode-host-{}.tar.gz", triple);
 
         // Get latest release tag
         let tag_output = Command::new("curl")
@@ -765,62 +766,73 @@ impl AgentManager {
 
         let version = tag.trim_start_matches("rust-v").trim_start_matches('v');
 
-        // Check if asset exists in this release
-        let has_asset = json
-            .get("assets")
-            .and_then(|a| a.as_array())
-            .map(|assets| {
-                assets
-                    .iter()
-                    .any(|a| a.get("name").and_then(|n| n.as_str()) == Some(&asset_name))
-            })
-            .unwrap_or(false);
+        // Check that both runtime binaries exist in this release. New Codex
+        // models can require Code Mode, and the main CLI fails closed when its
+        // version-matched `codex-code-mode-host` companion is absent.
+        let has_asset = |name: &str| {
+            json.get("assets")
+                .and_then(|a| a.as_array())
+                .map(|assets| {
+                    assets
+                        .iter()
+                        .any(|a| a.get("name").and_then(|n| n.as_str()) == Some(name))
+                })
+                .unwrap_or(false)
+        };
 
-        if !has_asset {
+        if !has_asset(&asset_name) {
             return Err(io::Error::other(format!(
                 "No prebuilt binary '{}' found in release {}",
                 asset_name, tag
             )));
         }
-
-        let download_url = format!(
-            "https://github.com/openai/codex/releases/download/{}/{}",
-            tag, asset_name
-        );
+        if !has_asset(&code_mode_host_asset_name) {
+            return Err(io::Error::other(format!(
+                "No Code Mode host '{}' found in release {}",
+                code_mode_host_asset_name, tag
+            )));
+        }
 
         // Download to temp file
         let tmp_dir = dirs::cache_dir()
             .unwrap_or_else(|| PathBuf::from("/tmp"))
             .join("unleash/codex-download");
         fs::create_dir_all(&tmp_dir)?;
-        let tmp_archive = tmp_dir.join(&asset_name);
+        for archive_name in [&asset_name, &code_mode_host_asset_name] {
+            let download_url = format!(
+                "https://github.com/openai/codex/releases/download/{}/{}",
+                tag, archive_name
+            );
+            let tmp_archive = tmp_dir.join(archive_name);
+            let dl_output = Command::new("curl")
+                .args(["-fsSL", "-o", &tmp_archive.to_string_lossy(), &download_url])
+                .output()?;
 
-        let dl_output = Command::new("curl")
-            .args(["-fsSL", "-o", &tmp_archive.to_string_lossy(), &download_url])
-            .output()?;
+            if !dl_output.status.success() {
+                return Err(io::Error::other(format!(
+                    "Download failed for {}: {}",
+                    archive_name,
+                    String::from_utf8_lossy(&dl_output.stderr)
+                )));
+            }
 
-        if !dl_output.status.success() {
-            return Err(io::Error::other(format!(
-                "Download failed: {}",
-                String::from_utf8_lossy(&dl_output.stderr)
-            )));
-        }
+            // Both archives contain one target-suffixed binary at the root.
+            let extract_output = Command::new("tar")
+                .args([
+                    "xzf",
+                    &tmp_archive.to_string_lossy(),
+                    "-C",
+                    &tmp_dir.to_string_lossy(),
+                ])
+                .output()?;
 
-        // Extract — codex binary is at the root of the tar.gz
-        let extract_output = Command::new("tar")
-            .args([
-                "xzf",
-                &tmp_archive.to_string_lossy(),
-                "-C",
-                &tmp_dir.to_string_lossy(),
-            ])
-            .output()?;
-
-        if !extract_output.status.success() {
-            return Err(io::Error::other(format!(
-                "Extraction failed: {}",
-                String::from_utf8_lossy(&extract_output.stderr)
-            )));
+            if !extract_output.status.success() {
+                return Err(io::Error::other(format!(
+                    "Extraction failed for {}: {}",
+                    archive_name,
+                    String::from_utf8_lossy(&extract_output.stderr)
+                )));
+            }
         }
 
         // Find the codex binary — named codex-<triple> inside the archive
@@ -836,15 +848,27 @@ impl AgentManager {
                 triple
             )));
         };
+        let extracted_code_mode_host = tmp_dir.join(format!("codex-code-mode-host-{}", triple));
+        if !extracted_code_mode_host.exists() {
+            return Err(io::Error::other(format!(
+                "Extracted archive does not contain 'codex-code-mode-host-{}' binary",
+                triple
+            )));
+        }
+        let code_mode_host_install_path = install_path.with_file_name("codex-code-mode-host");
 
-        // Install atomically (chmod +x happens on the staged temp before the
-        // rename, so a running `codex` is never overwritten in place).
+        // Install the companion first and the CLI last. A new CLI is therefore
+        // never exposed without the matching host it may require.
+        atomic_install_binary(&extracted_code_mode_host, &code_mode_host_install_path)?;
         atomic_install_binary(binary_path, install_path)?;
 
         // Cleanup
         let _ = fs::remove_dir_all(&tmp_dir);
 
-        Ok(format!("Codex {} installed from prebuilt binary", version))
+        Ok(format!(
+            "Codex {} and Code Mode host installed from prebuilt binaries",
+            version
+        ))
     }
 
     /// Detect the platform triple for prebuilt binary downloads
@@ -931,12 +955,22 @@ impl AgentManager {
 
         progress.push("Building codex from source (this may take a while)...".to_string());
         let output = Command::new("cargo")
-            .args(["build", "--release", "-p", "codex-cli"])
+            .args([
+                "build",
+                "--release",
+                "-p",
+                "codex-cli",
+                "-p",
+                "codex-code-mode-host",
+            ])
             .current_dir(&codex_rs_dir)
             .output()?;
 
         if output.status.success() {
             let binary_path = codex_rs_dir.join("target/release/codex");
+            let code_mode_host_path = codex_rs_dir.join("target/release/codex-code-mode-host");
+            let code_mode_host_install_path = install_path.with_file_name("codex-code-mode-host");
+            atomic_install_binary(&code_mode_host_path, &code_mode_host_install_path)?;
             atomic_install_binary(&binary_path, install_path)?;
 
             progress.push(format!(
