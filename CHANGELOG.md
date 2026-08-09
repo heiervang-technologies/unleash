@@ -1,5 +1,21 @@
 # Changelog
 
+## [0.1.99](https://github.com/heiervang-technologies/unleash/compare/v0.1.98...v0.1.99) (2026-08-09)
+
+
+### Features
+
+* add OpenAI-compatible agent gateway ([#433](https://github.com/heiervang-technologies/unleash/issues/433)) ([8e94629](https://github.com/heiervang-technologies/unleash/commit/8e94629de7bc3712252220350229f71ebb0edfa7))
+
+
+### Bug Fixes
+
+* **gateway:** use `first()` instead of `get(0)` to unbreak clippy on main ([#438](https://github.com/heiervang-technologies/unleash/issues/438)) ([0514e0c](https://github.com/heiervang-technologies/unleash/commit/0514e0c33d74dc36b40062db468d3f5c3a7d12a9))
+* **pi:** migrate to @earendil-works/pi-coding-agent ([#441](https://github.com/heiervang-technologies/unleash/issues/441)) ([358d8ba](https://github.com/heiervang-technologies/unleash/commit/358d8bace6084630005cf2b2ebfcf9abe3cb8200))
+* **pi:** preserve usage metadata losslessly ([#434](https://github.com/heiervang-technologies/unleash/issues/434)) ([3223a6b](https://github.com/heiervang-technologies/unleash/commit/3223a6b0a1a8dddc0c50a99ad45baf0735d4e77c))
+* **skillsync:** escape backslashes in Gemini TOML commands ([#437](https://github.com/heiervang-technologies/unleash/issues/437)) ([26ed665](https://github.com/heiervang-technologies/unleash/commit/26ed66567ebdae0beaa95609bcb3bd22bbc050b0))
+* **stream:** complete canonical runtime contract ([#429](https://github.com/heiervang-technologies/unleash/issues/429)) ([449ccc5](https://github.com/heiervang-technologies/unleash/commit/449ccc5063f6df8589e313425e6681b6b4e6dd9f))
+
 ## [0.1.98](https://github.com/heiervang-technologies/unleash/compare/v0.1.97...v0.1.98) (2026-07-17)
 
 
