@@ -496,8 +496,22 @@ Use the provided user arguments (if any) to parameterize this run (e.g. specifyi
 \"\"\"\n",
         name = skill.name,
         description = escape_toml_basic_string(&skill.description),
-        body = skill.body.trim_start().replace("\"\"\"", "\\\"\\\"\\\"")
+        body = escape_toml_multiline_body(skill.body.trim_start())
     )
+}
+
+/// Escape a skill body for embedding in a TOML *multi-line basic* string (`"""`).
+///
+/// Basic strings process escape sequences, so a lone backslash in the body is
+/// interpreted as the start of one. Markdown tables routinely escape pipes as
+/// `\|`, which is not a legal TOML escape and makes the whole file unparseable —
+/// and since `skills list` parses every rendered command, one bad body took the
+/// entire command down.
+///
+/// Backslashes must be doubled *before* `"""` is escaped, or the backslashes this
+/// function inserts would themselves be doubled.
+fn escape_toml_multiline_body(body: &str) -> String {
+    body.replace('\\', "\\\\").replace("\"\"\"", "\\\"\\\"\\\"")
 }
 
 pub fn render_context_reference(skill: &Skill) -> String {
