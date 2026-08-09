@@ -56,6 +56,7 @@ pub(crate) enum Driver {
         delay: Duration,
         starts: Arc<std::sync::atomic::AtomicUsize>,
         pause: Option<(usize, std::time::Duration)>,
+        terminal_barriers: Option<Arc<(std::sync::Barrier, std::sync::Barrier)>>,
     },
 }
 
@@ -82,15 +83,29 @@ impl Driver {
         let (sender, receiver) = mpsc::channel(64);
         let driver = self.clone();
         tokio::task::spawn_blocking(move || {
-            let _gate = gate;
-            let result = driver.run_prepared_turn(&prompt, native_gate, |update| {
-                let _ = sender.blocking_send(TurnStreamEvent::Update(update));
-            });
+            // Release the conversation gate before consumers observe a
+            // terminal event. Otherwise an immediate follow-up request can
+            // race worker cleanup and incorrectly receive `instance_busy`.
+            let result = {
+                let _gate = gate;
+                driver.run_prepared_turn(&prompt, native_gate, |update| {
+                    let _ = sender.blocking_send(TurnStreamEvent::Update(update));
+                })
+            };
             let event = match result {
                 Ok(result) => TurnStreamEvent::Complete(result),
                 Err(error) => TurnStreamEvent::Error(error),
             };
             let _ = sender.blocking_send(event);
+            #[cfg(test)]
+            if let Self::Test {
+                terminal_barriers: Some(barriers),
+                ..
+            } = &driver
+            {
+                barriers.0.wait();
+                barriers.1.wait();
+            }
         });
         Ok(receiver)
     }
@@ -229,6 +244,7 @@ impl Driver {
                 delay,
                 starts,
                 pause,
+                ..
             } => {
                 starts.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
                 std::thread::sleep(*delay);
@@ -503,6 +519,52 @@ mod tests {
         assert_eq!(
             sanitize_prompt("one\r\n\u{1b}[201~\u{3}two\tthree"),
             "one\n�[201~�two\tthree"
+        );
+    }
+
+    #[tokio::test]
+    async fn terminal_event_is_published_after_turn_gate_is_released() {
+        use std::sync::atomic::AtomicUsize;
+
+        let turn_gate = Arc::new(tokio::sync::Mutex::new(()));
+        let guard = Arc::clone(&turn_gate).lock_owned().await;
+        let terminal_barriers = Arc::new((std::sync::Barrier::new(2), std::sync::Barrier::new(2)));
+        let driver = Driver::Test {
+            result: TurnResult {
+                text: "done".into(),
+                usage: history::GatewayUsage {
+                    prompt_tokens: 0,
+                    completion_tokens: 0,
+                    total_tokens: 0,
+                    cached_prompt_tokens: 0,
+                    reasoning_tokens: 0,
+                },
+            },
+            updates: vec![],
+            delay: Duration::ZERO,
+            starts: Arc::new(AtomicUsize::new(0)),
+            pause: None,
+            terminal_barriers: Some(Arc::clone(&terminal_barriers)),
+        };
+
+        let mut events = driver.start_turn("probe".into(), guard).unwrap();
+        loop {
+            match events.recv().await.expect("worker terminal event") {
+                TurnStreamEvent::Update(_) => continue,
+                TurnStreamEvent::Complete(_) => break,
+                TurnStreamEvent::Error(error) => panic!("test driver failed: {error}"),
+            }
+        }
+
+        // The worker is now paused after publishing Complete but before it can
+        // exit. This makes the old ordering deterministic: if the gate were
+        // scoped around the send, it would still be locked at this point.
+        terminal_barriers.0.wait();
+        let gate_was_released = turn_gate.try_lock().is_ok();
+        terminal_barriers.1.wait();
+        assert!(
+            gate_was_released,
+            "a follow-up turn must be admitted as soon as Complete is observable"
         );
     }
 
