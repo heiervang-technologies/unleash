@@ -508,14 +508,30 @@ fn no_non_anthropic_agent_uses_anthropic_npm_scope() {
 }
 
 #[test]
-fn pi_npm_package_is_mariozechner() {
+fn pi_npm_package_is_earendil_works() {
     let pi = AgentDefinition::pi();
     assert_eq!(
         pi.npm_package.as_deref(),
-        Some("@mariozechner/pi-coding-agent")
+        Some("@earendil-works/pi-coding-agent")
     );
     assert_eq!(pi.binary, "pi");
     assert_eq!(pi.agent_type, AgentType::Pi);
+}
+
+/// The point of the migration is that we no longer resolve Pi against the
+/// deprecated scope. Asserting the active package name alone would still pass
+/// if someone re-pointed the constant back, so pin the relationship: the two
+/// names must differ, and the live one must not be the deprecated one.
+#[test]
+fn pi_npm_package_is_not_the_deprecated_scope() {
+    use crate::agents::{PI_NPM_PACKAGE, PI_NPM_PACKAGE_DEPRECATED};
+
+    assert_eq!(PI_NPM_PACKAGE_DEPRECATED, "@mariozechner/pi-coding-agent");
+    assert_ne!(PI_NPM_PACKAGE, PI_NPM_PACKAGE_DEPRECATED);
+    assert_eq!(
+        AgentDefinition::pi().npm_package.as_deref(),
+        Some(PI_NPM_PACKAGE)
+    );
 }
 
 #[test]

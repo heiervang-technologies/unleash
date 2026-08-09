@@ -484,7 +484,11 @@ impl AgentManager {
             AgentType::Antigravity => self.update_antigravity(),
             AgentType::Gemini => self.update_npm_agent("@google/gemini-cli", "Gemini CLI"),
             AgentType::OpenCode => self.update_opencode(),
-            AgentType::Pi => self.update_npm_agent("@mariozechner/pi-coding-agent", "Pi"),
+            AgentType::Pi => self.update_npm_agent_replacing(
+                super::PI_NPM_PACKAGE,
+                &[super::PI_NPM_PACKAGE_DEPRECATED],
+                "Pi",
+            ),
             AgentType::Hermes => self.update_hermes(),
             AgentType::Custom(name) => self.update_custom(&name),
         }
@@ -970,12 +974,59 @@ impl AgentManager {
 
     /// Update an npm-based agent to latest version
     fn update_npm_agent(&self, package: &str, name: &str) -> io::Result<String> {
+        self.update_npm_agent_replacing(package, &[], name)
+    }
+
+    /// Update an npm-installed agent, first removing any `superseded` packages
+    /// that provide the same binary.
+    ///
+    /// The uninstall is what makes a scope migration actually take effect. When
+    /// an agent is renamed upstream, the old and new packages both declare the
+    /// same `bin`, so installing the new one while the old is still present can
+    /// leave the *old* binary linked — and then we report "updated
+    /// successfully" while the user keeps running the abandoned build. That is
+    /// worse than not migrating at all, because the version we display is right
+    /// and the binary it describes is wrong.
+    ///
+    /// A superseded package that is not installed is not an error: `npm
+    /// uninstall -g` on an absent package is a no-op, so this stays idempotent
+    /// and costs one npm call on machines that never had the old name.
+    fn update_npm_agent_replacing(
+        &self,
+        package: &str,
+        superseded: &[&str],
+        name: &str,
+    ) -> io::Result<String> {
+        let mut removed = Vec::new();
+        for old in superseded {
+            if *old == package {
+                continue;
+            }
+            let uninstall = crate::version::VersionManager::npm_global_command()
+                .args(["uninstall", "-g", old])
+                .output()?;
+            // Best-effort: a failure here is not fatal, because the install
+            // below may still produce a working binary. Do not surface it as
+            // the update's outcome.
+            if uninstall.status.success() {
+                removed.push(*old);
+            }
+        }
+
         let output = crate::version::VersionManager::npm_global_command()
             .args(["install", "-g", &format!("{}@latest", package)])
             .output()?;
 
         if output.status.success() {
-            Ok(format!("{} updated successfully", name))
+            if removed.is_empty() {
+                Ok(format!("{} updated successfully", name))
+            } else {
+                Ok(format!(
+                    "{} updated successfully (migrated off {})",
+                    name,
+                    removed.join(", ")
+                ))
+            }
         } else {
             Err(io::Error::other(format!(
                 "Failed to update {}: {}",

@@ -5,6 +5,16 @@ use super::{
     SandboxStrategy, SessionStrategy,
 };
 
+/// npm package providing the `pi` binary.
+pub const PI_NPM_PACKAGE: &str = "@earendil-works/pi-coding-agent";
+
+/// Former name of [`PI_NPM_PACKAGE`], deprecated upstream in favour of the
+/// `@earendil-works` scope. Kept so the updater can *remove* it rather than
+/// leave two packages fighting over the same `pi` bin — both declare it, so a
+/// plain install of the new package on top of the old one can leave the stale
+/// binary in place while we report the new version.
+pub const PI_NPM_PACKAGE_DEPRECATED: &str = "@mariozechner/pi-coding-agent";
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AgentDefinition {
     /// Agent type
@@ -308,7 +318,7 @@ impl AgentDefinition {
                 interactive_prompt_flag: None,
             },
             github_repo: None,
-            npm_package: Some("@mariozechner/pi-coding-agent".to_string()),
+            npm_package: Some(PI_NPM_PACKAGE.to_string()),
             enabled: true,
         }
     }
