@@ -5,6 +5,7 @@
 
 ### Features
 
+* add Clanker Code as a built-in agent, with source install/update, launcher and profile support, SkillSync target, TUI entry, and explicit character identity transport ([#427](https://github.com/heiervang-technologies/unleash/issues/427)) ([9a4b2b7](https://github.com/heiervang-technologies/unleash/commit/9a4b2b7da050d03db9c28730344c1442bf11215f))
 * add OpenAI-compatible agent gateway ([#433](https://github.com/heiervang-technologies/unleash/issues/433)) ([8e94629](https://github.com/heiervang-technologies/unleash/commit/8e94629de7bc3712252220350229f71ebb0edfa7))
 
 
