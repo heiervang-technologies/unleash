@@ -435,7 +435,12 @@ fn print_summary(check_results: &[CheckResult], outcomes: &[UpdateOutcome]) -> u
 /// trap-on-EXIT for guaranteed cleanup, and explicit `|| exit 1` on each
 /// fallible step so the caller gets a non-zero exit (and the real stderr)
 /// when something breaks.
-fn self_update_script(version: &str, platform: &str) -> String {
+fn shell_quote(value: &str) -> String {
+    format!("'{}'", value.replace('\'', "'\"'\"'"))
+}
+
+fn self_update_script(release_tag: &str, platform: &str) -> String {
+    let release_tag = shell_quote(release_tag);
     format!(
         "tmp=$(mktemp -d -t unleash-update.XXXXXXXX) || exit 1\n\
          trap 'rm -rf \"$tmp\"' EXIT\n\
@@ -470,9 +475,9 @@ fn self_update_script(version: &str, platform: &str) -> String {
          gh repo clone heiervang-technologies/unleash source -- -b {} || exit 1\n\
          expected=$(git -C source rev-list -n 1 {}) || exit 1\n\
          actual=$(git -C source rev-parse HEAD) || exit 1\n\
-         if [ \"$expected\" != \"$actual\" ]; then echo \"Cloned source does not match {}\" >&2; exit 1; fi\n\
+         if [ \"$expected\" != \"$actual\" ]; then echo \"Cloned source does not match release tag\" >&2; exit 1; fi\n\
          bash source/scripts/install.sh --no-build",
-        version,
+        release_tag,
         platform,
         platform,
         platform,
@@ -485,9 +490,8 @@ fn self_update_script(version: &str, platform: &str) -> String {
         platform,
         platform,
         platform,
-        version,
-        version,
-        version
+        release_tag,
+        release_tag
     )
 }
 
@@ -497,14 +501,19 @@ fn check_or_update_self(check_only: bool) -> io::Result<()> {
 
     // Check latest release from GitHub
     eprintln!("Checking unleash...");
-    let latest = get_latest_github_version("heiervang-technologies/unleash")?;
+    // Keep GitHub's exact tag for release download and source checkout. The
+    // repository currently uses `v`-prefixed tags, and reconstructing a tag
+    // from normalized semver caused `gh release download 0.1.98` to fail even
+    // though release `v0.1.98` existed.
+    let latest = get_latest_github_release_tag("heiervang-technologies/unleash")?;
 
     match latest {
         Some(ref ver) if version_less_than(current, ver) => {
+            let display_version = sanitize_version(ver);
             if check_only {
                 println!(
                     "  unleash          {} -> {} (update available)",
-                    current, ver
+                    current, display_version
                 );
             } else {
                 let arch = std::env::consts::ARCH;
@@ -521,13 +530,19 @@ fn check_or_update_self(check_only: bool) -> io::Result<()> {
                     }
                 };
 
-                println!("  unleash          updating {} -> {}...", current, ver);
+                println!(
+                    "  unleash          updating {} -> {}...",
+                    current, display_version
+                );
                 let output = Command::new("bash")
                     .arg("-c")
                     .arg(self_update_script(ver, platform))
                     .output()?;
                 if output.status.success() {
-                    println!("  unleash          {} -> {} (updated)", current, ver);
+                    println!(
+                        "  unleash          {} -> {} (updated)",
+                        current, display_version
+                    );
                 } else {
                     eprintln!(
                         "  unleash          update failed: {}",
@@ -728,7 +743,10 @@ fn get_latest_npm_version(package: &str) -> io::Result<Option<String>> {
     Ok(None)
 }
 
-fn get_latest_github_version(repo: &str) -> io::Result<Option<String>> {
+/// Return GitHub's exact latest-release tag. Callers that address release or
+/// git objects must use this value unchanged; normalizing it can make an
+/// existing release impossible to find.
+fn get_latest_github_release_tag(repo: &str) -> io::Result<Option<String>> {
     let url = format!("https://api.github.com/repos/{}/releases/latest", repo);
 
     // Try with auth first (needed for private repos), then fall back to
@@ -742,6 +760,13 @@ fn get_latest_github_version(repo: &str) -> io::Result<Option<String>> {
         }
     }
     fetch_github_release_tag(&url, None)
+}
+
+/// Return a normalized version suitable for display and version comparison.
+/// Agent update paths do not address GitHub release objects directly, so they
+/// should not leak repository-specific tag prefixes into their version labels.
+fn get_latest_github_version(repo: &str) -> io::Result<Option<String>> {
+    Ok(get_latest_github_release_tag(repo)?.map(|tag| sanitize_version(&tag)))
 }
 
 fn get_latest_antigravity_aur_version() -> io::Result<Option<String>> {
@@ -815,7 +840,8 @@ fn parse_release_tag(body: &[u8]) -> Option<String> {
     let json: serde_json::Value = serde_json::from_slice(body).ok()?;
     json.get("tag_name")
         .and_then(|t| t.as_str())
-        .map(sanitize_version)
+        .filter(|tag| !tag.is_empty())
+        .map(str::to_string)
 }
 
 /// Get a GitHub token for API auth (needed for private repos).
@@ -1755,7 +1781,9 @@ mod tests {
     #[test]
     fn parse_release_tag_extracts_tag_from_success_response() {
         let body = br#"{"tag_name":"v2026.5.7","name":"Release"}"#;
-        assert_eq!(parse_release_tag(body), Some("2026.5.7".to_string()));
+        let tag = parse_release_tag(body).expect("release tag");
+        assert_eq!(tag, "v2026.5.7");
+        assert_eq!(sanitize_version(&tag), "2026.5.7");
     }
 
     #[test]
@@ -1945,10 +1973,58 @@ Version                       : 1.1.0_4523441756438528-1\n";
     fn self_update_script_verifies_cloned_source_tag() {
         let script = self_update_script("v0.1.82", "linux");
         assert!(
-            script.contains("git -C source rev-list -n 1 v0.1.82")
+            script.contains("git -C source rev-list -n 1 'v0.1.82'")
                 && script.contains("git -C source rev-parse HEAD")
-                && script.contains("Cloned source does not match v0.1.82"),
+                && script.contains("Cloned source does not match release tag"),
             "self-update must verify cloned source before running install.sh: {script}"
+        );
+    }
+
+    #[test]
+    fn self_update_script_preserves_exact_github_tag() {
+        let body = br#"{"tag_name":"v0.1.98","name":"Release"}"#;
+        let tag = parse_release_tag(body).expect("release tag");
+        let script = self_update_script(&tag, "linux-x86_64");
+        assert!(
+            script.contains("gh release download 'v0.1.98' ")
+                && script.contains("source -- -b 'v0.1.98'")
+                && script.contains("git -C source rev-list -n 1 'v0.1.98'"),
+            "self-update must use GitHub's exact release tag: {script}"
+        );
+    }
+
+    #[test]
+    fn self_update_script_shell_quotes_release_tag() {
+        let script = self_update_script("v1.2.3'; touch /tmp/pwned; '", "linux-x86_64");
+        assert!(
+            script.contains("'v1.2.3'\"'\"'; touch /tmp/pwned; '\"'\"''"),
+            "release tag must remain one inert shell argument: {script}"
+        );
+    }
+
+    #[test]
+    fn self_update_script_is_valid_bash_syntax() {
+        use std::io::Write as _;
+        use std::process::Stdio;
+
+        let script = self_update_script("v0.1.98", "linux-x86_64");
+        let mut child = Command::new("bash")
+            .arg("-n")
+            .stdin(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()
+            .expect("bash must be available for the bash-based self-updater");
+        child
+            .stdin
+            .as_mut()
+            .expect("bash stdin")
+            .write_all(script.as_bytes())
+            .expect("write update script");
+        let output = child.wait_with_output().expect("wait for bash -n");
+        assert!(
+            output.status.success(),
+            "generated self-update script must parse as bash: {}",
+            String::from_utf8_lossy(&output.stderr)
         );
     }
 }

@@ -545,3 +545,14 @@ fn bench_parallel_vs_sequential_version_fetch() {
         sequential_time.as_secs_f64() / parallel_time.as_secs_f64().max(0.001)
     );
 }
+
+#[test]
+fn codex_code_mode_host_asset_matches_cli_target() {
+    let codex = VersionManager::codex_asset_name();
+    let host = VersionManager::codex_code_mode_host_asset_name();
+    assert_eq!(
+        host,
+        codex.replacen("codex-", "codex-code-mode-host-", 1),
+        "Codex and its Code Mode host must always use the same target triple"
+    );
+}
