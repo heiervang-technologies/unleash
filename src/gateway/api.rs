@@ -973,6 +973,7 @@ mod tests {
             delay: Duration::ZERO,
             starts: Arc::clone(&starts),
             pause: None,
+            terminal_barriers: None,
         };
         let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
         let address = listener.local_addr().unwrap();
@@ -1083,6 +1084,7 @@ mod tests {
             delay: Duration::from_millis(200),
             starts: Arc::clone(&starts),
             pause: None,
+            terminal_barriers: None,
         };
         let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
         let address = listener.local_addr().unwrap();
@@ -1207,6 +1209,7 @@ mod tests {
             delay: Duration::ZERO,
             starts: Arc::clone(&starts),
             pause: None,
+            terminal_barriers: None,
         };
         let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
         let address = listener.local_addr().unwrap();
@@ -1310,6 +1313,7 @@ mod tests {
             delay: Duration::ZERO,
             starts: Arc::clone(&starts),
             pause: None,
+            terminal_barriers: None,
         };
         let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
         let address = listener.local_addr().unwrap();
@@ -1392,6 +1396,7 @@ mod tests {
             delay: Duration::ZERO,
             starts: Arc::clone(&starts),
             pause: Some((80, Duration::from_millis(200))),
+            terminal_barriers: None,
         };
         let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
         let address = listener.local_addr().unwrap();
