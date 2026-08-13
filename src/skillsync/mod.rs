@@ -601,30 +601,28 @@ pub fn context_reference_uninstall(path: &Path, name: &str) -> Result<(), SkillS
 fn replace_context_block(existing: &str, name: &str, replacement: &str) -> String {
     let start = format!("<!-- unleash-skillsync-start: {name} -->");
     let end = format!("<!-- unleash-skillsync-end: {name} -->");
-    if let Some(start_idx) = existing.find(&start) {
-        if let Some(rel_end_idx) = existing[start_idx..].find(&end) {
+
+    let mut cleaned = existing.to_string();
+    while let Some(start_idx) = cleaned.find(&start) {
+        if let Some(rel_end_idx) = cleaned[start_idx..].find(&end) {
             let end_idx = start_idx + rel_end_idx + end.len();
-            let mut out = String::new();
-            out.push_str(existing[..start_idx].trim_end());
-            if !out.is_empty() && !replacement.trim().is_empty() {
-                out.push_str("\n\n");
+            let before = cleaned[..start_idx].trim_end();
+            let after = cleaned[end_idx..].trim_start();
+            if before.is_empty() && after.is_empty() {
+                cleaned = String::new();
+            } else if before.is_empty() {
+                cleaned = after.to_string();
+            } else if after.is_empty() {
+                cleaned = before.to_string();
+            } else {
+                cleaned = format!("{}\n\n{}", before, after);
             }
-            out.push_str(replacement.trim_end());
-            let tail = existing[end_idx..].trim_start();
-            if !tail.is_empty() {
-                if !out.is_empty() {
-                    out.push_str("\n\n");
-                }
-                out.push_str(tail);
-            }
-            if !out.is_empty() {
-                out.push('\n');
-            }
-            return out;
+        } else {
+            break;
         }
     }
 
-    let mut out = existing.trim_end().to_string();
+    let mut out = cleaned.trim_end().to_string();
     if !out.is_empty() && !replacement.trim().is_empty() {
         out.push_str("\n\n");
     }
@@ -888,4 +886,20 @@ pub fn status() -> Result<Vec<SkillStatus>, SkillSyncError> {
 
 pub fn skill_names(skills: &[SkillLocation]) -> BTreeSet<String> {
     skills.iter().map(|s| s.skill.name.clone()).collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_replace_context_block_duplicate_markers() {
+        let existing = "prefix text\n<!-- unleash-skillsync-start: myskill -->\nold block 1\n<!-- unleash-skillsync-end: myskill -->\nmiddle text\n<!-- unleash-skillsync-start: myskill -->\nold block 2\n<!-- unleash-skillsync-end: myskill -->\nsuffix text";
+        let replacement = "<!-- unleash-skillsync-start: myskill -->\nnew block\n<!-- unleash-skillsync-end: myskill -->";
+        let result = replace_context_block(existing, "myskill", replacement);
+        
+        assert!(!result.contains("old block 1"));
+        assert!(!result.contains("old block 2"));
+        assert!(result.contains("prefix text\n\nmiddle text\n\nsuffix text\n\n<!-- unleash-skillsync-start: myskill -->\nnew block\n<!-- unleash-skillsync-end: myskill -->\n"));
+    }
 }
