@@ -269,17 +269,17 @@ mod tests {
     // =======================================================================
     // Pi / Hermes matrix broadening (#353)
     //
-    // Pi and Hermes cannot be *strictly* byte-lossless for the full
-    // all-content-types fixture on `main`. Every residual below has a tracked
-    // home:
-    //   - Pi has no native home for reasoning-token counts or image blocks
-    //     (images degrade to a text placeholder), and its usage/cost is
-    //     synthesize-and-reconstruct.  → #412
-    //   - Hermes preserves thinking/reasoning-only turns via its native
-    //     reasoning columns (#406 write side + the to_hub restore here), but
-    //     still degrades image/patch to text placeholders (content), and
-    //     normalizes session identity + propagates the session model onto
-    //     every message  → #414 (normalization, not content).
+    // Pi is now *strictly* byte-lossless for the full all-content-types
+    // fixture (#412 resolved): the `_ucf_hub` passthrough stashes
+    // reasoning/tool token counts, cost absence, non-native content blocks
+    // (Image, ToolResult, encrypted Thinking), and the {} vs null extensions
+    // distinction. The pinned residual test asserts an empty diff.
+    //
+    // Hermes preserves thinking/reasoning-only turns via its native
+    // reasoning columns (#406 write side + the to_hub restore here), but
+    // still degrades image/patch to text placeholders (content), and
+    // normalizes session identity + propagates the session model onto
+    // every message  → #414 (normalization, not content).
     // Run `diagnostic_pi_hermes` (above, --ignored) to see the residuals, and
     // `pi_full_fixture_residual_is_pinned` for the exact Pi set.
     //
@@ -297,39 +297,19 @@ mod tests {
     /// full-fixture loss — a regression dropping a new out-of-subset field would
     /// stay idempotent and pass the subset test while loss silently grows. This
     /// pins the EXACT residual of `all-content-types → pi → hub`, so any change
-    /// (loss grows OR a tracked gap in #412 gets fixed) fails here and forces a
-    /// deliberate update. The residual is Pi's normalization surface:
-    ///   - image + tool_result content degraded to text placeholders,
-    ///   - encrypted-thinking field reshaping.
+    /// (loss grows OR a tracked gap gets fixed) fails here and forces a
+    /// deliberate update.
+    ///
+    /// As of #412 resolution: the content_stash passthrough in `_ucf_hub`
+    /// preserves non-native content blocks (Image, ToolResult, encrypted
+    /// Thinking) through the Pi round-trip, and the unconditional ext
+    /// preservation fixes the {} vs null extensions distinction. The residual
+    /// is now empty — Pi is fully lossless for all hub content types.
     #[test]
     fn pi_full_fixture_residual_is_pinned() {
         let all = all_types_hub();
         let residual = residual_paths(&all, &via_pi(&all));
-        let expected: Vec<&str> = vec![
-            "$[1].extensions",
-            "$[3].content[0].encrypted",
-            "$[3].content[0].encrypted_data [removed]",
-            "$[3].content[0].encryption_format [removed]",
-            "$[3].content[0].signature [added]",
-            "$[4].content[0].content [removed]",
-            "$[4].content[0].duration_ms [removed]",
-            "$[4].content[0].exit_code [removed]",
-            "$[4].content[0].interrupted [removed]",
-            "$[4].content[0].is_error [removed]",
-            "$[4].content[0].status [removed]",
-            "$[4].content[0].text [added]",
-            "$[4].content[0].tool_use_id [removed]",
-            "$[4].content[0].truncated [removed]",
-            "$[4].content[0].type",
-            "$[4].extensions",
-            "$[5].content[1].data [removed]",
-            "$[5].content[1].encoding [removed]",
-            "$[5].content[1].media_type [removed]",
-            "$[5].content[1].text [added]",
-            "$[5].content[1].type",
-            "$[5].extensions",
-            "$[6].extensions",
-        ];
+        let expected: Vec<&str> = vec![];
         assert_eq!(
             residual, expected,
             "Pi full-fixture residual changed. If you FIXED a gap, remove its \
