@@ -339,4 +339,36 @@ Body text.
         let prompt = parsed["prompt"].as_str().expect("prompt is a string");
         assert!(prompt.contains("fence: \"\"\" and \\ backslash"));
     }
+
+    #[test]
+    fn diff_reports_only_actual_differences() {
+        let _guard = env_guard();
+        let env = SandboxEnv::new();
+
+        let source = env.home().join(".claude/skills/minimal-skill");
+        copy_skill_dir(&fixtures_root().join("minimal-skill"), &source).expect("copy fixture");
+        
+        // Initial diff should report all installations needed
+        let initial_diff = skillsync::diff(Some(Harness::Claude), false).expect("initial diff");
+        assert!(!initial_diff.is_empty(), "initial diff should not be empty");
+        
+        // Sync should converge the state
+        skillsync::sync(Some(Harness::Claude), false).expect("initial sync");
+
+        // Second diff should be empty because targets are current
+        let clean_diff = skillsync::diff(Some(Harness::Claude), false).expect("clean diff");
+        assert!(clean_diff.is_empty(), "expected empty diff, got {:?}", clean_diff);
+        
+        // Introduce a difference in one target
+        let gemini_adapter = GeminiAdapter::default();
+        let mut skill = fixture("minimal-skill");
+        skill.description = "stale description".to_string();
+        gemini_adapter.install(&skill).expect("introduce drift");
+        
+        // Diff should report just the stale target
+        let stale_diff = skillsync::diff(Some(Harness::Claude), false).expect("stale diff");
+        assert_eq!(stale_diff.len(), 1);
+        assert!(stale_diff[0].contains("would install minimal-skill -> gemini/agy"));
+    }
 }
+
