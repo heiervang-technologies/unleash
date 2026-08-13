@@ -352,6 +352,30 @@ fn pi_control_record_to_event(val: &Value, rec_type: &str) -> HubEvent {
     }
 }
 
+/// Returns `true` when the given content block has a native Pi representation
+/// (text, thinking, toolCall). Blocks outside this set degrade to a text
+/// placeholder in `content_block_to_pi` and need stashing for lossless
+/// hub → Pi → hub round-trips.
+///
+/// Encrypted thinking blocks (carrying `encrypted_data` / `encryption_format`)
+/// are NOT natively representable — Pi's thinking shape only has
+/// `thinking` + `thinkingSignature`, so the encrypted fields would be lost.
+fn is_pi_native_content(block: &ContentBlock) -> bool {
+    match block {
+        ContentBlock::Thinking {
+            encrypted,
+            encrypted_data,
+            encryption_format,
+            ..
+        } => {
+            // Standard thinking is native; encrypted thinking is not.
+            !encrypted && encrypted_data.is_none() && encryption_format.is_none()
+        }
+        ContentBlock::Text { .. } | ContentBlock::ToolUse { .. } => true,
+        _ => false,
+    }
+}
+
 fn pi_message_to_hub(
     val: &Value,
     foreign_originated: bool,
@@ -395,24 +419,63 @@ fn pi_message_to_hub(
         pi_sidecar.insert("envelope_timestamp".into(), inner_ts);
     }
 
+    // Content stash: when a _ucf_hub.content_stash is present on the Pi
+    // line (written by `hub_message_to_pi` for non-native blocks like Image
+    // or ToolResult), restore the original hub blocks at their stashed
+    // indices so the degraded text placeholders don't leak into the hub.
+    let content_stash: Option<Map<String, Value>> = ucf_hub
+        .and_then(|u| u.get("content_stash"))
+        .and_then(|v| v.as_object())
+        .cloned();
+
     let (hub_role, hub_content, metadata) = match role.as_str() {
         "user" => {
-            let (content, unknown_blocks) = extract_content_blocks_indexed(message.get("content"));
+            let (mut content, unknown_blocks) =
+                extract_content_blocks_indexed(message.get("content"));
             if !unknown_blocks.is_empty() {
                 pi_sidecar.insert(
                     "unknown_content_blocks".into(),
                     Value::Object(unknown_blocks),
                 );
             }
+            // Restore stashed content blocks from _ucf_hub.
+            if let Some(ref stash) = content_stash {
+                for (idx_str, block_val) in stash {
+                    if let Ok(idx) = idx_str.parse::<usize>() {
+                        if idx < content.len() {
+                            if let Ok(block) =
+                                serde_json::from_value::<ContentBlock>(block_val.clone())
+                            {
+                                content[idx] = block;
+                            }
+                        }
+                    }
+                }
+            }
             ("user".to_string(), content, MessageMetadata::default())
         }
         "assistant" => {
-            let (content, unknown_blocks) = extract_content_blocks_indexed(message.get("content"));
+            let (mut content, unknown_blocks) =
+                extract_content_blocks_indexed(message.get("content"));
             if !unknown_blocks.is_empty() {
                 pi_sidecar.insert(
                     "unknown_content_blocks".into(),
                     Value::Object(unknown_blocks),
                 );
+            }
+            // Restore stashed content blocks from _ucf_hub.
+            if let Some(ref stash) = content_stash {
+                for (idx_str, block_val) in stash {
+                    if let Ok(idx) = idx_str.parse::<usize>() {
+                        if idx < content.len() {
+                            if let Ok(block) =
+                                serde_json::from_value::<ContentBlock>(block_val.clone())
+                            {
+                                content[idx] = block;
+                            }
+                        }
+                    }
+                }
             }
 
             if let Some(api) = message.get("api").cloned() {
@@ -968,17 +1031,41 @@ fn hub_message_to_pi(msg: &HubMessage) -> Result<Option<Value>, ConvertError> {
         }
         if !usage_passthrough.is_empty() {
             attach_ucf_hub_field(&mut out, "pi_usage", Value::Object(usage_passthrough));
-            // Preserve {} versus null for the message carrying this transport.
-            // Otherwise removing redundant usage_raw would merely turn the
-            // old extensions.pi residual into a whole-field extensions diff.
-            if msg
-                .extensions
-                .as_object()
-                .is_some_and(|extensions| extensions.is_empty())
-            {
-                attach_ucf_hub_ext(&mut out, Value::Object(Map::new()));
+        }
+    }
+
+    // Stash non-native hub content blocks (Image, encrypted Thinking, etc.)
+    // so the to_hub leg can restore them instead of the degraded text
+    // placeholders. Skip tool-role messages: Pi handles ToolResult natively
+    // at the message-role level (toolResult role + toolCallId + content),
+    // so the content_block_to_pi degradation doesn't apply.
+    if role != "toolResult" {
+        let mut content_stash = Map::new();
+        for (idx, block) in msg.content.iter().enumerate() {
+            if !is_pi_native_content(block) {
+                if let Ok(val) = serde_json::to_value(block) {
+                    content_stash.insert(idx.to_string(), val);
+                }
             }
         }
+        if !content_stash.is_empty() {
+            attach_ucf_hub_field(&mut out, "content_stash", Value::Object(content_stash));
+        }
+    }
+
+    // Preserve {} versus null for extensions across the round-trip. Pi's
+    // to_hub collapses foreign-originated messages with an empty pi_sidecar
+    // to extensions: null, losing the original hub distinction. We attach a
+    // _ucf_hub.ext: {} marker so to_hub can restore the empty-object shape.
+    // The check is unconditional — earlier transports (pi_usage,
+    // content_stash) may already have called attach_ucf_hub_ext, in which
+    // case this is a no-op because the entry already exists.
+    if msg
+        .extensions
+        .as_object()
+        .is_some_and(|extensions| extensions.is_empty())
+    {
+        attach_ucf_hub_ext(&mut out, Value::Object(Map::new()));
     }
 
     Ok(Some(out))
