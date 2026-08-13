@@ -1,0 +1,18 @@
+--- src/skillsync/mod.rs
++++ src/skillsync/mod.rs
+@@ -904,4 +904,22 @@
+         assert!(result.contains("prefix text\n\nmiddle text\n\nsuffix text\n\n<!-- unleash-skillsync-start: myskill -->\nnew block\n<!-- unleash-skillsync-end: myskill -->\n"));
+     }
++
++    #[test]
++    fn test_diff_wip() {
++        let s1 = Skill {
++            name: "test".into(),
++            description: "test desc".into(),
++            body: "test body\n".into(),
++            path: std::path::PathBuf::from("/tmp/test"),
++        };
++        let mut claude = claude::ClaudeAdapter::default();
++        // Actually we can just run cross_harness_tests
++    }
+ }

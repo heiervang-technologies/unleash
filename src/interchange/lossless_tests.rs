@@ -186,6 +186,7 @@ mod tests {
             .collect();
         serde_json::json!({
             "id": out.session.id,
+            "source": out.session.source,
             "model": out.session.model,
             "title": out.session.title,
             "started_at": out.session.started_at,
@@ -233,8 +234,8 @@ mod tests {
     fn hermes_native_subset() -> Vec<HubRecord> {
         hub_from_jsonl(
             r#"{"type":"session","ucf_version":"1.0.0","session_id":"hermes-subset","created_at":"2026-04-04T10:00:00Z","updated_at":"2026-04-04T10:05:00Z","source_cli":"hermes","source_version":"","model":"m","title":"Hermes subset"}
-{"type":"message","id":"1","timestamp":"2026-04-04T10:00:01Z","role":"user","content":[{"type":"text","text":"hi"}],"metadata":{"model":"m"},"extensions":{}}
-{"type":"message","id":"2","timestamp":"2026-04-04T10:00:02Z","role":"assistant","content":[{"type":"text","text":"running"},{"type":"tool_use","id":"call_1","name":"Bash","input":{"command":"ls"}}],"metadata":{"model":"m"},"extensions":{}}"#,
+{"type":"message","id":"1","timestamp":"2026-04-04T10:00:01Z","role":"user","content":[{"type":"text","text":"hi"}],"metadata":{},"extensions":{}}
+{"type":"message","id":"2","timestamp":"2026-04-04T10:00:02Z","role":"assistant","content":[{"type":"text","text":"running"},{"type":"tool_use","id":"call_1","name":"Bash","input":{"command":"ls"}}],"metadata":{},"extensions":{}}"#,
         )
     }
 

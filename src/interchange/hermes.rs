@@ -169,13 +169,30 @@ pub fn to_hub(json: &str) -> Result<Vec<HubRecord>, ConvertError> {
     let started_at = session["started_at"].as_f64().unwrap_or(0.0);
     let ended_at = session["ended_at"].as_f64().unwrap_or(started_at);
 
+    let source_field = session["source"].as_str().unwrap_or("hermes");
+    let mut source_cli = source_field.to_string();
+    let mut source_version = String::new();
+
+    if let Some(stripped) = source_field.strip_prefix("_ucf_hub:") {
+        if let Ok(Value::Object(map)) = serde_json::from_str(stripped) {
+            if let Some(cli) = map.get("source_cli").and_then(|v| v.as_str()) {
+                source_cli = cli.to_string();
+            }
+            if let Some(ver) = map.get("source_version").and_then(|v| v.as_str()) {
+                source_version = ver.to_string();
+            }
+        }
+    } else if source_field == "unleash_import" {
+        source_cli = "hermes".to_string();
+    }
+
     records.push(HubRecord::Session(SessionHeader {
         ucf_version: UCF_VERSION.to_string(),
         session_id: session_id.clone(),
         created_at: epoch_to_iso(started_at as u64),
         updated_at: epoch_to_iso(ended_at as u64),
-        source_cli: "hermes".to_string(),
-        source_version: String::new(),
+        source_cli,
+        source_version,
         project: None,
         model: model.clone(),
         title: title.clone(),
@@ -375,7 +392,7 @@ pub fn to_hub(json: &str) -> Result<Vec<HubRecord>, ConvertError> {
                 },
                 content: blocks,
                 metadata: MessageMetadata {
-                    model: model.clone(),
+                    model: msg["model"].as_str().map(|s| s.to_string()),
                     ..MessageMetadata::default()
                 },
                 extensions: Value::Object(Default::default()),
@@ -752,7 +769,7 @@ mod tests {
         assert!(matches!(&records[0], HubRecord::Session(_)));
         if let HubRecord::Session(s) = &records[0] {
             assert_eq!(s.session_id, "test_session_001");
-            assert_eq!(s.source_cli, "hermes");
+            assert_eq!(s.source_cli, "claude");
             assert_eq!(s.title.as_deref(), Some("Test session"));
         }
         if let HubRecord::Message(m) = &records[1] {
