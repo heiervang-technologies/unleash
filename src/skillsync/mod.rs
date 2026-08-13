@@ -803,22 +803,44 @@ pub fn diff(source: Option<Harness>, delete_orphans: bool) -> Result<Vec<String>
         None => discover_hub()?,
     };
     let source_names: BTreeSet<String> = skills.iter().map(|skill| skill.name.clone()).collect();
+    
+    let mut actual_states: BTreeMap<&[Harness], Vec<Skill>> = BTreeMap::new();
+    for group in TARGET_GROUPS {
+        if source.is_some_and(|s| group.contains(&s)) {
+            continue;
+        }
+        actual_states.insert(group, group[0].adapter().discover()?);
+    }
+
     for skill in &skills {
         for group in TARGET_GROUPS {
             if source.is_some_and(|source| group.contains(&source)) {
                 continue;
             }
             let label = target_group_label(group);
-            if group
+            let should_be_enabled = group
                 .iter()
-                .any(|harness| manifest.is_enabled(&skill.name, *harness))
-            {
-                planned.push(format!("would install {} -> {}", skill.name, label));
+                .any(|harness| manifest.is_enabled(&skill.name, *harness));
+            
+            let actual_skills = actual_states.get(group).unwrap();
+            let actual_skill = actual_skills.iter().find(|s| s.name == skill.name);
+
+            if should_be_enabled {
+                let needs_install = match actual_skill {
+                    Some(s) => s.description != skill.description || s.body.trim() != skill.body.trim(),
+                    None => true,
+                };
+                if needs_install {
+                    planned.push(format!("would install {} -> {}", skill.name, label));
+                }
             } else {
-                planned.push(format!("would uninstall {} from {}", skill.name, label));
+                if actual_skill.is_some() {
+                    planned.push(format!("would uninstall {} from {}", skill.name, label));
+                }
             }
         }
     }
+    
     if delete_orphans && source.is_some() {
         for skill in discover_hub()? {
             if source_names.contains(&skill.name) {
@@ -828,12 +850,16 @@ pub fn diff(source: Option<Harness>, delete_orphans: bool) -> Result<Vec<String>
                 if source.is_some_and(|source| group.contains(&source)) {
                     continue;
                 }
-                planned.push(format!(
-                    "would delete orphan {} from {}",
-                    skill.name,
-                    target_group_label(group)
-                ));
+                let actual_skills = actual_states.get(group).unwrap();
+                if actual_skills.iter().any(|s| s.name == skill.name) {
+                    planned.push(format!(
+                        "would delete orphan {} from {}",
+                        skill.name,
+                        target_group_label(group)
+                    ));
+                }
             }
+            // For hub, we just check if it's there. discover_hub() returned it, so it is there.
             planned.push(format!("would delete orphan {} from hub", skill.name));
         }
     }
