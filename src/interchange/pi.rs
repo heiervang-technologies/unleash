@@ -511,11 +511,15 @@ fn pi_message_to_hub(
                 .get("isError")
                 .and_then(|v| v.as_bool())
                 .unwrap_or(false);
-            // NOTE: this uses the non-indexed extractor, so an unknown block
-            // type nested inside a toolResult's content is still stringified
-            // (not stashed verbatim like top-level content). Preserving nested
-            // unknowns needs its own indexed plumbing — tracked in #410.
-            let inner_content = extract_content_blocks(message.get("content"));
+            let (inner_content, unknown_blocks) =
+                extract_content_blocks_indexed(message.get("content"));
+
+            if !unknown_blocks.is_empty() {
+                pi_sidecar.insert(
+                    "unknown_content_blocks".into(),
+                    Value::Object(unknown_blocks),
+                );
+            }
 
             if let Some(name) = &tool_name {
                 pi_sidecar.insert("toolName".into(), Value::String(name.clone()));
@@ -825,10 +829,22 @@ fn hub_message_to_pi(msg: &HubMessage) -> Result<Option<Value>, ConvertError> {
             .and_then(|v| v.as_str())
             .unwrap_or("");
         inner.insert("toolName".into(), Value::String(tool_name.into()));
-        inner.insert(
-            "content".into(),
-            Value::Array(tr.1.iter().map(content_block_to_pi).collect()),
-        );
+        
+        let unknown_blocks = pi_obj
+            .get("unknown_content_blocks")
+            .and_then(|v| v.as_object());
+        let content_vals: Vec<Value> = tr
+            .1
+            .iter()
+            .enumerate()
+            .map(|(idx, block)| {
+                unknown_blocks
+                    .and_then(|m| m.get(&idx.to_string()))
+                    .cloned()
+                    .unwrap_or_else(|| content_block_to_pi(block))
+            })
+            .collect();
+        inner.insert("content".into(), Value::Array(content_vals));
         if let Some(details) = pi_obj.get("details") {
             inner.insert("details".into(), details.clone());
         }
