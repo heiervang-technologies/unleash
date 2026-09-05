@@ -925,8 +925,8 @@ fn decode_vector32(blob: Vec<u8>) -> Option<Vec<f32>> {
             return None;
         }
         let mut out = Vec::with_capacity(payload.len() / 4);
-        for chunk in payload.chunks_exact(4) {
-            out.push(f32::from_le_bytes(chunk.try_into().ok()?));
+        for chunk in payload.as_chunks::<4>().0 {
+            out.push(f32::from_le_bytes(*chunk));
         }
         Some(out)
     };

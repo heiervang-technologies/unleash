@@ -42,6 +42,10 @@ toml = "1.1"
 dirs = "6.0"
 chrono = { version = "0.4", default-features = false, features = ["clock"] }
 
+# Release staging and integrity
+tempfile = "3.27"
+sha2 = "0.10"
+
 # Process management
 nix = { version = "0.31", features = ["process", "signal", "user"] }
 which = "8.0"
@@ -68,7 +72,6 @@ portable-pty = "0.9"
 tokio-stream = "0.1"
 
 [dev-dependencies]
-tempfile = "3.27"
 proptest = "1.5"
 
 [profile.release]
