@@ -5,6 +5,7 @@
 //! - Version tracking and updates
 //! - Installation management
 
+pub(crate) mod codex;
 pub mod custom_cli;
 mod definition;
 pub(crate) mod install;

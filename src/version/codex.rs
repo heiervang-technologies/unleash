@@ -1,4 +1,3 @@
-use std::fs;
 use std::io;
 use std::process::Command;
 use std::sync::mpsc;
@@ -72,90 +71,10 @@ impl VersionManager {
         versions
     }
 
-    /// Install a specific Codex version by downloading prebuilt binaries from GitHub releases
+    /// Install a specific release, including its matching Code Mode host.
     #[allow(dead_code)]
     pub fn install_codex_version(&self, version: &str) -> io::Result<InstallResult> {
-        let tag = format!("rust-v{}", version);
-        let asset_name = Self::codex_asset_name();
-
-        let install_dir = dirs::home_dir()
-            .ok_or_else(|| io::Error::new(io::ErrorKind::NotFound, "Home dir not found"))?
-            .join(".local/bin");
-        fs::create_dir_all(&install_dir)?;
-
-        // Download to a temp directory
-        let tmp_dir = std::env::temp_dir().join(format!("codex-install-{}", version));
-        let _ = fs::remove_dir_all(&tmp_dir);
-        fs::create_dir_all(&tmp_dir)?;
-
-        // Download the main codex binary tarball
-        let download = Command::new("gh")
-            .args([
-                "release",
-                "download",
-                &tag,
-                "--repo",
-                "openai/codex",
-                "--pattern",
-                &format!("{}.tar.gz", asset_name),
-                "--dir",
-                tmp_dir.to_str().unwrap_or("/tmp"),
-            ])
-            .output()?;
-
-        if !download.status.success() {
-            let _ = fs::remove_dir_all(&tmp_dir);
-            return Ok(InstallResult {
-                success: false,
-                stdout: String::from_utf8_lossy(&download.stdout).to_string(),
-                stderr: String::from_utf8_lossy(&download.stderr).to_string(),
-                error: Some(format!(
-                    "Failed to download {} from release {}",
-                    asset_name, tag
-                )),
-            });
-        }
-
-        // Extract the tarball
-        let extract = Command::new("tar")
-            .args(["xzf", &format!("{}.tar.gz", asset_name)])
-            .current_dir(&tmp_dir)
-            .output()?;
-
-        if !extract.status.success() {
-            let _ = fs::remove_dir_all(&tmp_dir);
-            return Ok(InstallResult {
-                success: false,
-                stdout: String::from_utf8_lossy(&extract.stdout).to_string(),
-                stderr: String::from_utf8_lossy(&extract.stderr).to_string(),
-                error: Some("Failed to extract tarball".to_string()),
-            });
-        }
-
-        // Install the binary
-        let extracted_binary = tmp_dir.join(&asset_name);
-        let install_path = install_dir.join("codex");
-
-        if !extracted_binary.exists() {
-            let _ = fs::remove_dir_all(&tmp_dir);
-            return Ok(InstallResult {
-                success: false,
-                stdout: String::new(),
-                stderr: format!("Expected binary {} not found in archive", asset_name),
-                error: Some(format!("Binary {} not found after extraction", asset_name)),
-            });
-        }
-
-        crate::agents::atomic_install_binary(&extracted_binary, &install_path)?;
-
-        let _ = fs::remove_dir_all(&tmp_dir);
-
-        Ok(InstallResult {
-            success: true,
-            stdout: format!("Codex v{} installed to {}", version, install_path.display()),
-            stderr: String::new(),
-            error: None,
-        })
+        self.install_codex_release(version, |_| {})
     }
 
     pub fn install_codex_version_streaming(
@@ -163,119 +82,32 @@ impl VersionManager {
         version: &str,
         log_tx: mpsc::Sender<String>,
     ) -> io::Result<InstallResult> {
-        let tag = format!("rust-v{}", version);
-        let asset_name = Self::codex_asset_name();
-
-        let install_dir = dirs::home_dir()
-            .ok_or_else(|| io::Error::new(io::ErrorKind::NotFound, "Home dir not found"))?
-            .join(".local/bin");
-        fs::create_dir_all(&install_dir)?;
-
-        let tmp_dir = std::env::temp_dir().join(format!("codex-install-{}", version));
-        let _ = fs::remove_dir_all(&tmp_dir);
-        fs::create_dir_all(&tmp_dir)?;
-
-        // Download
-        let _ = log_tx.send(format!(
-            "Downloading Codex {} from GitHub release {}...",
-            asset_name, tag
-        ));
-        let (ok, stdout, stderr) = Self::run_streaming(
-            Command::new("gh").args([
-                "release",
-                "download",
-                &tag,
-                "--repo",
-                "openai/codex",
-                "--pattern",
-                &format!("{}.tar.gz", asset_name),
-                "--dir",
-                tmp_dir.to_str().unwrap_or("/tmp"),
-            ]),
-            &log_tx,
-        )?;
-
-        if !ok {
-            let _ = fs::remove_dir_all(&tmp_dir);
-            return Ok(InstallResult {
-                success: false,
-                stdout,
-                stderr,
-                error: Some(format!(
-                    "Failed to download {} from release {}",
-                    asset_name, tag
-                )),
-            });
-        }
-
-        // Extract
-        let _ = log_tx.send("Extracting tarball...".to_string());
-        let (ok, stdout, stderr) = Self::run_streaming(
-            Command::new("tar")
-                .args(["xzf", &format!("{}.tar.gz", asset_name)])
-                .current_dir(&tmp_dir),
-            &log_tx,
-        )?;
-
-        if !ok {
-            let _ = fs::remove_dir_all(&tmp_dir);
-            return Ok(InstallResult {
-                success: false,
-                stdout,
-                stderr,
-                error: Some("Failed to extract tarball".to_string()),
-            });
-        }
-
-        // Install binary
-        let extracted_binary = tmp_dir.join(&asset_name);
-        let install_path = install_dir.join("codex");
-
-        if !extracted_binary.exists() {
-            let _ = fs::remove_dir_all(&tmp_dir);
-            return Ok(InstallResult {
-                success: false,
-                stdout: String::new(),
-                stderr: format!("Expected binary {} not found in archive", asset_name),
-                error: Some(format!("Binary {} not found after extraction", asset_name)),
-            });
-        }
-
-        let _ = log_tx.send(format!(
-            "Installing binary to {}...",
-            install_path.display()
-        ));
-        // Atomic install: stage + chmod + rename so switching codex versions
-        // while a codex agent is running can't hit ETXTBSY or leave a partial
-        // binary at the canonical path.
-        crate::agents::atomic_install_binary(&extracted_binary, &install_path)?;
-
-        let _ = fs::remove_dir_all(&tmp_dir);
-
-        Ok(InstallResult {
-            success: true,
-            stdout: format!("Codex v{} installed to {}", version, install_path.display()),
-            stderr: String::new(),
-            error: None,
+        self.install_codex_release(version, |message| {
+            let _ = log_tx.send(message.to_owned());
         })
     }
 
-    fn codex_asset_name() -> String {
-        let arch = std::env::consts::ARCH;
-        let os = std::env::consts::OS;
-
-        let target_arch = match arch {
-            "x86_64" => "x86_64",
-            "aarch64" => "aarch64",
-            _ => "x86_64",
-        };
-
-        let target_triple = match os {
-            "linux" => format!("{}-unknown-linux-musl", target_arch),
-            "macos" => format!("{}-apple-darwin", target_arch),
-            _ => format!("{}-unknown-linux-musl", target_arch),
-        };
-
-        format!("codex-{}", target_triple)
+    fn install_codex_release(
+        &self,
+        version: &str,
+        log: impl FnMut(&str),
+    ) -> io::Result<InstallResult> {
+        let install_dir = dirs::home_dir()
+            .ok_or_else(|| io::Error::new(io::ErrorKind::NotFound, "Home dir not found"))?
+            .join(".local/bin");
+        match crate::agents::codex::install_release(Some(version), &install_dir, log) {
+            Ok(version) => Ok(InstallResult {
+                success: true,
+                stdout: format!("Codex v{version} installed to {}", install_dir.display()),
+                stderr: String::new(),
+                error: None,
+            }),
+            Err(error) => Ok(InstallResult {
+                success: false,
+                stdout: String::new(),
+                stderr: error.to_string(),
+                error: Some(error.to_string()),
+            }),
+        }
     }
 }

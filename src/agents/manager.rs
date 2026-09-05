@@ -708,12 +708,13 @@ impl AgentManager {
         // Try prebuilt binary first
         match Self::install_codex_binary(&install_path) {
             Ok(msg) => return Ok(msg),
-            Err(e) => {
+            Err(e) if e.kind() == io::ErrorKind::Unsupported => {
                 eprintln!(
                     "Prebuilt binary install failed ({}), falling back to source build...",
                     e
                 );
             }
+            Err(e) => return Err(e),
         }
 
         // Fallback: build from source (requires cargo)
@@ -737,139 +738,13 @@ impl AgentManager {
         ))
     }
 
-    /// Download and install prebuilt Codex binary from GitHub releases
+    /// Download the CLI and Code Mode host from the same release.
     fn install_codex_binary(install_path: &std::path::Path) -> io::Result<String> {
-        // Detect platform triple
-        let triple = Self::detect_platform_triple()
-            .ok_or_else(|| io::Error::other("Unsupported platform for prebuilt binary"))?;
-
-        let asset_name = format!("codex-{}.tar.gz", triple);
-
-        // Get latest release tag
-        let tag_output = Command::new("curl")
-            .args([
-                "-s",
-                "-H",
-                "Accept: application/vnd.github.v3+json",
-                "https://api.github.com/repos/openai/codex/releases/latest",
-            ])
-            .output()?;
-
-        let json: serde_json::Value = serde_json::from_slice(&tag_output.stdout)
-            .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e.to_string()))?;
-
-        let tag = json
-            .get("tag_name")
-            .and_then(|t| t.as_str())
-            .ok_or_else(|| io::Error::other("Could not determine latest Codex release tag"))?;
-
-        let version = tag.trim_start_matches("rust-v").trim_start_matches('v');
-
-        // Check if asset exists in this release
-        let has_asset = json
-            .get("assets")
-            .and_then(|a| a.as_array())
-            .map(|assets| {
-                assets
-                    .iter()
-                    .any(|a| a.get("name").and_then(|n| n.as_str()) == Some(&asset_name))
-            })
-            .unwrap_or(false);
-
-        if !has_asset {
-            return Err(io::Error::other(format!(
-                "No prebuilt binary '{}' found in release {}",
-                asset_name, tag
-            )));
-        }
-
-        let download_url = format!(
-            "https://github.com/openai/codex/releases/download/{}/{}",
-            tag, asset_name
-        );
-
-        // Download to temp file
-        let tmp_dir = dirs::cache_dir()
-            .unwrap_or_else(|| PathBuf::from("/tmp"))
-            .join("unleash/codex-download");
-        fs::create_dir_all(&tmp_dir)?;
-        let tmp_archive = tmp_dir.join(&asset_name);
-
-        let dl_output = Command::new("curl")
-            .args(["-fsSL", "-o", &tmp_archive.to_string_lossy(), &download_url])
-            .output()?;
-
-        if !dl_output.status.success() {
-            return Err(io::Error::other(format!(
-                "Download failed: {}",
-                String::from_utf8_lossy(&dl_output.stderr)
-            )));
-        }
-
-        // Extract — codex binary is at the root of the tar.gz
-        let extract_output = Command::new("tar")
-            .args([
-                "xzf",
-                &tmp_archive.to_string_lossy(),
-                "-C",
-                &tmp_dir.to_string_lossy(),
-            ])
-            .output()?;
-
-        if !extract_output.status.success() {
-            return Err(io::Error::other(format!(
-                "Extraction failed: {}",
-                String::from_utf8_lossy(&extract_output.stderr)
-            )));
-        }
-
-        // Find the codex binary — named codex-<triple> inside the archive
-        let extracted_binary = tmp_dir.join(format!("codex-{}", triple));
-        let extracted_fallback = tmp_dir.join("codex");
-        let binary_path = if extracted_binary.exists() {
-            &extracted_binary
-        } else if extracted_fallback.exists() {
-            &extracted_fallback
-        } else {
-            return Err(io::Error::other(format!(
-                "Extracted archive does not contain 'codex-{}' or 'codex' binary",
-                triple
-            )));
-        };
-
-        // Install atomically (chmod +x happens on the staged temp before the
-        // rename, so a running `codex` is never overwritten in place).
-        atomic_install_binary(binary_path, install_path)?;
-
-        // Cleanup
-        let _ = fs::remove_dir_all(&tmp_dir);
-
-        Ok(format!("Codex {} installed from prebuilt binary", version))
-    }
-
-    /// Detect the platform triple for prebuilt binary downloads
-    fn detect_platform_triple() -> Option<&'static str> {
-        // Codex's Linux releases are statically-linked musl builds; the gnu
-        // targets were dropped upstream around rust-v0.118. The musl binaries
-        // run fine on glibc systems thanks to static linking.
-        #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
-        {
-            return Some("x86_64-unknown-linux-musl");
-        }
-        #[cfg(all(target_os = "linux", target_arch = "aarch64"))]
-        {
-            return Some("aarch64-unknown-linux-musl");
-        }
-        #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
-        {
-            return Some("aarch64-apple-darwin");
-        }
-        #[cfg(all(target_os = "macos", target_arch = "x86_64"))]
-        {
-            return Some("x86_64-apple-darwin");
-        }
-        #[allow(unreachable_code)]
-        None
+        let install_dir = install_path.parent().ok_or_else(|| {
+            io::Error::new(io::ErrorKind::InvalidInput, "Install path has no parent")
+        })?;
+        let version = super::codex::install_release(None, install_dir, |_| {})?;
+        Ok(format!("Codex {version} installed from prebuilt binaries"))
     }
 
     /// Build Codex from source (fallback when no prebuilt binary available)
@@ -930,14 +805,24 @@ impl AgentManager {
         }
 
         progress.push("Building codex from source (this may take a while)...".to_string());
-        let output = Command::new("cargo")
-            .args(["build", "--release", "-p", "codex-cli"])
-            .current_dir(&codex_rs_dir)
-            .output()?;
+        let mut build = Command::new("cargo");
+        build.args(["build", "--release", "-p", "codex-cli"]);
+        let host_package = super::codex::source_host_package(&codex_rs_dir)?;
+        if let Some(package) = &host_package {
+            build.args(["-p", package]);
+        }
+        let output = build.current_dir(&codex_rs_dir).output()?;
 
         if output.status.success() {
             let binary_path = codex_rs_dir.join("target/release/codex");
-            atomic_install_binary(&binary_path, install_path)?;
+            let host_path = codex_rs_dir.join("target/release/codex-code-mode-host");
+            super::codex::install_bundle(
+                &binary_path,
+                host_package.as_ref().map(|_| host_path.as_path()),
+                install_path
+                    .parent()
+                    .ok_or_else(|| io::Error::other("Install path has no parent"))?,
+            )?;
 
             progress.push(format!(
                 "Codex built and installed to {}",
