@@ -18,7 +18,11 @@ impl Fixture {
         let mut assets = Vec::new();
         for binary in std::iter::once("codex").chain(host.then_some(HOST)) {
             let name = format!("{binary}-{TRIPLE}");
-            fs::write(root.path().join(&name), "#!/bin/sh\nprintf '0.153.4\\n'\n").unwrap();
+            fs::write(
+                root.path().join(&name),
+                format!("#!/bin/sh\nprintf '{binary} 0.153.4\\n'\n"),
+            )
+            .unwrap();
             let archive = root.path().join(format!("{name}.tar.gz"));
             run(Command::new("tar")
                 .arg("czf")
@@ -76,7 +80,7 @@ fn release_replaces_stale_host_and_cli_with_matching_executables() {
     for binary in ["codex", HOST] {
         assert_eq!(
             run(&mut Command::new(fixture.install.join(binary))).unwrap(),
-            b"0.153.4\n"
+            format!("{binary} 0.153.4\n").as_bytes()
         );
     }
 }
@@ -99,7 +103,7 @@ fn legacy_release_removes_stale_host() {
     assert!(!fixture.install.join(HOST).exists());
     assert_eq!(
         run(&mut Command::new(fixture.install.join("codex"))).unwrap(),
-        b"0.153.4\n"
+        b"codex 0.153.4\n"
     );
 }
 
