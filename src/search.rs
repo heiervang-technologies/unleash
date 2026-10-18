@@ -924,11 +924,8 @@ fn decode_vector32(blob: Vec<u8>) -> Option<Vec<f32>> {
         if !payload.len().is_multiple_of(4) {
             return None;
         }
-        let mut out = Vec::with_capacity(payload.len() / 4);
-        for chunk in payload.chunks_exact(4) {
-            out.push(f32::from_le_bytes(chunk.try_into().ok()?));
-        }
-        Some(out)
+        let (chunks, _) = payload.as_chunks::<4>();
+        Some(chunks.iter().map(|c| f32::from_le_bytes(*c)).collect())
     };
     // Try common header offsets first; fall back to no-header.
     for off in [8usize, 4, 0] {
