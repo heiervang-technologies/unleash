@@ -565,6 +565,14 @@ pub fn source_to_hub(session: &SessionInfo) -> Result<Vec<HubRecord>, ConvertErr
             codex::to_hub(reader)
         }
         "gemini" | "antigravity" | "agy" => {
+            // agy conversations are per-conversation SQLite stores, not
+            // gemini chat JSON; refuse clearly instead of failing to parse.
+            if session.path.extension().and_then(|e| e.to_str()) == Some("db") {
+                return Err(ConvertError::InvalidFormat(
+                    "agy conversation databases cannot be used as a crossload source yet"
+                        .to_string(),
+                ));
+            }
             let data = std::fs::read(&session.path)?;
             gemini::to_hub(&data)
         }

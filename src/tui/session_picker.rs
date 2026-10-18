@@ -291,6 +291,7 @@ mod tests {
                 path: std::path::PathBuf::from("/tmp/test"),
                 updated_at: "2026-03-29T12:00:00Z".into(),
                 message_count: None,
+                harness: None,
             },
             SessionInfo {
                 cli: "codex".into(),
@@ -301,6 +302,7 @@ mod tests {
                 path: std::path::PathBuf::from("/tmp/test2"),
                 updated_at: "2026-03-28T12:00:00Z".into(),
                 message_count: None,
+                harness: None,
             },
         ];
 
@@ -331,6 +333,7 @@ mod tests {
                 path: std::path::PathBuf::from("/tmp/1"),
                 updated_at: String::new(),
                 message_count: None,
+                harness: None,
             },
             SessionInfo {
                 cli: "codex".into(),
@@ -341,6 +344,7 @@ mod tests {
                 path: std::path::PathBuf::from("/tmp/2"),
                 updated_at: String::new(),
                 message_count: None,
+                harness: None,
             },
         ];
 

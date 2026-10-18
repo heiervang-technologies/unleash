@@ -11,7 +11,7 @@ These can be set before launching `unleash` to change behavior.
 | `HOOK_NO_SOUND` | Suppress notification sounds from hooks | unset |
 | `EDITOR` / `VISUAL` | Editor for TUI text input fields | system default |
 | `AGENT_UNLEASH_ROOT` | Path to the unleash installation directory (read by plugins and hooks) | unset |
-| `CODEX_HOME` | Override Codex home directory (used to locate Codex sessions and history) | `~/.codex` |
+| `CODEX_HOME` | Override Codex home directory (used to locate Codex sessions and history). `unleash sessions` scans this, `~/.codex`, and every `CODEX_HOME` set in a profile | `~/.codex` |
 | `OAI_BASE` | Base URL of the OpenAI-compatible server `unleash search` uses for embeddings (and chat unless `OAI_CHAT_BASE` is set) | `http://127.0.0.1:18000/v1` |
 | `OAI_EMBED_MODEL` | Embedding model name (`/v1/embeddings`) | `lco-omni-3b` |
 | `OAI_CHAT_BASE` | Optional separate base URL for chat completions (title regeneration) | falls back to `OAI_BASE` |

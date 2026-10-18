@@ -525,6 +525,7 @@ mod tests {
                 path: std::path::PathBuf::from("/tmp/nope1.jsonl"),
                 updated_at: "2026-05-27T12:00:00Z".into(),
                 message_count: None,
+                harness: None,
             },
             SessionInfo {
                 cli: "claude".into(),
@@ -535,6 +536,7 @@ mod tests {
                 path: std::path::PathBuf::from("/tmp/nope2.jsonl"),
                 updated_at: "2026-05-27T12:00:00Z".into(),
                 message_count: None,
+                harness: None,
             },
             SessionInfo {
                 cli: "claude".into(),
@@ -545,6 +547,7 @@ mod tests {
                 path: std::path::PathBuf::from("/tmp/nope3.jsonl"),
                 updated_at: "2026-05-27T12:00:00Z".into(), // source has newer timestamp
                 message_count: None,
+                harness: None,
             },
         ];
 

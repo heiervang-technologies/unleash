@@ -1316,7 +1316,7 @@ pub fn run() -> io::Result<()> {
                         } else {
                             println!(
                                 "{:<10} {:<40} {:<20} {}",
-                                session.cli,
+                                session.harness.as_deref().unwrap_or(&session.cli),
                                 session.id,
                                 session.name.unwrap_or_default(),
                                 session.directory
@@ -1330,10 +1330,8 @@ pub fn run() -> io::Result<()> {
                 }
             } else {
                 let sessions = if let Some(ref cli_name) = cli_filter {
-                    let format: interchange::CliFormat = cli_name
-                        .parse()
-                        .map_err(|e: interchange::ConvertError| io::Error::other(e.to_string()))?;
-                    interchange::sessions::discover_for(format)
+                    interchange::sessions::discover_for_name(cli_name)
+                        .map_err(|e: interchange::ConvertError| io::Error::other(e.to_string()))?
                 } else {
                     interchange::sessions::discover_all()
                 };
@@ -1351,7 +1349,7 @@ pub fn run() -> io::Result<()> {
                     for s in sessions.iter().take(50) {
                         println!(
                             "{:<10} {:<20} {:<30} {:<20} {}",
-                            s.cli,
+                            s.harness.as_deref().unwrap_or(&s.cli),
                             s.name.as_deref().unwrap_or(&s.id[..s.id.len().min(18)]),
                             s.title
                                 .as_deref()
