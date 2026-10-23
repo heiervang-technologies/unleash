@@ -400,10 +400,17 @@ impl VersionManager {
 
     /// Locate the npm global binary for a given command name.
     fn npm_global_bin(name: &str) -> Option<PathBuf> {
-        let out = Command::new("npm").args(["bin", "-g"]).output().ok()?;
+        Self::default().npm_global_bin_for_self(name)
+    }
+
+    /// Instance variant of [`npm_global_bin`] that respects the optional PATH
+    /// override used by tests. npm 9 removed `npm bin`, so derive the bin
+    /// directory from the supported `npm prefix -g` command instead.
+    fn npm_global_bin_for_self(&self, name: &str) -> Option<PathBuf> {
+        let out = self.command("npm").args(["prefix", "-g"]).output().ok()?;
         if out.status.success() {
-            let dir = String::from_utf8_lossy(&out.stdout).trim().to_string();
-            let p = PathBuf::from(dir).join(name);
+            let prefix = String::from_utf8_lossy(&out.stdout).trim().to_string();
+            let p = PathBuf::from(prefix).join("bin").join(name);
             if p.exists() {
                 return Some(p);
             }
@@ -656,7 +663,11 @@ impl VersionManager {
     /// Extract SHA256 checksum from manifest JSON for a given platform
     fn extract_checksum_from_manifest(manifest: &str, platform: &str) -> Option<String> {
         let json: serde_json::Value = serde_json::from_str(manifest).ok()?;
-        json.get(platform)?
+        // Current Claude manifests nest platform entries under `platforms`.
+        // Keep accepting the legacy top-level shape for older releases.
+        json.get("platforms")
+            .and_then(|platforms| platforms.get(platform))
+            .or_else(|| json.get(platform))?
             .get("checksum")?
             .as_str()
             .filter(|s| s.len() == 64 && s.chars().all(|c| c.is_ascii_hexdigit()))
@@ -809,22 +820,19 @@ impl VersionManager {
             let stderr = String::from_utf8_lossy(&output.stderr).to_string();
 
             if output.status.success() {
-                // After install, update symlink to npm-installed cli.js
-                if let Ok(npm_output) = Command::new("npm").args(["root", "-g"]).output() {
-                    if npm_output.status.success() {
-                        let npm_root = String::from_utf8_lossy(&npm_output.stdout)
-                            .trim()
-                            .to_string();
-                        let cli_js =
-                            PathBuf::from(&npm_root).join("@anthropic-ai/claude-code/cli.js");
-                        if cli_js.exists() {
-                            if let Some(home) = dirs::home_dir() {
-                                let bin_claude = home.join(".local/bin/claude");
-                                let _ = std::fs::remove_file(&bin_claude);
-                                #[cfg(unix)]
-                                std::os::unix::fs::symlink(&cli_js, &bin_claude).ok();
-                            }
-                        }
+                // npm creates the package's declared bin entry for us. Link to
+                // that stable entry rather than assuming the old `cli.js`
+                // package layout (current releases use `bin/claude.exe`).
+                if let (Some(npm_claude), Some(home)) =
+                    (Self::npm_global_bin("claude"), dirs::home_dir())
+                {
+                    let bin_dir = home.join(".local/bin");
+                    let _ = std::fs::create_dir_all(&bin_dir);
+                    let bin_claude = bin_dir.join("claude");
+                    let _ = std::fs::remove_file(&bin_claude);
+                    #[cfg(unix)]
+                    {
+                        let _ = std::os::unix::fs::symlink(&npm_claude, &bin_claude);
                     }
                 }
 
@@ -2808,6 +2816,83 @@ mod tests {
     fn test_version_manager_creation() {
         let _vm = VersionManager::new();
         // Should not panic
+    }
+
+    #[test]
+    fn extracts_checksum_from_current_claude_manifest_shape() {
+        let checksum = "a".repeat(64);
+        let manifest = serde_json::json!({
+            "platforms": {
+                "linux-x64": {
+                    "checksum": checksum,
+                    "size": 123
+                }
+            }
+        });
+
+        assert_eq!(
+            VersionManager::extract_checksum_from_manifest(&manifest.to_string(), "linux-x64"),
+            Some("a".repeat(64))
+        );
+    }
+
+    #[test]
+    fn extracts_checksum_from_legacy_claude_manifest_shape() {
+        let checksum = "b".repeat(64);
+        let manifest = serde_json::json!({
+            "linux-x64": { "checksum": checksum }
+        });
+
+        assert_eq!(
+            VersionManager::extract_checksum_from_manifest(&manifest.to_string(), "linux-x64"),
+            Some("b".repeat(64))
+        );
+    }
+
+    #[test]
+    fn rejects_invalid_claude_manifest_checksum() {
+        let manifest = serde_json::json!({
+            "platforms": {
+                "linux-x64": { "checksum": "not-a-sha256" }
+            }
+        });
+
+        assert_eq!(
+            VersionManager::extract_checksum_from_manifest(&manifest.to_string(), "linux-x64"),
+            None
+        );
+    }
+
+    #[test]
+    fn npm_global_bin_uses_supported_prefix_command() {
+        let temp = TempDir::new().unwrap();
+        let prefix = temp.path().join("prefix");
+        let bin_dir = prefix.join("bin");
+        std::fs::create_dir_all(&bin_dir).unwrap();
+        std::fs::write(bin_dir.join("claude"), "").unwrap();
+
+        let npm = temp.path().join("npm");
+        std::fs::write(
+            &npm,
+            format!(
+                "#!/bin/sh\n[ \"$1 $2\" = \"prefix -g\" ] || exit 2\nprintf '%s\\n' '{}'\n",
+                prefix.display()
+            ),
+        )
+        .unwrap();
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let mut perms = std::fs::metadata(&npm).unwrap().permissions();
+            perms.set_mode(0o755);
+            std::fs::set_permissions(&npm, perms).unwrap();
+        }
+
+        let vm = VersionManager::new_for_test_with_path(temp.path().as_os_str());
+        assert_eq!(
+            vm.npm_global_bin_for_self("claude"),
+            Some(bin_dir.join("claude"))
+        );
     }
 
     /// Create a mock "claude" binary that sleeps before outputting version.
