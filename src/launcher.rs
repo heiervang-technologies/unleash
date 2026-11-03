@@ -15,7 +15,7 @@ use std::env;
 use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
-use std::process::{Command, ExitStatus};
+use std::process::{Command, ExitStatus, Stdio};
 use std::sync::atomic::{AtomicI32, Ordering};
 use which::which;
 
@@ -601,6 +601,50 @@ pub fn find_plugin_dirs() -> Vec<PathBuf> {
         .collect()
 }
 
+/// Experimental director channel (director exp/channels). With
+/// `UNLEASH_DIRECTOR_CHANNEL=1`, Claude Code is started with director's channel
+/// server as an MCP server and loaded as a development channel, so `director
+/// send` can push messages into the session instead of typing into its pane.
+/// The server is `$DIRECTOR_CHANNEL_SERVER`, else `channel/director-channel.py`
+/// next to the `director` found on PATH. Returns None (and warns) when the
+/// variable is unset or the server cannot be found.
+fn director_channel_args() -> Option<Vec<String>> {
+    if env::var("UNLEASH_DIRECTOR_CHANNEL").ok().as_deref() != Some("1") {
+        return None;
+    }
+    let server = env::var("DIRECTOR_CHANNEL_SERVER")
+        .map(PathBuf::from)
+        .ok()
+        .or_else(|| {
+            let director = env::var_os("PATH").and_then(|paths| {
+                env::split_paths(&paths)
+                    .map(|dir| dir.join("director"))
+                    .find(|p| p.is_file())
+            })?;
+            let real = fs::canonicalize(director).ok()?;
+            Some(real.parent()?.parent()?.join("channel/director-channel.py"))
+        })
+        .filter(|p| p.is_file());
+    let Some(server) = server else {
+        eprintln!("\x1b[33m[unleash] UNLEASH_DIRECTOR_CHANNEL=1 but no director channel server found (set DIRECTOR_CHANNEL_SERVER); starting without it.\x1b[0m");
+        return None;
+    };
+    let config = serde_json::json!({
+        "mcpServers": {
+            "director": {
+                "command": "python3",
+                "args": [server.to_string_lossy()],
+            }
+        }
+    });
+    Some(vec![
+        "--mcp-config".to_string(),
+        config.to_string(),
+        "--dangerously-load-development-channels".to_string(),
+        "server:director".to_string(),
+    ])
+}
+
 /// Convert plugin directories to CLI args
 fn find_plugins() -> Vec<String> {
     let mut args = Vec::new();
@@ -650,13 +694,28 @@ fn run_agent(
         println!("Auto mode activated on startup");
     }
 
+    let director_channel = if is_claude {
+        director_channel_args()
+    } else {
+        None
+    };
+
     // Block telemetry for all agents — only allow inference API calls
     // Claude Code
-    if env::var("DISABLE_TELEMETRY").is_err() {
-        cmd.env("DISABLE_TELEMETRY", "1");
-    }
-    if env::var("CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC").is_err() {
-        cmd.env("CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC", "1");
+    if director_channel.is_some() {
+        // Channels are gated behind Claude Code's feature flags, which it
+        // cannot fetch while either switch is set ("Channels are not currently
+        // available"). Lift both for this agent only, including copies
+        // inherited from the tmux server environment.
+        cmd.env_remove("DISABLE_TELEMETRY");
+        cmd.env_remove("CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC");
+    } else {
+        if env::var("DISABLE_TELEMETRY").is_err() {
+            cmd.env("DISABLE_TELEMETRY", "1");
+        }
+        if env::var("CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC").is_err() {
+            cmd.env("CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC", "1");
+        }
     }
     // Gemini/Antigravity CLI (telemetry off by default, but be explicit)
     if env::var("GEMINI_TELEMETRY_ENABLED").is_err() {
@@ -705,6 +764,10 @@ fn run_agent(
         // Add plugin arguments
         cmd.args(plugin_args);
 
+        if let Some(channel_args) = &director_channel {
+            cmd.args(channel_args);
+        }
+
         // Bypass permissions — skip if polyfill already handled yolo/safe
         let polyfill_handled = env::var("UNLEASH_POLYFILL_ACTIVE").ok().as_deref() == Some("1");
         if !polyfill_handled {
@@ -714,6 +777,22 @@ fn run_agent(
             }
             cmd.arg("--dangerously-skip-permissions");
         }
+    }
+
+    // Experimental director channel for Codex: attach the TUI to the local
+    // app-server daemon so `codex queue` (which director uses once it has
+    // learned the thread) can push turns into this session.
+    if agent_type == Some(AgentType::Codex)
+        && env::var("UNLEASH_DIRECTOR_CHANNEL").ok().as_deref() == Some("1")
+        && !args.iter().any(|a| a == "--remote")
+    {
+        let _ = Command::new(agent_cmd)
+            .args(["app-server", "daemon", "start"])
+            .envs(profile_env)
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .status();
+        cmd.args(["--remote", "unix://"]);
     }
 
     // Codex native notify hook: end-of-turn => reset opaque + idle sound.
