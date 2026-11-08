@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.100](https://github.com/heiervang-technologies/unleash/compare/v0.1.99...v0.1.100) (2026-11-08)
+
+
+### Bug Fixes
+
+* **deps:** bump lru 0.18.0 → 0.18.2 (RUSTSEC-2026-0253) ([#451](https://github.com/heiervang-technologies/unleash/issues/451)) ([d4f5953](https://github.com/heiervang-technologies/unleash/commit/d4f59537bedff8fef8872f62c833602247c52827))
+
 ## [0.1.99](https://github.com/heiervang-technologies/unleash/compare/v0.1.98...v0.1.99) (2026-08-09)
 
 
