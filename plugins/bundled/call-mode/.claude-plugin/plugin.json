@@ -1,0 +1,9 @@
+{
+  "name": "call-mode",
+  "description": "Call mode: agents with questions phone the owner (haios-holocall) and ask them in a live call instead of leaving a card",
+  "version": "0.1.0",
+  "author": {
+    "name": "Heiervang Technologies",
+    "email": "support@heiervang.com"
+  }
+}
