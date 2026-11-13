@@ -126,11 +126,29 @@ List sessions across all installed CLIs.
 ```bash
 unleash sessions                              # List all
 unleash sessions --cli claude                 # Filter by CLI
+unleash sessions --cli agy                    # Antigravity conversations
 unleash sessions --find claude:abc1234        # Lookup one
 unleash sessions reindex                      # Rebuild the search index
 unleash sessions name claude:abc "My Title"   # Override the display title
 unleash sessions name claude:abc              # Regenerate via chat model
 ```
+
+Discovery is metadata-only: each transcript is sampled with a bounded head +
+tail read, never parsed whole.
+
+- **cwd** comes from the transcript's own records (Claude's project-directory
+  name is lossy: `/` and `-` both encode to `-`).
+- **`updated_at`** is a real RFC 3339 UTC time: the newest record timestamp,
+  else the file mtime.
+- **Codex stores**: every `CODEX_HOME` is scanned — the default `~/.codex`,
+  the process `CODEX_HOME`, and any `CODEX_HOME` set in a profile's `[env]` or
+  `[agents.*.env]`. Each session carries an additive JSON field `harness`
+  naming the profile binary that owns its store (e.g. `clanker` vs `codex`);
+  `cli` stays the transcript format (`codex`) used by `--crossload`.
+- **agy** conversations are read from `~/.gemini/antigravity-cli`
+  (`conversation_summaries.db` + `conversations/<id>.db`), listed as
+  `cli: "agy"`. They can be listed and found but are not yet a crossload source.
+- Dangling symlinks in session stores are skipped.
 
 `sessions reindex` re-embeds every session and refreshes generated titles using
 the configured OpenAI-compatible endpoint (see `unleash search`).

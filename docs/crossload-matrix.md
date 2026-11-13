@@ -50,11 +50,11 @@ unleash convert --from codex session.jsonl --to claude -o output.jsonl
 |---|---|---|---|
 | **Pi** | ✓ `sessions.rs:776` | ✓ `inject_into_pi` | Bidirectional **portable-fields** unit tests in `cross_cli_tests.rs` against claude/codex/gemini/opencode. No 10-turn synthetic fixture yet → not in main matrix. |
 | **Hermes** | ✓ `sessions.rs:640` | ✓ `inject_into_hermes` | Untested — dispatch wired in, no round-trip tests yet. |
-| **Antigravity (`agy`)** | via Gemini storage layout (`sessions.rs` Gemini path; see `normalize_target_cli` in `inject.rs:130`) | via Gemini path | Inherits Gemini's matrix entries. |
+| **Antigravity (`agy`)** | listed by `discover_agy` (`~/.gemini/antigravity-cli`); not readable as a crossload source yet | via Gemini path (see `normalize_target_cli` in `inject.rs`) | Inherits Gemini's matrix entries as a target. |
 
 ## How It Works
 
-1. **Session discovery** (`unleash sessions`) scans the configured CLI session stores (claude/codex/gemini/opencode/pi/hermes; agy shares the Gemini path)
+1. **Session discovery** (`unleash sessions`) scans the configured CLI session stores (claude, codex/clanker across every profile `CODEX_HOME`, gemini, agy, opencode, pi, hermes). agy conversations are listed from `~/.gemini/antigravity-cli` but are not yet a crossload *source*; as a *target* agy still goes through the Gemini path
 2. **Hub conversion** transforms the source format to the Unleash Conversation Format (.ucf.jsonl)
 3. **Target injection** converts from hub to the target CLI format and writes to its session directory
 4. **Resume** launches the target CLI with `--resume <session-id>`
