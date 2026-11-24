@@ -415,8 +415,12 @@ pub(crate) fn run_with_env(
     let mut profile_env = load_profile_env()?;
     profile_env.extend(child_env);
 
-    // Check authentication on first run
-    check_authentication();
+    // Claude auth is Claude-specific. Running this check for Codex (or any
+    // other agent) produces a misleading warning even when that agent's own
+    // authentication is healthy.
+    if should_check_claude_authentication(agent_type.as_ref()) {
+        check_authentication();
+    }
 
     // Hyprland integration: set window rules and notify on start (only if plugin enabled)
     if hyprland::is_focus_enabled() {
@@ -769,6 +773,10 @@ fn run_agent(
 }
 
 /// Check if authentication is configured
+fn should_check_claude_authentication(agent_type: Option<&AgentType>) -> bool {
+    matches!(agent_type, Some(AgentType::Claude))
+}
+
 fn check_authentication() {
     // Check OAuth token
     if env::var("CLAUDE_CODE_OAUTH_TOKEN").is_ok() {
@@ -900,6 +908,27 @@ mod tests {
         // Substrings must not match — only exact arg equality.
         assert!(!is_meta_command(&s(&["--version-check"])));
         assert!(!is_meta_command(&s(&["--help-mcp"])));
+    }
+
+    #[test]
+    fn claude_auth_check_is_not_run_for_other_agents() {
+        assert!(should_check_claude_authentication(Some(&AgentType::Claude)));
+        for agent in [
+            AgentType::Codex,
+            AgentType::Clanker,
+            AgentType::Gemini,
+            AgentType::Antigravity,
+            AgentType::OpenCode,
+            AgentType::Pi,
+            AgentType::Hermes,
+        ] {
+            assert!(
+                !should_check_claude_authentication(Some(&agent)),
+                "{} launch must not run Claude authentication checks",
+                agent.display_name()
+            );
+        }
+        assert!(!should_check_claude_authentication(None));
     }
 
     // Coverage for args_already_signal_resume — one assertion per agent's

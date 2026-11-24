@@ -654,10 +654,16 @@ impl VersionManager {
         }
     }
 
-    /// Extract SHA256 checksum from manifest JSON for a given platform
+    /// Extract SHA256 checksum from manifest JSON for a given platform.
+    ///
+    /// Supports both manifest layouts: the current one with entries nested
+    /// under a top-level `"platforms"` object, and the legacy one with
+    /// platform keys at the top level.
     fn extract_checksum_from_manifest(manifest: &str, platform: &str) -> Option<String> {
         let json: serde_json::Value = serde_json::from_str(manifest).ok()?;
-        json.get(platform)?
+        json.get("platforms")
+            .and_then(|p| p.get(platform))
+            .or_else(|| json.get(platform))?
             .get("checksum")?
             .as_str()
             .filter(|s| s.len() == 64 && s.chars().all(|c| c.is_ascii_hexdigit()))
@@ -1099,6 +1105,7 @@ impl VersionManager {
     pub fn install_codex_version(&self, version: &str) -> io::Result<InstallResult> {
         let tag = format!("rust-v{}", version);
         let asset_name = Self::codex_asset_name();
+        let code_mode_host_asset_name = Self::codex_code_mode_host_asset_name();
 
         let install_dir = dirs::home_dir()
             .ok_or_else(|| io::Error::new(io::ErrorKind::NotFound, "Home dir not found"))?
@@ -1120,6 +1127,8 @@ impl VersionManager {
                 "openai/codex",
                 "--pattern",
                 &format!("{}.tar.gz", asset_name),
+                "--pattern",
+                &format!("{}.tar.gz", code_mode_host_asset_name),
                 "--dir",
                 tmp_dir.to_str().unwrap_or("/tmp"),
             ])
@@ -1154,6 +1163,27 @@ impl VersionManager {
             });
         }
 
+        // Code Mode was introduced as a version-matched companion binary.
+        // Older releases may not publish it, so install it when present while
+        // retaining the ability to select historical Codex versions.
+        let code_mode_host_archive = tmp_dir.join(format!("{}.tar.gz", code_mode_host_asset_name));
+        let extracted_code_mode_host = tmp_dir.join(&code_mode_host_asset_name);
+        if code_mode_host_archive.exists() {
+            let extract_host = Command::new("tar")
+                .args(["xzf", &format!("{}.tar.gz", code_mode_host_asset_name)])
+                .current_dir(&tmp_dir)
+                .output()?;
+            if !extract_host.status.success() {
+                let _ = fs::remove_dir_all(&tmp_dir);
+                return Ok(InstallResult {
+                    success: false,
+                    stdout: String::from_utf8_lossy(&extract_host.stdout).to_string(),
+                    stderr: String::from_utf8_lossy(&extract_host.stderr).to_string(),
+                    error: Some("Failed to extract Codex Code Mode host tarball".to_string()),
+                });
+            }
+        }
+
         // Install the binary
         let extracted_binary = tmp_dir.join(&asset_name);
         let install_path = install_dir.join("codex");
@@ -1168,6 +1198,24 @@ impl VersionManager {
             });
         }
 
+        if code_mode_host_archive.exists() {
+            if !extracted_code_mode_host.exists() {
+                let _ = fs::remove_dir_all(&tmp_dir);
+                return Ok(InstallResult {
+                    success: false,
+                    stdout: String::new(),
+                    stderr: format!(
+                        "Expected binary {} not found in archive",
+                        code_mode_host_asset_name
+                    ),
+                    error: Some("Code Mode host not found after extraction".to_string()),
+                });
+            }
+            crate::agents::atomic_install_binary(
+                &extracted_code_mode_host,
+                &install_dir.join("codex-code-mode-host"),
+            )?;
+        }
         crate::agents::atomic_install_binary(&extracted_binary, &install_path)?;
 
         let _ = fs::remove_dir_all(&tmp_dir);
@@ -1655,6 +1703,7 @@ impl VersionManager {
     ) -> io::Result<InstallResult> {
         let tag = format!("rust-v{}", version);
         let asset_name = Self::codex_asset_name();
+        let code_mode_host_asset_name = Self::codex_code_mode_host_asset_name();
 
         let install_dir = dirs::home_dir()
             .ok_or_else(|| io::Error::new(io::ErrorKind::NotFound, "Home dir not found"))?
@@ -1679,6 +1728,8 @@ impl VersionManager {
                 "openai/codex",
                 "--pattern",
                 &format!("{}.tar.gz", asset_name),
+                "--pattern",
+                &format!("{}.tar.gz", code_mode_host_asset_name),
                 "--dir",
                 tmp_dir.to_str().unwrap_or("/tmp"),
             ]),
@@ -1696,6 +1747,27 @@ impl VersionManager {
                     asset_name, tag
                 )),
             });
+        }
+
+        let code_mode_host_archive = tmp_dir.join(format!("{}.tar.gz", code_mode_host_asset_name));
+        let extracted_code_mode_host = tmp_dir.join(&code_mode_host_asset_name);
+        if code_mode_host_archive.exists() {
+            let _ = log_tx.send("Extracting Codex Code Mode host...".to_string());
+            let (ok, stdout, stderr) = Self::run_streaming(
+                Command::new("tar")
+                    .args(["xzf", &format!("{}.tar.gz", code_mode_host_asset_name)])
+                    .current_dir(&tmp_dir),
+                &log_tx,
+            )?;
+            if !ok {
+                let _ = fs::remove_dir_all(&tmp_dir);
+                return Ok(InstallResult {
+                    success: false,
+                    stdout,
+                    stderr,
+                    error: Some("Failed to extract Codex Code Mode host tarball".to_string()),
+                });
+            }
         }
 
         // Extract
@@ -1738,6 +1810,25 @@ impl VersionManager {
         // Atomic install: stage + chmod + rename so switching codex versions
         // while a codex agent is running can't hit ETXTBSY or leave a partial
         // binary at the canonical path.
+        if code_mode_host_archive.exists() {
+            if !extracted_code_mode_host.exists() {
+                let _ = fs::remove_dir_all(&tmp_dir);
+                return Ok(InstallResult {
+                    success: false,
+                    stdout: String::new(),
+                    stderr: format!(
+                        "Expected binary {} not found in archive",
+                        code_mode_host_asset_name
+                    ),
+                    error: Some("Code Mode host not found after extraction".to_string()),
+                });
+            }
+            let _ = log_tx.send("Installing Codex Code Mode host...".to_string());
+            crate::agents::atomic_install_binary(
+                &extracted_code_mode_host,
+                &install_dir.join("codex-code-mode-host"),
+            )?;
+        }
         crate::agents::atomic_install_binary(&extracted_binary, &install_path)?;
 
         let _ = fs::remove_dir_all(&tmp_dir);
@@ -2166,6 +2257,10 @@ impl VersionManager {
         };
 
         format!("codex-{}", target_triple)
+    }
+
+    fn codex_code_mode_host_asset_name() -> String {
+        Self::codex_asset_name().replacen("codex-", "codex-code-mode-host-", 1)
     }
 }
 
@@ -3046,6 +3141,53 @@ mod tests {
             sequential_time,
             parallel_time,
             sequential_time.as_secs_f64() / parallel_time.as_secs_f64().max(0.001)
+        );
+    }
+
+    #[test]
+    fn extract_checksum_supports_nested_platforms_manifest() {
+        let sum = "3c029136f7c81f54ed4a38e9d52e655aad536433dbbde50519c8c31bb646ad14";
+        let manifest = format!(
+            r#"{{"version":"2.1.214","platforms":{{"linux-x64":{{"binary":"claude","checksum":"{sum}","size":1}}}}}}"#
+        );
+        assert_eq!(
+            VersionManager::extract_checksum_from_manifest(&manifest, "linux-x64"),
+            Some(sum.to_string())
+        );
+        assert_eq!(
+            VersionManager::extract_checksum_from_manifest(&manifest, "darwin-arm64"),
+            None
+        );
+    }
+
+    #[test]
+    fn extract_checksum_supports_legacy_flat_manifest() {
+        let sum = "59796dd18e9d77f1256f367db6d28ce4bd9cd5968e402ad3a327aac36abc6dec";
+        let manifest = format!(r#"{{"linux-x64":{{"checksum":"{sum}"}}}}"#);
+        assert_eq!(
+            VersionManager::extract_checksum_from_manifest(&manifest, "linux-x64"),
+            Some(sum.to_string())
+        );
+    }
+
+    #[test]
+    fn extract_checksum_rejects_malformed_checksums() {
+        // Wrong length / non-hex checksums must be rejected in both layouts.
+        let manifest = r#"{"platforms":{"linux-x64":{"checksum":"nothex"}}}"#;
+        assert_eq!(
+            VersionManager::extract_checksum_from_manifest(manifest, "linux-x64"),
+            None
+        );
+    }
+
+    #[test]
+    fn codex_code_mode_host_asset_matches_cli_target() {
+        let codex = VersionManager::codex_asset_name();
+        let host = VersionManager::codex_code_mode_host_asset_name();
+        assert_eq!(
+            host,
+            codex.replacen("codex-", "codex-code-mode-host-", 1),
+            "Codex and its Code Mode host must always use the same target triple"
         );
     }
 }
